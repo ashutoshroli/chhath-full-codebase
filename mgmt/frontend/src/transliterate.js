@@ -92,14 +92,41 @@ function transliterateOffline(text) {
   return text.split(' ').map(w => (w ? transliterateWordOffline(w) : w)).join(' ');
 }
 
-// Public: always resolves, never throws. Tries Google first, silently falls
-// back to the offline table on any failure (no internet, blocked, timeout, etc).
+// Public: always resolves, never throws. Tries Google first, falls back to the
+// offline rule table on any failure (no internet, blocked, timeout, etc).
+//
+// The fallback used to be COMPLETELY silent, so a network hiccup wrote the
+// offline table's approximate (often wrong) Hindi spelling straight into the
+// database with no trace — and those same columns are the source of every *_HI
+// value in the Hindi/Both report. Callers now get `approximate: true` so the UI
+// can flag it, and the event is reported once (de-duplicated server-side) so a
+// systematically-broken transliteration API is visible.
+let offlineFallbackReported = false;
+
 export async function transliterate(text) {
+  const r = await transliterateWithMeta(text);
+  return r.text;
+}
+
+export async function transliterateWithMeta(text) {
   const trimmed = (text || '').trim();
-  if (!trimmed) return '';
+  if (!trimmed) return { text: '', approximate: false };
   try {
-    return await transliterateOnline(trimmed);
+    return { text: await transliterateOnline(trimmed), approximate: false };
   } catch (err) {
-    return transliterateOffline(trimmed);
+    if (!offlineFallbackReported) {
+      offlineFallbackReported = true;
+      // Imported lazily to keep this module dependency-free for any caller that
+      // only wants the pure offline transform.
+      import('./api.js')
+        .then(({ reportClientError }) => reportClientError(
+          'transliterate',
+          'Online transliteration unavailable — falling back to the approximate offline table. Hindi spellings entered now may be wrong.',
+          err,
+          {}
+        ))
+        .catch(() => {});
+    }
+    return { text: transliterateOffline(trimmed), approximate: true };
   }
 }

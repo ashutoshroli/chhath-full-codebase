@@ -1,6 +1,8 @@
 import { getSheetDataAsJSON, filterByYear } from './crud.js';
-import { requireSuperadmin, requireAdminOrAbove, requireYearAccess, requireStaffRole } from './auth.js';
+import { requireSuperadmin, requireYearAccess, requireStaffRole, PermissionError } from './auth.js';
 import { getOrCreateFolder, uploadDocxFile, getFileBytesBase64, copyFile, convertDocxBytesToPdf } from './drive.js';
+import { logErrorAt } from './logger.js';
+import { consentPlaceholderFactory } from './consentPlaceholders.js';
 
 export const DOC_TYPES = ['receipt', 'certificate', 'samaan', 'consent_loaner', 'consent_guarantor', 'report_en', 'report_hi', 'report_both'];
 
@@ -27,8 +29,64 @@ export async function getDocxTemplate(env, docType, year) {
   return Object.assign({}, row, { base64, downloadUrl: `https://drive.google.com/uc?export=download&id=${row.drive_file_id}` });
 }
 
-// Public variant — same data, called from the no-login Consent page.
-export async function getDocxTemplatePublic(env, docType, year) { return getDocxTemplate(env, docType, year); }
+// ---- Public (no-login) access control ----
+//
+// getDocxTemplatePublic and convertDocxToPdfPublic used to have NO auth of any
+// kind and convertDocxToPdf's gate was `if (user) {...}` — so with user=null every
+// role check was skipped. Any anonymous caller could:
+//   (a) download the committee's raw .docx templates for any docType/year,
+//   (b) push ARBITRARY base64 through Google Docs into the committee's Drive
+//       (shared role:reader,type:anyone), and
+//   (c) INSERT arbitrary rows into generated_files, which the public portal then
+//       renders as a green "✅ Verified Record".
+// The old code comment claimed "the record_id + token-gated data flow already
+// authorized the request upstream" — it did not; no token ever reached here.
+//
+// Now the consent token IS verified server-side, and the docType/year/recordId are
+// DERIVED from the consent row rather than trusted from the client.
+async function resolveConsentContext(env, token) {
+  if (!token) throw PermissionError('Consent token required.');
+  const row = await env.DB_LOANS_EXPENSES.prepare(
+    'SELECT * FROM loan_consents WHERE token = ?'
+  ).bind(token.toString().trim()).first();
+  if (!row) throw PermissionError('Ye consent link valid nahi hai ya expire ho chuka hai.');
+  if (row.status !== 'accepted' && row.status !== 'declined') {
+    throw PermissionError('Consent PDF sirf jawab record hone ke baad download kiya ja sakta hai.');
+  }
+
+  const loans = await getSheetDataAsJSON(env, 'LOANS');
+  const loan = loans.find(l => l['Loan ID'] === row.loan_id);
+  if (!loan) throw PermissionError('Loan record nahi mila.');
+
+  const docType = row.role === 'loaner' ? 'consent_loaner' : 'consent_guarantor';
+  const year = parseInt(loan.Year);
+  return {
+    consent: row,
+    loan,
+    docType,
+    year,
+    // Always the consent's OWN id. The client used to compute
+    // `LOAN_CONSENT_ID || CONSENT_ID`, which for a guarantor picked the LOANER's
+    // id — so every guarantor PDF was indexed under the wrong key and never
+    // appeared in Download Center or the public portal again.
+    recordId: `${docType}-${year}-${row.consent_id}`,
+    fileName: `Consent-${row.consent_id}.docx`,
+  };
+}
+
+// Token-gated. Returns ONLY the template for this consent's own role+year.
+export async function getDocxTemplatePublic(env, docType, year, token) {
+  const ctx = await resolveConsentContext(env, token);
+  return getDocxTemplate(env, ctx.docType, ctx.year);
+}
+
+// Staff-only variant used by the logged-in portal (Home auto-PDF, ReceiptModal,
+// Bulk, Download Center, PdfExport). Was `withAuth` with NO role check at all, so
+// any logged-in user of any role could pull down full template bytes.
+export async function getDocxTemplateForDoc(env, docType, year, user) {
+  requireStaffRole(user);
+  return getDocxTemplate(env, docType, year);
+}
 
 export async function uploadDocxTemplate(env, docType, year, base64, fileName, user) {
   requireSuperadmin(user);
@@ -92,25 +150,43 @@ async function recordGeneratedFile(env, docType, year, recordId, fileName, publi
       console.error('[recordGeneratedFile] Missing required fields:', { docType, year, recordId, fileName, publicLink });
       throw new Error('Missing required fields for recording generated file');
     }
-    
+
+    // UPSERT instead of a bare INSERT. Backed by the new
+    // UNIQUE(doc_type, year, record_id) index, this makes the "already
+    // generated?" check race-proof: a concurrent duplicate now UPDATES the row to
+    // point at the newest PDF instead of inserting a second row that the public
+    // portal would then resolve arbitrarily via .find().
     await env.DB_FILE_INDEX.prepare(
-      'INSERT INTO generated_files (doc_type, year, record_id, file_name, public_link, drive_path, generated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      `INSERT INTO generated_files (doc_type, year, record_id, file_name, public_link, drive_path, generated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(doc_type, year, record_id) DO UPDATE SET
+         file_name = excluded.file_name,
+         public_link = excluded.public_link,
+         drive_path = excluded.drive_path,
+         generated_at = excluded.generated_at`
     ).bind(docType, parseInt(year), recordId, fileName, publicLink, drivePath, new Date().toISOString()).run();
-    
+
     console.log('[recordGeneratedFile] Success:', { docType, year, recordId, fileName });
   } catch (err) {
-    // Log to error_log table so admin can see what went wrong
+    // The old INSERT here omitted error_id AND reported, so the resulting row
+    // showed "Ref: undefined" in the UI, gave React duplicate null keys, and
+    // "Report to WhatsApp" always threw "Error record nahi mila." -- the one
+    // diagnostic this code added could be SEEN but never ESCALATED.
+    // logErrorAt() writes the correct column set.
     console.error('[recordGeneratedFile] Database insert failed:', err.message, { docType, year, recordId });
-    await env.DB_LOGS.prepare(
-      'INSERT INTO error_log (source, page, message, stack, context, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-    ).bind('backend-docxTemplates', 'recordGeneratedFile', err.message, err.stack || '', 
-      JSON.stringify({ docType, year, recordId, fileName, publicLink, drivePath }), 
-      new Date().toISOString()
-    ).run().catch(() => {}); // Don't let error logging itself fail the main operation
-    
-    // Re-throw so caller knows it failed
+    await logErrorAt(env, 'backend-docxTemplates', 'recordGeneratedFile', err, {
+      docType, year, recordId, fileName, publicLink, drivePath,
+    });
     throw new Error(`Failed to record generated file in database: ${err.message}`);
   }
+}
+
+// Clears the index row so the next generation becomes the canonical PDF. Used for
+// deliberate regeneration (corrected data, re-run report).
+export async function clearGeneratedFile(env, docType, year, recordId) {
+  await env.DB_FILE_INDEX.prepare(
+    'DELETE FROM generated_files WHERE doc_type = ? AND year = ? AND record_id = ?'
+  ).bind(docType, parseInt(year), recordId).run();
 }
 
 export async function getGeneratedFilesForYear(env, year, user, docType) {
@@ -122,20 +198,44 @@ export async function getGeneratedFilesForYear(env, year, user, docType) {
 }
 
 // ---- Docx -> PDF conversion ----
-// isAutoGenerate=true: called right after a COLLECTIONS save (own new entry's own
-// document) — allowed for Admin/Subadmin. false/omitted (Download Center manual
-// "Generate Now", Bulk Generate PDFs) stays Superadmin-only. Public callers
-// (Consent page) pass user=null — the record_id + token-gated data flow already
-// authorized the request upstream.
-export async function convertDocxToPdf(env, docType, year, recordId, base64, fileName, user, isAutoGenerate) {
-  if (user) { isAutoGenerate ? requireAdminOrAbove(user) : requireSuperadmin(user); }
+//
+// AUTHORIZATION (this was the single worst gate in the codebase):
+//   OLD: `if (user) { isAutoGenerate ? requireAdminOrAbove(user) : requireSuperadmin(user); }`
+//     - `if (user)` meant a PUBLIC caller (user=null) skipped every check, so the
+//       unauthenticated convertDocxToPdfPublic route let anyone push arbitrary
+//       bytes into the committee's Drive and insert arbitrary generated_files rows
+//       that the public portal shows as "Verified Record".
+//     - ReceiptModal calls this WITHOUT isAutoGenerate, so per-row "Download PDF"
+//       demanded Superadmin even though the download icon renders for every role
+//       -> Admin/Subadmin always got "Sirf Superadmin ye action kar sakta hai."
+//   NEW: an explicit `mode`:
+//       'auto'   Home auto-PDF after a save        -> staff (Admin/Subadmin/Superadmin)
+//       'single' one row's own document (Receipt)  -> staff
+//       'bulk'   Bulk Generate / Download Center   -> Superadmin
+//       'public' Consent page                      -> consent TOKEN verified by the caller
+const CONVERT_MODES = ['auto', 'single', 'bulk', 'public'];
+
+export async function convertDocxToPdf(env, docType, year, recordId, base64, fileName, user, mode, opts) {
+  const m = CONVERT_MODES.includes(mode) ? mode : 'bulk'; // unknown -> most restrictive
+  if (m === 'public') {
+    if (user) requireStaffRole(user); // a logged-in caller still needs a real role
+  } else if (m === 'bulk') {
+    requireSuperadmin(user);
+  } else {
+    requireStaffRole(user);
+  }
+
   if (!DOC_TYPES.includes(docType)) throw new Error('Invalid doc type');
   if (!base64) throw new Error('File required');
   if (!env.DRIVE_ROOT_FOLDER_ID) throw new Error('DRIVE_ROOT_FOLDER_ID not configured on server');
 
+  const force = !!(opts && opts.force);
+
   if (recordId) {
     const existing = await isFileGenerated(env, docType, year, recordId);
-    if (existing) return { success: true, skipped: true, publicLink: existing.public_link };
+    if (existing && !force) {
+      return { success: true, skipped: true, publicLink: existing.public_link, fileName: existing.file_name };
+    }
   }
 
   const genFolderId = await getOrCreateFolder(env, env.DRIVE_ROOT_FOLDER_ID, 'Generated PDFs');
@@ -146,22 +246,22 @@ export async function convertDocxToPdf(env, docType, year, recordId, base64, fil
   const { fileId, fileName: pdfName } = await convertDocxBytesToPdf(env, base64, fileName || 'document.docx', yearFolderId);
   const publicLink = `https://drive.google.com/uc?export=download&id=${fileId}`;
   const drivePath = `Generated PDFs/${typeFolderName}/${year}/${pdfName}`;
-  
-  // Record in database - this MUST succeed for public portal to show the file
+
+  // Record in the DB — this MUST succeed for the public portal to show the file.
   if (recordId) {
     try {
       await recordGeneratedFile(env, docType, year, recordId, pdfName, publicLink, drivePath);
     } catch (err) {
-      // PDF was created in Drive but database record failed - this is critical
       console.error('[convertDocxToPdf] PDF created but database record failed:', err.message);
-      // Return the link anyway so frontend can show it, but flag that index failed
-      return { 
-        success: true, 
-        skipped: false, 
-        publicLink, 
+      // The flag is returned so the caller can surface it. Only 1 of 6 callers
+      // used to check it — they all do now.
+      return {
+        success: true,
+        skipped: false,
+        publicLink,
         fileName: pdfName,
         indexFailed: true,
-        error: 'PDF generated but not indexed for public portal. Contact admin.'
+        error: 'PDF ban gaya lekin public portal ke index mein record nahi hua. Superadmin ko batayein.',
       };
     }
   }
@@ -169,8 +269,20 @@ export async function convertDocxToPdf(env, docType, year, recordId, base64, fil
   return { success: true, skipped: false, publicLink, fileName: pdfName };
 }
 
-export async function convertDocxToPdfPublic(env, docType, year, recordId, base64, fileName) {
-  return convertDocxToPdf(env, docType, year, recordId, base64, fileName, null, false);
+// PUBLIC (no login) — Consent page only.
+// The consent token is now verified server-side and docType / year / recordId /
+// fileName are DERIVED from the consent row, so a caller cannot choose what gets
+// written or where it gets indexed.
+export async function convertDocxToPdfPublic(env, base64, token) {
+  const ctx = await resolveConsentContext(env, token);
+  return convertDocxToPdf(
+    env, ctx.docType, ctx.year, ctx.recordId, base64, ctx.fileName,
+    null, 'public',
+    // A consent PDF is a legal document that should reflect the CURRENT
+    // verification/acceptance state, so re-downloading regenerates it rather than
+    // silently handing back a stale copy.
+    { force: true }
+  );
 }
 
 // ---- Batch placeholder resolution for Bulk "Generate PDFs" ----
@@ -179,13 +291,18 @@ const parseAmt = (v) => parseFloat((v || '').toString().replace(/[^0-9.-]+/g, ''
 // Same fix as templates.js's formatAmt — guard on the parsed number, not raw
 // truthiness, so a literal "0" is treated as "no amount" too.
 const formatAmt = (v) => (parseAmt(v) > 0 ? new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(parseAmt(v)) : '');
-const isTruthyFlag = (v) => v === true || v === 'true' || v === 'TRUE' || v === '1';
+// Was case-sensitive and missed the 'True' form the sheet migration wrote.
+const isTruthyFlag = (v) => {
+  if (v === true || v === 1) return true;
+  if (v === false || v === 0 || v === null || v === undefined) return false;
+  const s = v.toString().trim().toLowerCase();
+  return s === 'true' || s === '1' || s === 'yes';
+};
 
-function statusLabel(s, c) {
-  if (s === 'accepted') return 'Accepted / स्वीकृत' + (c.verification_status === 'verified' ? ' — Verified / सत्यापित' : c.verification_status === 'rejected' ? ' — Rejected / अस्वीकृत' : ' — Pending Verification / सत्यापन लंबित');
-  if (s === 'declined') return 'Declined / अस्वीकृत';
-  return 'Pending / लंबित';
-}
+// statusLabel used to be a TRIMMED local copy that silently dropped the
+// verification/decline remarks, so {GUARANTOR_1_STATUS} showed remarks on the
+// consent page and dropped them in every bulk-generated PDF. It now comes from
+// consentPlaceholders.js — one implementation for both paths.
 
 export async function getRecordsForDocType(env, docType, year, user) {
   await requireYearAccess(env, user, year);
@@ -233,39 +350,45 @@ export async function getRecordsForDocType(env, docType, year, user) {
   }
 
   // consent_loaner / consent_guarantor — only fully accepted consents.
+  //
+  // The `base` object here used to carry only 6 keys (FUND_YEAR, LOAN_AMOUNT,
+  // MONTHLY_INTEREST_RATE, MINIMUM_TENURE_MONTHS, FINAL_REPAYMENT_DATE,
+  // LOANER_NAME + guarantor names), while the UI documents — and the Consent page
+  // supplies — 11 more: FINAL_REPAYMENT_DAY_NAME, DIWALI_NEXT_DAY_DATE/_DAY_NAME,
+  // NAHAY_KHAY_DATE/_DAY_NAME, CHHATH_MORNING_ARGHYA_DATE/_DAY_NAME and
+  // ACCEPTED_COUNT/PENDING_COUNT/DECLINED_COUNT. With docxFill's
+  // `nullGetter: () => ''`, the SAME template therefore produced a complete PDF
+  // from the Consent page and a PDF with blank dates/day-names/counts from Bulk
+  // Generate — no error, no log. Now both paths call the same builder.
   const wantLoaner = docType === 'consent_loaner';
   const loans = (await getSheetDataAsJSON(env, 'LOANS')).filter(l => parseInt(l.Year) === parseInt(year));
   const { results: allConsents } = await env.DB_LOANS_EXPENSES.prepare("SELECT * FROM loan_consents WHERE status != 'replaced'").all();
 
   const out = [];
-  loans.forEach(loan => {
+  for (const loan of loans) {
     const consents = allConsents.filter(c => c.loan_id === loan['Loan ID']);
     const targetConsents = consents.filter(c => c.role === (wantLoaner ? 'loaner' : 'guarantor') && c.status === 'accepted');
-    if (!targetConsents.length) return;
-    const guarantorConsents = consents.filter(c => c.role === 'guarantor');
-    const base = {
-      FUND_YEAR: year, LOAN_AMOUNT: loan.Amount, MONTHLY_INTEREST_RATE: loan['Intrest Rate'] || loan['Interest Rate'] || '0',
-      MINIMUM_TENURE_MONTHS: loan.Tenure || '', FINAL_REPAYMENT_DATE: loan['Final Repayment Date'] || '',
-      LOANER_NAME: nameOf(loan.Name),
-    };
-    guarantorConsents.forEach((c, i) => {
-      base[`GUARANTOR_${i + 1}_NAME`] = nameOf(c.person_id);
-      base[`GUARANTOR_${i + 1}_STATUS`] = statusLabel(c.status, c);
-    });
-    targetConsents.forEach(c => {
-      const recordId = `${docType}-${year}-${c.consent_id}`;
-      const placeholders = wantLoaner
-        ? Object.assign({}, base, { LOAN_CONSENT_ID: c.consent_id })
-        : Object.assign({}, base, { CONSENT_ID: c.consent_id, GUARANTOR_NAME: nameOf(c.person_id) });
-      out.push({ recordId, fileNameHint: `${docType}-${c.consent_id}`, placeholders });
-    });
-  });
+    if (!targetConsents.length) continue;
+    // Resolves the loan-level parts (incl. the festival dates from DB_CORE) once
+    // per loan rather than once per consent.
+    const placeholdersFor = await consentPlaceholderFactory(env, loan, consents, nameOf);
+    for (const c of targetConsents) {
+      out.push({
+        recordId: `${docType}-${year}-${c.consent_id}`,
+        fileNameHint: `${docType}-${c.consent_id}`,
+        placeholders: placeholdersFor(c),
+      });
+    }
+  }
   return out;
 }
 
 // ---- Download Center ----
 
-export async function searchUsersByVillageAndName(env, village, query) {
+export async function searchUsersByVillageAndName(env, village, query, user) {
+  // Had no role check at all beyond a valid session, yet it returns names +
+  // mobile numbers for a whole village.
+  requireStaffRole(user);
   if (!village) throw new Error('Village required');
   const q = (query || '').toString().trim().toLowerCase();
   return (await getSheetDataAsJSON(env, 'USERS'))
@@ -327,19 +450,18 @@ export async function getPersonDownloads(env, userId, user) {
   collections.sort((a, b) => b.year - a.year);
 
   const { results: allConsents } = await env.DB_LOANS_EXPENSES.prepare("SELECT * FROM loan_consents WHERE status != 'replaced'").all();
-  const buildBase = (loan) => {
-    const consents = allConsents.filter(c => c.loan_id === loan['Loan ID']);
-    const guarantorConsents = consents.filter(c => c.role === 'guarantor');
-    const base = {
-      FUND_YEAR: loan.Year, LOAN_AMOUNT: loan.Amount, MONTHLY_INTEREST_RATE: loan['Intrest Rate'] || loan['Interest Rate'] || '0',
-      MINIMUM_TENURE_MONTHS: loan.Tenure || '', FINAL_REPAYMENT_DATE: loan['Final Repayment Date'] || '',
-      LOANER_NAME: nameOf(loan.Name),
-    };
-    guarantorConsents.forEach((c, i) => {
-      base[`GUARANTOR_${i + 1}_NAME`] = nameOf(c.person_id);
-      base[`GUARANTOR_${i + 1}_STATUS`] = statusLabel(c.status, c);
-    });
-    return base;
+
+  // Same 6-key-vs-24-key divergence as getRecordsForDocType above — Download
+  // Center produced consent PDFs with every festival date and count blank.
+  // Cached per loan so a person with several loans doesn't re-read festival dates.
+  const factoryCache = new Map();
+  const placeholderFactoryFor = async (loan) => {
+    const key = loan['Loan ID'];
+    if (!factoryCache.has(key)) {
+      const consents = allConsents.filter(c => c.loan_id === key);
+      factoryCache.set(key, await consentPlaceholderFactory(env, loan, consents, nameOf));
+    }
+    return factoryCache.get(key);
   };
 
   const allLoans = await getSheetDataAsJSON(env, 'LOANS');
@@ -352,7 +474,7 @@ export async function getPersonDownloads(env, userId, user) {
     const c = allConsents.find(x => x.loan_id === loan['Loan ID'] && x.role === 'loaner' && x.status === 'accepted');
     if (!c) continue;
     const recordId = `consent_loaner-${year}-${c.consent_id}`;
-    const placeholders = Object.assign({}, buildBase(loan), { LOAN_CONSENT_ID: c.consent_id });
+    const placeholders = (await placeholderFactoryFor(loan))(c);
     const gen = await isFileGenerated(env, 'consent_loaner', year, recordId);
     loanerItems.push({
       recordId, docType: 'consent_loaner', year,
@@ -369,7 +491,7 @@ export async function getPersonDownloads(env, userId, user) {
     if (!loan) continue;
     const year = parseInt(loan.Year);
     const recordId = `consent_guarantor-${year}-${c.consent_id}`;
-    const placeholders = Object.assign({}, buildBase(loan), { CONSENT_ID: c.consent_id, GUARANTOR_NAME: nameOf(c.person_id) });
+    const placeholders = (await placeholderFactoryFor(loan))(c);
     const gen = await isFileGenerated(env, 'consent_guarantor', year, recordId);
     guarantorItems.push({
       recordId, docType: 'consent_guarantor', year,

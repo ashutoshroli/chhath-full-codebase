@@ -48,7 +48,11 @@ async function getAllPortalData(env) {
     expenses: await tableRows(env.DB_LOANS_EXPENSES, 'expenses', REVERSE_MAPS.expenses),
     loans: await tableRows(env.DB_LOANS_EXPENSES, 'loans', REVERSE_MAPS.loans),
     guarantors: await tableRows(env.DB_LOANS_EXPENSES, 'loan_guarantors', REVERSE_MAPS.loan_guarantors),
-    generatedFiles: await tableRows(env.DB_FILE_INDEX, 'generated_files', REVERSE_MAPS.generated_files),
+    // `drive_path` is an INTERNAL Drive location ("Generated PDFs/Consents-Loaner/
+    // 2026/Consent-CN...pdf") that the public site never renders — it was being
+    // shipped to every anonymous visitor for no reason. The portal only needs
+    // doc_type/year/record_id (to match a record) and public_link (to download).
+    generatedFiles: await tableRows(env.DB_FILE_INDEX, 'generated_files', REVERSE_MAPS.generated_files, ['drive_path']),
     loanConsents: await tableRows(env.DB_LOANS_EXPENSES, 'loan_consents', REVERSE_MAPS.loan_consents),
   };
 }
@@ -89,23 +93,104 @@ async function getActivePublicPopups(env) {
     .filter(p => p.slides.length > 0);
 }
 
+// ---- Error logging (was COMPLETELY ABSENT from this Worker) ----
+//
+// This whole portal used to be a total blind spot:
+//   * wrangler.toml deliberately did NOT bind DB_LOGS, so the Worker physically
+//     could not write to error_log;
+//   * the fetch handler had NO try/catch at all, so any D1 failure inside
+//     getAllPortalData()'s 8 sequential table scans became an unhandled rejection
+//     -> Cloudflare "1101 Worker threw exception" -> invisible to the committee;
+//   * Public/frontend/script.js had no window.onerror, no unhandledrejection and
+//     no reporting of any kind.
+// DB_LOGS is now bound (see wrangler.toml) and this is the ONLY table this Worker
+// ever writes to — everything else stays strictly read-only.
+const LOG_DEDUP_WINDOW_MS = 5 * 60 * 1000;
+
+async function logPublicError(env, source, page, message, stack, context) {
+  try {
+    if (!env.DB_LOGS) return { success: false };
+    const clamp = (v, n) => (v === undefined || v === null ? '' : v.toString()).slice(0, n);
+    const src = clamp(source || 'public', 100);
+    const pg = clamp(page, 200);
+    const msg = clamp(message, 1000);
+
+    // Same de-duplication as the mgmt logger: a public page reload loop must not
+    // be able to flood the Superadmin's 300-row error view.
+    const since = new Date(Date.now() - LOG_DEDUP_WINDOW_MS).toISOString();
+    const dupe = await env.DB_LOGS.prepare(
+      'SELECT error_id FROM error_log WHERE source = ? AND page = ? AND message = ? AND created_at >= ? LIMIT 1'
+    ).bind(src, pg, msg, since).first().catch(() => null);
+    if (dupe && dupe.error_id) return { success: true, errorId: dupe.error_id, deduped: true };
+
+    const id = 'ERR' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    await env.DB_LOGS.prepare(
+      'INSERT INTO error_log (error_id, source, page, message, stack, context, created_at, reported) VALUES (?, ?, ?, ?, ?, ?, ?, 0)'
+    ).bind(id, src, pg, msg, clamp(stack, 2000), clamp(context, 500), new Date().toISOString()).run();
+    return { success: true, errorId: id };
+  } catch (e) {
+    console.error('[public logPublicError] failed:', e && e.message);
+    return { success: false };
+  }
+}
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const action = url.searchParams.get('action');
     const cors = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' };
 
     if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: { ...cors, 'Access-Control-Allow-Methods': 'GET, OPTIONS' } });
+      return new Response(null, {
+        headers: { ...cors, 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' },
+      });
     }
-    if (action === 'portalData') {
-      const data = await getAllPortalData(env);
-      return new Response(JSON.stringify(data), { headers: cors });
+
+    // The public frontend POSTs its own JS errors here (window.onerror /
+    // unhandledrejection / failed data load) so the committee can actually see
+    // when the public site is broken.
+    if (action === 'logError' && request.method === 'POST') {
+      let body = {};
+      try { body = await request.json(); } catch (e) { /* keep the empty object */ }
+      const res = await logPublicError(
+        env, 'public-frontend', body.page, body.message, body.stack, body.context
+      );
+      return new Response(JSON.stringify(res), { headers: cors });
     }
-    if (action === 'activePopups') {
-      const data = await getActivePublicPopups(env);
-      return new Response(JSON.stringify(data), { headers: cors });
+
+    // Every read path is wrapped now — previously a single D1 hiccup took the whole
+    // Worker down with a 1101 and nothing recorded anywhere.
+    try {
+      if (action === 'portalData') {
+        const data = await getAllPortalData(env);
+        return new Response(JSON.stringify(data), {
+          headers: {
+            ...cors,
+            // The payload had NO cache headers, so every visitor re-downloaded the
+            // entire dataset on every page load.
+            'Cache-Control': 'public, max-age=60, stale-while-revalidate=300',
+          },
+        });
+      }
+      if (action === 'activePopups') {
+        const data = await getActivePublicPopups(env);
+        return new Response(JSON.stringify(data), {
+          headers: { ...cors, 'Cache-Control': 'public, max-age=60' },
+        });
+      }
+      return new Response(JSON.stringify({ status: false, message: 'Invalid Request' }), { headers: cors });
+    } catch (err) {
+      const logging = logPublicError(
+        env, 'public-backend', action || 'fetch',
+        (err && err.message) || String(err), (err && err.stack) || '',
+        JSON.stringify({ action, url: url.pathname })
+      );
+      if (ctx && ctx.waitUntil) ctx.waitUntil(logging); else await logging;
+      console.error('[public-worker]', action, err && err.message);
+      return new Response(
+        JSON.stringify({ status: false, message: 'Data load nahi ho paya. Thodi der baad koshish karein.' }),
+        { status: 500, headers: cors }
+      );
     }
-    return new Response(JSON.stringify({ status: false, message: 'Invalid Request' }), { headers: cors });
   },
 };

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { api } from '../api.js';
+import { api, reportClientError } from '../api.js';
 import { generateQrDataUrl, publicRecordUrl } from '../qrCode.js';
 import ReportErrorButton from '../components/ReportErrorButton.jsx';
 
@@ -18,8 +18,19 @@ import ReportErrorButton from '../components/ReportErrorButton.jsx';
 
 const MAX_SIGNATURE_BYTES = 1024 * 1024; // 1MB
 
+// Kept in sync with receiptTemplate.js's renderReceiptTemplate().
+//
+// The old condition was `placeholders[key] !== undefined && placeholders[key] !== ''`,
+// so a REAL-but-blank field (e.g. FINAL_REPAYMENT_DAY_NAME when the Festival Dates
+// haven't been entered for the year) printed the literal text
+// "[FINAL_REPAYMENT_DAY_NAME]" on a PUBLIC legal page. receiptTemplate.js
+// substitutes an empty string in exactly that case — the two resolvers had
+// diverged. An UNKNOWN key still renders literally, which is the useful signal
+// (it means the template references a placeholder that does not exist).
 function substitutePlaceholders(text, placeholders) {
-  return (text || '').replace(/\[([A-Z0-9_]+)\]/g, (m, key) => (placeholders[key] !== undefined && placeholders[key] !== '' ? String(placeholders[key]) : m));
+  return (text || '').replace(/\[([A-Z0-9_]+)\]/g, (m, key) => (
+    Object.prototype.hasOwnProperty.call(placeholders || {}, key) ? String(placeholders[key]) : m
+  ));
 }
 
 function fileToCompressedBase64(file, maxDim = 1000, quality = 0.7) {
@@ -265,7 +276,14 @@ export default function ConsentPage() {
               {locked === 'accepted' ? '✓ You have Accepted / आपने स्वीकार किया' : '✕ You have Declined / आपने अस्वीकार किया'}
             </span>
             <p style={{ marginTop: 12, fontSize: '0.8rem', color: 'var(--text-muted)' }}>This decision is final and cannot be changed.</p>
-            <ConsentPdfDownload role={data.role} fundYear={data.placeholders.FUND_YEAR} placeholders={data.placeholders} />
+            <ConsentPdfDownload
+              role={data.role}
+              fundYear={data.placeholders.FUND_YEAR}
+              placeholders={data.placeholders}
+              consentId={data.consentId}
+              docTypeFromServer={data.docType}
+              token={token}
+            />
           </div>
         ) : (
           <>
@@ -382,46 +400,86 @@ const pageStyle = { minHeight: '100vh', background: 'var(--bg-offwhite)', paddin
 // Shown once a decision is locked in. Silently hides itself if no Superadmin-
 // uploaded .docx template exists yet for this role+year (no error shown — this
 // isn't the person's fault and doesn't need to interrupt their flow).
-function ConsentPdfDownload({ role, fundYear, placeholders }) {
+function ConsentPdfDownload({ role, fundYear, placeholders, consentId, docTypeFromServer, token }) {
   const [templateRow, setTemplateRow] = useState(null);
   const [checked, setChecked] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [qrCode, setQrCode] = useState('');
-  const docType = role === 'loaner' ? 'consent_loaner' : 'consent_guarantor';
-  const consentRefId = placeholders.LOAN_CONSENT_ID || placeholders.CONSENT_ID;
+  const [error, setError] = useState('');
+  const docType = docTypeFromServer || (role === 'loaner' ? 'consent_loaner' : 'consent_guarantor');
+
+  // Was: `placeholders.LOAN_CONSENT_ID || placeholders.CONSENT_ID`
+  //
+  // For a GUARANTOR, LOAN_CONSENT_ID is the *loaner's* consent_id and CONSENT_ID is
+  // the guarantor's own — so `||` picked the WRONG one. Every guarantor PDF was
+  // stored/indexed as `consent_guarantor-<year>-<LOANER id>` while Download Center
+  // and the public portal both look for `...-<GUARANTOR id>`: never matched, never
+  // shown, and a duplicate PDF generated on the next attempt. Worse, before the
+  // loaner had consented LOAN_CONSENT_ID was '', so the SAME guarantor produced a
+  // DIFFERENT recordId depending on when they clicked.
+  // The server now supplies the authoritative id.
+  const consentRefId = consentId || placeholders.CONSENT_ID;
 
   useEffect(() => {
     let alive = true;
-    api.getDocxTemplatePublic(docType, fundYear)
+    // Now token-gated server-side; the token also decides which role+year template
+    // may be read at all.
+    api.getDocxTemplatePublic(docType, fundYear, token)
       .then(row => { if (alive) setTemplateRow(row); })
-      .catch(() => {})
+      // Still silent on purpose (a missing template is not the person's fault and
+      // must not interrupt their flow) — but it is reported now, because before
+      // this hid genuine failures too.
+      .catch(err => { if (alive) reportClientError('ConsentPage', `Consent template load failed (${docType}/${fundYear})`, err, { docType, fundYear }); })
       .finally(() => { if (alive) setChecked(true); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docType, fundYear]);
+  }, [docType, fundYear, token]);
 
   useEffect(() => {
     if (!consentRefId) return;
     const recordId = `${docType}-${fundYear}-${consentRefId}`;
-    generateQrDataUrl(publicRecordUrl(recordId)).then(setQrCode).catch(() => {});
+    generateQrDataUrl(publicRecordUrl(recordId))
+      .then(setQrCode)
+      .catch(err => reportClientError('ConsentPage', `QR generation failed for ${recordId}`, err, { docType, fundYear, recordId }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docType, fundYear, consentRefId]);
 
   const download = async () => {
     setDownloading(true);
+    setError('');
     try {
-      const { fillDocxTemplateFromRow } = await import('../docxFill.js');
+      const { fillDocxTemplateFromRow, getLastRenderReport } = await import('../docxFill.js');
       const filledBase64 = await fillDocxTemplateFromRow(templateRow, { ...placeholders, GENERATED_AT: new Date().toLocaleString('en-IN'), QR_CODE: qrCode });
-      const recordId = `${docType}-${fundYear}-${consentRefId}`;
-      const fileName = `Consent-${consentRefId}.docx`;
-      const res = await api.convertDocxToPdfPublic(docType, fundYear, recordId, filledBase64, fileName);
+
+      const rep = getLastRenderReport();
+      if (rep.missingTags.length) {
+        reportClientError('ConsentPage', 'Consent template had unresolved placeholders', null,
+          { docType, fundYear, consentId: consentRefId, missingTags: [...new Set(rep.missingTags)] });
+      }
+
+      // docType / year / recordId / fileName are all derived SERVER-side from the
+      // verified consent token now — the client only sends the bytes, so it can no
+      // longer choose where the file is indexed.
+      const res = await api.convertDocxToPdfPublic(filledBase64, token);
+
+      if (res && res.indexFailed) {
+        reportClientError('ConsentPage', `Consent PDF generated but NOT indexed (${consentRefId})`, null,
+          { docType, fundYear, consentId: consentRefId, publicLink: res.publicLink });
+      }
+
+      // `download` is ignored cross-origin and the click is several awaits after
+      // the gesture, so use a real DOM node.
       const a = document.createElement('a');
       a.href = res.publicLink;
-      a.download = `Consent-${consentRefId}.pdf`;
       a.target = '_blank';
+      a.rel = 'noreferrer';
+      a.style.display = 'none';
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
     } catch (err) {
-      alert('An error occurred while generating the PDF: ' + err.message);
+      setError('PDF banate waqt problem hui: ' + err.message);
+      reportClientError('ConsentPage', `Consent PDF generation failed (${consentRefId})`, err, { docType, fundYear, consentId: consentRefId });
     } finally {
       setDownloading(false);
     }
@@ -431,8 +489,16 @@ function ConsentPdfDownload({ role, fundYear, placeholders }) {
 
 
   return (
-    <button className="btn-submit" style={{ marginTop: 12, width: 'auto' }} onClick={download} disabled={downloading}>
-      {downloading ? 'Generating PDF...' : '⬇ Download PDF'}
-    </button>
+    <>
+      <button className="btn-submit" style={{ marginTop: 12, width: 'auto' }} onClick={download} disabled={downloading}>
+        {downloading ? 'Generating PDF...' : '⬇ Download PDF'}
+      </button>
+      {error && (
+        <>
+          <div style={{ color: 'var(--danger)', fontSize: '0.85rem', marginTop: 8 }}>{error}</div>
+          <ReportErrorButton page="Consent PDF" message={error} />
+        </>
+      )}
+    </>
   );
 }

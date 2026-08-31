@@ -25,6 +25,7 @@ const BulkGeneratePdfs = lazy(() => import('./views/BulkGeneratePdfs.jsx'));
 const DownloadCenter = lazy(() => import('./views/DownloadCenter.jsx'));
 // Lazy-loaded — pulls in jsPDF (heavy), only needed by Superadmin on this one tab.
 const PdfExport = lazy(() => import('./views/PdfExport.jsx'));
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 import ProfileMenu from './components/ProfileMenu.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
 import Modal from './components/Modal.jsx';
@@ -204,6 +205,11 @@ export default function App() {
       <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} userId={user.name} />
 
       <main className="page-view">
+        {/* There was no ErrorBoundary anywhere, so one render throw white-screened
+            the entire app and was only "logged" as a stackless "Script error.".
+            Keyed on `tab` so navigating away resets the boundary rather than
+            leaving it permanently stuck in its error state. */}
+        <ErrorBoundary key={tab} name={`tab:${tab}`}>
         {tab === 'home' && <Home year={year} users={usersView.data} onUserCreated={usersView.refresh} role={user.role} editable={editable} />}
         {tab === 'expenses' && <Expenses year={year} role={user.role} editable={editable} />}
         {tab === 'loans' && <Loans year={year} users={usersView.data} committee={committeeAllView.data} role={user.role} editable={editable} />}
@@ -241,6 +247,7 @@ export default function App() {
             <PdfExport />
           </Suspense>
         )}
+        </ErrorBoundary>
       </main>
 
       <nav className="bottom-nav">

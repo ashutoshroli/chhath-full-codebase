@@ -1,0 +1,98 @@
+import React from 'react';
+import { reportClientError } from '../api.js';
+
+// There was NO ErrorBoundary anywhere in the app (grep for
+// `ErrorBoundary|componentDidCatch` returned nothing), so a single render throw
+// unmounted the whole tree and left a WHITE SCREEN. It was only ever "logged"
+// indirectly by main.jsx's window.onerror handler, which for a cross-origin
+// bundle records the useless message "Script error." with no stack — the migrated
+// data has five such rows.
+//
+// The 4 <Suspense> boundaries in App.jsx also had no error handling at all, so a
+// lazy-chunk 404 after a redeploy (a very common cause: the user's tab still
+// references the previous build's hashed filenames) blanked the page with no
+// explanation and no way back.
+export default class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null, info: null, showDetails: false };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    this.setState({ info });
+    // A real stack + component stack, unlike what window.onerror can capture.
+    reportClientError(
+      this.props.name || 'ErrorBoundary',
+      'React render crashed',
+      error,
+      { componentStack: (info && info.componentStack ? info.componentStack : '').slice(0, 800) }
+    );
+  }
+
+  isChunkLoadError() {
+    const msg = (this.state.error && this.state.error.message) || '';
+    return /Loading chunk|dynamically imported module|Importing a module script failed|Failed to fetch dynamically/i.test(msg);
+  }
+
+  render() {
+    const { error, showDetails, info } = this.state;
+    if (!error) return this.props.children;
+
+    // A stale-bundle chunk error is fixed by a reload, so say that explicitly
+    // instead of showing a generic crash.
+    if (this.isChunkLoadError()) {
+      return (
+        <div className="glass-card" style={{ padding: 20, textAlign: 'center', margin: 15 }}>
+          <p style={{ fontWeight: 600, marginBottom: 8 }}>App update ho gaya hai</p>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 12 }}>
+            Naya version deploy hua hai, isliye ye page load nahi ho paya. Page refresh karein.
+          </p>
+          <button className="btn-submit" style={{ width: 'auto' }} onClick={() => window.location.reload()}>
+            🔄 Refresh
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="glass-card" style={{ padding: 20, margin: 15 }}>
+        <p style={{ fontWeight: 600, marginBottom: 8 }}>Kuch galat ho gaya</p>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 12 }}>
+          Is screen mein ek error aa gaya. Ye error apne aap Error Log mein record ho gaya hai —
+          Superadmin ise dekh sakta hai. Aap doosre tab par ja sakte hain ya page refresh kar sakte hain.
+        </p>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn-submit" style={{ width: 'auto' }} onClick={() => window.location.reload()}>
+            🔄 Refresh
+          </button>
+          <button
+            type="button"
+            className="btn-submit"
+            style={{ width: 'auto', background: '#e5e7eb', color: '#111' }}
+            onClick={() => this.setState({ showDetails: !showDetails })}
+          >
+            {showDetails ? 'Details chhupayein' : 'Technical details'}
+          </button>
+        </div>
+        {showDetails && (
+          <pre
+            style={{
+              marginTop: 12, background: '#f9fafb', border: '1px solid #eee', borderRadius: 8,
+              padding: 10, fontSize: '0.7rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+              maxHeight: 220, overflowY: 'auto',
+            }}
+          >
+            {error.message}
+            {'\n\n'}
+            {(error.stack || '').slice(0, 1500)}
+            {info && info.componentStack ? '\n\nComponent stack:' + info.componentStack.slice(0, 800) : ''}
+          </pre>
+        )}
+      </div>
+    );
+  }
+}

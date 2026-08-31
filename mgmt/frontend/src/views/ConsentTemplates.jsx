@@ -66,6 +66,12 @@ export default function ConsentTemplates() {
         <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 8 }}>
           Markdown supported: ## heading, **bold**, *italic*, --- line, numbered/bullet lists. The Checkbox and Accept/Decline buttons are not part of this text — they appear automatically on the page.
         </p>
+        <p style={{ fontSize: '0.75rem', color: 'var(--danger)', marginTop: 8 }}>
+          <strong>Note:</strong> <code>[GENERATED_AT]</code> and <code>[QR_CODE]</code> are <strong>not</strong> available on this
+          consent page — they only work in the Word/.docx consent template. If you type them here they will
+          appear as plain text exactly as written.
+          {' '}<code>GUARANTOR_4</code> and beyond also work automatically if a loan ever has more than 3 guarantors.
+        </p>
       </div>
 
       {loading ? (
