@@ -1,69 +1,29 @@
 import { useState } from 'react';
-import { api, reportClientError } from '../api.js';
-import { fillDocxTemplateFromRow, getLastRenderReport } from '../docxFill.js';
+import { api } from '../api.js';
+import { fillDocxTemplateFromRow } from '../docxFill.js';
 import { generateQrDataUrl, publicRecordUrl } from '../qrCode.js';
 import { useDropdownList } from '../useDropdownList.js';
 
 function DownloadItem({ item, onGenerated, canGenerate }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [warning, setWarning] = useState('');
 
   const generate = async () => {
     setBusy(true);
     setError('');
-    setWarning('');
     try {
-      let templateRow;
-      try {
-        templateRow = await api.getDocxTemplateForDoc(item.docType, item.year);
-      } catch (err) {
-        // Was `.catch(() => null)`, which turned a genuine load failure into the
-        // misleading "no template exists — upload one" message.
-        reportClientError('DownloadCenter', `Template load failed for ${item.docType} ${item.year}`, err,
-          { docType: item.docType, year: item.year, recordId: item.recordId });
-        setError(`Template load nahi hua: ${err.message}`);
-        return;
-      }
+      const templateRow = await api.getDocxTemplateForDoc(item.docType, item.year).catch(() => null);
       if (!templateRow || (!templateRow.base64 && !templateRow.downloadUrl)) {
         setError('No .docx template exists for this year/type (upload one in the Document Templates tab).');
         return;
       }
-
-      let qrCode = '';
-      try {
-        qrCode = await generateQrDataUrl(publicRecordUrl(item.recordId));
-      } catch (qrErr) {
-        setWarning('QR generate nahi hua — PDF ka QR blank rahega.');
-        reportClientError('DownloadCenter', `QR generation failed for ${item.recordId}`, qrErr,
-          { docType: item.docType, year: item.year, recordId: item.recordId });
-      }
-
+      const qrCode = await generateQrDataUrl(publicRecordUrl(item.recordId)).catch(() => '');
       const filledBase64 = await fillDocxTemplateFromRow(templateRow, { ...item.placeholders, GENERATED_AT: new Date().toLocaleString('en-IN'), QR_CODE: qrCode });
-
-      const rep = getLastRenderReport();
-      if (rep.missingTags.length) {
-        setWarning(`Blank placeholders: ${[...new Set(rep.missingTags)].join(', ')}`);
-        reportClientError('DownloadCenter', `Unresolved placeholders for ${item.recordId}`, null,
-          { docType: item.docType, year: item.year, recordId: item.recordId, missingTags: [...new Set(rep.missingTags)] });
-      }
-
       const fileName = `${item.fileNameHint}.docx`;
-      const res = await api.convertDocxToPdf(item.docType, item.year, item.recordId, filledBase64, fileName, 'bulk');
-
-      // indexFailed was returned by the backend and ignored here, so the file
-      // looked generated while the public portal would show "Not Available".
-      if (res && res.indexFailed) {
-        setWarning(res.error || 'PDF ban gaya lekin public portal mein index nahi hua.');
-        reportClientError('DownloadCenter', `PDF generated but NOT indexed: ${item.recordId}`, null,
-          { docType: item.docType, year: item.year, recordId: item.recordId, publicLink: res.publicLink });
-      }
-
+      const res = await api.convertDocxToPdf(item.docType, item.year, item.recordId, filledBase64, fileName);
       onGenerated(item.recordId, res.publicLink);
     } catch (err) {
       setError(err.message);
-      reportClientError('DownloadCenter', `Generate failed for ${item.recordId}`, err,
-        { docType: item.docType, year: item.year, recordId: item.recordId });
     } finally {
       setBusy(false);
     }
@@ -74,7 +34,6 @@ function DownloadItem({ item, onGenerated, canGenerate }) {
       <div>
         <div style={{ fontSize: '0.9rem' }}>{item.label}</div>
         {error && <div style={{ fontSize: '0.75rem', color: 'var(--danger)' }}>{error}</div>}
-        {warning && <div style={{ fontSize: '0.75rem', color: '#92400E' }}>⚠️ {warning}</div>}
       </div>
       {item.publicLink ? (
         <a href={item.publicLink} target="_blank" rel="noreferrer" className="btn-submit" style={{ width: 'auto', padding: '6px 14px', fontSize: '0.85rem', textDecoration: 'none', textAlign: 'center' }}>

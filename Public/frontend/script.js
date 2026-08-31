@@ -1,44 +1,6 @@
 const fmt = (n) => new Intl.NumberFormat('en-IN', {style:'currency', currency:'INR', maximumFractionDigits:0}).format(n||0);
 const parseAmt = (v) => parseFloat((v||'').toString().replace(/[^0-9.-]+/g,"")) || 0;
 
-// ---- Error reporting (this file previously had NONE) ----
-//
-// There was no window.onerror, no unhandledrejection and no reporting anywhere in
-// the public portal, and the Public Worker wasn't even bound to DB_LOGS. So when
-// the public site broke — a failed data load, a JS crash, a missing element — the
-// committee had no way whatsoever to find out. This closes that half of the gap;
-// the Worker side now accepts `?action=logError` (POST) and writes to error_log.
-//
-// Set by init() once the Worker base URL is known.
-let ERROR_LOG_URL = null;
-const reportedMessages = new Set(); // client-side de-dup so a render loop can't spam
-
-function reportPublicError(message, err, extra) {
-  try {
-    const msg = (message || '').toString().slice(0, 500);
-    if (reportedMessages.has(msg)) return;
-    reportedMessages.add(msg);
-    if (!ERROR_LOG_URL) return; // nothing we can do before init() runs
-    fetch(ERROR_LOG_URL, {
-      method: 'POST',
-      body: JSON.stringify({
-        page: location.pathname + location.search,
-        message: msg,
-        stack: (err && err.stack) ? err.stack.toString().slice(0, 2000) : '',
-        context: JSON.stringify(Object.assign({ ua: navigator.userAgent.slice(0, 150) }, extra || {})).slice(0, 500),
-      }),
-    }).catch(() => {}); // last resort — the network is what failed
-  } catch (e) { /* never let reporting break the page */ }
-}
-
-window.addEventListener('error', (e) => {
-  reportPublicError(e.message, e.error, { filename: e.filename, lineno: e.lineno });
-});
-window.addEventListener('unhandledrejection', (e) => {
-  const err = e.reason;
-  reportPublicError('Unhandled rejection: ' + ((err && err.message) || String(err)), err, {});
-});
-
 const app = {
   data: null,
   userMap: {},
@@ -53,15 +15,11 @@ const app = {
     // mgmt/frontend, so this can't be an env var — see FRONTEND_DIFF_NOTES.md).
     const BASE_API_URL = "https://chhath-public-api.shaharpura.workers.dev/";
     const API_URL = BASE_API_URL + "?action=portalData";
-    ERROR_LOG_URL = BASE_API_URL + "?action=logError";
 
     app.loadPopup(BASE_API_URL); // fire-and-forget, independent of portalData — a popup failure should never block the rest of the site
 
     fetch(API_URL)
-      .then(response => {
-        if (!response.ok) throw new Error('portalData HTTP ' + response.status);
-        return response.json();
-      })
+      .then(response => response.json())
       .then(res => {
         app.data = res;
         app.data.generatedFiles = app.data.generatedFiles || [];
@@ -112,12 +70,9 @@ const app = {
       })
       .catch(error => {
         console.error(error);
-        // Was console.error + a dead-end banner, never reported anywhere.
-        reportPublicError('Public portal data load failed: ' + (error && error.message), error, {});
         document.getElementById('loader').innerHTML = `
             <h2>Failed To Load Data</h2>
             <p>Please Try Again Later</p>
-            <button onclick="location.reload()" style="margin-top:12px;padding:8px 18px;border:none;border-radius:8px;cursor:pointer;">Retry</button>
           `;
       });
   },
@@ -144,9 +99,7 @@ const app = {
         app.renderPopupSlide();
         document.getElementById('popup-overlay').style.display = 'flex';
       })
-      // The popup is non-critical, so we still never surface an error to the
-      // visitor — but it IS reported now, instead of being discarded entirely.
-      .catch(err => reportPublicError('Public popup load failed: ' + (err && err.message), err, {}));
+      .catch(() => {}); // popup is non-critical — never surface an error for it
   },
 
   renderPopupSlide: () => {

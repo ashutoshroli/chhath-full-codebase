@@ -8,10 +8,7 @@ const TYPES = ['Category', 'Payment Mode', 'Loan Status', 'Village'];
 
 export default function ListManagement() {
   const [years, setYears] = useState(null);
-  const [yearsError, setYearsError] = useState('');
-  // Was `.catch(() => {})` — a failed load was indistinguishable from "no years
-  // exist", which silently hid the whole Festival Dates section.
-  useEffect(() => { api.getYears().then(setYears).catch(err => setYearsError(err.message)); }, []);
+  useEffect(() => { api.getYears().then(setYears).catch(() => {}); }, []);
   const [activeType, setActiveType] = useState('Category');
   const { options, loading, refresh } = useDropdownList(activeType);
   const [adding, setAdding] = useState(false);
@@ -152,7 +149,6 @@ export default function ListManagement() {
         )}
       </div>
 
-      {yearsError && <div className="error-banner">Years load nahi hue: {yearsError}</div>}
       <FestivalDates years={years} />
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 15, flexWrap: 'wrap' }}>

@@ -1,5 +1,4 @@
 import { getDriveAccessToken } from './account.js';
-import { logWarn } from './logger.js';
 
 const DRIVE_API = 'https://www.googleapis.com/drive/v3';
 const DRIVE_UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3';
@@ -62,39 +61,13 @@ export async function uploadDocxFile(env, base64, fileName, folderId) {
   return file;
 }
 
-// This used to ignore res.ok entirely. If the permission grant failed, a
-// `public_link` that NOBODY can open was still written into generated_files as a
-// success — the file looked available in the portal and 404'd on click.
 export async function setAnyoneReader(env, fileId) {
   const token = await getDriveAccessToken(env);
-  const res = await fetch(`${DRIVE_API}/files/${fileId}/permissions`, {
+  await fetch(`${DRIVE_API}/files/${fileId}/permissions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ role: 'reader', type: 'anyone' }),
   });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    // Already-shared is not an error worth failing the whole generation for.
-    if (/already ha(s|ve) (the )?permission|duplicate/i.test(body)) return;
-    throw new Error(`Drive public-share failed for file ${fileId} (${res.status}): ${body}`);
-  }
-}
-
-// `btoa(String.fromCharCode(...new Uint8Array(buf)))` spread EVERY byte of the
-// .docx as a function argument, so any template above roughly 100 KB — i.e. any
-// template containing a logo or letterhead image — threw
-// "RangeError: Maximum call stack size exceeded". Every caller wrapped this in
-// `.catch(() => null)`, so the user was told "no template exists for this year,
-// upload one" for a template that existed and worked perfectly.
-// Chunked conversion has no argument-count limit.
-function arrayBufferToBase64(buf) {
-  const bytes = new Uint8Array(buf);
-  const CHUNK = 0x8000; // 32 KB per String.fromCharCode call
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
-  }
-  return btoa(binary);
 }
 
 export async function getFileBytesBase64(env, fileId) {
@@ -102,7 +75,7 @@ export async function getFileBytesBase64(env, fileId) {
   const res = await fetch(`${DRIVE_API}/files/${fileId}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) throw new Error('Drive file download failed: ' + await res.text());
   const buf = await res.arrayBuffer();
-  return arrayBufferToBase64(buf);
+  return btoa(String.fromCharCode(...new Uint8Array(buf)));
 }
 
 export async function copyFile(env, fileId, newName, parentId) {
@@ -118,31 +91,15 @@ export async function copyFile(env, fileId, newName, parentId) {
   return file;
 }
 
-// Still non-fatal (a leftover intermediate Google Doc must never fail a PDF that
-// was otherwise generated fine) — but it no longer swallows silently. Previously
-// the fetch wasn't even awaited for its status, so orphaned Google Docs
-// accumulated in the committee's Drive forever with nothing anywhere to show it.
 export async function trashFile(env, fileId) {
   try {
     const token = await getDriveAccessToken(env);
-    const res = await fetch(`${DRIVE_API}/files/${fileId}`, {
+    await fetch(`${DRIVE_API}/files/${fileId}`, {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ trashed: true }),
     });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      console.warn(`[trashFile] Could not trash intermediate Drive file ${fileId} (${res.status}): ${body}`);
-      await logWarn(env, 'backend-drive', 'trashFile',
-        `Orphaned intermediate Google Doc left in Drive: file ${fileId} could not be trashed (${res.status}).`,
-        { fileId, status: res.status, body: body.slice(0, 300) });
-    }
-  } catch (e) {
-    console.warn('[trashFile] non-fatal failure:', e && e.message);
-    await logWarn(env, 'backend-drive', 'trashFile',
-      `Orphaned intermediate Google Doc left in Drive: file ${fileId} — ${e && e.message}`,
-      { fileId }).catch(() => {});
-  }
+  } catch (e) { /* non-fatal, matches Code.js's try/catch around setTrashed */ }
 }
 
 // ---- The actual DOCX -> PDF conversion, via Drive's own converter (same

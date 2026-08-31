@@ -20,70 +20,29 @@ function base64FromDataUrl(str) {
 // already attached"), so a shared instance works exactly once per page load
 // and then throws on every subsequent render (receipts, reports, auto-PDF-
 // on-save, etc.) until the page is reloaded.
-// A 1x1 transparent PNG. Used when the QR value is empty/unusable so the image
-// module gets VALID bytes instead of a zero-length buffer.
-//
-// Why this matters: every caller does `generateQrDataUrl(...).catch(() => '')`, so
-// a QR failure silently produced `QR_CODE: ''`. That empty string was fed to
-// `atob('')` -> a ZERO-LENGTH ArrayBuffer -> a corrupt image embedded in a PDF
-// that then gets permanently archived in Drive, breaking the public portal's
-// "Verified Record" scan for that document. No error, no log, no retry.
-const BLANK_PNG_B64 =
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
-
-function base64ToBytes(b64) {
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes.buffer;
-}
-
-// Records tags whose image data was missing/invalid so the caller can surface and
-// log it rather than shipping a silently-broken document.
-function createImageModule(report) {
+function createImageModule() {
   return new ImageModule({
     centered: false,
-    getImage: (tagValue, tagName) => {
+    getImage: (tagValue) => {
       const b64 = base64FromDataUrl(tagValue);
-      if (!b64) {
-        if (report) report.missingImages.push(tagName || 'unknown');
-        return base64ToBytes(BLANK_PNG_B64);
-      }
-      try {
-        return base64ToBytes(b64);
-      } catch (e) {
-        if (report) report.missingImages.push(tagName || 'unknown');
-        return base64ToBytes(BLANK_PNG_B64);
-      }
+      const binary = atob(b64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return bytes.buffer;
     },
     getSize: () => [100, 100],
   });
 }
 
-// Collects the tags docxtemplater could not resolve during the last render, so a
-// caller can tell the difference between "template rendered fine" and "template
-// rendered with 8 blank fields". `nullGetter` blanking unknown tags is what made
-// the missing consent placeholders invisible in bulk generation.
-let lastRenderReport = { missingTags: [], missingImages: [] };
-export function getLastRenderReport() {
-  return { missingTags: [...lastRenderReport.missingTags], missingImages: [...lastRenderReport.missingImages] };
-}
-
 function renderFromZip(zip, data) {
-  const report = { missingTags: [], missingImages: [] };
   const doc = new Docxtemplater(zip, {
     paragraphLoop: true,
     linebreaks: true,
     delimiters: { start: '{', end: '}' },
-    modules: [createImageModule(report)],
-    nullGetter: (part) => {
-      // Still blank rather than crashing the whole document, but now RECORDED.
-      if (part && part.value) report.missingTags.push(part.value);
-      return '';
-    },
+    modules: [createImageModule()],
+    nullGetter: () => '', // an unrecognized/typo'd {TAG} renders blank instead of crashing the whole document
   });
   doc.render(data);
-  lastRenderReport = report;
   return doc.getZip().generate({ type: 'base64', compression: 'DEFLATE' });
 }
 

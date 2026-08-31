@@ -392,16 +392,9 @@ function MessageLog() {
   const [error, setError] = useState('');
   const [resendingId, setResendingId] = useState(null);
 
-  // Messages queued but never delivered. Nothing in this repo transitions a row
-  // from 'pending' to sent/failed (only the external sender script does), so a
-  // rotated API key / stale script URL / dead host used to accumulate 'pending'
-  // rows FOREVER with no alert, no threshold and nothing in the UI to notice it.
-  const [stuck, setStuck] = useState(null);
-
   const load = useCallback((silent) => {
     if (!silent) setLoading(true);
     api.getMessageLog().then(setRows).catch(err => setError(err.message)).finally(() => setLoading(false));
-    api.getStuckMessages(30).then(setStuck).catch(() => { /* panel is advisory only */ });
   }, []);
 
   useEffect(() => {
@@ -411,8 +404,6 @@ function MessageLog() {
   }, [load]);
 
   const badgeClass = (status) => status === 'sent' ? 'badge-ok' : status === 'failed' ? 'badge-warn' : 'badge-pending';
-
-  const stuckCount = stuck ? stuck.total : 0;
 
   const resend = async (m) => {
     setResendingId(m.message_id);
@@ -435,14 +426,6 @@ function MessageLog() {
         <button className={`subtab-btn ${tab === 'group' ? 'active' : ''}`} onClick={() => setTab('group')}>Group</button>
       </div>
 
-      {stuckCount > 0 && (
-        <div style={{ background: '#FEE2E2', color: '#991B1B', borderRadius: 8, padding: '10px 12px', fontSize: '0.85rem', margin: '10px 0' }}>
-          🚨 <strong>{stuckCount} message{stuckCount === 1 ? '' : 's'}</strong> 30 minute se zyada se queue mein atke hain
-          ({stuck.person.length} person, {stuck.group.length} group) — matlab bahar wala WhatsApp sender script chal nahi raha,
-          ya uska API key / URL galat hai. Sender script aur <code>WHATSAPP_QUEUE_API_KEY</code> check karein.
-        </div>
-      )}
-
       {loading && <div className="inline-spinner">Loading messages...</div>}
       {error && <div className="error-banner">{error}</div>}
 
@@ -463,22 +446,14 @@ function MessageLog() {
           {m.from && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>From: {m.from}</div>}
           {m.file_link && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>📎 <a href={m.file_link} target="_blank" rel="noreferrer">Attached file</a></div>}
           {m.remarks && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Remarks: {m.remarks}</div>}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, gap: 8, flexWrap: 'wrap' }}>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              {m.created_at}
-              {m.attempts > 0 && <> · {m.attempts} attempt{m.attempts === 1 ? '' : 's'}</>}
-              {m.sent_at && <> · finished {m.sent_at}</>}
-            </div>
-            {/* Was `m.status === 'failed'` only. Since nothing in this codebase ever
-                sets 'failed' (only the external sender does), a message stuck at
-                'pending'/'sending' was completely unrecoverable from the UI — the
-                row just sat there with a "pending" chip and no action. */}
-            {m.status !== 'sent' && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{m.created_at}</div>
+            {m.status === 'failed' && (
               <button
                 className="btn-submit" style={{ width: 'auto', padding: '4px 12px', fontSize: '0.8rem' }}
                 onClick={() => resend(m)} disabled={resendingId === m.message_id}
               >
-                {resendingId === m.message_id ? 'Resending...' : m.status === 'failed' ? 'Resend' : 'Re-queue'}
+                {resendingId === m.message_id ? 'Resending...' : 'Resend'}
               </button>
             )}
           </div>

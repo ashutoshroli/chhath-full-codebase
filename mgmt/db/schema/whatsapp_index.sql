@@ -11,15 +11,7 @@ CREATE TABLE group_message_templates (
   created_at TEXT,
   message_type TEXT,
   contribution_type REAL,
-  file_link TEXT,
-  -- Both columns were missing here even though addTemplate()/updateTemplate()
-  -- always write them for BOTH template tables -> every "Add/Update Group
-  -- Template" failed with D1_ERROR "no column named doc_sub_type". They are
-  -- genuinely used for group messages too: doc_sub_type picks
-  -- Certificate-vs-Receipt in templatesForContribution(), file_doc_type decides
-  -- whether the freshly generated PDF gets attached in resolveFileLink().
-  doc_sub_type TEXT,
-  file_doc_type TEXT
+  file_link TEXT
 );
 
 -- source sheet: "WHATSAPP_GROUPS"
@@ -56,45 +48,30 @@ CREATE TABLE group_messages (
   message_id TEXT,
   groupid TEXT,
   message TEXT,
-  status TEXT,          -- pending | sending | resending | sent | failed
+  status TEXT,
   remarks TEXT,
   created_at TEXT,
-  "from" TEXT,          -- was REAL: phone numbers are NOT numbers (a leading '+'
-                        -- or 0 cannot survive REAL affinity)
+  "from" REAL,
   message_type TEXT,
-  file_link TEXT,
-  attempts INTEGER DEFAULT 0,  -- how many times served to the external sender
-  claimed_at TEXT,             -- set when served; a stale claim is auto-requeued
-  sent_at TEXT                 -- set on the terminal sent/failed transition
+  file_link TEXT
 );
 CREATE INDEX idx_group_messages_status ON group_messages(status);
 CREATE INDEX idx_group_messages_groupid ON group_messages(groupid);
-CREATE INDEX idx_group_messages_claimed_at ON group_messages(claimed_at);
--- message_id is the sole business key for updateMessageStatus()/resendMessage().
--- without this a collision silently corrupts a different recipient's status.
-CREATE UNIQUE INDEX uq_group_messages_message_id ON group_messages(message_id);
 
 -- source sheet: "PERSON_MESSAGES"
 DROP TABLE IF EXISTS person_messages;
 CREATE TABLE person_messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   message_id TEXT,
-  mobileno TEXT,        -- was REAL: stored 917282032146.0 and silently lost any
-                        -- leading '+'/0. Always the canonical 91XXXXXXXXXX now
-                        -- (see backend/src/phone.js waNumber()).
+  mobileno REAL,
   message TEXT,
-  status TEXT,          -- pending | sending | resending | sent | failed
+  status TEXT,
   remarks TEXT,
   created_at TEXT,
-  "from" TEXT,
+  "from" REAL,
   message_type TEXT,
-  file_link TEXT,
-  attempts INTEGER DEFAULT 0,
-  claimed_at TEXT,
-  sent_at TEXT
+  file_link TEXT
 );
 CREATE INDEX idx_person_messages_status ON person_messages(status);
 CREATE INDEX idx_person_messages_mobileno ON person_messages(mobileno);
-CREATE INDEX idx_person_messages_claimed_at ON person_messages(claimed_at);
-CREATE UNIQUE INDEX uq_person_messages_message_id ON person_messages(message_id);
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { api, reportClientError } from '../api.js';
-import { fillDocxTemplateFromRow, getLastRenderReport } from '../docxFill.js';
+import { api } from '../api.js';
+import { fillDocxTemplateFromRow } from '../docxFill.js';
 
 // Superadmin-only. Own year dropdown (independent of the app's top year-selector).
 //
@@ -28,7 +28,6 @@ export default function PdfExport() {
   const [language, setLanguage] = useState('en'); // 'en' | 'hi' | 'both'
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
-  const [warning, setWarning] = useState('');
   const [previous, setPrevious] = useState(null); // previously generated Report PDFs for the selected year
   const [previousLoading, setPreviousLoading] = useState(false);
 
@@ -45,15 +44,7 @@ export default function PdfExport() {
     // All three report modes (en/hi/both) are separate docTypes but the same
     // "Year's generated reports" list — fetch all three and merge.
     Promise.all(
-      // Was `.catch(() => [])`, so a permissions or DB failure silently rendered
-      // as "no reports generated yet for this year".
-      Object.values(DOC_TYPE_FOR_MODE).map(dt =>
-        api.getGeneratedFilesForYear(y, dt).catch(err => {
-          setWarning(`Purani reports ki list load nahi hui (${dt}): ${err.message}`);
-          reportClientError('PdfExport', `getGeneratedFilesForYear failed for ${dt} ${y}`, err, { year: y, docType: dt });
-          return [];
-        })
-      )
+      Object.values(DOC_TYPE_FOR_MODE).map(dt => api.getGeneratedFilesForYear(y, dt).catch(() => []))
     ).then(lists => {
       const merged = [].concat(...lists).sort((a, b) => (b.generated_at || '').localeCompare(a.generated_at || ''));
       setPrevious(merged);
@@ -66,21 +57,11 @@ export default function PdfExport() {
     if (!year) return alert('Please select a year');
     setGenerating(true);
     setError('');
-    setWarning('');
     try {
       const mode = language;
       const docType = DOC_TYPE_FOR_MODE[mode];
 
-      let docxRow = null;
-      try {
-        docxRow = await api.getDocxTemplateForDoc(docType, year);
-      } catch (err) {
-        // Was `.catch(() => null)` -> a real load failure was reported as "no
-        // template uploaded", sending the Superadmin to upload a template that
-        // already existed.
-        reportClientError('PdfExport', `Template load failed for ${docType} ${year}`, err, { docType, year });
-        throw new Error(`Report template load nahi hua: ${err.message}`);
-      }
+      const docxRow = await api.getDocxTemplateForDoc(docType, year).catch(() => null);
       if (!docxRow || !(docxRow.base64 || docxRow.downloadUrl)) {
         throw new Error(`No Report template (${mode}) has been uploaded for Year ${year} yet. Please upload one under Document Templates.`);
       }
@@ -169,48 +150,19 @@ export default function PdfExport() {
       };
 
       const filledBase64 = await fillDocxTemplateFromRow(docxRow, placeholders);
-
-      const rep = getLastRenderReport();
-      if (rep.missingTags.length) {
-        setWarning(`Report template mein ye placeholders resolve nahi hue (blank rahenge): ${[...new Set(rep.missingTags)].join(', ')}`);
-        reportClientError('PdfExport', 'Report template had unresolved placeholders', null,
-          { docType, year, missingTags: [...new Set(rep.missingTags)] });
-      }
-
-      // Was `${docType}-${year}-${Date.now()}`. A timestamp-based recordId can
-      // never match isFileGenerated(), so EVERY click created a brand-new Drive
-      // PDF plus a brand-new generated_files row — an unbounded stream of
-      // duplicates that are shipped to every anonymous portal visitor, and whose
-      // QR codes (`?record=report_en-...`) the public portal can't resolve at all.
-      // One stable row per (docType, year), regenerated on purpose via force.
-      const recordId = `${docType}-${year}`;
+      const recordId = `${docType}-${year}-${Date.now()}`;
       const fileName = `Chhath-Puja-Report-${year}${mode !== 'en' ? '-' + mode : ''}.docx`;
-      const res = await api.convertDocxToPdf(docType, year, recordId, filledBase64, fileName, 'bulk', true);
+      const res = await api.convertDocxToPdf(docType, year, recordId, filledBase64, fileName);
 
-      if (res && res.indexFailed) {
-        setWarning(res.error || 'Report PDF ban gaya lekin index nahi hua.');
-        reportClientError('PdfExport', `Report generated but NOT indexed: ${recordId}`, null,
-          { docType, year, recordId, publicLink: res.publicLink });
-      }
-
-      // The `download` attribute is ignored on a cross-origin Drive URL, and the
-      // click happens several awaits after the user gesture, so it needs to be a
-      // real DOM node with a navigation fallback.
       const a = document.createElement('a');
       a.href = res.publicLink;
+      a.download = `Chhath-Puja-Report-${year}${mode !== 'en' ? '-' + mode : ''}.pdf`;
       a.target = '_blank';
-      a.rel = 'noreferrer';
-      a.style.display = 'none';
-      document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
 
       loadPrevious(year);
     } catch (err) {
       setError(err.message || 'An error occurred while generating the PDF');
-      // Client-side docx fill / report assembly failures never pass through
-      // api.js's call(), so they were previously invisible in the Error Log.
-      reportClientError('PdfExport', `Report generation failed for ${year}`, err, { year, language });
     } finally {
       setGenerating(false);
     }
@@ -220,11 +172,6 @@ export default function PdfExport() {
     <>
       <h2 style={{ marginBottom: 15 }}>PDF Export</h2>
       {error && <div className="error-banner">{error}</div>}
-      {warning && (
-        <div style={{ background: '#FEF3C7', color: '#92400E', borderRadius: 8, padding: '8px 12px', fontSize: '0.8rem', marginBottom: 10 }}>
-          ⚠️ {warning}
-        </div>
-      )}
 
       <div className="glass-card" style={{ padding: 20 }}>
         <div className="form-group">

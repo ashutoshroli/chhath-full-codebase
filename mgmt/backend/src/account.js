@@ -131,15 +131,12 @@ export async function changePassword(env, currentPassword, newPassword, user) {
   return { success: true };
 }
 
-// ============ FILE UPLOAD (Drive REST API) ============
+// ============ FILE UPLOAD (Drive REST API — needs a real service-account credential to verify) ============
 //
-// Required Worker secrets: DRIVE_FOLDER_ID plus the three DRIVE_OAUTH_* values
-// consumed by getDriveAccessToken() below.
-// NOTE: the old TODO here named DRIVE_SA_EMAIL / DRIVE_SA_PRIVATE_KEY — that
-// service-account path was replaced by the OAuth refresh-token flow and those two
-// names are read by NO code anywhere. Don't set them; they do nothing.
-// This mirrors Code.js's uploadFileToDrive() but over the REST API since Workers
-// has no DriveApp equivalent.
+// TODO before first real use: set DRIVE_SA_EMAIL / DRIVE_SA_PRIVATE_KEY / DRIVE_FOLDER_ID
+// as Worker secrets, and confirm the OAuth JWT exchange against your actual service
+// account. This mirrors Code.js's uploadFileToDrive() but over the REST API since
+// Workers has no DriveApp equivalent.
 export async function uploadFileToDrive(env, base64Data, fileName, mimeType) {
   if (!env.DRIVE_FOLDER_ID) throw new Error('DRIVE_FOLDER_ID not configured on server');
   const accessToken = await getDriveAccessToken(env);
@@ -199,7 +196,10 @@ export async function getDriveAccessToken(env) {
   return access_token;
 }
 
-// NOTE: pemToArrayBuffer() lived here to parse a service-account private key
-// (DRIVE_SA_PRIVATE_KEY). That auth path was replaced by the OAuth refresh-token
-// flow in getDriveAccessToken() above and this helper had ZERO callers left, so it
-// was removed rather than left as a hint toward a credential the code ignores.
+function pemToArrayBuffer(pem) {
+  const b64 = pem.replace(/-----BEGIN PRIVATE KEY-----/, '').replace(/-----END PRIVATE KEY-----/, '').replace(/\\n/g, '').replace(/\s+/g, '');
+  const bin = atob(b64);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return buf.buffer;
+}

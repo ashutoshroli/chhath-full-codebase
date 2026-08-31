@@ -8,7 +8,6 @@ import Modal from './Modal.jsx';
 export default function SettingsModal({ open, onClose, userId }) {
   const [profile, setProfile] = useState({ Mobile: '', Email: '', WhatsApp: '' });
   const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
 
   const [pwForm, setPwForm] = useState({ current: '', next: '', confirm: '' });
@@ -19,9 +18,7 @@ export default function SettingsModal({ open, onClose, userId }) {
     setLoading(true);
     api.getUserProfile(userId)
       .then(d => setProfile({ Mobile: d.user.Mobile || '', Email: d.user.Email || '', WhatsApp: d.user.WhatsApp || '' }))
-      // Was `.catch(() => {})`, so a failed load left the form silently blank and
-      // saving it would then WIPE the stored mobile/email/WhatsApp.
-      .catch(err => setLoadError(err.message))
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, [open, userId]);
 
@@ -58,12 +55,6 @@ export default function SettingsModal({ open, onClose, userId }) {
 
   return (
     <Modal open={open} onClose={onClose}>
-      {loadError && (
-        <div className="error-banner">
-          Profile load nahi hua: {loadError} — save karne se pehle page refresh karein,
-          warna aapka mobile/email/WhatsApp mit sakta hai.
-        </div>
-      )}
       <h3 style={{ marginBottom: 15 }}>Settings</h3>
       {loading && <div className="inline-spinner">Loading...</div>}
 

@@ -28,12 +28,6 @@ export default function SamaanTemplates() {
   const [sampleQr, setSampleQr] = useState('');
 
   useEffect(() => {
-    // Deliberately silent: this QR is only a decorative THUMBNAIL shown next to the
-    // placeholder hints in this editor (record id "sample-preview"). It never ends
-    // up in a generated document, so a failure here has no consequence worth
-    // reporting. The QR used in real documents is generated in ReceiptModal /
-    // Home / Bulk / DownloadCenter / ConsentPage, and every one of those DOES
-    // report a failure now.
     generateQrDataUrl(publicRecordUrl('sample-preview')).then(setSampleQr).catch(() => {});
   }, []);
 

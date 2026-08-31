@@ -38,20 +38,4 @@ binding = "DB_MISC"
 database_name = "chhath-misc"
 database_id = "a9298585-e108-4f7e-b555-7da7fc0a1921"  # same DB as mgmt-worker's DB_MISC
 
-# DB_LOGS is now bound — and it is the ONE exception to the read-only rule above.
-#
-# Previously it was deliberately left out, which meant this Worker could not write
-# anywhere: the fetch handler had no try/catch, so any D1 failure became a
-# Cloudflare "1101 Worker threw exception" that nobody ever saw, and the public
-# frontend had no error reporting at all. The entire public transparency portal —
-# backend AND frontend — was invisible to the committee.
-#
-# Scope rule (same enforcement-by-comment convention as DB_MISC above): this
-# Worker only ever INSERTs into the `error_log` table (and SELECTs from it purely
-# to de-duplicate). It must never read or write anything else in this DB.
-[[d1_databases]]
-binding = "DB_LOGS"
-database_name = "chhath-logs"
-database_id = "b4204316-e268-4fc3-bb4c-922cd291fb22"  # same DB as mgmt-worker's DB_LOGS
-
-# Deliberately NOT bound here: DB_TEMPLATES, DB_WHATSAPP_INDEX
+# Deliberately NOT bound here: DB_TEMPLATES, DB_WHATSAPP_INDEX, DB_LOGS

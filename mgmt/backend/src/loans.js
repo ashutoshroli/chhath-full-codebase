@@ -1,82 +1,20 @@
 import { getSheetDataAsJSON, saveRecord } from './crud.js';
-import { requireRole, requireYearUnlocked, requireYearAccess, requireSuperadmin, requireAdminOrAbove, requireStaffRole } from './auth.js';
+import { requireRole, requireYearUnlocked, requireYearAccess, requireSuperadmin, requireAdminOrAbove } from './auth.js';
 import { toColumnPayload } from './tableRegistry.js';
-import { otpConsentSenderNumber } from './settings.js';
+import { getFestivalDates, dayNamesOf, otpConsentSenderNumber } from './settings.js';
 import { getConsentPageTemplate } from './settings.js';
-import { pickRandomActive, renderTemplateChecked, queuePersonMessageDirect, queueGroupMessageDirect, isTruthyFlag as waTruthyFlag } from './whatsapp.js';
+import { pickRandomActive, renderTemplate, queuePersonMessageDirect } from './whatsapp.js';
 import { uploadFileToDrive } from './account.js';
-import { logErrorAt, logWarn } from './logger.js';
-import { waNumberOf, looksLikeAttemptedNumber } from './phone.js';
-import { buildConsentPlaceholders } from './consentPlaceholders.js';
 
 function generateLoanId() { return 'LN' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 function generateConsentId() { return 'CN' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 function generateConsentToken() { return crypto.randomUUID().replace(/-/g, '') + Math.random().toString(36).slice(2, 8); }
 function generateOtp() { return String(Math.floor(100000 + Math.random() * 900000)); }
 function parseAmt(v) { return parseFloat((v || '').toString().replace(/[^0-9.-]+/g, '')) || 0; }
-const isTruthyFlag = waTruthyFlag;
-
-// OTP hardening: previously an OTP never expired and verifyConsentOtp() had NO
-// attempt limit at all — unlimited guesses against a 6-digit code.
-const OTP_TTL_MS = 10 * 60 * 1000;
-const OTP_MAX_VERIFY_ATTEMPTS = 5;
-const OTP_MAX_REQUESTS_PER_HOUR = 5;
-
-// CONSENT_BASE_URL used to fall back to '' (`env.CONSENT_BASE_URL || ''`), so a
-// misconfigured Worker silently sent every consent invitation with a dead
-// relative link like "/consent/<token>" — recorded as `sent`, impossible to open.
-// wrangler.toml still ships the literal placeholder domain, so check for that too.
-function consentLinkBuilder(env) {
-  const base = (env.CONSENT_BASE_URL || '').toString().trim().replace(/\/+$/, '');
-  const isPlaceholder = !base || /YOUR-FRONTEND-DOMAIN|example\.com/i.test(base);
-  if (isPlaceholder) {
-    throw new Error(
-      'CONSENT_BASE_URL server par configure nahi hai (abhi placeholder value hai). ' +
-      'Consent link bheja nahi ja sakta — wrangler.toml / Worker vars mein asli frontend domain set karein.'
-    );
-  }
-  return (token) => `${base}/consent/${token}`;
-}
-
-// Reads LOAN_MESSAGE_TEMPLATES exactly once per request instead of the 3-6 times
-// the old code did (createLoanConsents alone read it three separate times, and
-// otpConsentSenderNumber() was called inside the guarantor loop).
-async function loanTemplateContext(env) {
-  const [all, sender] = await Promise.all([
-    getSheetDataAsJSON(env, 'LOAN_MESSAGE_TEMPLATES'),
-    otpConsentSenderNumber(env),
-  ]);
-  return {
-    sender,
-    pick: (type) => pickRandomActive(all.filter(t => t.type === type)),
-    countFor: (type) => all.filter(t => t.type === type).length,
-  };
-}
-
-// Renders a loan template and logs any placeholder the caller didn't supply.
-// Unresolved tokens used to be delivered LITERALLY — real `status='sent'` rows in
-// the migration data contain {FatherName}, {Village}, {Guarantor1}, etc.
-async function renderLoanTemplate(env, page, tpl, data, context) {
-  const { text, missing } = renderTemplateChecked(tpl.text, data);
-  if (missing.length) {
-    await logWarn(env, 'whatsapp-template', page,
-      `Loan template ${tpl.template_id || '(unknown)'} [${tpl.type}] has unresolved placeholder(s): ${[...new Set(missing)].join(', ')} — rendered blank.`,
-      { templateId: tpl.template_id, type: tpl.type, missing: [...new Set(missing)], ...(context || {}) });
-  }
-  return text;
-}
-
-// Every send site below used to be a bare `catch (e) { console.error(e) }`, i.e.
-// invisible in the portal. This wrapper keeps the "never break the main
-// operation" behaviour but always leaves an error_log row behind.
-async function trySend(env, page, fn, context) {
-  try {
-    return await fn();
-  } catch (err) {
-    console.error(`[loans:${page}]`, err);
-    await logErrorAt(env, 'whatsapp-loans', page, err, context);
-    return { failed: true, error: err.message };
-  }
+function isTruthyFlag(v) { return v === true || v === 1 || v === '1' || String(v).toLowerCase() === 'true'; }
+function whatsappNumberOf(user) {
+  const raw = (user && (user.WhatsApp || user.Mobile) || '').toString().trim();
+  return /^\d{10}$/.test(raw) ? raw : '';
 }
 
 // ---- Save / delete loan transaction ----
@@ -118,31 +56,13 @@ export async function saveLoanTransaction(env, loanPayload, guarantorPayloads, u
   });
   await env.DB_LOANS_EXPENSES.batch(guarStmts);
 
-  // The loan rows are committed at this point, so we must not throw — but the
-  // old code did `console.error(...)` and then returned a flat {success:true},
-  // meaning a loan could be saved with NO consent records and NO WhatsApp
-  // invitations while the admin was told everything worked.
-  let consentResult;
   try {
-    consentResult = await createLoanConsents(env, loanId, loanPayload, guarantorPayloads, user);
+    await createLoanConsents(env, loanId, loanPayload, guarantorPayloads, user);
   } catch (err) {
     console.error('LoanConsentCreateError', err);
-    await logErrorAt(env, 'backend-loans', 'saveLoanTransaction:createLoanConsents', err, {
-      loanId, loanerId: loanPayload.Name, year: loanPayload.Year,
-    });
-    return {
-      success: true,
-      loanId,
-      consentWarning:
-        'Loan save ho gaya, lekin consent records / WhatsApp invitations banane mein problem hui: ' +
-        err.message + ' — Loan Consents screen se "Resend" karein.',
-    };
   }
 
-  const warnings = (consentResult && consentResult.warnings) || [];
-  return warnings.length
-    ? { success: true, loanId, consentWarning: 'Loan save ho gaya, lekin: ' + warnings.join(' | ') }
-    : { success: true, loanId };
+  return { success: true, loanId };
 }
 
 export async function deleteLoanTransaction(env, rowIndex, year, loanerId, user, loanId) {
@@ -185,7 +105,8 @@ async function createLoanConsents(env, loanId, loanPayload, guarantorPayloads, u
   const loanerU = userMap[loanPayload.Name] || {};
   const guarantorUsers = guarantorPayloads.map(g => userMap[g.Guarantor] || {});
   const rate = loanPayload['Intrest Rate'] || loanPayload['Interest Rate'] || '0';
-  const consentLink = consentLinkBuilder(env); // throws early if misconfigured
+  const consentBaseUrl = env.CONSENT_BASE_URL || '';
+  const consentLink = (token) => consentBaseUrl + '/consent/' + token;
 
   const loanerConsent = created.find(c => c.role === 'loaner');
   const guarConsents = created.filter(c => c.role === 'guarantor');
@@ -200,98 +121,53 @@ async function createLoanConsents(env, loanId, loanPayload, guarantorPayloads, u
     Guarantor3ConsentLink: consentLink(guarConsents[2].token),
   };
 
-  // One read of LOAN_MESSAGE_TEMPLATES + one read of the sender number for all
-  // three blocks below (was 3 template reads + up to 5 sender reads).
-  const tpls = await loanTemplateContext(env);
-  const warnings = [];
-
   // Group template — to all Active WhatsApp groups.
-  await trySend(env, 'createLoanConsents:group', async () => {
+  try {
     const groups = (await getSheetDataAsJSON(env, 'WHATSAPP_GROUPS')).filter(g => isTruthyFlag(g.active));
-    if (!groups.length) {
-      warnings.push('koi active WhatsApp group nahi hai');
-      await logWarn(env, 'whatsapp-loans', 'createLoanConsents:group',
-        'No ACTIVE WhatsApp group configured — loan consent group announcement was not queued.', { loanId });
-      return;
-    }
+    const groupTpls = (await getSheetDataAsJSON(env, 'LOAN_MESSAGE_TEMPLATES')).filter(t => t.type === 'consent_group');
+    const sender = await otpConsentSenderNumber(env);
     for (const g of groups) {
-      const tpl = tpls.pick('consent_group');
-      if (!tpl) {
-        warnings.push('consent_group template active nahi hai');
-        await logWarn(env, 'whatsapp-loans', 'createLoanConsents:group',
-          'No active "consent_group" loan message template — group announcement was not queued.', { loanId });
-        return;
-      }
-      const message = await renderLoanTemplate(env, 'createLoanConsents:group', tpl, baseData, { loanId });
-      await queueGroupMessageDirect(env, g.groupid, message, tpls.sender, tpl.message_type, tpl.file_link);
+      const tpl = pickRandomActive(groupTpls);
+      if (!tpl) continue;
+      await env.DB_WHATSAPP_INDEX.prepare(
+        'INSERT INTO group_messages (message_id, groupid, message, status, remarks, created_at, "from", message_type, file_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      ).bind('MSG' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8), g.groupid, renderTemplate(tpl.text, baseData), 'pending', '', new Date().toISOString(), sender, tpl.message_type || 'normal', tpl.file_link || '').run();
     }
-  }, { loanId });
+  } catch (e) { console.error(e); }
 
   // Personal — loaner.
-  await trySend(env, 'createLoanConsents:loaner', async () => {
-    const loanerWa = waNumberOf(loanerU);
-    const tpl = tpls.pick('consent_personal_loaner');
-    if (!tpl) {
-      warnings.push('consent_personal_loaner template active nahi hai');
-      await logWarn(env, 'whatsapp-loans', 'createLoanConsents:loaner',
-        'No active "consent_personal_loaner" template — the loaner got no consent link.', { loanId, loanerId: loanPayload.Name });
-      return;
+  try {
+    const loanerWa = whatsappNumberOf(loanerU);
+    const tpl = pickRandomActive((await getSheetDataAsJSON(env, 'LOAN_MESSAGE_TEMPLATES')).filter(t => t.type === 'consent_personal_loaner'));
+    if (loanerWa && tpl) {
+      const data = Object.assign({}, baseData, {
+        Name: loanerU.Name || loanPayload.Name, NameHindi: loanerU['Name (Hindi)'] || '',
+        FatherName: loanerU["Father's Name"] || '', FatherNameHindi: loanerU["Father's Name (Hindi)"] || '',
+        Village: loanerU.Village || '', VillageHindi: loanerU['Village (Hindi)'] || '',
+        ConsentLink: baseData.LoanerConsentLink,
+      });
+      await queuePersonMessageDirect(env, loanerWa, renderTemplate(tpl.text, data), await otpConsentSenderNumber(env), tpl.message_type, tpl.file_link);
     }
-    if (!loanerWa) {
-      warnings.push(`loaner ka WhatsApp number invalid/missing hai`);
-      await logWarn(env, 'whatsapp-loans', 'createLoanConsents:loaner',
-        looksLikeAttemptedNumber(loanerU.WhatsApp || loanerU.Mobile)
-          ? `Loaner ${loanPayload.Name} has an INVALID WhatsApp/Mobile number — consent link not sent.`
-          : `Loaner ${loanPayload.Name} has no WhatsApp/Mobile number on file — consent link not sent.`,
-        { loanId, loanerId: loanPayload.Name });
-      return;
-    }
-    const data = Object.assign({}, baseData, {
-      Name: loanerU.Name || loanPayload.Name, NameHindi: loanerU['Name (Hindi)'] || '',
-      FatherName: loanerU["Father's Name"] || '', FatherNameHindi: loanerU["Father's Name (Hindi)"] || '',
-      Village: loanerU.Village || '', VillageHindi: loanerU['Village (Hindi)'] || '',
-      ConsentLink: baseData.LoanerConsentLink,
-    });
-    const message = await renderLoanTemplate(env, 'createLoanConsents:loaner', tpl, data, { loanId });
-    await queuePersonMessageDirect(env, loanerWa, message, tpls.sender, tpl.message_type, tpl.file_link);
-  }, { loanId, loanerId: loanPayload.Name });
+  } catch (e) { console.error(e); }
 
   // Personal — each guarantor.
-  await trySend(env, 'createLoanConsents:guarantors', async () => {
-    const tpl0 = tpls.countFor('consent_personal_guarantor');
-    if (!tpl0) {
-      warnings.push('consent_personal_guarantor template active nahi hai');
-      await logWarn(env, 'whatsapp-loans', 'createLoanConsents:guarantors',
-        'No "consent_personal_guarantor" template — none of the guarantors got a consent link.', { loanId });
-      return;
-    }
+  try {
+    const personalGuarTpls = (await getSheetDataAsJSON(env, 'LOAN_MESSAGE_TEMPLATES')).filter(t => t.type === 'consent_personal_guarantor');
     for (let i = 0; i < guarConsents.length; i++) {
       const c = guarConsents[i];
       const gU = guarantorUsers[i] || {};
-      const gWa = waNumberOf(gU);
-      const tpl = tpls.pick('consent_personal_guarantor');
-      if (!tpl) continue;
-      if (!gWa) {
-        warnings.push(`guarantor ${gU.Name || c.personId} ka WhatsApp number invalid/missing hai`);
-        await logWarn(env, 'whatsapp-loans', 'createLoanConsents:guarantors',
-          looksLikeAttemptedNumber(gU.WhatsApp || gU.Mobile)
-            ? `Guarantor ${gU.Name || c.personId} has an INVALID WhatsApp/Mobile number — consent link not sent.`
-            : `Guarantor ${gU.Name || c.personId} has no WhatsApp/Mobile number on file — consent link not sent.`,
-          { loanId, consentId: c.consentId, personId: c.personId });
-        continue;
-      }
+      const gWa = whatsappNumberOf(gU);
+      const tpl = pickRandomActive(personalGuarTpls);
+      if (!gWa || !tpl) continue;
       const data = Object.assign({}, baseData, {
         Name: gU.Name || c.personId, NameHindi: gU['Name (Hindi)'] || '',
         FatherName: gU["Father's Name"] || '', FatherNameHindi: gU["Father's Name (Hindi)"] || '',
         Village: gU.Village || '', VillageHindi: gU['Village (Hindi)'] || '',
         ConsentLink: consentLink(c.token),
       });
-      const message = await renderLoanTemplate(env, 'createLoanConsents:guarantors', tpl, data, { loanId, consentId: c.consentId });
-      await queuePersonMessageDirect(env, gWa, message, tpls.sender, tpl.message_type, tpl.file_link);
+      await queuePersonMessageDirect(env, gWa, renderTemplate(tpl.text, data), await otpConsentSenderNumber(env), tpl.message_type, tpl.file_link);
     }
-  }, { loanId });
-
-  return { warnings };
+  } catch (e) { console.error(e); }
 }
 
 async function recomputeLoanStatus(env, loanId) {
@@ -324,14 +200,45 @@ export async function getConsentByToken(env, token) {
 
   const { results: allConsentsRaw } = await env.DB_LOANS_EXPENSES.prepare("SELECT * FROM loan_consents WHERE loan_id = ? AND status != 'replaced'").bind(loanId).all();
   const guarantorConsents = allConsentsRaw.filter(c => c.role === 'guarantor');
+  const loanerConsent = allConsentsRaw.find(c => c.role === 'loaner');
   const acceptedCount = guarantorConsents.filter(c => c.status === 'accepted').length;
+  const pendingCount = guarantorConsents.filter(c => c.status === 'pending').length;
+  const declinedCount = guarantorConsents.filter(c => c.status === 'declined').length;
   const allGuarantorsAccepted = guarantorConsents.length > 0 && acceptedCount === guarantorConsents.length;
 
-  // Was ~35 lines of inline placeholder construction + a private copy of
-  // statusLabel(). Both now live in consentPlaceholders.js so Bulk Generate and
-  // Download Center produce the IDENTICAL map (they previously supplied only 6 of
-  // these keys, silently blanking every festival date and count).
-  const placeholders = await buildConsentPlaceholders(env, loan, allConsentsRaw, rowObj, nameOf);
+  const festival = await getFestivalDates(env, loan.Year);
+  const diwali = dayNamesOf(festival['Diwali Next Day Date']);
+  const nahayKhay = dayNamesOf(festival['Nahay-Khay Date']);
+  const finalRepay = dayNamesOf(loan['Final Repayment Date']);
+  const chhathArghya = dayNamesOf(festival['Chhath Morning Arghya Date']);
+
+  const statusLabel = (s, c) => {
+    if (s === 'accepted') {
+      const v = c && c.verification_status;
+      const suffix = v === 'verified' ? ' — Verified / सत्यापित'
+        : v === 'rejected' ? ` — Rejected / अस्वीकृत${c.verification_remarks ? ` (Remarks: ${c.verification_remarks})` : ''}`
+        : ' — Pending Verification / सत्यापन लंबित';
+      return 'Accepted / स्वीकृत' + suffix;
+    }
+    if (s === 'declined') return 'Declined / अस्वीकृत' + (c && c.decline_remarks ? ` (Remarks: ${c.decline_remarks})` : '');
+    return 'Pending / लंबित';
+  };
+
+  const placeholders = {
+    LOANER_NAME: nameOf(loan.Name), GUARANTOR_NAME: nameOf(rowObj.person_id),
+    LOAN_AMOUNT: loan.Amount, MONTHLY_INTEREST_RATE: loan['Intrest Rate'] || loan['Interest Rate'] || '0',
+    MINIMUM_TENURE_MONTHS: loan.Tenure || '', FINAL_REPAYMENT_DATE: loan['Final Repayment Date'] || '',
+    FUND_YEAR: loan.Year, LOAN_CONSENT_ID: loanerConsent ? loanerConsent.consent_id : '', CONSENT_ID: rowObj.consent_id,
+    DIWALI_NEXT_DAY_DATE: festival['Diwali Next Day Date'] || '', DIWALI_NEXT_DAY_DAY_NAME: diwali.en ? `${diwali.en} / ${diwali.hi}` : '',
+    NAHAY_KHAY_DATE: festival['Nahay-Khay Date'] || '', NAHAY_KHAY_DAY_NAME: nahayKhay.en ? `${nahayKhay.en} / ${nahayKhay.hi}` : '',
+    FINAL_REPAYMENT_DAY_NAME: finalRepay.en ? `${finalRepay.en} / ${finalRepay.hi}` : '',
+    CHHATH_MORNING_ARGHYA_DATE: festival['Chhath Morning Arghya Date'] || '', CHHATH_MORNING_ARGHYA_DAY_NAME: chhathArghya.en ? `${chhathArghya.en} / ${chhathArghya.hi}` : '',
+    ACCEPTED_COUNT: acceptedCount, PENDING_COUNT: pendingCount, DECLINED_COUNT: declinedCount,
+  };
+  guarantorConsents.forEach((c, i) => {
+    placeholders[`GUARANTOR_${i + 1}_NAME`] = nameOf(c.person_id);
+    placeholders[`GUARANTOR_${i + 1}_STATUS`] = statusLabel(c.status, c);
+  });
 
   const tplText = (await getConsentPageTemplate(env, rowObj.role === 'loaner' ? 'loaner_consent' : 'guarantor_consent')).text;
 
@@ -341,36 +248,8 @@ export async function getConsentByToken(env, token) {
     role: rowObj.role,
     templateText: tplText,
     placeholders,
-    // The Consent page builds its PDF recordId from this instead of guessing
-    // between LOAN_CONSENT_ID and CONSENT_ID (the old `LOAN_CONSENT_ID ||
-    // CONSENT_ID` picked the LOANER's id for a guarantor, so every guarantor PDF
-    // was indexed under the wrong key and never appeared anywhere again).
-    consentId: rowObj.consent_id,
-    docType: rowObj.role === 'loaner' ? 'consent_loaner' : 'consent_guarantor',
     lockedReason: (rowObj.role === 'loaner' && !allGuarantorsAccepted) ? `${acceptedCount}/${guarantorConsents.length} guarantors accepted` : null,
   };
-}
-
-// OTP state that the loan_consents table has no columns for (otp_issued_at,
-// otp_attempts) is kept in KV, keyed by consent_id. This avoids a schema change
-// on a table the external tooling also reads, and gives us free TTL expiry.
-const otpMetaKey = (consentId) => `consentotp:${consentId}`;
-
-async function readOtpMeta(env, consentId) {
-  if (!env.KV_SESSIONS) return null;
-  try {
-    const raw = await env.KV_SESSIONS.get(otpMetaKey(consentId));
-    return raw ? JSON.parse(raw) : null;
-  } catch (e) { return null; }
-}
-
-async function writeOtpMeta(env, consentId, meta) {
-  if (!env.KV_SESSIONS) return;
-  try {
-    await env.KV_SESSIONS.put(otpMetaKey(consentId), JSON.stringify(meta), {
-      expirationTtl: Math.max(60, Math.ceil(OTP_TTL_MS / 1000) * 2),
-    });
-  } catch (e) { /* KV unavailable — verification still works, just without TTL */ }
 }
 
 export async function requestConsentOtp(env, token) {
@@ -380,79 +259,28 @@ export async function requestConsentOtp(env, token) {
 
   const users = await getSheetDataAsJSON(env, 'USERS');
   const person = users.find(u => u.ID === rowObj.person_id);
-  const wa = waNumberOf(person || {});
+  const wa = whatsappNumberOf(person || {});
   if (!wa) throw new Error('Aapka WhatsApp number portal mein register nahi hai. Superadmin se contact karein.');
 
-  // requestConsentOtp is unauthenticated by design (the token IS the credential),
-  // but previously anyone holding a link could enqueue UNLIMITED OTP messages to
-  // that person's number — a spam/ban vector for the sending device.
-  const prev = await readOtpMeta(env, rowObj.consent_id);
-  const hourAgo = Date.now() - 3600000;
-  const recentRequests = ((prev && prev.requests) || []).filter(t => t > hourAgo);
-  if (recentRequests.length >= OTP_MAX_REQUESTS_PER_HOUR) {
-    throw new Error(`Ek ghante mein sirf ${OTP_MAX_REQUESTS_PER_HOUR} baar OTP bheja ja sakta hai. Thodi der baad koshish karein.`);
-  }
-
   const otp = generateOtp();
-  const issuedAt = Date.now();
   await env.DB_LOANS_EXPENSES.prepare('UPDATE loan_consents SET otp = ?, otp_verified = 0 WHERE id = ?').bind(otp, rowObj.id).run();
-  await writeOtpMeta(env, rowObj.consent_id, {
-    issuedAt,
-    attempts: 0,
-    requests: recentRequests.concat(issuedAt),
-  });
 
-  const tpls = await loanTemplateContext(env);
-  const otpTpl = tpls.pick('otp');
+  const otpTpl = pickRandomActive((await getSheetDataAsJSON(env, 'LOAN_MESSAGE_TEMPLATES')).filter(t => t.type === 'otp'));
   const message = otpTpl
-    ? await renderLoanTemplate(env, 'requestConsentOtp', otpTpl, { OTP: otp, Name: person ? person.Name : '' }, { consentId: rowObj.consent_id })
-    : `Aapka loan consent verification OTP hai: ${otp}. Ye ${Math.round(OTP_TTL_MS / 60000)} minute mein expire ho jayega. Kisi ke saath share na karein.`;
-
-  const res = await queuePersonMessageDirect(env, wa, message, tpls.sender, otpTpl ? otpTpl.message_type : 'normal', otpTpl ? otpTpl.file_link : '');
-  if (!res || !res.success) {
-    await logWarn(env, 'whatsapp-loans', 'requestConsentOtp',
-      `OTP message could NOT be queued for consent ${rowObj.consent_id} (number rejected).`,
-      { consentId: rowObj.consent_id, personId: rowObj.person_id });
-    throw new Error('OTP bheja nahi ja saka — aapka registered number valid nahi hai. Superadmin se contact karein.');
-  }
-  return { success: true, expiresInMinutes: Math.round(OTP_TTL_MS / 60000) };
+    ? renderTemplate(otpTpl.text, { OTP: otp, Name: person ? person.Name : '' })
+    : `Aapka loan consent verification OTP hai: ${otp}. Kisi ke saath share na karein.`;
+  await queuePersonMessageDirect(env, wa, message, await otpConsentSenderNumber(env), otpTpl ? otpTpl.message_type : 'normal', otpTpl ? otpTpl.file_link : '');
+  return { success: true };
 }
 
 export async function verifyConsentOtp(env, token, otp) {
   const rowObj = await findConsentRowByToken(env, token);
   if (!rowObj) throw new Error('Ye link valid nahi hai.');
   if (rowObj.status !== 'pending') throw new Error('Is loan par aapka jawab pehle hi record ho chuka hai.');
-  if (!rowObj.otp || rowObj.otp.toString().trim() === '') throw new Error('Pehle OTP request karein.');
-
-  const meta = (await readOtpMeta(env, rowObj.consent_id)) || {};
-
-  // Expiry: an OTP used to be valid forever.
-  if (meta.issuedAt && Date.now() - meta.issuedAt > OTP_TTL_MS) {
-    throw new Error('OTP expire ho gaya hai. Naya OTP request karein.');
+  if (!rowObj.otp || (otp || '').toString().trim() !== rowObj.otp.toString().trim()) {
+    throw new Error('OTP galat hai.');
   }
-
-  // Attempt limit: there was NO limit at all — unlimited guesses against a
-  // 6-digit code.
-  const attempts = parseInt(meta.attempts) || 0;
-  if (attempts >= OTP_MAX_VERIFY_ATTEMPTS) {
-    await logWarn(env, 'backend-loans', 'verifyConsentOtp',
-      `OTP verification locked for consent ${rowObj.consent_id} after ${attempts} wrong attempts.`,
-      { consentId: rowObj.consent_id, personId: rowObj.person_id });
-    throw new Error('Bahut baar galat OTP daala gaya. Naya OTP request karein.');
-  }
-
-  // Normalize both sides — otp is a REAL column, so '012345' can come back as 12345.
-  const expected = rowObj.otp.toString().trim().replace(/\.0+$/, '');
-  const supplied = (otp === undefined || otp === null ? '' : otp.toString()).trim();
-  if (supplied !== expected) {
-    await writeOtpMeta(env, rowObj.consent_id, Object.assign({}, meta, { attempts: attempts + 1 }));
-    const left = OTP_MAX_VERIFY_ATTEMPTS - (attempts + 1);
-    throw new Error(`OTP galat hai.${left > 0 ? ` ${left} koshish bachi hai.` : ' Naya OTP request karein.'}`);
-  }
-
   await env.DB_LOANS_EXPENSES.prepare('UPDATE loan_consents SET otp_verified = 1 WHERE id = ?').bind(rowObj.id).run();
-  // Burn the OTP so the same code can't be reused after the decision window.
-  await writeOtpMeta(env, rowObj.consent_id, Object.assign({}, meta, { attempts: 0, verifiedAt: Date.now() }));
   return { success: true };
 }
 
@@ -480,12 +308,6 @@ export async function respondConsent(env, token, decision, deviceId, deviceInfo,
       photoUrl = (await uploadFileToDrive(env, photoBase64, `consent_${rowObj.consent_id}_photo.jpg`, 'image/jpeg')).directUrl;
       signatureUrl = (await uploadFileToDrive(env, signatureBase64, `consent_${rowObj.consent_id}_signature.jpg`, 'image/jpeg')).directUrl;
     } catch (err) {
-      // The original Drive error text used to be wrapped away and only reached
-      // the log if the caller happened to be the mgmt React app — but this is a
-      // PUBLIC page, so persist it here.
-      await logErrorAt(env, 'backend-loans', 'respondConsent:driveUpload', err, {
-        consentId: rowObj.consent_id, personId: rowObj.person_id, role: rowObj.role,
-      });
       throw new Error('Photo/Signature upload fail hua: ' + err.message);
     }
   } else {
@@ -510,36 +332,8 @@ export async function respondConsent(env, token, decision, deviceId, deviceInfo,
   return { success: true, status: decision };
 }
 
-// Builds the notification placeholder set. The old code built a much SMALLER
-// object here than createLoanConsents' baseData while reusing the same
-// operator-authored templates, which is one of the two reasons real recipients
-// received literal {Guarantor1} / {Village} / {FatherName} text.
-function notificationData(loan, loanerU, person, role, guarantorUsers) {
-  const gu = guarantorUsers || [];
-  return {
-    Name: person.Name || '', NameHindi: person['Name (Hindi)'] || '',
-    FatherName: person["Father's Name"] || '', FatherNameHindi: person["Father's Name (Hindi)"] || '',
-    Village: person.Village || '', VillageHindi: person['Village (Hindi)'] || '',
-    Role: role === 'loaner' ? 'Loaner' : 'Guarantor',
-    LoanerName: loanerU.Name || loan.Name || '', LoanerNameHindi: loanerU['Name (Hindi)'] || '',
-    Amount: parseAmt(loan.Amount), Tenure: loan.Tenure || '',
-    InterestRate: loan['Intrest Rate'] || loan['Interest Rate'] || '0',
-    Year: loan.Year || '',
-    Guarantor1: (gu[0] && gu[0].Name) || '', Guarantor2: (gu[1] && gu[1].Name) || '', Guarantor3: (gu[2] && gu[2].Name) || '',
-  };
-}
-
-// Loads the guarantor USERS rows for a loan so notificationData() can fill
-// {Guarantor1..3} — templates assume these exist.
-async function guarantorUsersFor(env, loanId, userMap) {
-  const { results } = await env.DB_LOANS_EXPENSES.prepare(
-    "SELECT person_id FROM loan_consents WHERE loan_id = ? AND role = 'guarantor' AND status != 'replaced' ORDER BY id ASC"
-  ).bind(loanId).all().catch(() => ({ results: [] }));
-  return (results || []).map(r => userMap[r.person_id] || {});
-}
-
 async function notifyConsentAccepted(env, loanId, personId, role) {
-  return trySend(env, 'notifyConsentAccepted', async () => {
+  try {
     const users = await getSheetDataAsJSON(env, 'USERS');
     const userMap = {};
     users.forEach(u => { userMap[u.ID] = u; });
@@ -547,25 +341,29 @@ async function notifyConsentAccepted(env, loanId, personId, role) {
     const loan = loans.find(l => l['Loan ID'] === loanId) || {};
     const loanerU = userMap[loan.Name] || {};
     const person = userMap[personId] || {};
-    const guarantorUsers = await guarantorUsersFor(env, loanId, userMap);
 
-    const data = notificationData(loan, loanerU, person, role, guarantorUsers);
-    const tpls = await loanTemplateContext(env);
+    const data = {
+      Name: person.Name || personId, NameHindi: person['Name (Hindi)'] || '',
+      Role: role === 'loaner' ? 'Loaner' : 'Guarantor',
+      LoanerName: loanerU.Name || loan.Name || '', LoanerNameHindi: loanerU['Name (Hindi)'] || '',
+      Amount: parseAmt(loan.Amount), Tenure: loan.Tenure || '', InterestRate: loan['Intrest Rate'] || loan['Interest Rate'] || '0',
+    };
+    const sender = await otpConsentSenderNumber(env);
 
-    const groupTpl = tpls.pick('consent_accepted_group');
+    const groupTpl = pickRandomActive((await getSheetDataAsJSON(env, 'LOAN_MESSAGE_TEMPLATES')).filter(t => t.type === 'consent_accepted_group'));
     if (groupTpl) {
       const groups = (await getSheetDataAsJSON(env, 'WHATSAPP_GROUPS')).filter(g => isTruthyFlag(g.active));
-      const message = await renderLoanTemplate(env, 'notifyConsentAccepted:group', groupTpl, data, { loanId, personId });
       for (const g of groups) {
-        await queueGroupMessageDirect(env, g.groupid, message, tpls.sender, groupTpl.message_type, groupTpl.file_link);
+        await env.DB_WHATSAPP_INDEX.prepare(
+          'INSERT INTO group_messages (message_id, groupid, message, status, remarks, created_at, "from", message_type, file_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        ).bind('MSG' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8), g.groupid, renderTemplate(groupTpl.text, data), 'pending', '', new Date().toISOString(), sender, groupTpl.message_type || 'normal', groupTpl.file_link || '').run();
       }
     }
 
-    const loanerWa = waNumberOf(loanerU);
-    const loanerTpl = tpls.pick('consent_accepted_loaner_personal');
+    const loanerWa = whatsappNumberOf(loanerU);
+    const loanerTpl = pickRandomActive((await getSheetDataAsJSON(env, 'LOAN_MESSAGE_TEMPLATES')).filter(t => t.type === 'consent_accepted_loaner_personal'));
     if (loanerWa && loanerTpl) {
-      const message = await renderLoanTemplate(env, 'notifyConsentAccepted:loaner', loanerTpl, data, { loanId, personId });
-      await queuePersonMessageDirect(env, loanerWa, message, tpls.sender, loanerTpl.message_type, loanerTpl.file_link);
+      await queuePersonMessageDirect(env, loanerWa, renderTemplate(loanerTpl.text, data), sender, loanerTpl.message_type, loanerTpl.file_link);
     }
 
     if (role === 'guarantor') {
@@ -574,22 +372,16 @@ async function notifyConsentAccepted(env, loanId, personId, role) {
       ).bind(loanId).all();
       const allAccepted = guarantorConsents.length > 0 && guarantorConsents.every(c => c.status === 'accepted');
       if (allAccepted && loanerWa) {
-        const readyTpl = tpls.pick('all_guarantors_accepted_loaner');
-        if (readyTpl) {
-          const message = await renderLoanTemplate(env, 'notifyConsentAccepted:allAccepted', readyTpl, data, { loanId });
-          await queuePersonMessageDirect(env, loanerWa, message, tpls.sender, readyTpl.message_type, readyTpl.file_link);
-        }
+        const readyTpl = pickRandomActive((await getSheetDataAsJSON(env, 'LOAN_MESSAGE_TEMPLATES')).filter(t => t.type === 'all_guarantors_accepted_loaner'));
+        if (readyTpl) await queuePersonMessageDirect(env, loanerWa, renderTemplate(readyTpl.text, data), sender, readyTpl.message_type, readyTpl.file_link);
       }
     }
-  }, { loanId, personId, role });
+  } catch (e) { console.error(e); }
 }
 
 // ---- ADMIN (Superadmin/Admin) ----
 
 export async function getLoanConsents(env, loanId, user) {
-  // Was completely un-gated beyond having a valid session — it returns consent
-  // tokens/photo URLs/geo data, so it needs at least a staff role.
-  requireStaffRole(user);
   const { results } = await env.DB_LOANS_EXPENSES.prepare('SELECT * FROM loan_consents WHERE loan_id = ?').bind(loanId).all();
   const users = await getSheetDataAsJSON(env, 'USERS');
   const userMap = {};
@@ -637,7 +429,7 @@ export async function setConsentVerification(env, consentId, status, remarks, us
 }
 
 async function notifyConsentVerified(env, consentId) {
-  return trySend(env, 'notifyConsentVerified', async () => {
+  try {
     const consent = await env.DB_LOANS_EXPENSES.prepare('SELECT * FROM loan_consents WHERE consent_id = ?').bind(consentId).first();
     if (!consent) return;
     const users = await getSheetDataAsJSON(env, 'USERS');
@@ -647,16 +439,18 @@ async function notifyConsentVerified(env, consentId) {
     const loan = loans.find(l => l['Loan ID'] === consent.loan_id) || {};
     const loanerU = userMap[loan.Name] || {};
     const person = userMap[consent.person_id] || {};
-    const guarantorUsers = await guarantorUsersFor(env, consent.loan_id, userMap);
+    const data = {
+      Name: person.Name || consent.person_id, NameHindi: person['Name (Hindi)'] || '',
+      Role: consent.role === 'loaner' ? 'Loaner' : 'Guarantor',
+      LoanerName: loanerU.Name || loan.Name || '', LoanerNameHindi: loanerU['Name (Hindi)'] || '',
+      Amount: parseAmt(loan.Amount), Tenure: loan.Tenure || '', InterestRate: loan['Intrest Rate'] || loan['Interest Rate'] || '0',
+    };
+    const sender = await otpConsentSenderNumber(env);
 
-    const data = notificationData(loan, loanerU, person, consent.role, guarantorUsers);
-    const tpls = await loanTemplateContext(env);
-
-    const personWa = waNumberOf(person);
-    const verifiedTpl = tpls.pick('consent_verified_personal');
+    const personWa = whatsappNumberOf(person);
+    const verifiedTpl = pickRandomActive((await getSheetDataAsJSON(env, 'LOAN_MESSAGE_TEMPLATES')).filter(t => t.type === 'consent_verified_personal'));
     if (personWa && verifiedTpl) {
-      const message = await renderLoanTemplate(env, 'notifyConsentVerified:person', verifiedTpl, data, { consentId });
-      await queuePersonMessageDirect(env, personWa, message, tpls.sender, verifiedTpl.message_type, verifiedTpl.file_link);
+      await queuePersonMessageDirect(env, personWa, renderTemplate(verifiedTpl.text, data), sender, verifiedTpl.message_type, verifiedTpl.file_link);
     }
 
     const { results: allConsents } = await env.DB_LOANS_EXPENSES.prepare(
@@ -664,14 +458,13 @@ async function notifyConsentVerified(env, consentId) {
     ).bind(consent.loan_id).all();
     const allVerified = allConsents.length > 0 && allConsents.every(c => c.verification_status === 'verified');
     if (allVerified) {
-      const loanerWa = waNumberOf(loanerU);
-      const passedTpl = tpls.pick('loan_passed_personal');
+      const loanerWa = whatsappNumberOf(loanerU);
+      const passedTpl = pickRandomActive((await getSheetDataAsJSON(env, 'LOAN_MESSAGE_TEMPLATES')).filter(t => t.type === 'loan_passed_personal'));
       if (loanerWa && passedTpl) {
-        const message = await renderLoanTemplate(env, 'notifyConsentVerified:loanPassed', passedTpl, data, { consentId, loanId: consent.loan_id });
-        await queuePersonMessageDirect(env, loanerWa, message, tpls.sender, passedTpl.message_type, passedTpl.file_link);
+        await queuePersonMessageDirect(env, loanerWa, renderTemplate(passedTpl.text, data), sender, passedTpl.message_type, passedTpl.file_link);
       }
     }
-  }, { consentId });
+  } catch (e) { console.error(e); }
 }
 
 export async function resendConsent(env, consentId, user) {
@@ -687,35 +480,22 @@ export async function resendConsent(env, consentId, user) {
     "UPDATE loan_consents SET token = ?, status = 'pending', otp = '', otp_verified = 0, send_count = ?, responded_at = '' WHERE id = ?"
   ).bind(newToken, sendCount + 1, rowObj.id).run();
 
-  const consentLink = consentLinkBuilder(env);
   const users = await getSheetDataAsJSON(env, 'USERS');
-  const userMap = {};
-  users.forEach(u => { userMap[u.ID] = u; });
-  const person = userMap[rowObj.person_id] || {};
-  const wa = waNumberOf(person);
+  const person = users.find(u => u.ID === rowObj.person_id);
+  const wa = whatsappNumberOf(person || {});
   const loans = await getSheetDataAsJSON(env, 'LOANS');
   const loan = loans.find(l => l['Loan ID'] === rowObj.loan_id) || {};
-  const loanerU = userMap[loan.Name] || {};
-  const guarantorUsers = await guarantorUsersFor(env, rowObj.loan_id, userMap);
   const tplType = rowObj.role === 'loaner' ? 'consent_personal_loaner' : 'consent_personal_guarantor';
-  const tpls = await loanTemplateContext(env);
-  const tpl = tpls.pick(tplType);
-
-  if (!tpl) throw new Error(`"${tplType}" ka koi active template nahi hai — pehle WhatsApp templates mein add karein.`);
-  if (!wa) {
-    await logWarn(env, 'whatsapp-loans', 'resendConsent',
-      `Cannot resend consent ${consentId}: ${rowObj.person_id} has no valid WhatsApp/Mobile number.`,
-      { consentId, personId: rowObj.person_id });
-    throw new Error('Is person ka valid WhatsApp/Mobile number registered nahi hai — pehle USERS mein number theek karein.');
+  const tpl = pickRandomActive((await getSheetDataAsJSON(env, 'LOAN_MESSAGE_TEMPLATES')).filter(t => t.type === tplType));
+  if (wa && tpl) {
+    const data2 = {
+      Name: person.Name || rowObj.person_id, NameHindi: person['Name (Hindi)'] || '',
+      Amount: loan.Amount || '', Tenure: loan.Tenure || '', InterestRate: loan['Intrest Rate'] || loan['Interest Rate'] || '0',
+      ConsentLink: (env.CONSENT_BASE_URL || '') + '/consent/' + newToken,
+    };
+    await queuePersonMessageDirect(env, wa, renderTemplate(tpl.text, data2), await otpConsentSenderNumber(env), tpl.message_type, tpl.file_link);
   }
-
-  const data2 = Object.assign(notificationData(loan, loanerU, person, rowObj.role, guarantorUsers), {
-    ConsentLink: consentLink(newToken),
-    LoanerConsentLink: consentLink(newToken),
-  });
-  const message = await renderLoanTemplate(env, 'resendConsent', tpl, data2, { consentId });
-  await queuePersonMessageDirect(env, wa, message, tpls.sender, tpl.message_type, tpl.file_link);
-  return { success: true, sendCount: sendCount + 1 };
+  return { success: true };
 }
 
 export async function replaceGuarantor(env, loanId, oldConsentId, newPersonId, user) {
@@ -758,40 +538,19 @@ export async function replaceGuarantor(env, loanId, oldConsentId, newPersonId, u
     'INSERT INTO loan_consents (consent_id, loan_id, person_id, role, token, status, otp, otp_verified, send_count, created_at, responded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).bind(consentId, loanId, newPersonId, 'guarantor', token, 'pending', '', 0, 1, new Date().toISOString(), '').run();
 
-  const consentLink = consentLinkBuilder(env);
   const users = await getSheetDataAsJSON(env, 'USERS');
-  const userMap = {};
-  users.forEach(u => { userMap[u.ID] = u; });
-  const newPerson = userMap[newPersonId] || {};
-  const loanerU = userMap[loan.Name] || {};
-  const wa = waNumberOf(newPerson);
-  const tpls = await loanTemplateContext(env);
-  const tpl = tpls.pick('consent_personal_guarantor');
-
-  // The guarantor swap itself has already been committed, so don't throw — but
-  // do make the "no invitation was sent" case visible instead of silent.
-  if (!wa || !tpl) {
-    await logWarn(env, 'whatsapp-loans', 'replaceGuarantor',
-      !tpl
-        ? 'Guarantor replaced but no active "consent_personal_guarantor" template exists — the new guarantor got no consent link.'
-        : `Guarantor replaced but ${newPersonId} has no valid WhatsApp/Mobile number — no consent link sent.`,
-      { loanId, oldConsentId, newPersonId, newConsentId: consentId });
-    return {
-      success: true,
-      consentId,
-      warning: !tpl
-        ? 'Guarantor replace ho gaya, lekin consent_personal_guarantor template active nahi hai — invitation nahi gaya.'
-        : 'Guarantor replace ho gaya, lekin uska WhatsApp number valid nahi hai — invitation nahi gaya.',
+  const newPerson = users.find(u => u.ID === newPersonId) || {};
+  const wa = whatsappNumberOf(newPerson);
+  const tpl = pickRandomActive((await getSheetDataAsJSON(env, 'LOAN_MESSAGE_TEMPLATES')).filter(t => t.type === 'consent_personal_guarantor'));
+  if (wa && tpl) {
+    const tplData = {
+      Name: newPerson.Name || newPersonId, NameHindi: newPerson['Name (Hindi)'] || '',
+      Amount: loan.Amount, Tenure: loan.Tenure, InterestRate: loan['Intrest Rate'] || loan['Interest Rate'] || '0',
+      ConsentLink: (env.CONSENT_BASE_URL || '') + '/consent/' + token,
     };
+    await queuePersonMessageDirect(env, wa, renderTemplate(tpl.text, tplData), await otpConsentSenderNumber(env), tpl.message_type, tpl.file_link);
   }
-
-  const guarantorUsers = await guarantorUsersFor(env, loanId, userMap);
-  const tplData = Object.assign(notificationData(loan, loanerU, newPerson, 'guarantor', guarantorUsers), {
-    ConsentLink: consentLink(token),
-  });
-  const message = await renderLoanTemplate(env, 'replaceGuarantor', tpl, tplData, { loanId, newConsentId: consentId });
-  await queuePersonMessageDirect(env, wa, message, tpls.sender, tpl.message_type, tpl.file_link);
-  return { success: true, consentId };
+  return { success: true };
 }
 
 export async function markLoanDisbursed(env, loanId, cashAmount, onlineAmount, user) {
@@ -808,43 +567,22 @@ export async function markLoanDisbursed(env, loanId, cashAmount, onlineAmount, u
     "UPDATE loans SET loan_status = 'Disbursed', cash_amount = ?, online_amount = ? WHERE loan_id = ?"
   ).bind(cash, online, loanId).run();
 
-  const notify = await trySend(env, 'markLoanDisbursed', async () => {
+  try {
     const users = await getSheetDataAsJSON(env, 'USERS');
-    const userMap = {};
-    users.forEach(u => { userMap[u.ID] = u; });
-    const loaner = userMap[loanRow.name] || {};
-    const wa = waNumberOf(loaner);
-    const tpls = await loanTemplateContext(env);
-    const tpl = tpls.pick('disbursement');
-    if (!tpl) {
-      await logWarn(env, 'whatsapp-loans', 'markLoanDisbursed',
-        'No active "disbursement" template — the loaner got no disbursement confirmation.', { loanId });
-      return { skipped: 'no-template' };
+    const loaner = users.find(u => u.ID === loanRow.name) || {};
+    const wa = whatsappNumberOf(loaner);
+    const tpl = pickRandomActive((await getSheetDataAsJSON(env, 'LOAN_MESSAGE_TEMPLATES')).filter(t => t.type === 'disbursement'));
+    if (wa && tpl) {
+      const tplData = {
+        Name: loaner.Name || loanRow.name, NameHindi: loaner['Name (Hindi)'] || '',
+        Amount: loanRow.amount, Tenure: loanRow.tenure, InterestRate: loanRow.intrest_rate || '0',
+        CashAmount: cash, OnlineAmount: online, TotalAmount: cash + online,
+      };
+      await queuePersonMessageDirect(env, wa, renderTemplate(tpl.text, tplData), await otpConsentSenderNumber(env), tpl.message_type, tpl.file_link);
     }
-    if (!wa) {
-      await logWarn(env, 'whatsapp-loans', 'markLoanDisbursed',
-        `Loaner ${loanRow.name} has no valid WhatsApp/Mobile number — disbursement confirmation not sent.`, { loanId });
-      return { skipped: 'no-number' };
-    }
-    const guarantorUsers = await guarantorUsersFor(env, loanId, userMap);
-    const tplData = Object.assign(
-      notificationData(
-        { Name: loanRow.name, Amount: loanRow.amount, Tenure: loanRow.tenure, 'Intrest Rate': loanRow.intrest_rate, Year: loanRow.year },
-        loaner, loaner, 'loaner', guarantorUsers
-      ),
-      { CashAmount: cash, OnlineAmount: online, TotalAmount: cash + online }
-    );
-    const message = await renderLoanTemplate(env, 'markLoanDisbursed', tpl, tplData, { loanId });
-    await queuePersonMessageDirect(env, wa, message, tpls.sender, tpl.message_type, tpl.file_link);
-    return { sent: true };
-  }, { loanId });
+  } catch (e) { console.error(e); }
 
-  // The status change is committed either way, but the caller now learns that
-  // the confirmation message did not go out (it used to be a silent console.error
-  // followed by a flat {success:true}).
-  return (notify && (notify.failed || notify.skipped))
-    ? { success: true, messageWarning: 'Loan Disbursed mark ho gaya, lekin WhatsApp confirmation nahi bheja ja saka. Error Log dekhein.' }
-    : { success: true };
+  return { success: true };
 }
 
 // ---- Loan template CRUD (Superadmin) — same pattern as Person/Group templates ----

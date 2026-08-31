@@ -26,10 +26,6 @@ CREATE TABLE docx_templates (
 );
 CREATE INDEX idx_docx_templates_doc_type ON docx_templates(doc_type);
 CREATE INDEX idx_docx_templates_year ON docx_templates(year);
--- upload/copy use SELECT-then-INSERT, so without this two concurrent uploads
--- could create two rows for the same (doc_type, year) and getDocxTemplate()'s
--- .first() would then pick one arbitrarily.
-CREATE UNIQUE INDEX uq_docx_templates_type_year ON docx_templates(doc_type, year);
 
 -- source sheet: "DOC_PDF_TEMPLATES"
 DROP TABLE IF EXISTS doc_pdf_templates;

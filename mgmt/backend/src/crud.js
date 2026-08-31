@@ -1,6 +1,5 @@
 import { resolveSheet, toColumnPayload, fromColumnRow } from './tableRegistry.js';
 import { requireRole, requireYearUnlocked, requireYearAccess } from './auth.js';
-import { logErrorAt } from './logger.js';
 
 const DB_BINDINGS = {
   core: 'DB_CORE',
@@ -42,15 +41,8 @@ const REQUIRED_FIELDS = {
   LOANS: ['Name', 'Amount'],
 };
 
-// Was case-sensitive (`v === 'true' || v === 'TRUE' || v === '1'`), so the
-// 'True' form that the sheet migration actually wrote was read as FALSE.
-// FIXES_20260831.md claimed this file already held an "already-correct version" —
-// it did not.
 function isTruthyFlag(v) {
-  if (v === true || v === 1) return true;
-  if (v === false || v === 0 || v === null || v === undefined) return false;
-  const s = v.toString().trim().toLowerCase();
-  return s === 'true' || s === '1' || s === 'yes';
+  return v === true || v === 'true' || v === 'TRUE' || v === '1';
 }
 
 function validatePayload(sheetName, payload) {
@@ -128,68 +120,18 @@ export async function updateRecordByIdx(env, sheetName, rowIndex, payload, user)
   const setClause = keys.map(k => `${k} = ?`).join(', ');
   await d1.prepare(`UPDATE ${table} SET ${setClause} WHERE id = ?`)
     .bind(...keys.map(k => cols[k]), rowIndex).run();
-
-  // Editing a Collection used to leave its already-generated PDF untouched:
-  // autoGeneratePdf ran again but convertDocxToPdf saw the existing index row and
-  // returned `{skipped:true}` with the OLD link, so a corrected amount/name never
-  // reached the PDF while that stale link was still attached to WhatsApp messages
-  // and served by the public portal. Dropping the index row makes the very next
-  // generate produce a fresh, correct document.
-  if (table === 'collections') {
-    await purgeGeneratedFilesForCollection(env, payload.Year, rowIndex);
-  }
-  return { success: true, indexInvalidated: table === 'collections' };
+  return { success: true };
 }
 
 export async function deleteRecordByIdx(env, sheetName, rowIndex, user) {
   requireRole(user, 'delete');
   const { db, table } = resolveSheet(sheetName);
   const d1 = dbFor(env, db);
-
-  // SECURITY: this used to be
-  //   .first().catch(() => null)
-  // so if the SELECT failed for ANY reason, `row` became null, BOTH the
-  // year-lock and the year-access checks below were skipped entirely, and the
-  // DELETE still went through. A failing read must not silently escalate
-  // privileges — let it throw.
-  let row;
-  try {
-    row = await d1.prepare(`SELECT year FROM ${table} WHERE id = ?`).bind(rowIndex).first();
-  } catch (err) {
-    await logErrorAt(env, 'backend-crud', 'deleteRecordByIdx:yearLookup', err, { sheetName, table, rowIndex });
-    throw new Error('Delete se pehle record ka year check nahi ho saka — safety ke liye delete roka gaya. Dobara koshish karein.');
-  }
-  if (!row) throw new Error('Record nahi mila (ya pehle hi delete ho chuka hai).');
-
-  if (row.year) {
+  const row = await d1.prepare(`SELECT year FROM ${table} WHERE id = ?`).bind(rowIndex).first().catch(() => null);
+  if (row && row.year) {
     await requireYearUnlocked(env, row.year);
     await requireYearAccess(env, user, row.year);
   }
-
   await d1.prepare(`DELETE FROM ${table} WHERE id = ?`).bind(rowIndex).run();
-
-  // A deleted contribution used to keep its generated PDF indexed forever, so
-  // the public portal still showed a downloadable "✅ Verified Record" for a
-  // record that no longer exists. Drop the index rows for this record.
-  if (table === 'collections') {
-    await purgeGeneratedFilesForCollection(env, row.year, rowIndex);
-  }
   return { success: true };
-}
-
-// A COLLECTIONS row can back a receipt, a certificate OR a samaan document, and
-// the recordId scheme is `<docType>-<year>-<rowIndex>` — so clear all three.
-async function purgeGeneratedFilesForCollection(env, year, rowIndex) {
-  if (!env.DB_FILE_INDEX) return;
-  try {
-    const y = parseInt(year);
-    for (const docType of ['receipt', 'certificate', 'samaan']) {
-      await env.DB_FILE_INDEX.prepare(
-        'DELETE FROM generated_files WHERE doc_type = ? AND year = ? AND record_id = ?'
-      ).bind(docType, y, `${docType}-${y}-${rowIndex}`).run();
-    }
-  } catch (err) {
-    // Non-fatal: the record IS deleted. But make the stale-index state visible.
-    await logErrorAt(env, 'backend-crud', 'purgeGeneratedFilesForCollection', err, { year, rowIndex });
-  }
 }
