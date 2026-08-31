@@ -1,6 +1,31 @@
 const fmt = (n) => new Intl.NumberFormat('en-IN', {style:'currency', currency:'INR', maximumFractionDigits:0}).format(n||0);
 const parseAmt = (v) => parseFloat((v||'').toString().replace(/[^0-9.-]+/g,"")) || 0;
 
+// ---- HTML escaping ----
+// This file builds almost all of its DOM with innerHTML string templates. Values
+// that originate from an authenticated author (popup slide text, link URL/label)
+// must be escaped before being interpolated, otherwise the mgmt portal becomes an
+// injection vector into the public site.
+function escapeHtml(v) {
+  return (v === undefined || v === null ? '' : v.toString())
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function escapeAttr(v) { return escapeHtml(v); }
+// Only http(s) — blocks javascript:, data:, vbscript: in href/src.
+function safeUrl(v) {
+  const raw = (v === undefined || v === null ? '' : v.toString()).trim();
+  return /^https?:\/\//i.test(raw) ? raw : '';
+}
+
+// Popup images saved before the uploadPopupImage fix hold the Drive VIEWER page
+// URL (.../file/d/<id>/view), which is an HTML document and renders as a broken
+// image. Rewrite it to the direct image URL.
+function driveImageUrl(url) {
+  const m = /\/file\/d\/([A-Za-z0-9_-]+)/.exec(url || '');
+  return m ? 'https://drive.google.com/uc?export=view&id=' + m[1] : url;
+}
+
 // ---- Error reporting (this file previously had NONE) ----
 //
 // There was no window.onerror, no unhandledrejection and no reporting anywhere in
@@ -137,6 +162,8 @@ const app = {
         // Only the first eligible popup is shown per load — if more than one
         // is tagged "Public" and active at once, Superadmin should stagger
         // start_at/end_at rather than stacking multiple overlays.
+        // Only the FIRST eligible popup is rendered. mgmt's "Preview as Public"
+        // now reports the ones that won't be shown, so this is no longer silent.
         const popup = popups[0];
         if (!popup.slides || !popup.slides.length) return;
         app.popupSlides = popup.slides;
@@ -153,10 +180,15 @@ const app = {
     const slide = app.popupSlides[app.popupIndex];
     if (!slide) return;
     const content = document.getElementById('popup-slide-content');
+    // Popup text/links are authored by an Admin in the mgmt portal, but they are
+    // rendered on the PUBLIC site — so an admin account (or anyone who got hold of
+    // one) could previously inject arbitrary HTML/script here, and `link_url`
+    // accepted `javascript:`. All four values are escaped now, and the link scheme
+    // is restricted to http/https.
     content.innerHTML = `
-      ${slide.image_url ? `<img class="popup-slide-img" src="${slide.image_url}" alt="">` : ''}
-      ${slide.text ? `<div class="popup-slide-text">${slide.text}</div>` : ''}
-      ${slide.link_url ? `<a class="popup-slide-link" href="${slide.link_url}" target="_blank" rel="noreferrer">${slide.link_text || 'Learn more'}</a>` : ''}
+      ${slide.image_url && safeUrl(driveImageUrl(slide.image_url)) ? `<img class="popup-slide-img" src="${escapeAttr(driveImageUrl(slide.image_url))}" alt="" onerror="this.style.display='none'">` : ''}
+      ${slide.text ? `<div class="popup-slide-text">${escapeHtml(slide.text)}</div>` : ''}
+      ${slide.link_url && safeUrl(slide.link_url) ? `<a class="popup-slide-link" href="${escapeAttr(slide.link_url)}" target="_blank" rel="noreferrer">${escapeHtml(slide.link_text || 'Learn more')}</a>` : ''}
     `;
     const navEl = document.getElementById('popup-slide-nav');
     if (app.popupSlides.length > 1) {

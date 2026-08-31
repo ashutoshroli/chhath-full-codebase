@@ -23,7 +23,14 @@ export function useViewData(key, fetcher, deps = []) {
       .finally(() => setLoading(false));
   }, [key]);
 
+  // Views do `(view.data || []).map(...)`, which blows up with
+  // "(x.data || []).map is not a function" the moment the response is a truthy
+  // NON-array (an error object, `{}`, or a bare value). The production log has
+  // three of these (lockedYearsView, committeeAllView). `list` is always safe to
+  // iterate; `data` is left untouched for the views that expect an object.
+  const list = Array.isArray(data) ? data : [];
+
   useEffect(() => { load(false); }, deps); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { data, loading, error, refresh: () => load(true) };
+  return { data, list, loading, error, refresh: () => load(true) };
 }

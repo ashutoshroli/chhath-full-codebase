@@ -44,11 +44,17 @@ function buildLogContext(req) {
 // recursive log-of-the-log loop.
 const NO_SERVER_AUTOLOG = new Set(['logError', 'reportErrorToWhatsApp', 'getErrorLog']);
 
-// Errors that are normal operation, not defects: an expired session, a
-// permission refusal, a validation message. Logging every one of these would
-// bury real failures (the log read window is capped).
+// Errors that are normal operation, not defects: an expired session, a permission
+// refusal, a user-facing validation message.
+//
+// This used to only check authError/announceSessionExpired, so every
+// PermissionError ("Sirf Superadmin ye action kar sakta hai") and every
+// validation message ("Galat PIN", "OTP galat hai", "Ye Email pehle se
+// registered hai") became an Error Log row. The live log had 278 rows of which
+// ~50 were these — real defects were impossible to spot. `expected` is set by
+// PermissionError / AuthError / ValidationError in auth.js.
 function isExpectedError(err) {
-  return !!(err && (err.authError || err.announceSessionExpired));
+  return !!(err && (err.expected || err.authError || err.announceSessionExpired));
 }
 
 export default {
@@ -78,10 +84,13 @@ export default {
       // visibility. The identifier is recorded; the password never is.
       login: async () => {
         const res = await login(env, req.name, req.password, req.rememberMe);
-        if (!res || res.success === false) {
+        // Only the LOCKOUT is logged, not every wrong password. Logging each
+        // failed attempt flooded the log while telling nobody anything; the
+        // lockout is the actual security signal worth a Superadmin's attention.
+        if (res && res.success === false && res.lockedOut) {
           ctx.waitUntil(logError(
             env, 'auth', 'login',
-            `Failed login attempt for "${(req.name || '').toString().slice(0, 60)}": ${res && res.message}`,
+            `Login LOCKED OUT after repeated failures for "${(req.name || '').toString().slice(0, 60)}"`,
             '', buildLogContext(req)
           ));
         }
@@ -232,6 +241,12 @@ export default {
       savePopupSlides: () => withAuth(env, req, (user) => popups.savePopupSlides(env, req.popupId, req.slides, user)),
       uploadPopupImage: () => withAuth(env, req, (user) => popups.uploadPopupImage(env, req.base64, req.fileName, user)),
       getActivePopups: () => withAuth(env, req, (user) => popups.getActivePopups(env, user)),
+      // Lets an Admin see exactly what the PUBLIC portal will render — including
+      // which eligible popups will NOT be shown (only the first one is) and which
+      // are dropped for having zero slides. Previously a 'Public'-only popup was
+      // invisible to its own author, because getActivePopups filters by the
+      // caller's own role.
+      previewPublicPopups: () => withAuth(env, req, (user) => popups.previewPublicPopups(env, user)),
 
       // ---- Error Log ----
       // logError stays intentionally unauthenticated: the Consent and Announce

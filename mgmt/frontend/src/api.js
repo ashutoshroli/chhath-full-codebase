@@ -46,6 +46,31 @@ export function clearSession() {
 // duplicate row, but the event is no longer lost.
 const NO_AUTOLOG_ACTIONS = ['logError', 'reportErrorToWhatsApp', 'login'];
 
+// Noise produced by browser extensions and by the browser itself — never our bug.
+// The live log had "Failed to connect to MetaMask" rows from a crypto wallet
+// extension injecting itself into the consent page.
+const IGNORED_ERROR_PATTERNS = [
+  /MetaMask/i,
+  /ethereum/i,
+  /chrome-extension:/i,
+  /moz-extension:/i,
+  /safari-extension:/i,
+  /ResizeObserver loop/i,          // benign browser warning
+  /Non-Error promise rejection/i,
+];
+export function isIgnorableClientError(message) {
+  const m = (message || '').toString();
+  return IGNORED_ERROR_PATTERNS.some(re => re.test(m));
+}
+
+// A single outage produced 10-15 rows (one per in-flight action: getYears,
+// getHome, getUsers, getCommittee, ...). Because dedup keys on the message and
+// each message carried its own action name, they never collapsed. Transport
+// failures are now reported once per minute under one shared message.
+const TRANSPORT_ERROR_RE = /Failed to fetch|NetworkError|Load failed|network error|ERR_NETWORK|ERR_INTERNET/i;
+let lastTransportReportAt = 0;
+const TRANSPORT_REPORT_WINDOW_MS = 60000;
+
 // The log POST itself needs a working network, so `TypeError: Failed to fetch`
 // (offline / Worker down / CORS) could never be recorded — which is exactly when
 // things are most broken. Failed sends are now buffered in sessionStorage and
@@ -79,6 +104,15 @@ if (typeof window !== 'undefined') {
 
 function fireAndForgetLogError(source, message, stack, context) {
   try {
+    if (isIgnorableClientError(message)) return;
+
+    // Collapse a burst of transport failures (one outage != 15 error rows).
+    if (TRANSPORT_ERROR_RE.test(message)) {
+      const now = Date.now();
+      if (now - lastTransportReportAt < TRANSPORT_REPORT_WINDOW_MS) return;
+      lastTransportReportAt = now;
+      message = `Network/transport failure — server se connect nahi ho paya (${message})`;
+    }
     const body = {
       action: 'logError',
       source,
@@ -112,7 +146,26 @@ async function call(action, params = {}, requireAuth = true) {
       method: 'POST',
       body: JSON.stringify(body), // text/plain content-type by default — avoids CORS preflight on Apps Script
     });
-    const data = await res.json();
+    let data;
+    try {
+      data = await res.json();
+    } catch (parseErr) {
+      // Non-JSON body (an HTML error page from the CDN/host, a 502, etc.)
+      throw new Error(`Server ne galat jawab bheja (HTTP ${res.status}). Thodi der baad koshish karein.`);
+    }
+
+    // `data` can legitimately be NULL: getDocxTemplate() returns null when no
+    // template exists for that (docType, year), and jsonOut(null) sends the body
+    // "null". The old `data.authError` then threw
+    //     "Cannot read properties of null (reading 'authError')"
+    // — the single most frequent real error in production (12+ rows), firing on
+    // the most ordinary path there is ("is saal ka template nahi hai"). Callers
+    // already handle a null/empty template row, so pass it straight through.
+    if (data === null || data === undefined) {
+      flushBufferedLogs();
+      return data;
+    }
+
     if (data.authError) {
       clearSession();
       const err = new Error(data.message || 'Session expired');
@@ -336,6 +389,9 @@ export const api = {
   savePopupSlides: (popupId, slides) => call('savePopupSlides', { popupId, slides }),
   uploadPopupImage: (base64, fileName) => call('uploadPopupImage', { base64, fileName }),
   getActivePopups: () => call('getActivePopups'),
+  // Shows exactly what the PUBLIC portal will render (a 'Public'-only popup is
+  // invisible to getActivePopups, which filters by the caller's own role).
+  previewPublicPopups: () => call('previewPublicPopups'),
 
   // Announcement Portal — links (Superadmin)
   generateAnnouncementLink: (year, pin, expiresAt) => call('generateAnnouncementLink', { year, pin, expiresAt }),

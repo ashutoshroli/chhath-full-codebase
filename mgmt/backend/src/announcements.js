@@ -1,5 +1,5 @@
 import { getSheetDataAsJSON } from './crud.js';
-import { requireAdminOrAbove } from './auth.js';
+import { requireAdminOrAbove, ValidationError } from './auth.js';
 
 const ANNOUNCE_MAX_PIN_ATTEMPTS = 5;
 const ANNOUNCE_PIN_LOCKOUT_SECONDS = 900; // 15 min, mirrors login lockout
@@ -22,8 +22,8 @@ async function hashPassword(pw, salt) {
 
 export async function generateAnnouncementLink(env, year, pin, expiresAt, user) {
   requireAdminOrAbove(user);
-  if (!year) throw new Error('Year zaroori hai');
-  if (!pin || pin.toString().trim().length < 4) throw new Error('PIN kam se kam 4 digit ka hona chahiye');
+  if (!year) throw ValidationError('Year zaroori hai');
+  if (!pin || pin.toString().trim().length < 4) throw ValidationError('PIN kam se kam 4 digit ka hona chahiye');
 
   const token = generateAnnouncementToken();
   const hashedPin = await hashPassword(pin.toString().trim(), env.PASSWORD_SALT);
@@ -53,7 +53,7 @@ export async function getAnnouncementLinks(env, user) {
 export async function revokeAnnouncementLink(env, token, user) {
   requireAdminOrAbove(user);
   const result = await env.DB_MISC.prepare('UPDATE announcement_links SET active = 0 WHERE token = ?').bind(token).run();
-  if (!result.meta.changes) throw new Error('Link nahi mila');
+  if (!result.meta.changes) throw ValidationError('Link nahi mila');
   return { success: true };
 }
 
@@ -203,7 +203,7 @@ export async function markAnnounced(env, announceToken, itemId, itemType) {
     return { success: true, announcedCount: currentCount + 1 };
   }
   const rowIndex = parseInt(itemId);
-  if (!rowIndex) throw new Error('Item nahi mila');
+  if (!rowIndex) throw ValidationError('Item nahi mila');
   const row = await env.DB_COLLECTIONS.prepare('SELECT announcedcount FROM collections WHERE id = ?').bind(rowIndex).first();
   const currentCount = row ? (parseInt(row.announcedcount) || 0) : 0;
   await env.DB_COLLECTIONS.prepare('UPDATE collections SET announced = 1, announcedcount = ? WHERE id = ?')
@@ -237,8 +237,8 @@ export async function reannounceAll(env, announceToken, typeFilter) {
 
 export async function addCustomAnnouncement(env, year, textHindi, textEnglish, priority, user) {
   requireAdminOrAbove(user);
-  if (!year) throw new Error('Year zaroori hai');
-  if (!(textHindi || '').toString().trim() && !(textEnglish || '').toString().trim()) throw new Error('Hindi ya English text me se kam se kam ek zaroori hai');
+  if (!year) throw ValidationError('Year zaroori hai');
+  if (!(textHindi || '').toString().trim() && !(textEnglish || '').toString().trim()) throw ValidationError('Hindi ya English text me se kam se kam ek zaroori hai');
 
   const collectionsForYear = (await getSheetDataAsJSON(env, 'COLLECTIONS')).filter(r => parseInt(r.Year) === parseInt(year));
   const id = generateCustomAnnouncementId();
@@ -253,14 +253,14 @@ export async function updateCustomAnnouncement(env, id, textHindi, textEnglish, 
   const result = await env.DB_MISC.prepare(
     'UPDATE custom_announcements SET texthindi = ?, textenglish = ?, priority = ? WHERE id_code = ?'
   ).bind(textHindi || '', textEnglish || '', priority ? 1 : 0, id.toString()).run();
-  if (!result.meta.changes) throw new Error('Custom announcement nahi mila');
+  if (!result.meta.changes) throw ValidationError('Custom announcement nahi mila');
   return { success: true };
 }
 
 export async function deleteCustomAnnouncement(env, id, user) {
   requireAdminOrAbove(user);
   const result = await env.DB_MISC.prepare('DELETE FROM custom_announcements WHERE id_code = ?').bind(id.toString()).run();
-  if (!result.meta.changes) throw new Error('Custom announcement nahi mila');
+  if (!result.meta.changes) throw ValidationError('Custom announcement nahi mila');
   return { success: true };
 }
 

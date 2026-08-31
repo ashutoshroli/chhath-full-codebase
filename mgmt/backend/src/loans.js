@@ -1,5 +1,5 @@
 import { getSheetDataAsJSON, saveRecord } from './crud.js';
-import { requireRole, requireYearUnlocked, requireYearAccess, requireSuperadmin, requireAdminOrAbove, requireStaffRole } from './auth.js';
+import { requireRole, requireYearUnlocked, requireYearAccess, requireSuperadmin, requireAdminOrAbove, requireStaffRole, ValidationError } from './auth.js';
 import { toColumnPayload } from './tableRegistry.js';
 import { otpConsentSenderNumber } from './settings.js';
 import { getConsentPageTemplate } from './settings.js';
@@ -310,12 +310,12 @@ async function findConsentRowByToken(env, token) {
 
 export async function getConsentByToken(env, token) {
   const rowObj = await findConsentRowByToken(env, token);
-  if (!rowObj) throw new Error('Ye link valid nahi hai ya expire ho chuka hai.');
+  if (!rowObj) throw ValidationError('Ye link valid nahi hai ya expire ho chuka hai.');
   const loanId = rowObj.loan_id;
 
   const loans = await getSheetDataAsJSON(env, 'LOANS');
   const loan = loans.find(l => l['Loan ID'] === loanId);
-  if (!loan) throw new Error('Loan record nahi mila.');
+  if (!loan) throw ValidationError('Loan record nahi mila.');
 
   const users = await getSheetDataAsJSON(env, 'USERS');
   const userMap = {};
@@ -375,8 +375,8 @@ async function writeOtpMeta(env, consentId, meta) {
 
 export async function requestConsentOtp(env, token) {
   const rowObj = await findConsentRowByToken(env, token);
-  if (!rowObj) throw new Error('Ye link valid nahi hai.');
-  if (rowObj.status !== 'pending') throw new Error('Is loan par aapka jawab pehle hi record ho chuka hai.');
+  if (!rowObj) throw ValidationError('Ye link valid nahi hai.');
+  if (rowObj.status !== 'pending') throw ValidationError('Is loan par aapka jawab pehle hi record ho chuka hai.');
 
   const users = await getSheetDataAsJSON(env, 'USERS');
   const person = users.find(u => u.ID === rowObj.person_id);
@@ -420,15 +420,15 @@ export async function requestConsentOtp(env, token) {
 
 export async function verifyConsentOtp(env, token, otp) {
   const rowObj = await findConsentRowByToken(env, token);
-  if (!rowObj) throw new Error('Ye link valid nahi hai.');
-  if (rowObj.status !== 'pending') throw new Error('Is loan par aapka jawab pehle hi record ho chuka hai.');
-  if (!rowObj.otp || rowObj.otp.toString().trim() === '') throw new Error('Pehle OTP request karein.');
+  if (!rowObj) throw ValidationError('Ye link valid nahi hai.');
+  if (rowObj.status !== 'pending') throw ValidationError('Is loan par aapka jawab pehle hi record ho chuka hai.');
+  if (!rowObj.otp || rowObj.otp.toString().trim() === '') throw ValidationError('Pehle OTP request karein.');
 
   const meta = (await readOtpMeta(env, rowObj.consent_id)) || {};
 
   // Expiry: an OTP used to be valid forever.
   if (meta.issuedAt && Date.now() - meta.issuedAt > OTP_TTL_MS) {
-    throw new Error('OTP expire ho gaya hai. Naya OTP request karein.');
+    throw ValidationError('OTP expire ho gaya hai. Naya OTP request karein.');
   }
 
   // Attempt limit: there was NO limit at all — unlimited guesses against a
@@ -438,7 +438,7 @@ export async function verifyConsentOtp(env, token, otp) {
     await logWarn(env, 'backend-loans', 'verifyConsentOtp',
       `OTP verification locked for consent ${rowObj.consent_id} after ${attempts} wrong attempts.`,
       { consentId: rowObj.consent_id, personId: rowObj.person_id });
-    throw new Error('Bahut baar galat OTP daala gaya. Naya OTP request karein.');
+    throw ValidationError('Bahut baar galat OTP daala gaya. Naya OTP request karein.');
   }
 
   // Normalize both sides — otp is a REAL column, so '012345' can come back as 12345.
@@ -459,9 +459,9 @@ export async function verifyConsentOtp(env, token, otp) {
 export async function respondConsent(env, token, decision, deviceId, deviceInfo, clientIp, geoLat, geoLng, geoAccuracy, photoBase64, signatureBase64, declineRemarks) {
   if (decision !== 'accepted' && decision !== 'declined') throw new Error('Invalid decision');
   const rowObj = await findConsentRowByToken(env, token);
-  if (!rowObj) throw new Error('Ye link valid nahi hai.');
-  if (rowObj.status !== 'pending') throw new Error('Is loan par aapka jawab pehle hi record ho chuka hai — ye locked hai.');
-  if (!isTruthyFlag(rowObj.otp_verified)) throw new Error('Pehle WhatsApp OTP se verify karein.');
+  if (!rowObj) throw ValidationError('Ye link valid nahi hai.');
+  if (rowObj.status !== 'pending') throw ValidationError('Is loan par aapka jawab pehle hi record ho chuka hai — ye locked hai.');
+  if (!isTruthyFlag(rowObj.otp_verified)) throw ValidationError('Pehle WhatsApp OTP se verify karein.');
 
   let photoUrl = '', signatureUrl = '';
 
@@ -631,7 +631,7 @@ export async function setConsentVerification(env, consentId, status, remarks, us
   const result = await env.DB_LOANS_EXPENSES.prepare(
     'UPDATE loan_consents SET verification_status = ?, verification_remarks = ?, verified_by = ?, verified_at = ? WHERE consent_id = ?'
   ).bind(status, remarks || '', user.name, new Date().toISOString(), consentId).run();
-  if (!result.meta.changes) throw new Error('Consent record nahi mila.');
+  if (!result.meta.changes) throw ValidationError('Consent record nahi mila.');
   if (status === 'verified') await notifyConsentVerified(env, consentId);
   return { success: true };
 }
@@ -677,7 +677,7 @@ async function notifyConsentVerified(env, consentId) {
 export async function resendConsent(env, consentId, user) {
   requireSuperadmin(user);
   const rowObj = await env.DB_LOANS_EXPENSES.prepare('SELECT * FROM loan_consents WHERE consent_id = ?').bind(consentId).first();
-  if (!rowObj) throw new Error('Consent record nahi mila.');
+  if (!rowObj) throw ValidationError('Consent record nahi mila.');
   if (rowObj.status === 'accepted') throw new Error('Ye pehle hi accept ho chuka hai — resend ki zaroorat nahi.');
   const sendCount = parseInt(rowObj.send_count) || 0;
   if (sendCount >= 5) throw new Error('Is guarantor/loaner ko already 5 baar bheja ja chuka hai. Ab guarantor replace karein.');
@@ -721,13 +721,13 @@ export async function resendConsent(env, consentId, user) {
 export async function replaceGuarantor(env, loanId, oldConsentId, newPersonId, user) {
   requireSuperadmin(user);
   const oldRow = await env.DB_LOANS_EXPENSES.prepare('SELECT * FROM loan_consents WHERE consent_id = ?').bind(oldConsentId).first();
-  if (!oldRow) throw new Error('Consent record nahi mila.');
+  if (!oldRow) throw ValidationError('Consent record nahi mila.');
   if (oldRow.role !== 'guarantor') throw new Error('Sirf guarantor replace kiya ja sakta hai.');
   if (oldRow.status === 'accepted') throw new Error('Ye guarantor pehle hi accept kar chuka hai — replace nahi kiya ja sakta.');
 
   const loans = await getSheetDataAsJSON(env, 'LOANS');
   const loan = loans.find(l => l['Loan ID'] === loanId);
-  if (!loan) throw new Error('Loan nahi mila.');
+  if (!loan) throw ValidationError('Loan nahi mila.');
 
   const { results: activeRows } = await env.DB_LOANS_EXPENSES.prepare(
     "SELECT person_id FROM loan_consents WHERE loan_id = ? AND status != 'replaced' AND consent_id != ?"
@@ -801,7 +801,7 @@ export async function markLoanDisbursed(env, loanId, cashAmount, onlineAmount, u
   if (cash <= 0 && online <= 0) throw new Error('Cash ya Online, kam se kam ek amount daalein.');
 
   const loanRow = await env.DB_LOANS_EXPENSES.prepare('SELECT * FROM loans WHERE loan_id = ?').bind(loanId).first();
-  if (!loanRow) throw new Error('Loan nahi mila.');
+  if (!loanRow) throw ValidationError('Loan nahi mila.');
   if (loanRow.loan_status !== 'Approved') throw new Error('Loan abhi Approved nahi hai — pehle sabhi consents accept hone chahiye.');
 
   await env.DB_LOANS_EXPENSES.prepare(

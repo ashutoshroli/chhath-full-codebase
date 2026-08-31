@@ -2,6 +2,14 @@ import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import Modal from './Modal.jsx';
 
+// Rewrites a Drive VIEWER-page URL (…/file/d/<id>/view) into the direct image URL
+// (…/uc?export=view&id=<id>). PopupManagement used to save the viewer URL, so old
+// slide rows still carry it and would render as a broken image.
+function driveImageUrl(url) {
+  const m = /\/file\/d\/([A-Za-z0-9_-]+)/.exec(url || '');
+  return m ? `https://drive.google.com/uc?export=view&id=${m[1]}` : url;
+}
+
 export default function LoginPopups() {
   const [popups, setPopups] = useState(null);
   const [popupIndex, setPopupIndex] = useState(0);
@@ -36,7 +44,15 @@ export default function LoginPopups() {
     <Modal open={true} onClose={goNextPopup}>
       <div style={{ textAlign: 'center' }}>
         {slide.image_url && (
-          <img src={slide.image_url} alt="" style={{ maxWidth: '100%', maxHeight: 320, borderRadius: 10, marginBottom: 15 }} />
+          <img
+            src={driveImageUrl(slide.image_url)}
+            alt=""
+            style={{ maxWidth: '100%', maxHeight: 320, borderRadius: 10, marginBottom: 15 }}
+            // Some rows still hold the Drive VIEWER page URL from before the
+            // uploadPopupImage fix; hide the broken-image icon rather than
+            // showing it to every user at login.
+            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+          />
         )}
         {slide.text && (
           <p style={{ fontSize: '0.95rem', whiteSpace: 'pre-wrap', marginBottom: 12 }}>{slide.text}</p>

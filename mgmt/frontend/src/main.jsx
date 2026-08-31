@@ -1,11 +1,14 @@
+// MUST be first: patches Array.prototype.at before any dependency can call it.
+import './polyfills.js';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import App from './App.jsx';
 import ConsentPage from './views/ConsentPage.jsx';
 import AnnouncePage from './views/AnnouncePage.jsx';
-import { reportClientError } from './api.js';
+import { reportClientError, isIgnorableClientError } from './api.js';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
+import { reloadOnceForChunkError } from './chunkGuard.js';
 import '../styles.css';
 
 // Catches pure frontend JS errors (not just failed API calls, which api.js's
@@ -17,6 +20,9 @@ import '../styles.css';
 // down. Previously both handlers ended in `.catch(() => {})` — the very last line
 // of defence swallowed its own failure.
 window.addEventListener('error', (e) => {
+  // A stale bundle after a deploy is not a defect — self-heal instead of logging.
+  if (reloadOnceForChunkError(e.error || e.message)) return;
+  if (isIgnorableClientError(e.message)) return;
   // A cross-origin bundle reports every error as a bare "Script error." with no
   // stack (the migrated data has five such useless rows). index.html now sets
   // crossorigin on the module script so real messages come through; if we still
@@ -33,7 +39,11 @@ window.addEventListener('error', (e) => {
 });
 window.addEventListener('unhandledrejection', (e) => {
   const err = e.reason;
-  reportClientError('window.unhandledrejection', (err && err.message) || String(err), err, {});
+  // Manual `await import(...)` failures land here, not in the ErrorBoundary.
+  if (reloadOnceForChunkError(err)) return;
+  const msg = (err && err.message) || String(err);
+  if (isIgnorableClientError(msg)) return;
+  reportClientError('window.unhandledrejection', msg, err, {});
 });
 
 // GTM's default Pageview trigger only fires on a hard page load — this SPA

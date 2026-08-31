@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { api, reportClientError } from '../api.js';
+import { safeImport } from '../chunkGuard.js';
 import { generateQrDataUrl, publicRecordUrl } from '../qrCode.js';
 import ReportErrorButton from '../components/ReportErrorButton.jsx';
 
@@ -448,7 +449,7 @@ function ConsentPdfDownload({ role, fundYear, placeholders, consentId, docTypeFr
     setDownloading(true);
     setError('');
     try {
-      const { fillDocxTemplateFromRow, getLastRenderReport } = await import('../docxFill.js');
+      const { fillDocxTemplateFromRow, getLastRenderReport } = await safeImport(() => import('../docxFill.js'), 'docxFill');
       const filledBase64 = await fillDocxTemplateFromRow(templateRow, { ...placeholders, GENERATED_AT: new Date().toLocaleString('en-IN'), QR_CODE: qrCode });
 
       const rep = getLastRenderReport();
