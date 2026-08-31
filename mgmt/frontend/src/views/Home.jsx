@@ -146,7 +146,10 @@ export default function Home({ year, users, onUserCreated, role, editable }) {
   const autoGeneratePdf = async (docType, rowIndex, genYear) => {
     try {
       const docxRow = await api.getDocxTemplateForDoc(docType, genYear).catch(() => null);
-      if (!docxRow || (!docxRow.base64 && !docxRow.downloadUrl)) return null; // no template yet — silent skip
+      if (!docxRow || (!docxRow.base64 && !docxRow.downloadUrl)) {
+        console.warn(`[autoGeneratePdf] No template found for ${docType} year ${genYear}`);
+        return null; // no template yet — silent skip
+      }
 
       const dataFetcher = AUTO_GENERATE_FETCH[docType];
       if (!dataFetcher) return null;
@@ -165,10 +168,25 @@ export default function Home({ year, users, onUserCreated, role, editable }) {
       const filledBase64 = await fillDocxTemplateFromRow(docxRow, placeholders);
       const fileName = `${docType}-${placeholders[docNoKey]}.docx`;
       const res = await api.convertDocxToPdf(docType, genYear, recordId, filledBase64, fileName, true);
+      
+      // Check if PDF was created but indexing failed
+      if (res && res.indexFailed) {
+        console.error('[autoGeneratePdf] PDF created but not indexed:', res.error);
+        // Log to error table for admin visibility
+        api.logError('frontend-autoPdf', 'Home', 
+          `PDF indexing failed for ${docType} ${genYear} rowIndex ${rowIndex}: ${res.error}`, 
+          '', JSON.stringify({ docType, genYear, rowIndex, recordId, publicLink: res.publicLink }))
+          .catch(() => {});
+      }
+      
       return (res && res.publicLink) ? res.publicLink : null;
     } catch (err) {
       // Silent by design — auto-generate should never interrupt the user's flow.
       console.warn('Auto-generate PDF failed:', err);
+      // But log it to error_log for admin troubleshooting
+      api.logError('frontend-autoPdf', 'Home', err.message, err.stack || '', 
+        JSON.stringify({ docType, genYear, rowIndex }))
+        .catch(() => {});
       return null;
     }
   };
