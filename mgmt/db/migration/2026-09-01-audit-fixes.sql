@@ -1,10 +1,21 @@
 -- ============================================================================
 -- Audit fix migration — 2026-09-01
 --
--- Run each block against the DB named in its header, e.g.
---   wrangler d1 execute chhath-file-index      --remote --file=./migration/2026-09-01-audit-fixes.sql
--- (the file is split by DB below. Run only the block for the DB you target, or
---  split it into per-DB files first — D1 executes one database at a time).
+-- ⚠️ DO NOT pipe THIS file into wrangler. It contains the blocks for FOUR
+-- different databases, and `wrangler d1 execute` targets one database at a time —
+-- running the whole thing against a single DB would fail on every statement
+-- meant for the other three.
+--
+-- This file is the READABLE reference. To actually run the migration, use the
+-- pre-split per-database files in ./migration/2026-09-01/ :
+--
+--   cd mgmt/db
+--   wrangler d1 execute chhath-file-index     --remote --file=./migration/2026-09-01/01-file_index.sql
+--   wrangler d1 execute chhath-templates      --remote --file=./migration/2026-09-01/02-templates.sql
+--   wrangler d1 execute chhath-whatsapp-index --remote --file=./migration/2026-09-01/03-whatsapp_index.sql
+--   wrangler d1 execute chhath-logs           --remote --file=./migration/2026-09-01/04-logs.sql
+--
+-- (swap --remote for --local first if you want a dry run against the local replica)
 --
 -- Every statement here is IDEMPOTENT (IF NOT EXISTS / guarded) so re-running is
 -- safe. Nothing drops or rewrites existing data.
