@@ -189,6 +189,89 @@ export default {
       getPendingMessages: () => withApiKey(env, req, () => wa.getPendingMessages(env)),
       updateMessageStatus: () => withApiKey(env, req, () => wa.updateMessageStatus(env, req.type, req.message_id, req.status, req.remarks)),
       resendMessage: () => withAuth(env, req, (user) => wa.resendMessage(env, req.type, req.message_id, user)),
+      
+      // ---- WhatsApp: Diagnostic endpoint (Superadmin only) ----
+      whatsappDiagnostic: () => withAuth(env, req, async (user) => {
+        const allGroups = await getSheetDataAsJSON(env, 'WHATSAPP_GROUPS');
+        const allGroupTemplates = await getSheetDataAsJSON(env, 'GROUP_MESSAGE_TEMPLATES');
+        const allPersonTemplates = await getSheetDataAsJSON(env, 'PERSON_MESSAGE_TEMPLATES');
+        
+        // Helper to check active status (exported from whatsapp.js later)
+        const checkActive = (v) => {
+          if (typeof v === 'boolean') return v;
+          if (typeof v === 'number') return v === 1;
+          if (typeof v === 'string') {
+            const normalized = v.toLowerCase().trim();
+            return normalized === 'true' || normalized === '1' || normalized === 'yes';
+          }
+          return false;
+        };
+        
+        const activeGroups = allGroups.filter(g => checkActive(g.active));
+        const activeGroupTemplates = allGroupTemplates.filter(t => checkActive(t.active));
+        const activePersonTemplates = allPersonTemplates.filter(t => checkActive(t.active));
+        
+        // Count templates by contribution type
+        const countByType = (templates) => {
+          const counts = { '1': 0, '2': 0, '3': 0, '4': 0 };
+          templates.forEach(t => {
+            if (!checkActive(t.active)) return;
+            const num = parseFloat(t.contribution_type);
+            const type = isNaN(num) ? '1' : Math.floor(num).toString();
+            if (counts[type] !== undefined) counts[type]++;
+          });
+          return counts;
+        };
+        
+        return {
+          summary: {
+            totalGroups: allGroups.length,
+            activeGroups: activeGroups.length,
+            totalGroupTemplates: allGroupTemplates.length,
+            activeGroupTemplates: activeGroupTemplates.length,
+            totalPersonTemplates: allPersonTemplates.length,
+            activePersonTemplates: activePersonTemplates.length,
+            groupTemplatesByType: countByType(allGroupTemplates),
+            personTemplatesByType: countByType(allPersonTemplates)
+          },
+          groups: allGroups.map(g => ({
+            group_name: g.group_name,
+            groupid: g.groupid,
+            active: g.active,
+            active_type: typeof g.active,
+            is_active: checkActive(g.active)
+          })),
+          groupTemplates: allGroupTemplates.map(t => ({
+            template_id: t.template_id,
+            contribution_type: t.contribution_type,
+            contribution_type_typeof: typeof t.contribution_type,
+            active: t.active,
+            active_type: typeof t.active,
+            is_active: checkActive(t.active),
+            message_type: t.message_type,
+            text_preview: (t.text || '').slice(0, 50)
+          })),
+          personTemplates: allPersonTemplates.map(t => ({
+            template_id: t.template_id,
+            contribution_type: t.contribution_type,
+            contribution_type_typeof: typeof t.contribution_type,
+            active: t.active,
+            active_type: typeof t.active,
+            is_active: checkActive(t.active),
+            message_type: t.message_type,
+            doc_sub_type: t.doc_sub_type,
+            file_doc_type: t.file_doc_type,
+            text_preview: (t.text || '').slice(0, 50)
+          })),
+          issues: [
+            ...(activeGroups.length === 0 ? ['⚠️ No active WhatsApp groups configured'] : []),
+            ...(activeGroupTemplates.length === 0 ? ['⚠️ No active group message templates'] : []),
+            ...(activePersonTemplates.length === 0 ? ['⚠️ No active person message templates'] : []),
+            ...(countByType(allGroupTemplates)['1'] === 0 ? ['⚠️ No group template for type 1 (Cash Receipt)'] : []),
+            ...(countByType(allPersonTemplates)['1'] === 0 ? ['⚠️ No person template for type 1 (Cash Receipt)'] : [])
+          ]
+        };
+      }),
 
       // ---- Announcement Portal ----
       generateAnnouncementLink: () => withAuth(env, req, (user) => announce.generateAnnouncementLink(env, req.year, req.pin, req.expiresAt, user)),

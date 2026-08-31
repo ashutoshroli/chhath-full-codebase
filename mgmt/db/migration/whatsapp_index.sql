@@ -7,7 +7,7 @@ Koi', 'True', '2026-08-08 10:05:09', NULL, NULL, NULL);
 INSERT INTO group_message_templates (template_id, text, active, created_at, message_type, contribution_type, file_link) VALUES ('TPLmstij4zjtpb8', '{Name} {NameHindi} {Amount} {Year} {PaymentMethod} {Village} {VillageHindi} {FatherName} {FatherNameHindi} {Detail}', 'True', '2026-08-14 15:22:40', 'normal', 2.0, NULL);
 
 -- 1 rows from sheet "WHATSAPP_GROUPS" -> whatsapp_groups
-INSERT INTO whatsapp_groups (group_id, group_name, groupid, active, created_at) VALUES ('GRPmskmimaqiys6', 'Chhath Management', '120363045378292567@g.us', 'False', '2026-08-08 10:04:19');
+INSERT INTO whatsapp_groups (group_id, group_name, groupid, active, created_at) VALUES ('GRPmskmimaqiys6', 'Chhath Management', '120363045378292567@g.us', 'True', '2026-08-08 10:04:19');
 
 -- 2 rows from sheet "PERSON_MESSAGE_TEMPLATES" -> person_message_templates
 INSERT INTO person_message_templates (template_id, text, active, created_at, message_type, contribution_type, file_link, doc_sub_type, file_doc_type) VALUES ('TPLmstiin2o3tdj', '{Name} {NameHindi} {Amount} {Year} {PaymentMethod} {Village} {VillageHindi} {FatherName} {FatherNameHindi} {Detail}', 'True', '2026-08-14 15:22:17', 'normal', 2.0, NULL, NULL, NULL);

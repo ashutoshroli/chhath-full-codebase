@@ -139,6 +139,9 @@ export const api = {
   // WhatsApp: Message Log (view-only + Resend for failed)
   getMessageLog: () => call('getMessageLog'),
   resendMessage: (type, message_id) => call('resendMessage', { type, message_id }),
+  
+  // WhatsApp: Diagnostic
+  whatsappDiagnostic: () => call('whatsappDiagnostic'),
 
   // Portal Settings (OTP/Consent sender number)
   getPortalSetting: (key) => call('getPortalSetting', { key }),
