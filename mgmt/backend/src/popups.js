@@ -1,5 +1,6 @@
 import { requireAdminOrAbove, ValidationError } from './auth.js';
 import { uploadFileToDrive, getDriveAccessToken } from './account.js';
+import { base64ToBytes, sniffImageMime } from './base64.js';
 import { logWarn, logErrorAt } from './logger.js';
 
 // `popups.active` and the flag columns elsewhere are TEXT (see db/schema/misc.sql),
@@ -170,15 +171,47 @@ export async function savePopupSlides(env, popupId, slides, user) {
 }
 
 // Popup images reuse the same Drive folder/upload path as consent photos.
-export async function uploadPopupImage(env, base64, fileName, user) {
+//
+// 8 MB — frontend pehle se canvas se downscale karke ~200-400 KB bhejta hai, to ye
+// sirf safety net hai (purana client, ya jisme canvas decode fail ho gaya).
+const MAX_POPUP_IMAGE_BYTES = 8 * 1024 * 1024;
+
+export async function uploadPopupImage(env, base64, fileName, mimeType, user) {
   requireAdminOrAbove(user);
-  if (!base64) throw ValidationError('Image required');
-  const res = await uploadFileToDrive(env, base64, fileName || 'popup.jpg', 'image/jpeg');
+  if (!base64) throw ValidationError('Image zaroori hai.');
+
+  // Pehle yahan SIRF `if (!base64)` tha. Uske aage jo bhi aata — PDF, .exe, 20 MB
+  // ki RAW photo — sab 'image/jpeg' label lagakar Drive pe chala jata tha, aur
+  // phir har user ko login popup me broken image dikhta tha. Ab bytes ke magic
+  // number se asli format check hota hai (client ka mimeType bharosemand nahi).
+  const bytes = base64ToBytes(base64, { label: 'Image', maxBytes: MAX_POPUP_IMAGE_BYTES });
+  const sniffed = sniffImageMime(bytes);
+  if (!sniffed) {
+    throw ValidationError('Ye file image nahi hai (JPG, PNG, GIF ya WebP chahiye).');
+  }
+  // HEIC (iPhone ka default format) Drive pe chadh jata hai par Chrome/Firefox/
+  // Android WebView use render NAHI kar paate — popup silently khaali dikhta.
+  // Frontend canvas se JPEG bana deta hai; yahan tak HEIC pahunche to iska matlab
+  // conversion fail hua, aur chupchap toota image dene se behtar hai saaf batana.
+  if (sniffed === 'image/heic') {
+    throw ValidationError(
+      'iPhone ka HEIC format browser me nahi dikhta. Photo ko JPG me save karke ' +
+      'upload karein (iPhone: Settings > Camera > Formats > Most Compatible).'
+    );
+  }
+
+  // mimeType hardcoded 'image/jpeg' tha — PNG/WebP bhi jpeg bankar Drive pe jata
+  // tha, yani stored Content-Type galat hota tha. Ab asli format bhejte hain.
+  const ext = sniffed.split('/')[1].replace('jpeg', 'jpg');
+  const safeName = (fileName || '').toString().trim().replace(/[^\w.\-]+/g, '_').slice(0, 80)
+    || `popup_${Date.now()}.${ext}`;
+
+  const res = await uploadFileToDrive(env, base64, safeName, sniffed);
   // `url` is the Drive VIEWER PAGE (…/file/d/<id>/view) — putting that in an
   // <img src> renders nothing. `directUrl` (…/uc?export=view&id=<id>) is the
   // actual image bytes. PopupManagement was storing `url`, so every popup image
   // uploaded through the UI was broken everywhere it was displayed.
-  return Object.assign({}, res, { imageUrl: res.directUrl });
+  return Object.assign({}, res, { imageUrl: res.directUrl, mimeType: sniffed, bytes: bytes.length });
 }
 
 // Shared window/role evaluation so mgmt and the public portal can never drift.

@@ -1,5 +1,6 @@
 import { getDriveAccessToken } from './account.js';
 import { logWarn } from './logger.js';
+import { base64ToBytes } from './base64.js';
 
 const DRIVE_API = 'https://www.googleapis.com/drive/v3';
 const DRIVE_UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3';
@@ -48,7 +49,7 @@ function multipartBody(metadata, mimeType, bytes) {
 // not converted, kept as the original editable Word file).
 export async function uploadDocxFile(env, base64, fileName, folderId) {
   const token = await getDriveAccessToken(env);
-  const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+  const bytes = base64ToBytes(base64, { label: fileName || 'DOCX file' });
   const mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
   const { boundary, body } = multipartBody({ name: fileName, parents: [folderId] }, mimeType, bytes);
   const res = await fetch(`${DRIVE_UPLOAD_API}/files?uploadType=multipart&fields=id,name`, {
@@ -154,7 +155,7 @@ export async function trashFile(env, fileId) {
 // 4. Trash the intermediate Google Doc.
 export async function convertDocxBytesToPdf(env, base64, fileName, folderId) {
   const token = await getDriveAccessToken(env);
-  const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+  const bytes = base64ToBytes(base64, { label: fileName || 'DOCX file' });
   const docxMime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
   const baseName = (fileName || 'document').replace(/\.docx$/i, '');
 

@@ -387,7 +387,7 @@ export const api = {
   savePopup: (popupId, title, roles, active, startAt, endAt) => call('savePopup', { popupId, title, roles, active, startAt, endAt }),
   deletePopup: (popupId) => call('deletePopup', { popupId }),
   savePopupSlides: (popupId, slides) => call('savePopupSlides', { popupId, slides }),
-  uploadPopupImage: (base64, fileName) => call('uploadPopupImage', { base64, fileName }),
+  uploadPopupImage: (base64, fileName, mimeType) => call('uploadPopupImage', { base64, fileName, mimeType }),
   getActivePopups: () => call('getActivePopups'),
   // Shows exactly what the PUBLIC portal will render (a 'Public'-only popup is
   // invisible to getActivePopups, which filters by the caller's own role).

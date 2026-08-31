@@ -192,3 +192,80 @@ Verification queries `DEPLOY_GUIDE.md` Step 1c me hain.
 
 > **Zaroori:** `mgmt` frontend **dobara build** karna padega — `.at()` polyfill
 > bundle ka hissa hai, sirf Worker deploy karne se woh nahi jayega.
+
+
+---
+
+# Follow-up: popup image upload (PR #8 ke baad)
+
+PR #8 ke deploy ke baad Popup Management theek chal raha tha, par **image upload
+nahi ho raha tha aur preview bhi nahi dikh raha tha**. Chaar asli wajah nikli.
+
+**IU-1 — base64 decode 15-23x slow tha (asli upload failure)**
+
+Teen jagah `Uint8Array.from(atob(b64), c => c.charCodeAt(0))` tha. Woh per-character
+callback chalata hai. Maapa gaya:
+
+| Photo | base64 | `Uint8Array.from` + callback | indexed loop |
+|---|---|---|---|
+| 0.5 MB | 0.7 MB | 36 ms | 4 ms |
+| 2 MB | 2.7 MB | 143 ms | 13 ms |
+| 5 MB | 6.7 MB | 353 ms | 13 ms |
+| 8 MB | 10.7 MB | **552 ms** | 24 ms |
+
+Aaj ke phone ki photo 3-8 MB ki hoti hai, to ek popup image upload aadha second se
+zyada Worker CPU **sirf decode** me jala deta tha — aur CPU limit hit hote hi
+upload fail. Naya `base64.js` indexed loop use karta hai (**12x tez**: 543ms → 44ms
+8 MB pe), aur teeno call sites usi pe move kiye (`account.js`, `drive.js` ×2) — to
+consent photo aur docx upload bhi tez ho gaye.
+
+**IU-2 — koi size/format validation hi nahi thi**
+
+`uploadPopupImage` me sirf `if (!base64)` tha. Uske aage jo bhi aata — PDF, `.exe`,
+20 MB ki RAW photo — sab `'image/jpeg'` ka label lagakar Drive pe chala jata tha,
+aur phir har user ko login popup me **broken image** dikhta tha.
+
+> PR #8 ke `POPUP_ERRORLOG_FIXES.md` me maine PM-13 ko "Size + format validation"
+> likha tha. **Woh galat tha** — code me aisa kuch nahi tha. Ab hai: bytes ke
+> **magic number** se asli format check hota hai (client ka `mimeType` bharosemand
+> nahi), aur 8 MB ka cap hai.
+
+**IU-3 — `mimeType` hardcoded `'image/jpeg'` tha**
+
+PNG/WebP bhi `image/jpeg` bankar Drive pe jate the, yani stored Content-Type galat
+hota tha. Aur **iPhone ki default HEIC photo** Drive pe chadh jati hai par
+Chrome/Firefox/Android WebView usko **render nahi kar paate** — popup chupchap
+khaali dikhta tha. Ab asli format bhejte hain, aur HEIC pe saaf message aata hai ki
+photo JPG me save karein.
+
+Frontend ab naya `imagePrep.js` use karta hai: canvas se **1600px tak downscale +
+JPEG re-encode** upload se pehle (payload ~200-400 KB reh jata hai), jo IU-1 aur
+IU-3 dono ko jad se khatam karta hai. iOS Safari HEIC ko canvas se decode kar leta
+hai, to iPhone se seedha JPEG bankar jata hai. GIF ko chhod diya jata hai (canvas
+animation maar deta hai), aur agar canvas decode fail ho to original bhej dete hain
+— behaviour pehle se kharab nahi hota.
+
+**IU-4 — preview error par CHUPCHAP gayab ho jata tha** *(meri PR #8 ki galti)*
+
+PM-15 me maine `onError={e => e.currentTarget.style.display='none'}` lagaya tha. Iska
+matlab: image load na hone par woh **poori tarah gayab**, koi error nahi, koi hint
+nahi — admin ko pata hi nahi chalta ki upload hua ya nahi. Yehi "preview theek se
+nahi aa raha" tha. Ab saaf placeholder dikhta hai — URL, "Link kholein",
+"Dobara koshish", "Image hatayein" — aur upload error slide ke andar bhi dikhta hai
+(`alert()` mobile pe suppress ho jata hai).
+
+Saath me: upload error ab `reportClientError` me fileName/type/size ke saath jata
+hai, aur `savePopupSlides` ko sirf 4 persist hone wale field bhejte hain (mere naye
+UI-only `imageError`/`imageBroken` request me nahi jate).
+
+### Verification
+
+| Kya | Result |
+|---|---|
+| `base64.js` unit tests (clean/decode/size/sniff) | **39/39** |
+| Saare 256 byte values round-trip | pass |
+| Naya vs purana decode — identical output | pass |
+| Decode speed 8 MB | 543ms → **44ms** |
+| PDF/`.exe`/ZIP/text ko image maanna band | pass |
+| `vite build` (685 modules) · Worker dry-run | pass |
+| Pichhle saare tests (81×2 TZ, 8, 41) | koi regression nahi |
