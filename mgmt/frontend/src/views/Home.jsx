@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, lazy, Suspense } from 'react';
 import { api, fmt, reportClientError } from '../api.js';
+import { safeImport } from '../chunkGuard.js';
 import { useViewData } from '../useViewData.js';
 import { invalidate } from '../cache.js';
 import Modal from '../components/Modal.jsx';
@@ -199,8 +200,12 @@ export default function Home({ year, users, onUserCreated, role, editable }) {
       // docxFill (docxtemplater + pizzip) is a fairly heavy dependency — load it
       // only when we actually need to auto-generate, same reasoning as why
       // ReceiptModal itself is lazy-loaded.
-      const { fillDocxTemplateFromRow, getLastRenderReport } = await import('../docxFill.js');
-      const { generateQrDataUrl, publicRecordUrl } = await import('../qrCode.js');
+      // safeImport: a stale bundle after a deploy makes these reject with
+      // "Failed to fetch dynamically imported module". That rejection bypasses the
+      // ErrorBoundary (it isn't a render error), so it used to surface as a
+      // mystery error row. safeImport reloads the page once instead.
+      const { fillDocxTemplateFromRow, getLastRenderReport } = await safeImport(() => import('../docxFill.js'), 'docxFill');
+      const { generateQrDataUrl, publicRecordUrl } = await safeImport(() => import('../qrCode.js'), 'qrCode');
 
       let qrCode = '';
       try {

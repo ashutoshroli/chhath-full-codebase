@@ -39,7 +39,11 @@ npx wrangler d1 execute chhath-logs           --remote --command="SELECT COUNT(*
 > **Ye step zaroori hai.** Iske bina naya code **crash karega**: WhatsApp group
 > template save nahi hoga, queue ke `attempts`/`claimed_at` columns missing honge.
 
-Chaaron file **alag-alag DB** pe jati hain. Ek-ek karke chalao:
+Paanchon file **alag-alag DB** pe jati hain. Ek-ek karke chalao:
+
+> `05-popups-active.sql` popup fix ke saath aayi hai (Popup Management + Error Log
+> wala PR). Agar aap `01`–`04` pehle hi chala chuke hain, to **sirf `05` chalao** —
+> woh poori tarah idempotent hai (3 baar chala kar test kiya gaya hai).
 
 ```bash
 cd ~/chhath-full-codebase/mgmt/db
@@ -52,6 +56,7 @@ npx wrangler d1 execute chhath-file-index     --local --file=./migration/2026-09
 npx wrangler d1 execute chhath-templates      --local --file=./migration/2026-09-01/02-templates.sql
 npx wrangler d1 execute chhath-whatsapp-index --local --file=./migration/2026-09-01/03-whatsapp_index.sql
 npx wrangler d1 execute chhath-logs           --local --file=./migration/2026-09-01/04-logs.sql
+npx wrangler d1 execute chhath-misc           --local --file=./migration/2026-09-01/05-popups-active.sql
 ```
 
 ### 1b. Ab REMOTE (asli production)
@@ -61,6 +66,7 @@ npx wrangler d1 execute chhath-file-index     --remote --file=./migration/2026-0
 npx wrangler d1 execute chhath-templates      --remote --file=./migration/2026-09-01/02-templates.sql
 npx wrangler d1 execute chhath-whatsapp-index --remote --file=./migration/2026-09-01/03-whatsapp_index.sql
 npx wrangler d1 execute chhath-logs           --remote --file=./migration/2026-09-01/04-logs.sql
+npx wrangler d1 execute chhath-misc           --remote --file=./migration/2026-09-01/05-popups-active.sql
 ```
 
 Har command pe `y` confirm karna pad sakta hai.
@@ -97,6 +103,28 @@ npx wrangler d1 execute chhath-logs --remote \
 npx wrangler d1 execute chhath-whatsapp-index --remote \
   --command="SELECT COUNT(*) AS bare_10_digit FROM person_messages WHERE LENGTH(CAST(mobileno AS TEXT))=10"
 # expected: 0
+
+# --- 05-popups-active.sql ke liye ---
+
+# popups.active normalize ho gaya? ('True' nahi bachna chahiye)
+npx wrangler d1 execute chhath-misc --remote \
+  --command="SELECT DISTINCT active FROM popups"
+# expected: sirf '0' aur '1'
+
+# koi slide NULL nahi bacha? (NULL hone se Save button chupchap kaam nahi karta tha)
+npx wrangler d1 execute chhath-misc --remote \
+  --command="SELECT COUNT(*) AS nulls FROM popup_slides WHERE text IS NULL OR link_url IS NULL OR link_text IS NULL OR image_url IS NULL"
+# expected: 0
+
+# koi Drive VIEWER-page URL nahi bacha? (woh broken image dikhata hai)
+npx wrangler d1 execute chhath-misc --remote \
+  --command="SELECT COUNT(*) AS viewer_urls FROM popup_slides WHERE image_url LIKE '%/view'"
+# expected: 0
+
+# purane timezone-less timestamps ISO ho gaye?
+npx wrangler d1 execute chhath-misc --remote \
+  --command="SELECT popup_id, start_at, end_at FROM popups"
+# expected: start_at/end_at me space nahi, 'Z' ya +05:30 offset ho
 ```
 
 ---

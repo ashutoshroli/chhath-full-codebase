@@ -59,24 +59,56 @@ async function getAllPortalData(env) {
 
 // ---- Public popups (read-only, scoped to ONLY popups + popup_slides — never
 // any other table in the misc DB, per the "no extra data" requirement) ----
-function isTruthyFlag(v) { return v === true || v === 1 || v === '1' || String(v).toLowerCase() === 'true'; }
+//
+// `popups.active` is a TEXT column, so a bound 1 is stored as '1' and the sheet
+// migration wrote 'True'. Accept every form — see mgmt/backend/src/popups.js.
+function isTruthyFlag(v) {
+  if (v === true || v === 1) return true;
+  if (v === false || v === 0 || v === null || v === undefined) return false;
+  const s = v.toString().trim().toLowerCase();
+  return s === '1' || s === 'true' || s === 'yes';
+}
+
+// Legacy rows use '2026-08-22 14:31:00' (space-separated, no timezone); such a stamp
+// is read as UTC. New rows are written as ISO with an explicit offset.
+//
+// The zone is applied BEFORE parsing on purpose — V8 accepts the space form and reads
+// it as LOCAL time, so normalizing only after a failed parse would fix Safari and
+// leave V8 silently off by the local UTC offset. Must stay identical to
+// parseStoredDate in mgmt/backend/src/popups.js or the two portals will disagree
+// about which popups are live.
+function parseStoredDate(v) {
+  if (!v) return null;
+  const raw = v.toString().trim();
+  if (!raw) return null;
+  const hasZone = /([zZ]|[+-]\d{2}:?\d{2})$/.test(raw);
+  let d = new Date(raw.replace(' ', 'T') + (hasZone ? '' : 'Z'));
+  if (!isNaN(d.getTime())) return d;
+  d = new Date(raw);
+  return isNaN(d.getTime()) ? null : d;
+}
 
 async function getActivePublicPopups(env) {
   if (!env.DB_MISC) return []; // binding not configured yet — fail closed, not open
   const now = new Date();
+  // Was `WHERE active = 1`, which matched '1' but NEVER the 'True' written by the
+  // migration — so a popup the admin UI proudly showed as "Active" was never
+  // actually served here. Filter in JS with the permissive flag check instead.
   const { results: allPopups } = await env.DB_MISC.prepare(
-    'SELECT popup_id, title, roles, active, start_at, end_at FROM popups WHERE active = 1'
+    'SELECT popup_id, title, roles, active, start_at, end_at FROM popups'
   ).all();
   const popups = allPopups.filter(p => {
+    if (!isTruthyFlag(p.active)) return false;
     const rolesList = (p.roles || '').split(',').map(r => r.trim()).filter(Boolean);
     // Only popups explicitly tagged "Public" in mgmt's Popup Management show
-    // here — a popup with no roles at all is treated as mgmt-internal-only
-    // (matches the existing getActivePopups behavior for logged-in staff),
+    // here — a popup with no roles at all is treated as mgmt-internal-only,
     // so Superadmin must opt a popup into the Public role deliberately.
     if (!rolesList.includes('Public')) return false;
-    if (p.start_at && new Date(p.start_at) > now) return false;
-    if (p.end_at && new Date(p.end_at) < now) return false;
-    return isTruthyFlag(p.active);
+    const start = parseStoredDate(p.start_at);
+    const end = parseStoredDate(p.end_at);
+    if (start && start > now) return false;
+    if (end && end < now) return false;
+    return true;
   });
   if (!popups.length) return [];
   const { results: allSlides } = await env.DB_MISC.prepare(
@@ -88,7 +120,15 @@ async function getActivePublicPopups(env) {
       title: p.title,
       slides: allSlides
         .filter(s => s.popup_id === p.popup_id)
-        .map(s => ({ slide_id: s.slide_id, slide_order: s.slide_order, image_url: s.image_url, text: s.text, link_url: s.link_url, link_text: s.link_text })),
+        // Coalesce NULLs — the migrated slide row has text/link_url/link_text NULL.
+        .map(s => ({
+          slide_id: s.slide_id,
+          slide_order: parseInt(s.slide_order) || 0,
+          image_url: s.image_url || '',
+          text: s.text || '',
+          link_url: s.link_url || '',
+          link_text: s.link_text || '',
+        })),
     }))
     .filter(p => p.slides.length > 0);
 }

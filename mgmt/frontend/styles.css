@@ -55,7 +55,21 @@ button, input, select { font: inherit; }
 
 .form-group { margin-bottom: 15px; }
 .form-group label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 5px; color: var(--text-muted); }
-input, select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; outline: none; }
+/* The `input` selector used to be unqualified, so it also hit checkboxes and
+   radios: each one became a FULL-WIDTH, 10px-padded, bordered box instead of a
+   tick. On a phone that renders as a big grey rectangle where you cannot tell
+   checked from unchecked, and tapping anywhere in it toggles the value — which is
+   why Popup Management's "Active" flag could not be set reliably. Only two of the
+   nine checkboxes in the app carried a `style={{width:'auto'}}` workaround.
+   Excluding them here fixes all of them at once. */
+input:not([type="checkbox"]):not([type="radio"]), select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; outline: none; }
+
+/* Give checkboxes/radios a real, comfortable tap target instead. */
+input[type="checkbox"], input[type="radio"] {
+  width: 18px; height: 18px; min-width: 18px; margin: 0;
+  padding: 0; border: 0; border-radius: 0;
+  accent-color: var(--primary-saffron); cursor: pointer; flex: 0 0 auto;
+}
 
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 15px; }
 .modal-content { background: white; width: 100%; max-width: 500px; border-radius: 12px; padding: 20px; max-height: 90vh; overflow-y: auto; }

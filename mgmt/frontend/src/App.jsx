@@ -116,7 +116,7 @@ export default function App() {
 
   // Locked years — Superadmin's "Lock Data" list. Affects add/edit/delete everywhere.
   const lockedYearsView = useViewData('lockedYears', () => api.getLockedYears(), [user]);
-  const lockedYearsSet = useMemo(() => new Set((lockedYearsView.data || []).map(y => parseInt(y))), [lockedYearsView.data]);
+  const lockedYearsSet = useMemo(() => new Set(lockedYearsView.list.map(y => parseInt(y))), [lockedYearsView.data]);
 
   // Users list — needed for name lookups across every view, fetched once (not per-tab) but only after login.
   const usersView = useViewData('users', () => api.getUsers(), [user]);
@@ -129,7 +129,7 @@ export default function App() {
   // they were actually on the committee for; other years are read-only to them).
   const myCommitteeYears = useMemo(() => {
     const set = new Set();
-    (committeeAllView.data || []).forEach(r => {
+    committeeAllView.list.forEach(r => {
       if (user && (r.Name || '').toString().trim() === user.name) set.add(parseInt(r.Year));
     });
     return set;
@@ -195,7 +195,7 @@ export default function App() {
           ))}
         </nav>
         <ProfileMenu
-          name={(usersView.data || []).find(u => u.ID === user.name)?.Name || user.name}
+          name={usersView.list.find(u => u.ID === user.name)?.Name || user.name}
           role={user.role}
           onOpenSettings={() => setShowSettings(true)}
           onLogout={logout}

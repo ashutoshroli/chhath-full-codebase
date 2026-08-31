@@ -1,5 +1,5 @@
 import { getSheetDataAsJSON, filterByYear } from './crud.js';
-import { requireSuperadmin, requireYearAccess, requireStaffRole, PermissionError } from './auth.js';
+import { requireSuperadmin, requireYearAccess, requireStaffRole, PermissionError, ValidationError } from './auth.js';
 import { getOrCreateFolder, uploadDocxFile, getFileBytesBase64, copyFile, convertDocxBytesToPdf } from './drive.js';
 import { logErrorAt } from './logger.js';
 import { consentPlaceholderFactory } from './consentPlaceholders.js';
@@ -88,11 +88,33 @@ export async function getDocxTemplateForDoc(env, docType, year, user) {
   return getDocxTemplate(env, docType, year);
 }
 
+// A .docx is a ZIP, so its base64 always begins with "UEsDB" (PK\x03\x04).
+// Checking this turns two confusing production failures into clear guidance:
+//   "atob() called with invalid base64-encoded data" (4 occurrences in the log)
+//   — the browser handed over something that wasn't a clean base64 payload
+// and the case where an admin picks a .doc / .pdf / image by mistake.
+function assertValidDocxBase64(base64) {
+  const b64 = (base64 || '').toString().replace(/\s+/g, '');
+  if (!b64) throw ValidationError('File required');
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(b64) || b64.length % 4 !== 0) {
+    throw ValidationError(
+      'File theek se upload nahi hui (base64 data kharab hai). Page refresh karke dobara file select karein.'
+    );
+  }
+  if (!b64.startsWith('UEsDB')) {
+    throw ValidationError(
+      'Ye file .docx nahi lagti. Word me "Save As" karke format "Word Document (.docx)" chunein — ' +
+      'purana .doc, .pdf ya image kaam nahi karega.'
+    );
+  }
+  return b64;
+}
+
 export async function uploadDocxTemplate(env, docType, year, base64, fileName, user) {
   requireSuperadmin(user);
-  if (!DOC_TYPES.includes(docType)) throw new Error('Invalid doc type');
-  if (!year) throw new Error('Year required');
-  if (!base64) throw new Error('File required');
+  if (!DOC_TYPES.includes(docType)) throw ValidationError('Invalid doc type');
+  if (!year) throw ValidationError('Year required');
+  base64 = assertValidDocxBase64(base64);
   if (!env.DRIVE_ROOT_FOLDER_ID) throw new Error('DRIVE_ROOT_FOLDER_ID not configured on server');
 
   const folderId = await getOrCreateFolder(env, env.DRIVE_ROOT_FOLDER_ID, 'DOCX Templates');
@@ -116,9 +138,9 @@ export async function copyDocxTemplate(env, docType, fromYear, toYear, user) {
   requireSuperadmin(user);
   if (!toYear) throw new Error('Target year required');
   const conflict = await env.DB_TEMPLATES.prepare('SELECT id FROM docx_templates WHERE doc_type = ? AND year = ?').bind(docType, parseInt(toYear)).first();
-  if (conflict) throw new Error(`${toYear} ke liye pehle se ek template maujood hai.`);
+  if (conflict) throw ValidationError(`${toYear} ke liye pehle se ek template maujood hai.`);
   const source = await env.DB_TEMPLATES.prepare('SELECT * FROM docx_templates WHERE doc_type = ? AND year = ?').bind(docType, parseInt(fromYear)).first();
-  if (!source) throw new Error('Source template nahi mila.');
+  if (!source) throw ValidationError('Source template nahi mila.');
 
   const folderId = await getOrCreateFolder(env, env.DRIVE_ROOT_FOLDER_ID, 'DOCX Templates');
   const copy = await copyFile(env, source.drive_file_id, `${docType}-${toYear}.docx`, folderId);
@@ -132,7 +154,7 @@ export async function copyDocxTemplate(env, docType, fromYear, toYear, user) {
 export async function deleteDocxTemplate(env, docType, year, user) {
   requireSuperadmin(user);
   const result = await env.DB_TEMPLATES.prepare('DELETE FROM docx_templates WHERE doc_type = ? AND year = ?').bind(docType, parseInt(year)).run();
-  if (!result.meta.changes) throw new Error('Template nahi mila.');
+  if (!result.meta.changes) throw ValidationError('Template nahi mila.');
   return { success: true };
 }
 
@@ -225,8 +247,8 @@ export async function convertDocxToPdf(env, docType, year, recordId, base64, fil
     requireStaffRole(user);
   }
 
-  if (!DOC_TYPES.includes(docType)) throw new Error('Invalid doc type');
-  if (!base64) throw new Error('File required');
+  if (!DOC_TYPES.includes(docType)) throw ValidationError('Invalid doc type');
+  base64 = assertValidDocxBase64(base64);
   if (!env.DRIVE_ROOT_FOLDER_ID) throw new Error('DRIVE_ROOT_FOLDER_ID not configured on server');
 
   const force = !!(opts && opts.force);
@@ -410,7 +432,7 @@ export async function getPersonDownloads(env, userId, user) {
   const userMap = {};
   users.forEach(u => { userMap[u.ID] = u; });
   const u = userMap[id];
-  if (!u) throw new Error('User not found');
+  if (!u) throw ValidationError('User not found');
   const nameOf = (pid) => (userMap[pid] && userMap[pid].Name) || pid;
 
   const allCollections = (await getSheetDataAsJSON(env, 'COLLECTIONS'))

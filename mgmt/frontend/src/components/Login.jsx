@@ -42,7 +42,7 @@ export default function Login({ onLogin }) {
         </div>
         <div className="form-group">
           <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <input type="checkbox" style={{ width: 'auto' }} checked={remember} onChange={e => setRemember(e.target.checked)} />
+            <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />
             Keep me logged in for 30 days
           </label>
         </div>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { reportClientError } from '../api.js';
+import { isChunkLoadError, reloadOnceForChunkError } from '../chunkGuard.js';
 
 // There was NO ErrorBoundary anywhere in the app (grep for
 // `ErrorBoundary|componentDidCatch` returned nothing), so a single render throw
@@ -24,6 +25,9 @@ export default class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, info) {
     this.setState({ info });
+    // Stale bundle after a deploy: reload once instead of logging a non-defect and
+    // making the user find the Refresh button.
+    if (reloadOnceForChunkError(error)) return;
     // A real stack + component stack, unlike what window.onerror can capture.
     reportClientError(
       this.props.name || 'ErrorBoundary',
@@ -33,9 +37,9 @@ export default class ErrorBoundary extends React.Component {
     );
   }
 
+  // Shared with chunkGuard.js so the detector can't drift between the two.
   isChunkLoadError() {
-    const msg = (this.state.error && this.state.error.message) || '';
-    return /Loading chunk|dynamically imported module|Importing a module script failed|Failed to fetch dynamically/i.test(msg);
+    return isChunkLoadError(this.state.error);
   }
 
   render() {

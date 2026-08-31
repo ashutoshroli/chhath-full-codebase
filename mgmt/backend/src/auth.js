@@ -11,11 +11,31 @@ const LOGIN_LOCKOUT_SECONDS = 900; // 15 min — matches Code.js exactly
 export function AuthError(message) {
   const e = new Error(message);
   e.authError = true;
+  e.expected = true; // a session timing out is routine, not a defect
   return e;
 }
+// A policy denial (wrong role, bad API key). This is NORMAL operation, not a
+// defect — a Subadmin opening a Superadmin-only screen must not fill the Error
+// Log. Marked `expected` so index.js's top-level catch skips logging it.
 export function PermissionError(message) {
   const e = new Error(message);
   e.authError = false;
+  e.expected = true;
+  return e;
+}
+
+// A message meant FOR THE USER: wrong PIN, wrong OTP, expired link, "already
+// exists", "not found", missing required field. Also NOT a defect.
+//
+// Why this exists: the Error Log filled up with ~50 rows of "Galat PIN",
+// "Sirf Superadmin ye action kar sakta hai", "OTP galat hai", "Ye Email pehle se
+// registered hai" etc., which buried the handful of REAL defects (278 rows, 276
+// unreported). Anything thrown as a ValidationError is still returned to the user
+// exactly as before — it just isn't recorded as a system error.
+export function ValidationError(message) {
+  const e = new Error(message);
+  e.authError = false;
+  e.expected = true;
   return e;
 }
 
@@ -51,7 +71,9 @@ export async function login(env, name, password, rememberMe) {
   const lockKey = 'loginfail:' + name;
   const fails = parseInt((await env.KV_SESSIONS.get(lockKey)) || '0');
   if (fails >= MAX_LOGIN_ATTEMPTS) {
-    return { success: false, message: 'Too many attempts. Try again in a few minutes.' };
+    // `lockedOut` lets index.js log ONLY the lockout instead of every wrong
+    // password (see isExpectedError there).
+    return { success: false, lockedOut: true, message: 'Too many attempts. Try again in a few minutes.' };
   }
 
   const user = await findLoginRowByIdentifier(env, name);
