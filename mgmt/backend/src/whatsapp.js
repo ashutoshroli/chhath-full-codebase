@@ -128,7 +128,16 @@ export function pickRandomActive(rows) {
   return active[Math.floor(Math.random() * active.length)];
 }
 export function templatesForContribution(allTemplates, contributionType, docSubType) {
-  let pool = allTemplates.filter(t => (t.contribution_type || '1').toString() === contributionType);
+  // Normalize both sides to integer strings for comparison
+  const normalizeType = (val) => {
+    if (!val) return '1';
+    const num = parseFloat(val);
+    return isNaN(num) ? val.toString() : Math.floor(num).toString();
+  };
+  
+  const targetType = normalizeType(contributionType);
+  let pool = allTemplates.filter(t => normalizeType(t.contribution_type) === targetType);
+  
   if (contributionType === '3') {
     const exact = pool.filter(t => (t.doc_sub_type || '') === docSubType);
     pool = exact.length ? exact : pool.filter(t => !t.doc_sub_type);
@@ -136,7 +145,15 @@ export function templatesForContribution(allTemplates, contributionType, docSubT
   return pool;
 }
 
-function isTruthyFlag(v) { return v === true || v === 'true' || v === 'TRUE' || v === '1'; }
+function isTruthyFlag(v) {
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'number') return v === 1;
+  if (typeof v === 'string') {
+    const normalized = v.toLowerCase().trim();
+    return normalized === 'true' || normalized === '1' || normalized === 'yes';
+  }
+  return false;
+}
 
 export async function queuePersonMessageDirect(env, mobile10Digit, message, from, messageType, fileLink) {
   await env.DB_WHATSAPP_INDEX.prepare(
@@ -194,13 +211,46 @@ export async function triggerCollectionMessages(env, payload, docType, recordId,
       ItemName: isResell ? (payload.Detail || '') : '',
     };
 
-    const groups = (await getSheetDataAsJSON(env, 'WHATSAPP_GROUPS')).filter(g => isTruthyFlag(g.active));
-    const groupTemplates = templatesForContribution(await getSheetDataAsJSON(env, 'GROUP_MESSAGE_TEMPLATES'), effectiveType, docSubType);
+    // Detailed logging for debugging
+    console.log('[WhatsApp Queue] Starting triggerCollectionMessages', {
+      contributionType,
+      effectiveType,
+      docSubType,
+      contributorFound: !!contributor,
+      isResell
+    });
+
+    const allGroups = await getSheetDataAsJSON(env, 'WHATSAPP_GROUPS');
+    console.log('[WhatsApp Queue] All groups from DB:', allGroups.map(g => ({ 
+      name: g.group_name, 
+      active: g.active, 
+      activeType: typeof g.active,
+      isTruthy: isTruthyFlag(g.active)
+    })));
+    
+    const groups = allGroups.filter(g => isTruthyFlag(g.active));
+    console.log('[WhatsApp Queue] Active groups after filter:', groups.length);
+    
+    const allGroupTemplates = await getSheetDataAsJSON(env, 'GROUP_MESSAGE_TEMPLATES');
+    console.log('[WhatsApp Queue] All group templates from DB:', allGroupTemplates.map(t => ({
+      contribution_type: t.contribution_type,
+      contribution_type_typeof: typeof t.contribution_type,
+      active: t.active,
+      isTruthy: isTruthyFlag(t.active)
+    })));
+    
+    const groupTemplates = templatesForContribution(allGroupTemplates, effectiveType, docSubType);
+    console.log('[WhatsApp Queue] Group templates after filter:', groupTemplates.length, 'for type:', effectiveType);
     
     let groupMessagesSent = 0;
     for (const g of groups) {
       const tpl = pickRandomActive(groupTemplates);
       if (!tpl) {
+        console.warn('[WhatsApp Queue] No active group template found', { 
+          effectiveType, 
+          docSubType,
+          availableTemplates: groupTemplates.length 
+        });
         // Log missing template for debugging
         await env.DB_LOGS.prepare(
           'INSERT INTO error_log (id, category, location, message, stack, context, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)'
@@ -220,20 +270,44 @@ export async function triggerCollectionMessages(env, payload, docType, recordId,
         'INSERT INTO group_messages (message_id, groupid, message, status, remarks, created_at, "from", message_type, file_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
       ).bind(generateMessageId(), g.groupid, message, 'pending', '', new Date().toISOString(), from, tpl.message_type || 'normal', resolveFileLink(tpl)).run();
       groupMessagesSent++;
+      console.log('[WhatsApp Queue] Group message queued', { groupId: g.groupid, groupName: g.group_name });
     }
 
     const rawNumber = contributor ? (contributor.WhatsApp || contributor.Mobile || '').toString().trim() : '';
     const waNumber = (!isResell && /^\d{10}$/.test(rawNumber)) ? '91' + rawNumber : '';
     let personMessageSent = false;
     
+    console.log('[WhatsApp Queue] Person message check', { 
+      hasContributor: !!contributor, 
+      rawNumber, 
+      waNumber, 
+      isValid: !!waNumber 
+    });
+    
     if (waNumber) {
-      const personTemplates = templatesForContribution(await getSheetDataAsJSON(env, 'PERSON_MESSAGE_TEMPLATES'), contributionType, docSubType);
+      const allPersonTemplates = await getSheetDataAsJSON(env, 'PERSON_MESSAGE_TEMPLATES');
+      console.log('[WhatsApp Queue] All person templates from DB:', allPersonTemplates.map(t => ({
+        contribution_type: t.contribution_type,
+        contribution_type_typeof: typeof t.contribution_type,
+        active: t.active,
+        isTruthy: isTruthyFlag(t.active)
+      })));
+      
+      const personTemplates = templatesForContribution(allPersonTemplates, contributionType, docSubType);
+      console.log('[WhatsApp Queue] Person templates after filter:', personTemplates.length, 'for type:', contributionType);
+      
       const tpl = pickRandomActive(personTemplates);
       if (tpl) {
         const message = renderTemplate(tpl.text, placeholderData);
         await queuePersonMessageDirect(env, waNumber, message, from, tpl.message_type || 'normal', resolveFileLink(tpl));
         personMessageSent = true;
+        console.log('[WhatsApp Queue] Person message queued', { waNumber, contributorName: payload.Name });
       } else {
+        console.warn('[WhatsApp Queue] No active person template found', { 
+          contributionType, 
+          docSubType,
+          availableTemplates: personTemplates.length 
+        });
         // Log missing person template
         await env.DB_LOGS.prepare(
           'INSERT INTO error_log (id, category, location, message, stack, context, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)'
@@ -248,6 +322,7 @@ export async function triggerCollectionMessages(env, payload, docType, recordId,
         ).run().catch(() => {});
       }
     } else if (!isResell && contributor) {
+      console.warn('[WhatsApp Queue] Invalid or missing WhatsApp number', { contributorId: payload.Name, rawNumber });
       // Log missing/invalid WhatsApp number
       await env.DB_LOGS.prepare(
         'INSERT INTO error_log (id, category, location, message, stack, context, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)'
@@ -263,8 +338,17 @@ export async function triggerCollectionMessages(env, payload, docType, recordId,
     }
 
     // Success summary log
+    console.log('[WhatsApp Queue] Complete', { 
+      groupMessagesSent, 
+      personMessageSent, 
+      contributionType,
+      effectiveType 
+    });
+    
     if (groupMessagesSent > 0 || personMessageSent) {
-      console.log(`WhatsApp queued: ${groupMessagesSent} group message(s), ${personMessageSent ? '1 person message' : '0 person messages'}`);
+      console.log(`✅ WhatsApp queued: ${groupMessagesSent} group message(s), ${personMessageSent ? '1 person message' : '0 person messages'}`);
+    } else {
+      console.error('❌ WhatsApp queue FAILED: No messages were queued!');
     }
   } catch (err) {
     // Swallow — never let WhatsApp queueing break a collection save.
