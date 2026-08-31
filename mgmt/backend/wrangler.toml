@@ -3,15 +3,28 @@ main = "src/index.js"
 compatibility_date = "2025-01-01"
 
 [vars]
+# ⚠️ MUST be replaced with the real frontend domain before deploying.
+# Every loan-consent WhatsApp link is built from this. It used to degrade
+# silently (`env.CONSENT_BASE_URL || ''`) to a bare "/consent/<token>" path, so a
+# misconfigured Worker sent DEAD links that were still recorded as `sent`.
+# loans.js now refuses to send and raises a clear error while this still contains
+# the placeholder value below.
 CONSENT_BASE_URL = "https://YOUR-FRONTEND-DOMAIN.example.com"
 
 # ---- Secrets (set with `wrangler secret put NAME`, NOT here) ----
 # PASSWORD_SALT
 # WHATSAPP_QUEUE_API_KEY
-# DRIVE_SA_EMAIL          (docx templates / docx->pdf conversion / file uploads)
-# DRIVE_SA_PRIVATE_KEY
 # DRIVE_FOLDER_ID         (used by account.js's uploadFileToDrive — popups, consent photos/signatures)
 # DRIVE_ROOT_FOLDER_ID    (used by docxTemplates.js — root folder that "DOCX Templates" and "Generated PDFs" live under)
+#
+# Drive auth is an OAuth REFRESH TOKEN (see account.js getDriveAccessToken(),
+# KV-cached ~55 min), NOT a service account. The DRIVE_SA_EMAIL /
+# DRIVE_SA_PRIVATE_KEY secrets this file used to document are read by NO code at
+# all — the stale docs sent people chasing the wrong credential whenever the
+# docx->pdf conversion failed. These are the names the code actually reads:
+# DRIVE_OAUTH_CLIENT_ID
+# DRIVE_OAUTH_CLIENT_SECRET
+# DRIVE_OAUTH_REFRESH_TOKEN
 
 [[kv_namespaces]]
 binding = "KV_SESSIONS"

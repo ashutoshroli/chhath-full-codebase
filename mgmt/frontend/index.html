@@ -27,6 +27,12 @@
   <!-- End Google Tag Manager (noscript) -->
 
   <div id="root"></div>
-  <script type="module" src="/src/main.jsx"></script>
+  <!-- `crossorigin` matters for the Error Log, not just for CORS: without it the
+       browser hides every uncaught error from a differently-origined bundle behind
+       the opaque message "Script error." with NO stack — the migrated error_log has
+       five such useless rows. With it (plus Access-Control-Allow-Origin on the
+       asset host, which Vercel already sends) window.onerror receives the real
+       message and stack. -->
+  <script type="module" crossorigin src="/src/main.jsx"></script>
 </body>
 </html>

@@ -5,13 +5,18 @@ import { api } from '../api.js';
 import { renderReceiptTemplate, PAGE_SIZES_MM } from '../receiptTemplate.js';
 import { generateQrDataUrl, publicRecordUrl } from '../qrCode.js';
 
+// DETAIL and YEAR are both returned by the backend's getReceiptData() and were
+// documented in the Word/.docx editor, but were missing here — AND missing from
+// SAMPLE_PLACEHOLDERS below, which meant the seeded receipt sample's own
+// `{{#IF DETAIL}}...{{/IF}}` block silently disappeared in this editor's preview
+// even though it renders perfectly on a real receipt. Very confusing for admins.
 const SAMPLE_PLACEHOLDERS = {
-  RECEIPT_NO: 'NCS-2026-1', NAME: 'Ramesh Verma', DATE: '2026-08-10',
+  RECEIPT_NO: 'NCS-2026-1', NAME: 'Ramesh Verma', DATE: '2026-08-10', YEAR: '2026',
   FATHER_NAME: 'Suresh Verma', VILLAGE: 'Shaharpura', DESIGNATION: '', MOBILE: '9876543210',
-  AMOUNT: '501', GENERATED_AT: new Date().toLocaleString('en-IN'),
+  AMOUNT: '501', DETAIL: 'Cash contribution', GENERATED_AT: new Date().toLocaleString('en-IN'),
 };
 
-const PLACEHOLDER_HINTS = ['RECEIPT_NO', 'NAME', 'DATE', 'FATHER_NAME', 'VILLAGE', 'DESIGNATION', 'MOBILE', 'AMOUNT', 'GENERATED_AT', 'QR_CODE'];
+const PLACEHOLDER_HINTS = ['RECEIPT_NO', 'NAME', 'DATE', 'YEAR', 'FATHER_NAME', 'VILLAGE', 'DESIGNATION', 'MOBILE', 'AMOUNT', 'DETAIL', 'GENERATED_AT', 'QR_CODE'];
 
 export default function ReceiptTemplates() {
   const [templates, setTemplates] = useState([]);
@@ -28,6 +33,12 @@ export default function ReceiptTemplates() {
   const [sampleQr, setSampleQr] = useState('');
 
   useEffect(() => {
+    // Deliberately silent: this QR is only a decorative THUMBNAIL shown next to the
+    // placeholder hints in this editor (record id "sample-preview"). It never ends
+    // up in a generated document, so a failure here has no consequence worth
+    // reporting. The QR used in real documents is generated in ReceiptModal /
+    // Home / Bulk / DownloadCenter / ConsentPage, and every one of those DOES
+    // report a failure now.
     generateQrDataUrl(publicRecordUrl('sample-preview')).then(setSampleQr).catch(() => {});
   }, []);
 

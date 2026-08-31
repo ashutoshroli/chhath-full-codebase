@@ -70,6 +70,9 @@ export default function AnnouncePage() {
   const storageKey = `announce_session_${token}`;
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState('');
+  // Set when sessionStorage is unavailable (Safari private mode / storage
+  // disabled). Without this the PIN screen silently reappeared on every refresh.
+  const [sessionPersistWarning, setSessionPersistWarning] = useState(false);
   const [linkExpired, setLinkExpired] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [announceToken, setAnnounceToken] = useState(null);
@@ -79,6 +82,9 @@ export default function AnnouncePage() {
   const [statusFilter, setStatusFilter] = useState('All');
   const [typeFilter, setTypeFilter] = useState('All');
   const [items, setItems] = useState([]);
+  // True when the live auto-refresh poll last failed, so the operator can see the
+  // screen is showing stale data instead of silently trusting a frozen list.
+  const [pollFailed, setPollFailed] = useState(false);
   const [priorityQueue, setPriorityQueue] = useState([]);
   const [normalIndex, setNormalIndex] = useState(0);
   const [priorityPointer, setPriorityPointer] = useState(-1);
@@ -129,7 +135,14 @@ export default function AnnouncePage() {
       skipNextLoadRef.current = true;
       setAnnounceToken(res.announceToken);
       setYear(res.year);
-      try { sessionStorage.setItem(storageKey, JSON.stringify({ announceToken: res.announceToken, year: res.year })); } catch (e) { /* ignore */ }
+      try {
+        sessionStorage.setItem(storageKey, JSON.stringify({ announceToken: res.announceToken, year: res.year }));
+      } catch (e) {
+        // Safari private mode / storage disabled: the session silently failed to
+        // persist, so a refresh bounced the user back to the PIN screen forever
+        // with nothing logged. Warn them instead.
+        setSessionPersistWarning(true);
+      }
     } catch (err) {
       if (err.expired) setLinkExpired(true);
       setPinError(err.message);
@@ -144,7 +157,7 @@ export default function AnnouncePage() {
     if (err.announceSessionExpired) {
       setAnnounceToken(null);
       setPinError(err.message);
-      try { sessionStorage.removeItem(storageKey); } catch (e) { /* ignore */ }
+      try { sessionStorage.removeItem(storageKey); } catch (e) { /* nothing to clean up if storage is unavailable */ }
       return true;
     }
     return false;
@@ -174,8 +187,12 @@ export default function AnnouncePage() {
     const iv = setInterval(() => {
       if (priorityPointerRef.current >= 0) return; // don't disturb an active priority interrupt
       api.getAnnouncementQueue(announceToken, statusFilter, typeFilter)
-        .then(res => { setItems(res.items || []); setPriorityQueue(res.priorityItems || []); })
-        .catch(() => {});
+        .then(res => { setItems(res.items || []); setPriorityQueue(res.priorityItems || []); setPollFailed(false); })
+        // Was `.catch(() => {})`. During a live event the operator had no way to
+        // know the auto-refresh had stopped — the screen just silently froze on
+        // stale data. A small indicator is enough; we must NOT interrupt the
+        // announcement display with an error banner.
+        .catch(() => setPollFailed(true));
     }, POLL_MS);
     return () => clearInterval(iv);
   }, [announceToken, statusFilter, typeFilter]);
@@ -283,6 +300,11 @@ export default function AnnouncePage() {
         <div className="glass-card" style={{ padding: 24, maxWidth: 380, margin: '60px auto' }}>
           <h3 style={{ marginBottom: 15, textAlign: 'center' }}>Announcement Portal</h3>
           {pinError && <div className="error-banner">{pinError}</div>}
+          {sessionPersistWarning && (
+            <div style={{ background: '#FEF3C7', color: '#92400E', borderRadius: 8, padding: '8px 12px', fontSize: '0.8rem', marginBottom: 10 }}>
+              ⚠️ Aapka browser session save nahi kar pa raha (private/incognito mode). Page refresh karne par PIN dobara daalna padega.
+            </div>
+          )}
           <div className="form-group">
             <label>Enter PIN</label>
             <input
@@ -302,6 +324,14 @@ export default function AnnouncePage() {
   return (
     <div className="announce-page" ref={announcePageRef}>
       <div className="announce-top-bar" ref={announceTopBarRef}>
+        {pollFailed && (
+          <span
+            title="Live refresh ruk gaya hai — data purana ho sakta hai"
+            style={{ color: '#DC2626', fontSize: '0.7rem', fontWeight: 700, marginRight: 6 }}
+          >
+            ● OFFLINE
+          </span>
+        )}
         <div className="announce-top-bar-title">
           <h3>Announcements — Year {year}</h3>
         </div>

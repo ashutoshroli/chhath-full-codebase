@@ -16,4 +16,11 @@ CREATE TABLE generated_files (
 CREATE INDEX idx_generated_files_doc_type ON generated_files(doc_type);
 CREATE INDEX idx_generated_files_year ON generated_files(year);
 CREATE INDEX idx_generated_files_record_id ON generated_files(record_id);
+-- convertDocxToPdf()'s "already generated?" guard was a read-then-write with no
+-- transaction and (previously) no DB constraint, so two concurrent requests both
+-- passed the guard, both converted (two Drive PDFs, one orphaned) and both
+-- inserted — after which the public portal's .find() returned an arbitrary row.
+-- This index makes the DB the arbiter and lets the code use ON CONFLICT.
+CREATE UNIQUE INDEX uq_generated_files_doc_year_record
+  ON generated_files(doc_type, year, record_id);
 

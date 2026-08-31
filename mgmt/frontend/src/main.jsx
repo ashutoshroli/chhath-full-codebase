@@ -4,17 +4,36 @@ import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import App from './App.jsx';
 import ConsentPage from './views/ConsentPage.jsx';
 import AnnouncePage from './views/AnnouncePage.jsx';
-import { api } from './api.js';
+import { reportClientError } from './api.js';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 import '../styles.css';
 
 // Catches pure frontend JS errors (not just failed API calls, which api.js's
 // call() already logs) — e.g. a render crash or a bug with no backend involved.
+//
+// These use reportClientError() instead of api.logError() because api.logError()
+// goes through call(), whose own failure path could recurse; reportClientError is
+// a plain fire-and-forget POST that BUFFERS to sessionStorage when the network is
+// down. Previously both handlers ended in `.catch(() => {})` — the very last line
+// of defence swallowed its own failure.
 window.addEventListener('error', (e) => {
-  api.logError('frontend', window.location.pathname, e.message, e.error && e.error.stack).catch(() => {});
+  // A cross-origin bundle reports every error as a bare "Script error." with no
+  // stack (the migrated data has five such useless rows). index.html now sets
+  // crossorigin on the module script so real messages come through; if we still
+  // get the opaque form, say so explicitly rather than logging a mystery.
+  const isOpaque = e.message === 'Script error.' && !e.error;
+  reportClientError(
+    'window.onerror',
+    isOpaque
+      ? 'Opaque cross-origin script error (no stack available — check that the bundle is served with CORS + crossorigin on the script tag)'
+      : e.message,
+    e.error,
+    { filename: e.filename || '', lineno: e.lineno || 0, colno: e.colno || 0 }
+  );
 });
 window.addEventListener('unhandledrejection', (e) => {
   const err = e.reason;
-  api.logError('frontend', window.location.pathname, (err && err.message) || String(err), err && err.stack).catch(() => {});
+  reportClientError('window.unhandledrejection', (err && err.message) || String(err), err, {});
 });
 
 // GTM's default Pageview trigger only fires on a hard page load — this SPA
@@ -39,14 +58,19 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
       <GtmRouteTracker />
-      <Routes>
-        {/* Public — no login. Opened via WhatsApp consent links. */}
-        <Route path="/consent/:token" element={<ConsentPage />} />
-        {/* Public — no login. Standalone full-screen view, PIN-gated. */}
-        <Route path="/announce/:token" element={<AnnouncePage />} />
-        {/* Everything else is the normal authenticated portal. */}
-        <Route path="*" element={<App />} />
-      </Routes>
+      {/* Top-level boundary: without one, a crash in ANY of these routes — including
+          the two PUBLIC pages that ordinary members open from a WhatsApp link —
+          left a blank white screen with no explanation and no recoverable state. */}
+      <ErrorBoundary name="root">
+        <Routes>
+          {/* Public — no login. Opened via WhatsApp consent links. */}
+          <Route path="/consent/:token" element={<ConsentPage />} />
+          {/* Public — no login. Standalone full-screen view, PIN-gated. */}
+          <Route path="/announce/:token" element={<AnnouncePage />} />
+          {/* Everything else is the normal authenticated portal. */}
+          <Route path="*" element={<App />} />
+        </Routes>
+      </ErrorBoundary>
     </BrowserRouter>
   </React.StrictMode>
 );

@@ -9,12 +9,24 @@ export default function ReportErrorButton({ page, message, stack }) {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
 
+  const [logFailed, setLogFailed] = useState(false);
+
   useEffect(() => {
     let alive = true;
-    api.logError('frontend', page, message, stack).then(res => { if (alive) setErrorId(res.errorId); }).catch(() => {});
+    setLogFailed(false);
+    api.logError('frontend', page, message, stack)
+      .then(res => {
+        if (!alive) return;
+        // logError() returns {success:false} (no errorId) when the D1 write itself
+        // failed. Without this the button just stayed permanently `disabled` with
+        // NO explanation, which looks like the app is broken.
+        if (res && res.errorId) setErrorId(res.errorId);
+        else setLogFailed(true);
+      })
+      .catch(() => { if (alive) setLogFailed(true); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [message]);
+  }, [message, page]);
 
   const send = async () => {
     if (!errorId) return;
@@ -31,6 +43,15 @@ export default function ReportErrorButton({ page, message, stack }) {
 
   if (sent) return <p style={{ color: 'var(--success)', fontSize: '0.85rem', marginTop: 10 }}>✓ Report sent to Superadmin on WhatsApp.</p>;
 
+  if (logFailed) {
+    return (
+      <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: 10 }}>
+        Ye error server par record nahi ho paya (internet ya server ki problem).
+        Kripya Superadmin ko direct batayein.
+      </p>
+    );
+  }
+
   return (
     <button
       type="button"
@@ -39,7 +60,7 @@ export default function ReportErrorButton({ page, message, stack }) {
       onClick={send}
       disabled={!errorId || sending}
     >
-      {sending ? 'Sending...' : '📩 Report this to Superadmin'}
+      {sending ? 'Sending...' : !errorId ? 'Taiyaar ho raha hai...' : '📩 Report this to Superadmin'}
     </button>
   );
 }

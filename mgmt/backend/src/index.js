@@ -20,6 +20,37 @@ function notImplemented(name, hint) {
   return () => { throw new Error(`${name} is not yet ported to the Worker — see MIGRATION_NOTES.md ("Not yet ported") for status. ${hint || ''}`); };
 }
 
+// The error_log table has no columns for actor/device/IP, and api.js was already
+// computing all three on every request only to throw them away. They're folded
+// into the existing `context` column so "which admin, on which device" is finally
+// answerable from the Error Log screen.
+function buildLogContext(req) {
+  const extra = {
+    deviceId: req.deviceId || '',
+    deviceInfo: (req.deviceInfo || '').toString().slice(0, 200),
+    clientIp: req.clientIp || '',
+  };
+  const supplied = req.context;
+  if (!supplied) return JSON.stringify(extra);
+  try {
+    const parsed = typeof supplied === 'string' ? JSON.parse(supplied) : supplied;
+    return JSON.stringify(Object.assign({}, parsed, extra));
+  } catch (e) {
+    return JSON.stringify(Object.assign({ note: supplied.toString().slice(0, 200) }, extra));
+  }
+}
+
+// Actions whose failures must NOT be auto-logged server-side, to avoid a
+// recursive log-of-the-log loop.
+const NO_SERVER_AUTOLOG = new Set(['logError', 'reportErrorToWhatsApp', 'getErrorLog']);
+
+// Errors that are normal operation, not defects: an expired session, a
+// permission refusal, a validation message. Logging every one of these would
+// bury real failures (the log read window is capped).
+function isExpectedError(err) {
+  return !!(err && (err.authError || err.announceSessionExpired));
+}
+
 export default {
   async fetch(request, env, ctx) {
     if (request.method === 'OPTIONS') {
@@ -33,12 +64,29 @@ export default {
     try {
       req = await request.json();
     } catch (e) {
+      // Was returned with nothing persisted, so a bot or a broken client hammering
+      // the API was completely invisible.
+      ctx.waitUntil(logError(env, 'backend', 'router', 'Invalid JSON body: ' + (e && e.message), '', ''));
       return jsonOut({ success: false, message: 'Invalid JSON body' });
     }
     const action = req.action;
 
     const handlers = {
-      login: () => login(env, req.name, req.password, req.rememberMe),
+      // Login failures (wrong password, unknown user, the 5-attempt lockout) used
+      // to return {success:false} with NO logging on either side — api.js also
+      // excluded 'login' from auto-logging — so there was zero brute-force
+      // visibility. The identifier is recorded; the password never is.
+      login: async () => {
+        const res = await login(env, req.name, req.password, req.rememberMe);
+        if (!res || res.success === false) {
+          ctx.waitUntil(logError(
+            env, 'auth', 'login',
+            `Failed login attempt for "${(req.name || '').toString().slice(0, 60)}": ${res && res.message}`,
+            '', buildLogContext(req)
+          ));
+        }
+        return res;
+      },
       logout: () => withAuth(env, req, (user) => doLogout(env, req.token)),
       getYears: () => withAuth(env, req, () => getYears(env)),
       getUsers: () => withAuth(env, req, () => getSheetDataAsJSON(env, 'USERS')),
@@ -154,15 +202,26 @@ export default {
       uploadDocxTemplate: () => withAuth(env, req, (user) => docx.uploadDocxTemplate(env, req.docType, req.year, req.base64, req.fileName, user)),
       copyDocxTemplate: () => withAuth(env, req, (user) => docx.copyDocxTemplate(env, req.docType, req.fromYear, req.toYear, user)),
       deleteDocxTemplate: () => withAuth(env, req, (user) => docx.deleteDocxTemplate(env, req.docType, req.year, user)),
-      getDocxTemplateForDoc: () => withAuth(env, req, () => docx.getDocxTemplatePublic(env, req.docType, req.year)),
-      getDocxTemplatePublic: () => docx.getDocxTemplatePublic(env, req.docType, req.year),
-      convertDocxToPdf: () => withAuth(env, req, (user) => docx.convertDocxToPdf(env, req.docType, req.year, req.recordId, req.base64, req.fileName, user, req.isAutoGenerate)),
-      convertDocxToPdfPublic: () => docx.convertDocxToPdfPublic(env, req.docType, req.year, req.recordId, req.base64, req.fileName),
+      // Was `withAuth` with NO role check, handing full template bytes to any
+      // logged-in user of any role.
+      getDocxTemplateForDoc: () => withAuth(env, req, (user) => docx.getDocxTemplateForDoc(env, req.docType, req.year, user)),
+      // PUBLIC (Consent page). Was completely unauthenticated — anyone could pull
+      // down the committee's raw .docx templates for any docType/year. Now the
+      // consent token is verified and the role+year come from the consent row.
+      getDocxTemplatePublic: () => docx.getDocxTemplatePublic(env, req.docType, req.year, req.token),
+      // `mode` replaces the old `isAutoGenerate` boolean — see docxTemplates.js.
+      // An unrecognised mode falls back to the most restrictive (Superadmin).
+      convertDocxToPdf: () => withAuth(env, req, (user) => docx.convertDocxToPdf(env, req.docType, req.year, req.recordId, req.base64, req.fileName, user, req.mode, { force: !!req.force })),
+      // PUBLIC (Consent page). Was unauthenticated AND trusted the client's
+      // docType/year/recordId, so anyone could write arbitrary rows into
+      // generated_files that the public portal renders as "Verified Record".
+      // Everything except the file bytes is now derived from the verified token.
+      convertDocxToPdfPublic: () => docx.convertDocxToPdfPublic(env, req.base64, req.token),
 
       // ---- Bulk "Generate PDFs" + Download Center — fully ported ----
       getRecordsForDocType: () => withAuth(env, req, (user) => docx.getRecordsForDocType(env, req.docType, req.year, user)),
       getGeneratedFilesForYear: () => withAuth(env, req, (user) => docx.getGeneratedFilesForYear(env, req.year, user, req.docType)),
-      searchUsersByVillageAndName: () => withAuth(env, req, () => docx.searchUsersByVillageAndName(env, req.village, req.query)),
+      searchUsersByVillageAndName: () => withAuth(env, req, (user) => docx.searchUsersByVillageAndName(env, req.village, req.query, user)),
       getPersonDownloads: () => withAuth(env, req, (user) => docx.getPersonDownloads(env, req.userId, user)),
 
       // ---- Popup Management ----
@@ -174,10 +233,15 @@ export default {
       uploadPopupImage: () => withAuth(env, req, (user) => popups.uploadPopupImage(env, req.base64, req.fileName, user)),
       getActivePopups: () => withAuth(env, req, (user) => popups.getActivePopups(env, user)),
 
-      // ---- Error Log (public log/report; Superadmin view) ----
-      logError: () => logError(env, req.source, req.page, req.message, req.stack, req.context),
+      // ---- Error Log ----
+      // logError stays intentionally unauthenticated: the Consent and Announce
+      // pages are no-login pages and must be able to report their own failures.
+      // The abuse surface is now closed by (a) de-duplication inside logger.js so
+      // a flood collapses into one row, and (b) the hourly cap inside
+      // reportErrorToWhatsApp so nobody can spam every Superadmin's WhatsApp.
+      logError: () => logError(env, req.source, req.page, req.message, req.stack, buildLogContext(req)),
       reportErrorToWhatsApp: () => reportErrorToWhatsApp(env, req.errorId),
-      getErrorLog: () => withAuth(env, req, (user) => getErrorLog(env, user)),
+      getErrorLog: () => withAuth(env, req, (user) => getErrorLog(env, user, req.limit)),
 
       // ---- Loan message templates (Superadmin) — fully ported, see loans.js ----
       getLoanTemplates: () => withAuth(env, req, (user) => { requireSuperadmin(user); return loans.getLoanTemplates(env, req.type); }),
@@ -186,26 +250,27 @@ export default {
       deleteLoanTemplate: () => withAuth(env, req, (user) => loans.deleteLoanTemplate(env, req.rowIndex, user)),
 
       // ---- WhatsApp: Queue polling (apiKey-based, external automation script) ----
-      getPendingMessages: () => withApiKey(env, req, () => wa.getPendingMessages(env)),
+      getPendingMessages: () => withApiKey(env, req, () => wa.getPendingMessages(env, req.limit)),
+      // Surfaces messages that were queued but never reached sent/failed, so a
+      // dead external sender or a rotated API key is VISIBLE instead of silently
+      // piling up 'pending' rows nobody looks at.
+      getStuckMessages: () => withAuth(env, req, (user) => { requireSuperadmin(user); return wa.getStuckMessages(env, req.olderThanMinutes); }),
       updateMessageStatus: () => withApiKey(env, req, () => wa.updateMessageStatus(env, req.type, req.message_id, req.status, req.remarks)),
       resendMessage: () => withAuth(env, req, (user) => wa.resendMessage(env, req.type, req.message_id, user)),
       
       // ---- WhatsApp: Diagnostic endpoint (Superadmin only) ----
       whatsappDiagnostic: () => withAuth(env, req, async (user) => {
+        // The comment above said "Superadmin only" but no check existed, so any
+        // authenticated Subadmin could dump every template, group JID and message
+        // preview.
+        requireSuperadmin(user);
         const allGroups = await getSheetDataAsJSON(env, 'WHATSAPP_GROUPS');
         const allGroupTemplates = await getSheetDataAsJSON(env, 'GROUP_MESSAGE_TEMPLATES');
         const allPersonTemplates = await getSheetDataAsJSON(env, 'PERSON_MESSAGE_TEMPLATES');
         
-        // Helper to check active status (exported from whatsapp.js later)
-        const checkActive = (v) => {
-          if (typeof v === 'boolean') return v;
-          if (typeof v === 'number') return v === 1;
-          if (typeof v === 'string') {
-            const normalized = v.toLowerCase().trim();
-            return normalized === 'true' || normalized === '1' || normalized === 'yes';
-          }
-          return false;
-        };
+        // Was a 4th inline copy of isTruthyFlag that would drift from the real
+        // one — import the single implementation instead.
+        const checkActive = wa.isTruthyFlag;
         
         const activeGroups = allGroups.filter(g => checkActive(g.active));
         const activeGroupTemplates = allGroupTemplates.filter(t => checkActive(t.active));
@@ -287,13 +352,31 @@ export default {
       reannounceAll: () => announce.reannounceAll(env, req.announceToken, req.typeFilter),
     };
 
-    if (!handlers[action]) return jsonOut({ success: false, message: 'Unknown action' });
+    if (!handlers[action]) {
+      // Previously returned silently, so a mis-configured client or a bot probing
+      // the API left no trace anywhere.
+      ctx.waitUntil(logError(env, 'backend', 'router', `Unknown action: ${action}`, '', buildLogContext(req)));
+      return jsonOut({ success: false, message: 'Unknown action' });
+    }
 
     try {
       const result = await handlers[action]();
       return jsonOut(result);
     } catch (err) {
       const status = err.authError ? 'authError' : (err.announceSessionExpired ? 'announceSessionExpired' : 'error');
+
+      // THE BIG ONE: this catch never called logError. Backend errors reached the
+      // error log ONLY because the mgmt React frontend echoed them back — so any
+      // other caller (the Public portal, the external WhatsApp queue script using
+      // withApiKey, curl, a bot) got a 200 JSON error and NOTHING was persisted.
+      // err.stack was dropped too, which is why every backend-sourced row had an
+      // empty stack.
+      if (!isExpectedError(err) && !NO_SERVER_AUTOLOG.has(action)) {
+        ctx.waitUntil(
+          logError(env, 'backend', action || 'router', err.message || String(err), err.stack || '', buildLogContext(req))
+        );
+      }
+
       return jsonOut({ success: false, message: err.message || String(err), [status]: true });
     }
   },

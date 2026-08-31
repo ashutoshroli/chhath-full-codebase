@@ -39,12 +39,60 @@ export function clearSession() {
   localStorage.removeItem(REMEMBER_KEY);
 }
 
+// 'login' was in this list too, which — combined with the backend also not
+// logging — meant wrong passwords, unknown users and the 5-attempt lockout were
+// COMPLETELY invisible: zero brute-force visibility. The backend now logs login
+// failures itself (see index.js), so the client still skips it to avoid a
+// duplicate row, but the event is no longer lost.
 const NO_AUTOLOG_ACTIONS = ['logError', 'reportErrorToWhatsApp', 'login'];
 
-function fireAndForgetLogError(source, message, stack) {
+// The log POST itself needs a working network, so `TypeError: Failed to fetch`
+// (offline / Worker down / CORS) could never be recorded — which is exactly when
+// things are most broken. Failed sends are now buffered in sessionStorage and
+// flushed on the next successful call / when the tab regains connectivity.
+const PENDING_LOG_KEY = 'cpm_pending_error_logs';
+const MAX_BUFFERED_LOGS = 20;
+
+function bufferLog(body) {
   try {
-    const body = { action: 'logError', source, page: window.location.pathname, message, stack: stack || '', context: '' };
-    fetch(API_URL, { method: 'POST', body: JSON.stringify(body) }).catch(() => {});
+    const buf = JSON.parse(sessionStorage.getItem(PENDING_LOG_KEY) || '[]');
+    buf.push(body);
+    sessionStorage.setItem(PENDING_LOG_KEY, JSON.stringify(buf.slice(-MAX_BUFFERED_LOGS)));
+  } catch (e) { /* storage full or blocked (Safari private mode) — nothing else to try */ }
+}
+
+export function flushBufferedLogs() {
+  let buf = [];
+  try {
+    buf = JSON.parse(sessionStorage.getItem(PENDING_LOG_KEY) || '[]');
+    if (!buf.length) return;
+    sessionStorage.removeItem(PENDING_LOG_KEY);
+  } catch (e) { return; }
+  buf.forEach(body => {
+    fetch(API_URL, { method: 'POST', body: JSON.stringify(body) }).catch(() => bufferLog(body));
+  });
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', flushBufferedLogs);
+}
+
+function fireAndForgetLogError(source, message, stack, context) {
+  try {
+    const body = {
+      action: 'logError',
+      source,
+      page: window.location.pathname,
+      message,
+      stack: stack || '',
+      // Was hardcoded ''. The backend folds deviceId/deviceInfo/clientIp in on its
+      // side; anything the caller knows goes here so "which admin, which device"
+      // is finally answerable from the Error Log screen.
+      context: context ? (typeof context === 'string' ? context : JSON.stringify(context)) : '',
+      deviceId: getDeviceId(),
+      deviceInfo: getDeviceInfo(),
+    };
+    fetch(API_URL, { method: 'POST', body: JSON.stringify(body) }).catch(() => bufferLog(body));
   } catch (e) { /* never let logging break anything */ }
 }
 
@@ -69,23 +117,49 @@ async function call(action, params = {}, requireAuth = true) {
       clearSession();
       const err = new Error(data.message || 'Session expired');
       err.authError = true;
+      // A forced logout / expired token used to be excluded from logging
+      // entirely, so "everyone keeps getting logged out" was undiagnosable.
+      // Logged at 'auth' severity so it's distinguishable from real defects.
+      if (!NO_AUTOLOG_ACTIONS.includes(action)) {
+        fireAndForgetLogError('auth', `[${action}] ${err.message}`, '');
+      }
       throw err;
     }
     if (data.success === false) {
       const err = new Error(data.message || 'Request failed');
       Object.assign(err, data); // preserves extra flags like `expired` for callers that need them
       err.__logged = true;
-      if (!NO_AUTOLOG_ACTIONS.includes(action)) fireAndForgetLogError('backend', `[${action}] ${err.message}`, '');
+      // The backend now logs its own failures (index.js top-level catch), so this
+      // client-side echo would double up. Kept only for actions the backend
+      // deliberately does not auto-log.
       throw err;
     }
+    // A successful round trip proves the network is back — drain anything that
+    // couldn't be delivered while it was down.
+    flushBufferedLogs();
     return data;
   } catch (err) {
-    if (!err.authError && !NO_AUTOLOG_ACTIONS.includes(action) && !err.__logged) {
+    // Pure client-side / transport failures (Failed to fetch, JSON parse, CORS).
+    // The backend cannot possibly know about these, so this is the only place
+    // they can be captured.
+    if (!NO_AUTOLOG_ACTIONS.includes(action) && !err.__logged) {
       err.__logged = true;
-      fireAndForgetLogError('frontend', `[${action}] ${err.message}`, err.stack || '');
+      fireAndForgetLogError(err.authError ? 'auth' : 'frontend', `[${action}] ${err.message}`, err.stack || '');
     }
     throw err;
   }
+}
+
+// Explicit client-side error reporter for failures that never pass through
+// call() — docxtemplater render errors, QR generation, canvas/jsPDF, file reads.
+// Every one of those was previously invisible (caught into setError() only).
+export function reportClientError(page, message, err, context) {
+  fireAndForgetLogError(
+    'frontend',
+    `[${page}] ${message}${err && err.message ? ': ' + err.message : ''}`,
+    (err && err.stack) || '',
+    context
+  );
 }
 
 export const api = {
@@ -139,6 +213,8 @@ export const api = {
   // WhatsApp: Message Log (view-only + Resend for failed)
   getMessageLog: () => call('getMessageLog'),
   resendMessage: (type, message_id) => call('resendMessage', { type, message_id }),
+  // Messages queued but never delivered (dead external sender / rotated API key).
+  getStuckMessages: (olderThanMinutes) => call('getStuckMessages', { olderThanMinutes }),
   
   // WhatsApp: Diagnostic
   whatsappDiagnostic: () => call('whatsappDiagnostic'),
@@ -193,7 +269,7 @@ export const api = {
   // Error Log + WhatsApp Report
   logError: (source, page, message, stack, context) => call('logError', { source, page, message, stack, context }, false),
   reportErrorToWhatsApp: (errorId) => call('reportErrorToWhatsApp', { errorId }, false),
-  getErrorLog: () => call('getErrorLog'),
+  getErrorLog: (limit) => call('getErrorLog', { limit }),
 
   // Loan Consent — Admin
   getLoanConsents: (loanId) => call('getLoanConsents', { loanId }),
@@ -231,11 +307,20 @@ export const api = {
   copyDocxTemplate: (docType, fromYear, toYear) => call('copyDocxTemplate', { docType, fromYear, toYear }),
   deleteDocxTemplate: (docType, year) => call('deleteDocxTemplate', { docType, year }),
   getDocxTemplateForDoc: (docType, year) => call('getDocxTemplateForDoc', { docType, year }),
-  getDocxTemplatePublic: (docType, year) => call('getDocxTemplatePublic', { docType, year }, false),
+  // Now token-gated server-side — the consent token decides which role+year
+  // template you're allowed to read.
+  getDocxTemplatePublic: (docType, year, token) => call('getDocxTemplatePublic', { docType, year, token }, false),
 
-  // DOCX -> PDF conversion (fill happens client-side via docxtemplater first)
-  convertDocxToPdf: (docType, year, recordId, base64, fileName, isAutoGenerate) => call('convertDocxToPdf', { docType, year, recordId, base64, fileName, isAutoGenerate }),
-  convertDocxToPdfPublic: (docType, year, recordId, base64, fileName) => call('convertDocxToPdfPublic', { docType, year, recordId, base64, fileName }, false),
+  // DOCX -> PDF conversion (fill happens client-side via docxtemplater first).
+  // `mode` replaces the old `isAutoGenerate` boolean:
+  //   'auto'   — Home's silent auto-PDF right after a save        (staff)
+  //   'single' — one row's own document from the Receipt modal     (staff)
+  //   'bulk'   — Bulk Generate PDFs / Download Center / Reports    (Superadmin)
+  // Omitting it falls back to 'bulk' (most restrictive) on the server.
+  convertDocxToPdf: (docType, year, recordId, base64, fileName, mode, force) => call('convertDocxToPdf', { docType, year, recordId, base64, fileName, mode, force }),
+  // Everything except the bytes is derived server-side from the verified consent
+  // token, so docType/year/recordId are no longer client-controlled.
+  convertDocxToPdfPublic: (base64, token) => call('convertDocxToPdfPublic', { base64, token }, false),
 
   // Bulk "Generate PDFs" (Superadmin)
   getRecordsForDocType: (docType, year) => call('getRecordsForDocType', { docType, year }),

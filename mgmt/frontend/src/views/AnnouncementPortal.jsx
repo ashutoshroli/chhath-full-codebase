@@ -66,7 +66,13 @@ export default function AnnouncementPortal({ years }) {
   };
 
   const copyLink = (url) => {
-    navigator.clipboard.writeText(url).then(() => alert('Link copied')).catch(() => {});
+    // navigator.clipboard is unavailable on non-HTTPS origins and in some
+    // in-app browsers, where this used to fail SILENTLY — the button just
+    // appeared broken. Show the link so it can be copied by hand.
+    if (!navigator.clipboard) return window.prompt('Copy this link:', url);
+    navigator.clipboard.writeText(url)
+      .then(() => alert('Link copied'))
+      .catch(() => window.prompt('Copy karne ki permission nahi mili — ye link manually copy karein:', url));
   };
 
   const resetCustomForm = () => { setTextHindi(''); setTextEnglish(''); setPriority(false); setEditingId(null); };

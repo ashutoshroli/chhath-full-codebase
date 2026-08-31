@@ -8,6 +8,9 @@ const DOC_TYPES = [
   ['consent_loaner', 'Consent — Loaner', 'consent-loaner-sample.docx', [
     'LOAN_CONSENT_ID', 'FUND_YEAR', 'LOANER_NAME', 'LOAN_AMOUNT', 'MONTHLY_INTEREST_RATE', 'MINIMUM_TENURE_MONTHS', 'FINAL_REPAYMENT_DATE', 'FINAL_REPAYMENT_DAY_NAME',
     'GUARANTOR_1_NAME', 'GUARANTOR_1_STATUS', 'GUARANTOR_2_NAME', 'GUARANTOR_2_STATUS', 'GUARANTOR_3_NAME', 'GUARANTOR_3_STATUS',
+    // GUARANTOR_4_* / GUARANTOR_5_* etc. are emitted automatically if a loan ever
+    // has more than 3 guarantors — the code has never been capped at 3, only the
+    // docs were, which made a 4th guarantor silently un-renderable.
     'ACCEPTED_COUNT', 'PENDING_COUNT', 'DECLINED_COUNT',
     'DIWALI_NEXT_DAY_DATE', 'DIWALI_NEXT_DAY_DAY_NAME', 'NAHAY_KHAY_DATE', 'NAHAY_KHAY_DAY_NAME', 'CHHATH_MORNING_ARGHYA_DATE', 'CHHATH_MORNING_ARGHYA_DAY_NAME',
     'GENERATED_AT', 'QR_CODE',
@@ -137,6 +140,12 @@ export default function DocxTemplates() {
         <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '8px 0 0' }}>
           This sample already comes with a professional design — open it in Word and edit it directly (colors, logo, layout — change whatever you like), keep the placeholders (like <code>{'{NAME}'}</code>) as they are, and upload it here.
         </p>
+        {!docType.startsWith('report') && (
+          <p style={{ fontSize: '0.8rem', color: '#92400E', background: '#FEF3C7', borderRadius: 6, padding: '6px 10px', margin: '8px 0 0' }}>
+            ⚠️ The sample does <strong>not</strong> include the QR code. If you want the scannable QR (used by the public
+            portal to verify this document), add <code>{'{%QR_CODE}'}</code> yourself where you want it — see instruction 7 below.
+          </p>
+        )}
         <button type="button" className="btn-submit" style={{ width: 'auto', marginTop: 10, background: '#e5e7eb', color: '#111' }} onClick={() => setShowInstructions(v => !v)}>
           {showInstructions ? 'Hide Instructions' : '📖 How to Create a Template in Word'}
         </button>
@@ -151,9 +160,18 @@ export default function DocxTemplates() {
             <p><strong>6. Bold/Color/Font:</strong> All of Word's regular formatting (bold, color, font size) will appear the same way in the PDF.</p>
             <p><strong>7. QR Code:</strong> To insert the scannable QR code image, write <code>{'{%QR_CODE}'}</code> (with a <code>%</code> right after the opening brace) at the spot where you want the QR to appear — Word will show it as plain text until the PDF is generated, where it becomes the actual scannable image.</p>
             {docType.startsWith('report') && (
-              <p><strong>8. Repeating table rows (loops):</strong> This template has repeating tables (loans, guarantors, contributors, expenses). Make ONE table row with the column placeholders — e.g. <code>{'{LOAN_TAKER}'}</code>, <code>{'{AMOUNT}'}</code> — then put <code>{'{#loans}'}</code> at the very start of that row's first cell and <code>{'{/loans}'}</code> at the very end of the row's last cell (same for <code>{'{#guarantors}'}</code>/<code>{'{/guarantors}'}</code>, <code>{'{#contributors}'}</code>/<code>{'{/contributors}'}</code>, <code>{'{#expenses}'}</code>/<code>{'{/expenses}'}</code>). That one row repeats automatically for every record.</p>
+              <>
+                <p><strong>8. Repeating table rows (loops):</strong> This template has repeating tables (loans, guarantors, contributors, expenses). Make ONE table row with the column placeholders — e.g. <code>{'{LOAN_TAKER}'}</code>, <code>{'{AMOUNT}'}</code> — then put <code>{'{#loans}'}</code> at the very start of that row's first cell and <code>{'{/loans}'}</code> at the very end of the row's last cell (same for <code>{'{#guarantors}'}</code>/<code>{'{/guarantors}'}</code>, <code>{'{#contributors}'}</code>/<code>{'{/contributors}'}</code>, <code>{'{#expenses}'}</code>/<code>{'{/expenses}'}</code>). That one row repeats automatically for every record.</p>
+                {/* The three shipped report samples all rely on inverted sections,
+                    but they were documented NOWHERE — so an admin rebuilding a
+                    template from these instructions silently lost every
+                    "No records this year" fallback. */}
+                <p><strong>9. "No records" fallback (inverted section):</strong> To show a line only when a list is EMPTY, wrap it in <code>{'{^loans}'}</code> ... <code>{'{/loans}'}</code> (note the <code>^</code> instead of <code>#</code>) — e.g. <code>{'{^loans}'}</code>No loans this year<code>{'{/loans}'}</code>. The same works for <code>{'{^guarantors}'}</code>, <code>{'{^contributors}'}</code> and <code>{'{^expenses}'}</code>. The shipped sample templates already use this.</p>
+                <p><strong>10. Hindi columns:</strong> for the Hindi report use the <code>_HI</code> placeholders (e.g. <code>{'{NAME_HI}'}</code>, <code>{'{STATUS_HI}'}</code>) — the plain <code>{'{NAME}'}</code> version prints the ENGLISH value. Both are always available, so mixing them in the "Both" template is fine. If a person's Hindi name is blank in the User record, the Hindi placeholder renders blank — there is no automatic transliteration at PDF time.</p>
+              </>
             )}
-            <p style={{ color: 'var(--danger)' }}><strong>Note:</strong> Make sure there's no extra space or spelling mismatch inside a placeholder (e.g. <code>{'{ NAME }'}</code> or <code>{'{Name}'}</code> will not work) — copy-pasting from the list below is safest.</p>
+            <p style={{ color: 'var(--danger)' }}><strong>Note:</strong> Make sure there's no extra space or spelling mismatch inside a placeholder (e.g. <code>{'{ NAME }'}</code> or <code>{'{Name}'}</code> will not work) — copy-pasting from the list below is safest. A placeholder that doesn't exist renders as <strong>blank</strong> (it does not show an error), so double-check the spelling if a field comes out empty.</p>
+            <p style={{ color: 'var(--danger)' }}><strong>Curly braces:</strong> <code>{'{'}</code> and <code>{'}'}</code> are reserved for placeholders. Do <strong>not</strong> type a literal curly brace anywhere else in the document — it will break the whole template.</p>
 
             <p style={{ marginTop: 10 }}><strong>Available Placeholders for {current[1]}:</strong></p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
