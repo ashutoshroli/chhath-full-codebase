@@ -189,7 +189,7 @@ export async function triggerCollectionMessages(env, payload, docType, recordId,
       Village: contributor ? (contributor.Village || '') : '',
       VillageHindi: contributor ? (contributor['Village (Hindi)'] || '') : '',
       FatherName: contributor ? (contributor["Father's Name"] || '') : '',
-      FatherNameHindi: contributor ? (contributor["Father's Name (Hindi)'] || '') : '',
+      FatherNameHindi: contributor ? (contributor["Father's Name (Hindi)"] || '') : '',
       Detail: payload.Detail || '',
       ItemName: isResell ? (payload.Detail || '') : '',
     };
