@@ -163,6 +163,16 @@ npx wrangler secret put DRIVE_OAUTH_CLIENT_ID
 
 ## Step 4 — mgmt backend deploy
 
+> **Wrangler 4 chahiye.** Repo pehle `^3.90.0` pin karta tha, jo `3.114.17` resolve
+> hota tha — aur wo version `deploy` pe fail karta hai:
+> `Authentication failed (status: 400) [code: 9106]`, chahe wahi account wrangler 4
+> se theek kaam kare. Isliye version bump kar diya gaya hai. Agar `npm install`
+> ke baad bhi purana version aa raha ho:
+> ```bash
+> rm -rf node_modules package-lock.json && npm install
+> npx wrangler --version   # 4.x hona chahiye
+> ```
+
 ```bash
 cd ~/chhath-full-codebase/mgmt/backend
 npm install
