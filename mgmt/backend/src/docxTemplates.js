@@ -87,9 +87,30 @@ export async function isFileGenerated(env, docType, year, recordId) {
 }
 
 async function recordGeneratedFile(env, docType, year, recordId, fileName, publicLink, drivePath) {
-  await env.DB_FILE_INDEX.prepare(
-    'INSERT INTO generated_files (doc_type, year, record_id, file_name, public_link, drive_path, generated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).bind(docType, parseInt(year), recordId, fileName, publicLink, drivePath, new Date().toISOString()).run();
+  try {
+    if (!recordId || !fileName || !publicLink) {
+      console.error('[recordGeneratedFile] Missing required fields:', { docType, year, recordId, fileName, publicLink });
+      throw new Error('Missing required fields for recording generated file');
+    }
+    
+    await env.DB_FILE_INDEX.prepare(
+      'INSERT INTO generated_files (doc_type, year, record_id, file_name, public_link, drive_path, generated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).bind(docType, parseInt(year), recordId, fileName, publicLink, drivePath, new Date().toISOString()).run();
+    
+    console.log('[recordGeneratedFile] Success:', { docType, year, recordId, fileName });
+  } catch (err) {
+    // Log to error_log table so admin can see what went wrong
+    console.error('[recordGeneratedFile] Database insert failed:', err.message, { docType, year, recordId });
+    await env.DB_LOGS.prepare(
+      'INSERT INTO error_log (source, page, message, stack, context, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).bind('backend-docxTemplates', 'recordGeneratedFile', err.message, err.stack || '', 
+      JSON.stringify({ docType, year, recordId, fileName, publicLink, drivePath }), 
+      new Date().toISOString()
+    ).run().catch(() => {}); // Don't let error logging itself fail the main operation
+    
+    // Re-throw so caller knows it failed
+    throw new Error(`Failed to record generated file in database: ${err.message}`);
+  }
 }
 
 export async function getGeneratedFilesForYear(env, year, user, docType) {
@@ -125,7 +146,25 @@ export async function convertDocxToPdf(env, docType, year, recordId, base64, fil
   const { fileId, fileName: pdfName } = await convertDocxBytesToPdf(env, base64, fileName || 'document.docx', yearFolderId);
   const publicLink = `https://drive.google.com/uc?export=download&id=${fileId}`;
   const drivePath = `Generated PDFs/${typeFolderName}/${year}/${pdfName}`;
-  if (recordId) await recordGeneratedFile(env, docType, year, recordId, pdfName, publicLink, drivePath);
+  
+  // Record in database - this MUST succeed for public portal to show the file
+  if (recordId) {
+    try {
+      await recordGeneratedFile(env, docType, year, recordId, pdfName, publicLink, drivePath);
+    } catch (err) {
+      // PDF was created in Drive but database record failed - this is critical
+      console.error('[convertDocxToPdf] PDF created but database record failed:', err.message);
+      // Return the link anyway so frontend can show it, but flag that index failed
+      return { 
+        success: true, 
+        skipped: false, 
+        publicLink, 
+        fileName: pdfName,
+        indexFailed: true,
+        error: 'PDF generated but not indexed for public portal. Contact admin.'
+      };
+    }
+  }
 
   return { success: true, skipped: false, publicLink, fileName: pdfName };
 }
