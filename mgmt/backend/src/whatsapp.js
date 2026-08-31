@@ -189,35 +189,102 @@ export async function triggerCollectionMessages(env, payload, docType, recordId,
       Village: contributor ? (contributor.Village || '') : '',
       VillageHindi: contributor ? (contributor['Village (Hindi)'] || '') : '',
       FatherName: contributor ? (contributor["Father's Name"] || '') : '',
-      FatherNameHindi: contributor ? (contributor["Father's Name (Hindi)"] || '') : '',
+      FatherNameHindi: contributor ? (contributor["Father's Name (Hindi)'] || '') : '',
       Detail: payload.Detail || '',
       ItemName: isResell ? (payload.Detail || '') : '',
     };
 
     const groups = (await getSheetDataAsJSON(env, 'WHATSAPP_GROUPS')).filter(g => isTruthyFlag(g.active));
     const groupTemplates = templatesForContribution(await getSheetDataAsJSON(env, 'GROUP_MESSAGE_TEMPLATES'), effectiveType, docSubType);
+    
+    let groupMessagesSent = 0;
     for (const g of groups) {
       const tpl = pickRandomActive(groupTemplates);
-      if (!tpl) continue;
+      if (!tpl) {
+        // Log missing template for debugging
+        await env.DB_LOGS.prepare(
+          'INSERT INTO error_log (id, category, location, message, stack, context, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        ).bind(
+          'ERR' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+          'whatsapp-queue-warning',
+          'triggerCollectionMessages',
+          `No active group template found for contribution type ${effectiveType}${docSubType ? ' docSubType=' + docSubType : ''}`,
+          '',
+          JSON.stringify({ groupId: g.groupid, groupName: g.group_name, contributionType: effectiveType, docSubType }),
+          new Date().toISOString()
+        ).run().catch(() => {});
+        continue;
+      }
       const message = renderTemplate(tpl.text, placeholderData);
       await env.DB_WHATSAPP_INDEX.prepare(
         'INSERT INTO group_messages (message_id, groupid, message, status, remarks, created_at, "from", message_type, file_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
       ).bind(generateMessageId(), g.groupid, message, 'pending', '', new Date().toISOString(), from, tpl.message_type || 'normal', resolveFileLink(tpl)).run();
+      groupMessagesSent++;
     }
 
     const rawNumber = contributor ? (contributor.WhatsApp || contributor.Mobile || '').toString().trim() : '';
     const waNumber = (!isResell && /^\d{10}$/.test(rawNumber)) ? '91' + rawNumber : '';
+    let personMessageSent = false;
+    
     if (waNumber) {
       const personTemplates = templatesForContribution(await getSheetDataAsJSON(env, 'PERSON_MESSAGE_TEMPLATES'), contributionType, docSubType);
       const tpl = pickRandomActive(personTemplates);
       if (tpl) {
         const message = renderTemplate(tpl.text, placeholderData);
         await queuePersonMessageDirect(env, waNumber, message, from, tpl.message_type || 'normal', resolveFileLink(tpl));
+        personMessageSent = true;
+      } else {
+        // Log missing person template
+        await env.DB_LOGS.prepare(
+          'INSERT INTO error_log (id, category, location, message, stack, context, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        ).bind(
+          'ERR' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+          'whatsapp-queue-warning',
+          'triggerCollectionMessages',
+          `No active person template found for contribution type ${contributionType}${docSubType ? ' docSubType=' + docSubType : ''}`,
+          '',
+          JSON.stringify({ waNumber, contributorName: payload.Name, contributionType, docSubType }),
+          new Date().toISOString()
+        ).run().catch(() => {});
       }
+    } else if (!isResell && contributor) {
+      // Log missing/invalid WhatsApp number
+      await env.DB_LOGS.prepare(
+        'INSERT INTO error_log (id, category, location, message, stack, context, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).bind(
+        'ERR' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+        'whatsapp-queue-warning',
+        'triggerCollectionMessages',
+        `Invalid or missing WhatsApp number for contributor ${payload.Name}`,
+        '',
+        JSON.stringify({ contributorId: payload.Name, rawNumber, contributorData: { WhatsApp: contributor.WhatsApp, Mobile: contributor.Mobile } }),
+        new Date().toISOString()
+      ).run().catch(() => {});
+    }
+
+    // Success summary log
+    if (groupMessagesSent > 0 || personMessageSent) {
+      console.log(`WhatsApp queued: ${groupMessagesSent} group message(s), ${personMessageSent ? '1 person message' : '0 person messages'}`);
     }
   } catch (err) {
     // Swallow — never let WhatsApp queueing break a collection save.
     console.error('WhatsAppQueueError', err);
+    // But log the actual error for debugging
+    try {
+      await env.DB_LOGS.prepare(
+        'INSERT INTO error_log (id, category, location, message, stack, context, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).bind(
+        'ERR' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+        'whatsapp-queue-error',
+        'triggerCollectionMessages',
+        err.message || 'Unknown error',
+        err.stack || '',
+        JSON.stringify({ payload, docType, recordId }),
+        new Date().toISOString()
+      ).run();
+    } catch (logErr) {
+      console.error('Failed to log WhatsApp error:', logErr);
+    }
   }
 }
 
