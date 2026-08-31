@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, reportClientError } from '../api.js';
 import { isTruthyFlag } from '../flags.js';
+import { prepareImageForUpload } from '../imagePrep.js';
 
 const ROLES = ['Superadmin', 'Admin', 'Subadmin', 'Public'];
 const BLANK_SLIDE = { imageUrl: '', text: '', linkUrl: '', linkText: '' };
@@ -58,14 +59,16 @@ function driveImageUrl(url) {
   return m ? `https://drive.google.com/uc?export=view&id=${m[1]}` : url;
 }
 
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result.split(',')[1]);
-    reader.onerror = () => reject(new Error('File could not be read'));
-    reader.readAsDataURL(file);
-  });
-}
+// NOTE: yahan pehle ek `fileToBase64()` tha jo file ko jaisi-hai waisi bhej deta
+// tha. Usko `imagePrep.js` ke `prepareImageForUpload()` ne replace kar diya —
+// wajah wahan comment me hai (payload size + Worker CPU + iPhone HEIC).
+
+// Link jaisa dikhne wala button. `btn-link` class styles.css me maujood NAHI hai,
+// isliye inline style — warna ye default grey browser button dikhta.
+const linkBtnStyle = {
+  background: 'none', border: 'none', padding: 0, font: 'inherit',
+  color: 'var(--primary-saffron)', textDecoration: 'underline', cursor: 'pointer',
+};
 
 export default function PopupManagement() {
   const [popups, setPopups] = useState(null);
@@ -133,18 +136,33 @@ export default function PopupManagement() {
 
   const uploadSlideImage = async (i, file) => {
     setUploadingSlide(i);
+    setError('');
+    // Pichhle attempt ka error/flag saaf karo, warna purana message naye upload pe
+    // bhi chipka rehta hai.
+    updateSlide(i, { imageError: '', imageBroken: false });
     try {
-      const base64 = await fileToBase64(file);
-      const res = await api.uploadPopupImage(base64, file.name);
+      // Pehle file jaisi-hai waisi bhej di jati thi. Ek phone photo 3-8 MB ki hoti
+      // hai (base64 me +33%), aur Worker ka decode uspe aadha second se zyada CPU
+      // le leta tha — badi photo pe upload fail. prepareImageForUpload browser me
+      // hi 1600px tak downscale + JPEG kar deta hai (~200-400 KB), aur iOS ki HEIC
+      // photo ko bhi JPEG bana deta hai.
+      const prepped = await prepareImageForUpload(file);
+      const res = await api.uploadPopupImage(prepped.base64, prepped.fileName, prepped.mimeType);
       // `res.url` is the Drive VIEWER PAGE (…/file/d/<id>/view) — an HTML document,
       // not an image, so <img src> rendered nothing. `imageUrl`/`directUrl` is the
       // actual image (…/uc?export=view&id=<id>). Every popup image uploaded through
       // this screen was broken in the editor, at login AND on the public portal.
       const imageUrl = res.imageUrl || res.directUrl || res.url;
-      updateSlide(i, { imageUrl });
+      if (!imageUrl) throw new Error('Server ne image URL nahi bheja.');
+      updateSlide(i, { imageUrl, imageError: '', imageBroken: false });
     } catch (err) {
-      alert(err.message);
-      reportClientError('PopupManagement', 'Popup image upload failed', err, { slide: i });
+      // `alert()` mobile pe kabhi-kabhi suppress ho jata hai, aur tab admin ko
+      // lagta hai ki "kuch hua hi nahi". Error slide ke andar bhi dikhata hu.
+      updateSlide(i, { imageError: err.message || 'Upload fail hua.' });
+      setError(`Slide ${i + 1} ki image upload nahi hui: ${err.message}`);
+      reportClientError('PopupManagement', 'Popup image upload failed', err, {
+        slide: i, fileName: file && file.name, fileType: file && file.type, fileSize: file && file.size,
+      });
     } finally {
       setUploadingSlide(null);
     }
@@ -160,7 +178,16 @@ export default function PopupManagement() {
       const title = str(form.title).trim();
       if (!title) throw new Error('Please enter a title');
 
-      const usable = slides.filter(s => str(s.imageUrl) || str(s.text).trim());
+      // Sirf persist hone wale 4 field bhejo. `imageError`/`imageBroken` UI-only
+      // state hai — usko request me bhejna bekaar payload hai.
+      const usable = slides
+        .filter(s => str(s.imageUrl) || str(s.text).trim())
+        .map(s => ({
+          imageUrl: str(s.imageUrl),
+          text: str(s.text),
+          linkUrl: str(s.linkUrl),
+          linkText: str(s.linkText),
+        }));
       if (!usable.length) throw new Error('At least one slide must have an image or text');
       if (!form.roles.length) throw new Error('Kam se kam ek role select karein, warna popup kisi ko nahi dikhega.');
 
@@ -280,15 +307,41 @@ export default function PopupManagement() {
 
               <div className="form-group">
                 <label style={{ fontSize: '0.8rem' }}>Image (optional)</label>
-                <input type="file" accept="image/*" onChange={e => e.target.files[0] && uploadSlideImage(i, e.target.files[0])} />
+                <input type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif" onChange={e => e.target.files[0] && uploadSlideImage(i, e.target.files[0])} />
                 {uploadingSlide === i && <div className="inline-spinner">Uploading...</div>}
-                {slide.imageUrl && (
+
+                {/* Upload ka error yahin dikhta hai — sirf alert() pe bharosa nahi. */}
+                {slide.imageError && (
+                  <div style={{ marginTop: 8, padding: '8px 10px', borderRadius: 8, background: '#fdecea', color: 'var(--danger)', fontSize: '0.8rem' }}>
+                    {slide.imageError}
+                  </div>
+                )}
+
+                {slide.imageUrl && !slide.imageBroken && (
                   <img
                     src={driveImageUrl(slide.imageUrl)}
                     alt=""
                     style={{ maxWidth: '100%', maxHeight: 150, marginTop: 8, borderRadius: 8 }}
-                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                    // Pehle yahan `display='none'` tha — image load na hone par woh
+                    // CHUPCHAP gayab ho jati thi, to admin ko pata hi nahi chalta ki
+                    // upload hua ya nahi. Ab saaf placeholder dikhta hai.
+                    onError={() => updateSlide(i, { imageBroken: true })}
+                    onLoad={() => slide.imageBroken && updateSlide(i, { imageBroken: false })}
                   />
+                )}
+
+                {slide.imageUrl && slide.imageBroken && (
+                  <div style={{ marginTop: 8, padding: 10, borderRadius: 8, border: '1px dashed var(--danger)', fontSize: '0.8rem' }}>
+                    <div style={{ fontWeight: 600, color: 'var(--danger)', marginBottom: 4 }}>
+                      Image load nahi hui — public portal pe bhi nahi dikhegi
+                    </div>
+                    <div style={{ color: 'var(--text-muted)', wordBreak: 'break-all', marginBottom: 6 }}>{slide.imageUrl}</div>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <a href={slide.imageUrl} target="_blank" rel="noreferrer">Link kholein</a>
+                      <button type="button" style={linkBtnStyle} onClick={() => updateSlide(i, { imageBroken: false })}>Dobara koshish</button>
+                      <button type="button" style={linkBtnStyle} onClick={() => updateSlide(i, { imageUrl: '', imageBroken: false, imageError: '' })}>Image hatayein</button>
+                    </div>
+                  </div>
                 )}
               </div>
 

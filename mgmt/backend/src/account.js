@@ -1,5 +1,6 @@
 import { getSheetDataAsJSON } from './crud.js';
 import { requireAdminOrAbove, requireSuperadmin, PermissionError } from './auth.js';
+import { base64ToBytes } from './base64.js';
 
 const ROLE_PERMISSIONS_KEYS = ['Superadmin', 'Admin', 'Subadmin'];
 
@@ -145,7 +146,11 @@ export async function uploadFileToDrive(env, base64Data, fileName, mimeType) {
   const accessToken = await getDriveAccessToken(env);
   const boundary = 'chhathmgmt' + crypto.randomUUID();
   const metadata = { name: fileName, parents: [env.DRIVE_FOLDER_ID] };
-  const bytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+  // Tha: Uint8Array.from(atob(base64Data), c => c.charCodeAt(0)) — per-char
+  // callback, indexed loop se 15-23x slower (8 MB photo pe 552ms vs 24ms CPU).
+  // Ye helper data-URL prefix/whitespace bhi saaf karta hai, warna atob raw
+  // TypeError phenkta hai (log me 4 rows).
+  const bytes = base64ToBytes(base64Data, { label: fileName || 'File' });
 
   const body = new Blob([
     `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`,

@@ -239,7 +239,7 @@ export default {
       savePopup: () => withAuth(env, req, (user) => popups.savePopup(env, req.popupId, req.title, req.roles, req.active, req.startAt, req.endAt, user)),
       deletePopup: () => withAuth(env, req, (user) => popups.deletePopup(env, req.popupId, user)),
       savePopupSlides: () => withAuth(env, req, (user) => popups.savePopupSlides(env, req.popupId, req.slides, user)),
-      uploadPopupImage: () => withAuth(env, req, (user) => popups.uploadPopupImage(env, req.base64, req.fileName, user)),
+      uploadPopupImage: () => withAuth(env, req, (user) => popups.uploadPopupImage(env, req.base64, req.fileName, req.mimeType, user)),
       getActivePopups: () => withAuth(env, req, (user) => popups.getActivePopups(env, user)),
       // Lets an Admin see exactly what the PUBLIC portal will render — including
       // which eligible popups will NOT be shown (only the first one is) and which
