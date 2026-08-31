@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Chhath Puja Transparency Portal</title>
+
+  <!-- Google Tag Manager — replace GTM-XXXXXXX with your real container ID.
+       Same container/ID as mgmt/frontend is fine — GA4 + Clarity are both
+       configured as tags inside GTM, not in this file. -->
+  <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+  new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+  j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+  'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+  })(window,document,'script','dataLayer','GTM-N6BF7NP7');</script>
+  <!-- End Google Tag Manager -->
+
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+  
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Google Tag Manager (noscript) -->
+  <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-N6BF7NP7"
+  height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+  <!-- End Google Tag Manager (noscript) -->
+
+  <div id="loader"><div class="spinner"></div><p style="font-weight:600;">Loading...</p></div>
+
+  <header class="top-header">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span class="material-icons-round text-saffron">wb_sunny</span>
+      <div>
+        <h1 style="font-size: 1.1rem; line-height: 1;">Chhath Puja</h1>
+        <span style="font-size: 0.7rem; color: var(--text-muted);">Transparency Portal</span>
+      </div>
+    </div>
+
+    <nav class="desktop-nav">
+      <button class="nav-btn active" onclick="app.nav('home')" data-target="home">Home</button>
+      <button class="nav-btn" onclick="app.nav('expenses')" data-target="expenses">Expenses</button>
+      <button class="nav-btn" onclick="app.nav('loans')" data-target="loans">Loans</button>
+      <button class="nav-btn" onclick="app.nav('committee')" data-target="committee">Committee</button>
+      <button class="nav-btn" onclick="app.nav('downloads')" data-target="downloads">Downloads</button>
+    </nav>
+
+    <select id="global-year" class="year-selector" onchange="app.refreshData()"></select>
+  </header>
+
+  <section id="view-verify" class="page-view">
+  <div class="glass-card" id="record-verify-content" style="margin: 12px; padding: 20px;"></div>
+  <div style="text-align:center; margin: 12px;">
+    <button class="nav-btn active" onclick="app.nav('home')">Back to Home</button>
+  </div>
+</section>
+
+  <section id="view-home" class="page-view active-view">
+    <div class="glass-card budget-card">
+      <div style="font-size: 0.85rem; color: #9CA3AF; margin-bottom: 5px;">Master Financial Calculation</div>
+      <h2 style="margin-bottom: 15px;" id="disp-year-title">Budget Overview</h2>
+      
+      <div style="display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 0.95rem;">
+        <span id="lbl-past-loan">(+) Past Loan Returned (with Int.)</span><strong id="h-past-loan">₹0</strong>
+      </div>
+      <div style="display: flex; justify-content: space-between; margin-bottom: 15px; font-size: 0.95rem;">
+        <span id="lbl-cur-col">(+) Current Year Collection</span><strong id="h-cur-col" style="color: #34D399;">₹0</strong>
+      </div>
+      
+      <div style="border-top: 1px dashed #4B5563; padding-top: 15px; display: flex; justify-content: space-between; align-items: center;">
+        <span style="font-size: 1.1rem; font-weight: bold;">TOTAL BUDGET</span>
+        <strong style="font-size: 1.5rem; color: var(--primary-saffron);" id="h-tot-bud">₹0</strong>
+      </div>
+    </div>
+
+    <div class="grid-2" style="margin-bottom: 20px;">
+      <div class="stat-box" style="border-color: var(--danger);">
+        <div style="font-size: 0.8rem; color: var(--text-muted);">Total Expense</div>
+        <div style="font-size: 1.2rem; font-weight: bold; color: var(--danger);" id="h-tot-exp">₹0</div>
+      </div>
+      <div class="stat-box" style="border-color: var(--success);">
+        <div style="font-size: 0.8rem; color: var(--text-muted);">Net Surplus</div>
+        <div style="font-size: 1.2rem; font-weight: bold; color: var(--success);" id="h-surplus">₹0</div>
+      </div>
+    </div>
+
+    <h3 style="margin-bottom: 15px;">Contributors List</h3>
+    <input type="text" id="home-search" class="search-bar" placeholder="Search by Name..." onkeyup="app.renderHomeList()">
+    <div class="glass-card" id="home-col-list"></div>
+  </section>
+
+  <section id="view-expenses" class="page-view">
+    <h2 style="margin-bottom: 15px;">Expenses Ledger</h2>
+    <div class="glass-card" id="exp-list"></div>
+  </section>
+
+  <section id="view-loans" class="page-view">
+    <h2 style="margin-bottom: 15px;">Surplus Loan Distribution</h2>
+    <div id="loans-dynamic-list"></div>
+  </section>
+
+  <section id="view-committee" class="page-view">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+      <h2 style="margin: 0;">Active Committee</h2>
+      <a href="https://mgmt-portal-omega.vercel.app/" style="background: var(--primary-saffron); color: white; text-decoration: none; padding: 6px 12px; border-radius: 6px; font-size: 0.85rem; font-weight: bold; display: flex; align-items: center; gap: 4px;">
+        <span class="material-icons-round" style="font-size: 16px;">login</span> Login
+      </a>
+    </div>
+    <div id="com-list"></div> <div class="glass-card" style="margin-top: 20px; text-align: center;">
+      <h3 style="margin-bottom: 5px;">नवयुवक छठ पूजा समिति</h3>
+      <p style="font-size: 0.9rem; color: var(--text-muted);">शहरपूरा,गरडीह</p>
+    </div>
+  </section>
+
+  <section id="view-downloads" class="page-view">
+    <h2 style="margin-bottom: 15px;">Download Center</h2>
+
+    <div class="glass-card" style="margin-bottom: 15px;">
+      <label style="font-size:0.8rem; color:var(--text-muted); display:block; margin-bottom:5px;">Village</label>
+      <select id="dc-village" style="width:100%; padding:10px; border-radius:8px; border:1px solid #ddd; margin-bottom:12px; font-size:0.95rem;" onchange="app.onDcVillageChange()">
+        <option value="">-- Select Village --</option>
+      </select>
+
+      <label style="font-size:0.8rem; color:var(--text-muted); display:block; margin-bottom:5px;">Name</label>
+      <input type="text" id="dc-search" class="search-bar" placeholder="Please select a village first" style="margin-bottom:12px;" disabled>
+
+      <button id="dc-search-btn" style="width:100%; background:var(--primary-saffron); color:white; border:none; padding:12px; border-radius:8px; font-weight:700; font-size:0.95rem; cursor:pointer; opacity:0.5;" onclick="app.searchDownloadPeople()" disabled>Search</button>
+    </div>
+
+    <div id="dc-people-wrap"></div>
+
+    <div id="dc-docs-wrap"></div>
+  </section>
+
+  <nav class="bottom-nav">
+    <button class="nav-btn active" onclick="app.nav('home')" data-target="home"><span class="material-icons-round">home</span>Home</button>
+    <button class="nav-btn" onclick="app.nav('expenses')" data-target="expenses"><span class="material-icons-round">receipt_long</span>Expenses</button>
+    <button class="nav-btn" onclick="app.nav('loans')" data-target="loans"><span class="material-icons-round">handshake</span>Loans</button>
+    <button class="nav-btn" onclick="app.nav('committee')" data-target="committee"><span class="material-icons-round">groups</span>Committee</button>
+    <button class="nav-btn" onclick="app.nav('downloads')" data-target="downloads"><span class="material-icons-round">download</span>Downloads</button>
+  </nav>
+
+  <!-- Popup overlay — populated by app.loadPopup() on every page load/refresh.
+       Hidden by default; only shown if an active popup tagged "Public" is
+       returned. Multiple slides are swipeable via the arrows. -->
+  <div id="popup-overlay" class="popup-overlay" style="display:none;">
+    <div class="popup-card">
+      <button class="popup-close" onclick="app.closePopup()" aria-label="Close">&times;</button>
+      <div id="popup-slide-content"></div>
+      <div id="popup-slide-nav" class="popup-slide-nav" style="display:none;">
+        <button onclick="app.popupPrevSlide()" aria-label="Previous">&#8249;</button>
+        <span id="popup-slide-dots"></span>
+        <button onclick="app.popupNextSlide()" aria-label="Next">&#8250;</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

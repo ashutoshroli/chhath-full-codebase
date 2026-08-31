@@ -1,0 +1,58 @@
+name = "chhath-mgmt-api"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+[vars]
+CONSENT_BASE_URL = "https://YOUR-FRONTEND-DOMAIN.example.com"
+
+# ---- Secrets (set with `wrangler secret put NAME`, NOT here) ----
+# PASSWORD_SALT
+# WHATSAPP_QUEUE_API_KEY
+# DRIVE_SA_EMAIL          (docx templates / docx->pdf conversion / file uploads)
+# DRIVE_SA_PRIVATE_KEY
+# DRIVE_FOLDER_ID         (used by account.js's uploadFileToDrive — popups, consent photos/signatures)
+# DRIVE_ROOT_FOLDER_ID    (used by docxTemplates.js — root folder that "DOCX Templates" and "Generated PDFs" live under)
+
+[[kv_namespaces]]
+binding = "KV_SESSIONS"
+id = "fc720867ed48459bb723279a56767711"
+
+[[d1_databases]]
+binding = "DB_CORE"
+database_name = "chhath-core"
+database_id = "06edd936-b186-47f3-93fb-72f0dc840849"
+
+[[d1_databases]]
+binding = "DB_COLLECTIONS"
+database_name = "chhath-collections"
+database_id = "6a1fb670-ec32-457a-b90f-635b33afc67c"
+
+[[d1_databases]]
+binding = "DB_LOANS_EXPENSES"
+database_name = "chhath-loans-expenses"
+database_id = "ef3e1e5d-1254-488c-9d6e-8a5121a613c9"
+
+[[d1_databases]]
+binding = "DB_TEMPLATES"
+database_name = "chhath-templates"
+database_id = "9175ea5d-d3ab-4d1b-a901-cfdf8ab44750"
+
+[[d1_databases]]
+binding = "DB_FILE_INDEX"
+database_name = "chhath-file-index"
+database_id = "958869d9-78bf-48ba-9c31-c2c6271b52eb"
+
+[[d1_databases]]
+binding = "DB_WHATSAPP_INDEX"
+database_name = "chhath-whatsapp-index"
+database_id = "6ad43aae-f536-4e6b-9559-417d42189c70"
+
+[[d1_databases]]
+binding = "DB_LOGS"
+database_name = "chhath-logs"
+database_id = "b4204316-e268-4fc3-bb4c-922cd291fb22"
+
+[[d1_databases]]
+binding = "DB_MISC"
+database_name = "chhath-misc"
+database_id = "a9298585-e108-4f7e-b555-7da7fc0a1921"

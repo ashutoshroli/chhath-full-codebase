@@ -1,0 +1,41 @@
+name = "chhath-public-api"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# READ-ONLY scope by convention (see MIGRATION_NOTES.md) — this Worker's code
+# never issues an INSERT/UPDATE/DELETE, but D1 bindings themselves don't have
+# a separate read-only permission mode yet. If Cloudflare ships read-only D1
+# tokens before you deploy this, use one here for defense in depth.
+
+[[d1_databases]]
+binding = "DB_CORE"
+database_name = "chhath-core"
+database_id = "06edd936-b186-47f3-93fb-72f0dc840849"  # same DB as mgmt-worker's DB_CORE
+
+[[d1_databases]]
+binding = "DB_COLLECTIONS"
+database_name = "chhath-collections"
+database_id = "6a1fb670-ec32-457a-b90f-635b33afc67c"
+
+[[d1_databases]]
+binding = "DB_LOANS_EXPENSES"
+database_name = "chhath-loans-expenses"
+database_id = "ef3e1e5d-1254-488c-9d6e-8a5121a613c9"
+
+[[d1_databases]]
+binding = "DB_FILE_INDEX"
+database_name = "chhath-file-index"
+database_id = "958869d9-78bf-48ba-9c31-c2c6271b52eb"
+
+# Bound ONLY for the "Public" popup feature — the Worker code (index.js's
+# getActivePublicPopups) only ever queries the `popups` and `popup_slides`
+# tables from this DB, never anything else in `misc` (announcements, popup
+# management internals, etc.). D1 bindings are per-database not per-table, so
+# this comment is the enforcement boundary — don't add new queries against
+# DB_MISC here without keeping that "only these 2 tables" rule.
+[[d1_databases]]
+binding = "DB_MISC"
+database_name = "chhath-misc"
+database_id = "a9298585-e108-4f7e-b555-7da7fc0a1921"  # same DB as mgmt-worker's DB_MISC
+
+# Deliberately NOT bound here: DB_TEMPLATES, DB_WHATSAPP_INDEX, DB_LOGS
