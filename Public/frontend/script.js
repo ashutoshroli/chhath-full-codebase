@@ -21,9 +21,35 @@ function safeUrl(v) {
 // Popup images saved before the uploadPopupImage fix hold the Drive VIEWER page
 // URL (.../file/d/<id>/view), which is an HTML document and renders as a broken
 // image. Rewrite it to the direct image URL.
+// Ye file bundle nahi hoti (plain <script>), isliye mgmt ke driveUrl.js ka import
+// nahi kar sakte — logic wahan se copy hai, dono ko saath badalna.
+//
+// `uc?export=view` 303 redirect karta hai drive.usercontent.google.com pe, jahan
+// `cross-origin-resource-policy: same-site` hota hai — yani browser use doosri site
+// se embed hone par BLOCK kar deta hai, aur popup image chupchap khaali dikhti hai.
+// `lh3.googleusercontent.com` Google ka image CDN hai (ACAO *, koi CORP nahi).
+function driveFileId(url) {
+  const s = (url === undefined || url === null) ? '' : url.toString();
+  if (!s) return null;
+  var pats = [
+    /\/file\/d\/([A-Za-z0-9_-]{10,})/,
+    /lh3\.googleusercontent\.com\/d\/([A-Za-z0-9_-]{10,})/,
+    /[?&]id=([A-Za-z0-9_-]{10,})/,
+    /\/d\/([A-Za-z0-9_-]{10,})/,
+  ];
+  for (var i = 0; i < pats.length; i++) {
+    var m = pats[i].exec(s);
+    if (m) return m[1];
+  }
+  return null;
+}
 function driveImageUrl(url) {
-  const m = /\/file\/d\/([A-Za-z0-9_-]+)/.exec(url || '');
-  return m ? 'https://drive.google.com/uc?export=view&id=' + m[1] : url;
+  var id = driveFileId(url);
+  return id ? 'https://lh3.googleusercontent.com/d/' + id + '=w1600' : url;
+}
+function driveImageFallbackUrl(url) {
+  var id = driveFileId(url);
+  return id ? 'https://drive.google.com/thumbnail?id=' + id + '&sz=w1600' : '';
 }
 
 // ---- Error reporting (this file previously had NONE) ----
@@ -186,7 +212,7 @@ const app = {
     // accepted `javascript:`. All four values are escaped now, and the link scheme
     // is restricted to http/https.
     content.innerHTML = `
-      ${slide.image_url && safeUrl(driveImageUrl(slide.image_url)) ? `<img class="popup-slide-img" src="${escapeAttr(driveImageUrl(slide.image_url))}" alt="" onerror="this.style.display='none'">` : ''}
+      ${slide.image_url && safeUrl(driveImageUrl(slide.image_url)) ? `<img class="popup-slide-img" src="${escapeAttr(driveImageUrl(slide.image_url))}" alt="" data-fb="${escapeAttr(driveImageFallbackUrl(slide.image_url))}" onerror="if(this.dataset.fb&&this.dataset.fbTried!=='1'){this.dataset.fbTried='1';this.src=this.dataset.fb;}else{this.style.display='none';}">` : ''}
       ${slide.text ? `<div class="popup-slide-text">${escapeHtml(slide.text)}</div>` : ''}
       ${slide.link_url && safeUrl(slide.link_url) ? `<a class="popup-slide-link" href="${escapeAttr(slide.link_url)}" target="_blank" rel="noreferrer">${escapeHtml(slide.link_text || 'Learn more')}</a>` : ''}
     `;

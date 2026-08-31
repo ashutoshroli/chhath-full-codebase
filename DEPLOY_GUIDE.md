@@ -44,6 +44,10 @@ Paanchon file **alag-alag DB** pe jati hain. Ek-ek karke chalao:
 > `05-popups-active.sql` popup fix ke saath aayi hai (Popup Management + Error Log
 > wala PR). Agar aap `01`–`04` pehle hi chala chuke hain, to **sirf `05` chalao** —
 > woh poori tarah idempotent hai (3 baar chala kar test kiya gaya hai).
+>
+> `06` aur `07` Drive image URL fix ke saath aayi hain (CORP bug). **Dhyaan dein:
+> `07` doosri DB pe jati hai — `chhath-loans-expenses`, `chhath-misc` nahi.**
+> Dono idempotent hain.
 
 ```bash
 cd ~/chhath-full-codebase/mgmt/db
@@ -57,6 +61,8 @@ npx wrangler d1 execute chhath-templates      --local --file=./migration/2026-09
 npx wrangler d1 execute chhath-whatsapp-index --local --file=./migration/2026-09-01/03-whatsapp_index.sql
 npx wrangler d1 execute chhath-logs           --local --file=./migration/2026-09-01/04-logs.sql
 npx wrangler d1 execute chhath-misc           --local --file=./migration/2026-09-01/05-popups-active.sql
+npx wrangler d1 execute chhath-misc           --local --file=./migration/2026-09-01/06-popup-image-urls.sql
+npx wrangler d1 execute chhath-loans-expenses --local --file=./migration/2026-09-01/07-consent-image-urls.sql
 ```
 
 ### 1b. Ab REMOTE (asli production)
@@ -67,6 +73,8 @@ npx wrangler d1 execute chhath-templates      --remote --file=./migration/2026-0
 npx wrangler d1 execute chhath-whatsapp-index --remote --file=./migration/2026-09-01/03-whatsapp_index.sql
 npx wrangler d1 execute chhath-logs           --remote --file=./migration/2026-09-01/04-logs.sql
 npx wrangler d1 execute chhath-misc           --remote --file=./migration/2026-09-01/05-popups-active.sql
+npx wrangler d1 execute chhath-misc           --remote --file=./migration/2026-09-01/06-popup-image-urls.sql
+npx wrangler d1 execute chhath-loans-expenses --remote --file=./migration/2026-09-01/07-consent-image-urls.sql
 ```
 
 Har command pe `y` confirm karna pad sakta hai.
@@ -125,6 +133,22 @@ npx wrangler d1 execute chhath-misc --remote \
 npx wrangler d1 execute chhath-misc --remote \
   --command="SELECT popup_id, start_at, end_at FROM popups"
 # expected: start_at/end_at me space nahi, 'Z' ya +05:30 offset ho
+
+# --- 06 + 07 (Drive image URL CORP fix) ke liye ---
+
+# koi uc?export=view nahi bacha? (woh browser me BLOCK hota hai)
+npx wrangler d1 execute chhath-misc --remote \
+  --command="SELECT COUNT(*) AS blocked FROM popup_slides WHERE image_url LIKE '%uc?export=view%'"
+# expected: 0
+
+npx wrangler d1 execute chhath-loans-expenses --remote \
+  --command="SELECT COUNT(*) AS blocked FROM loan_consents WHERE photo_url LIKE '%uc?export=view%' OR signature_url LIKE '%uc?export=view%'"
+# expected: 0
+
+# sab lh3 form me aa gaye?
+npx wrangler d1 execute chhath-misc --remote \
+  --command="SELECT slide_id, image_url FROM popup_slides"
+# expected: https://lh3.googleusercontent.com/d/<ID>=w1600
 ```
 
 ---

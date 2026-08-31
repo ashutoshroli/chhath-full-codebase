@@ -269,3 +269,87 @@ UI-only `imageError`/`imageBroken` request me nahi jate).
 | PDF/`.exe`/ZIP/text ko image maanna band | pass |
 | `vite build` (685 modules) · Worker dry-run | pass |
 | Pichhle saare tests (81×2 TZ, 8, 41) | koi regression nahi |
+
+
+---
+
+# Follow-up 2: ASLI wajah — Drive ka CORP header (IU-5)
+
+PR #9 ke baad bhi image nahi dikhi. Admin ko naya placeholder mila:
+
+```
+Image load nahi hui — public portal pe bhi nahi dikhegi
+https://drive.google.com/uc?export=view&id=1kbHh1fsgiXZopR3XsWQUuM223bRpXnZu
+```
+
+Yani **upload safal ho raha tha** (Drive file ID maujood hai) — problem sirf
+**dikhane** me thi.
+
+## Wajah
+
+`https://drive.google.com/uc?export=view&id=<ID>` ek **303 redirect** hai
+`https://drive.usercontent.google.com/download?...` pe, aur us final response me:
+
+```
+cross-origin-resource-policy: same-site
+cross-origin-embedder-policy: require-corp
+```
+
+**`CORP: same-site`** ka matlab — browser us resource ko **kisi doosri site se embed
+hone par BLOCK kar deta hai**. `mgmt-chhath.shaharpura.com` /
+`chhath.shaharpura.com` `drive.usercontent.google.com` ke saath same-site nahi hai,
+to `<img src>` chupchap fail hota tha.
+
+Naya tab me link kholne par image dikh jati thi (top-level navigation pe CORP lagu
+nahi hota) — isliye ye bug itne dino chhupa raha.
+
+## Isko pakadna mushkil kyun tha
+
+Pehle maine socha Google ne `uc?export=view` deprecate kar diya hai. `curl` se test
+kiya to **200 + `image/jpeg`** mila, to lagta tha URL bilkul theek hai.
+
+**`curl` CORP enforce nahi karta — sirf browser karta hai.** Isliye response headers
+padhna zaroori tha, status code nahi. Maapa gaya (asli production file pe,
+`Referer: https://chhath.shaharpura.com/` ke saath):
+
+| URL | Result |
+|---|---|
+| `uc?export=view` → `drive.usercontent.google.com` | `CORP: same-site` → **BLOCK** |
+| `lh3.googleusercontent.com/d/<ID>=w1600` | `ACAO: *`, koi CORP nahi → **chalta hai** |
+| `drive.google.com/thumbnail?id=<ID>&sz=w1600` | `ACAO: *`, koi CORP nahi → **chalta hai** |
+
+## Fix
+
+- `uploadFileToDrive` ka `directUrl` ab `lh3.googleusercontent.com/d/<ID>=w1600` hai
+  (`=w1600` se original resolution poora aata hai; bina suffix lh3 khud chhota kar
+  deta hai). Ek `thumbnailUrl` fallback bhi return hota hai.
+- Naya shared `mgmt/frontend/src/driveUrl.js` — `driveImageUrl()` kisi bhi Drive URL
+  form (`/file/d/<id>/view`, `uc?export=view`, `open?id=`, `usercontent/download`,
+  pehle se lh3) se ID nikaal kar lh3 form deta hai. Pehle ye logic **teen jagah
+  duplicate** tha; ab ek jagah hai. `Public/frontend/script.js` bundle nahi hoti, to
+  wahan copy hai — test isse verify karta hai ki dono identical output dete hain.
+- `<img onError>` pehle `thumbnail` endpoint try karta hai, tab haar maanta hai
+  (loop se bachne ke liye `data-` flag).
+
+**Ye bug consent photo/signature pe bhi tha.** `loans.js` wahi `directUrl` DB me
+likhta tha, aur `ConsentReview.jsx` usko seedha `<img src>` me daalta tha — matlab
+verify karne wale Superadmin ko guarantor/loaner ki photo aur signature **kabhi dikhi
+hi nahi**, jabki verify/reject ka faisla usi par hona hai.
+
+Migrations: `06-popup-image-urls.sql` (chhath-**misc**) aur
+`07-consent-image-urls.sql` (chhath-**loans-expenses**).
+
+> Migration 05 ne `/file/d/<ID>/view` → `uc?export=view` kiya tha. Disha sahi thi
+> (viewer page se direct image), par **manzil galat** — `uc?export=view` khud CORP se
+> block hota hai. 06/07 usko theek karte hain.
+
+### Verification
+
+| Kya | Result |
+|---|---|
+| `driveUrl.js` unit tests (har URL form, idempotency, onError loop) | **37/37** |
+| Migration 06+07 asli production URLs pe, 3× idempotent | **19/19** |
+| `Public/frontend` copy aur mgmt module identical output | pass |
+| Admin ka asli failing file ID lh3 pe | 200, `ACAO: *`, **koi CORP nahi** |
+| Built bundle me `uc?export=view` | **0** occurrences |
+| `vite build` · dono Worker dry-run · baaki tests (80×4 TZ, 39, 8, 41) | pass |
