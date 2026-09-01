@@ -143,6 +143,42 @@ export async function getStuckMessages(env, olderThanMinutes) {
 // outlasted the poll interval) re-served the same rows and the recipient got the
 // message twice. Now each served row is moved to 'sending' with claimed_at set;
 // a claim older than CLAIM_STALE_MS is reclaimed automatically.
+// D1 gives back columns with REAL affinity as JS NUMBERS, not strings. `mobileno`
+// / `groupid` / `from` were historically REAL (see whatsapp_index.sql: "was
+// REAL"), so a recipient like 917282032146 arrives as the number 917282032146 —
+// and the external sender then crashes with "to.includes is not a function"
+// because it (rightly) expects a string. A number can also silently lose a
+// leading digit or hit float precision. Coerce every field the sender reads to a
+// clean string here, at the boundary, so no consumer ever sees a number.
+//
+// The `.0` suffix (e.g. "917282032146.0") that a REAL round-trip can add is also
+// stripped, mirroring phone.js's waNumber().
+function toCleanStr(v) {
+  if (v === undefined || v === null) return '';
+  let s = v.toString();
+  // Exponential form a very large REAL can take (e.g. 9.17282032146e11).
+  if (/e\+?\d+$/i.test(s)) {
+    const n = Number(s);
+    if (Number.isFinite(n)) s = BigInt(Math.round(n)).toString();
+  }
+  return s.replace(/\.0+$/, '').trim();
+}
+
+// Fields the external sender reads. Numeric-looking recipient/sender ids must be
+// strings; text fields are coerced too so a purely-numeric message body (e.g.
+// "12345") can't arrive as a number either.
+function normalizeQueueRow(row) {
+  return {
+    ...row,
+    mobileno: toCleanStr(row.mobileno),
+    groupid: toCleanStr(row.groupid),
+    from: toCleanStr(row.from),
+    message_id: toCleanStr(row.message_id),
+    message: row.message === undefined || row.message === null ? '' : row.message.toString(),
+    file_link: toCleanStr(row.file_link),
+  };
+}
+
 export async function getPendingMessages(env, limit) {
   const pageSize = Math.min(Math.max(parseInt(limit) || PENDING_PAGE_SIZE, 1), 500);
   const staleCutoff = new Date(Date.now() - CLAIM_STALE_MS).toISOString();
@@ -173,7 +209,7 @@ export async function getPendingMessages(env, limit) {
           WHERE id = ? AND status IN ('pending', 'resending')`
       ).bind(nowIso, row.id).run();
       if (!claim.meta.changes) continue;
-      out.push({ ...row, type, status: 'sending', attempts: (parseInt(row.attempts) || 0) + 1 });
+      out.push(normalizeQueueRow({ ...row, type, status: 'sending', attempts: (parseInt(row.attempts) || 0) + 1 }));
     }
   }
 
