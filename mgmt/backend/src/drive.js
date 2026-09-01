@@ -153,6 +153,41 @@ export async function trashFile(env, fileId) {
 // 2. Export that Google Doc as PDF bytes.
 // 3. Upload those PDF bytes as a plain file into the target folder.
 // 4. Trash the intermediate Google Doc.
+// Renders a filled .docx to PDF BYTES via Drive's Google-Docs converter and
+// returns them directly — WITHOUT uploading the PDF back to Drive. Used by the
+// R2 path: we take these bytes straight to R2, so the two extra Drive round-trips
+// (upload the PDF, then download it again) are skipped entirely. Only the
+// intermediate Google Doc is created and then trashed.
+export async function convertDocxBytesToPdfRaw(env, base64, fileName) {
+  const token = await getDriveAccessToken(env);
+  const bytes = base64ToBytes(base64, { label: fileName || 'DOCX file' });
+  const docxMime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  const baseName = (fileName || 'document').replace(/\.docx$/i, '');
+
+  // We still need a folder for the intermediate Google Doc; the Drive root is
+  // fine since it's trashed immediately after export.
+  const { boundary, body } = multipartBody(
+    { name: baseName, mimeType: 'application/vnd.google-apps.document' },
+    docxMime, bytes
+  );
+  const convertRes = await fetch(`${DRIVE_UPLOAD_API}/files?uploadType=multipart&fields=id`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
+    body,
+  });
+  if (!convertRes.ok) throw new Error('Drive docx->doc conversion failed: ' + await convertRes.text());
+  const { id: googleDocId } = await convertRes.json();
+
+  const exportRes = await fetch(`${DRIVE_API}/files/${googleDocId}/export?mimeType=application/pdf`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!exportRes.ok) { await trashFile(env, googleDocId); throw new Error('Drive PDF export failed: ' + await exportRes.text()); }
+  const pdfBytes = await exportRes.arrayBuffer();
+
+  await trashFile(env, googleDocId); // clean up the intermediate Google Doc
+  return { pdfBytes, fileName: baseName + '.pdf' };
+}
+
 export async function convertDocxBytesToPdf(env, base64, fileName, folderId) {
   const token = await getDriveAccessToken(env);
   const bytes = base64ToBytes(base64, { label: fileName || 'DOCX file' });
