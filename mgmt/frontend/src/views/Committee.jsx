@@ -76,7 +76,9 @@ export default function Committee({ year, users, role, editable }) {
       <h2 style={{ marginBottom: 15 }}>Active Committee</h2>
       {(!data || data.length === 0) && <div className="glass-card" style={{ textAlign: 'center', padding: 20 }}>No committee on record.</div>}
       {(data || []).map((r, i) => {
-        const u = userMap[r.Name] || { Name: r.Name || 'Unknown', Mobile: 'N/A', Village: 'N/A' };
+        // If the member isn't in USERS, show the stored identifier (with a hint)
+        // rather than a bare "Unknown" so it can be traced.
+        const u = userMap[r.Name] || { Name: r.Name ? `${r.Name} (not in Users)` : 'Unknown', Mobile: 'N/A', Village: 'N/A' };
         return (
           <div className="glass-card" style={{ padding: 15, marginBottom: 12, display: 'flex', gap: 15, alignItems: 'center' }} key={i}>
             <div style={{ width: 50, height: 50, borderRadius: '50%', background: 'var(--saffron-light)', color: 'var(--primary-saffron)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', flexShrink: 0 }}>

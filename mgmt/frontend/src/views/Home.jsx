@@ -68,8 +68,14 @@ export default function Home({ year, users, onUserCreated, role, editable }) {
   }, [form.Name]);
 
   const filtered = (data?.collections || []).filter(r => {
+    const q = search.toLowerCase();
+    // A resell row has no contributor — it's searchable by its item name (Detail),
+    // not by "Unknown User" (which is what matching on userMap used to fall back to).
+    const isResellRow = r['Is Resell'] === true || r['Is Resell'] === 'TRUE'
+      || (typeof r['Is Resell'] === 'string' && r['Is Resell'].trim().toLowerCase() === 'true');
+    if (isResellRow) return (r.Detail || '').toLowerCase().includes(q);
     const u = userMap[r.Name] || { Name: 'Unknown User' };
-    return u.Name.toLowerCase().includes(search.toLowerCase());
+    return (u.Name || '').toLowerCase().includes(q);
   });
 
   const submit = async (e) => {
