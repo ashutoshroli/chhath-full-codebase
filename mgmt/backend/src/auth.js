@@ -39,11 +39,104 @@ export function ValidationError(message) {
   return e;
 }
 
-async function hashPassword(pw, salt) {
+// ---- Password hashing ----
+//
+// SECURITY: passwords used to be stored as a bare SHA-256 hex digest of
+// `pw + PASSWORD_SALT` — a single global salt and a fast, unsalted-per-user
+// primitive, i.e. trivially GPU-brute-forceable and identical for identical
+// passwords if the DB ever leaked.
+//
+// New hashes use PBKDF2-HMAC-SHA-256 with a per-user random salt and are stored
+// in a SELF-DESCRIBING format so the scheme/iterations can be changed later
+// without a migration:
+//     pbkdf2$<iterations>$<saltHex>$<hashHex>
+//
+// Legacy bare-hex digests are still ACCEPTED at verify time (so nobody is locked
+// out) and transparently UPGRADED to the new format on the next successful login
+// or password change. See verifyPassword() / hashPassword() below.
+const PBKDF2_ITERATIONS = 210000; // OWASP-recommended floor for PBKDF2-SHA256
+const PBKDF2_KEYLEN_BYTES = 32;
+
+// A well-formed PBKDF2 hash (correct format + iteration count) that no real
+// password can produce, used ONLY so an unknown-user login still performs one
+// full PBKDF2 derivation — keeping response time independent of whether the
+// account exists. The salt/hash bytes are fixed placeholders.
+const DUMMY_PBKDF2_HASH =
+  `pbkdf2$${PBKDF2_ITERATIONS}$` +
+  '00000000000000000000000000000000$' +
+  '0000000000000000000000000000000000000000000000000000000000000000';
+
+function toHex(buf) {
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function fromHex(hex) {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
+  return out;
+}
+
+// Constant-time comparison of two hex strings — avoids leaking, via response
+// timing, how many leading characters of a hash/token matched.
+export function timingSafeEqualHex(a, b) {
+  const x = (a || '').toString();
+  const y = (b || '').toString();
+  // Comparing the full length of the longer string keeps the loop count
+  // independent of where the first difference is.
+  const len = Math.max(x.length, y.length);
+  let diff = x.length ^ y.length;
+  for (let i = 0; i < len; i++) {
+    diff |= (x.charCodeAt(i) || 0) ^ (y.charCodeAt(i) || 0);
+  }
+  return diff === 0;
+}
+
+// Legacy scheme (kept only for verifying + upgrading old rows).
+async function legacySha256(pw, salt) {
   const enc = new TextEncoder();
-  const data = enc.encode(pw + salt);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
+  const digest = await crypto.subtle.digest('SHA-256', enc.encode(pw + salt));
+  return toHex(digest);
+}
+
+async function pbkdf2Hash(pw, saltBytes, iterations) {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', enc.encode(pw), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-256', salt: saltBytes, iterations },
+    key,
+    PBKDF2_KEYLEN_BYTES * 8
+  );
+  return toHex(bits);
+}
+
+// Produces a new-format PBKDF2 hash with a fresh random per-user salt.
+export async function hashPassword(pw, _globalSaltUnused) {
+  const saltBytes = crypto.getRandomValues(new Uint8Array(16));
+  const hashHex = await pbkdf2Hash(pw, saltBytes, PBKDF2_ITERATIONS);
+  return `pbkdf2$${PBKDF2_ITERATIONS}$${toHex(saltBytes)}$${hashHex}`;
+}
+
+// Verifies a supplied password against a stored hash of EITHER format.
+// Returns { ok, needsUpgrade } — needsUpgrade is true when a legacy bare-hex
+// hash matched and should be re-hashed into the new format by the caller.
+export async function verifyPassword(env, pw, storedHash) {
+  const stored = (storedHash || '').toString().trim();
+  if (!stored) return { ok: false, needsUpgrade: false };
+
+  if (stored.startsWith('pbkdf2$')) {
+    const parts = stored.split('$');
+    if (parts.length !== 4) return { ok: false, needsUpgrade: false };
+    const iterations = parseInt(parts[1], 10);
+    const saltBytes = fromHex(parts[2]);
+    const expected = parts[3];
+    if (!iterations || !saltBytes.length) return { ok: false, needsUpgrade: false };
+    const actual = await pbkdf2Hash(pw, saltBytes, iterations);
+    return { ok: timingSafeEqualHex(actual, expected), needsUpgrade: false };
+  }
+
+  // Legacy bare SHA-256 hex digest.
+  const legacy = await legacySha256(pw, env.PASSWORD_SALT);
+  return { ok: timingSafeEqualHex(legacy, stored), needsUpgrade: true };
 }
 
 function detectLoginIdentifierType(v) {
@@ -77,13 +170,28 @@ export async function login(env, name, password, rememberMe) {
   }
 
   const user = await findLoginRowByIdentifier(env, name);
-  const hashed = await hashPassword(password.toString().trim(), env.PASSWORD_SALT);
+  // Even when the user does not exist, do the SAME PBKDF2 work against a dummy
+  // hash so the response time doesn't reveal whether the identifier is
+  // registered (user-enumeration hardening).
+  const storedHash = user ? (user.password || '').trim() : DUMMY_PBKDF2_HASH;
+  const { ok, needsUpgrade } = await verifyPassword(env, password.toString().trim(), storedHash);
 
-  if (!user || user.password.trim() !== hashed) {
+  if (!user || !ok) {
     await env.KV_SESSIONS.put(lockKey, String(fails + 1), { expirationTtl: LOGIN_LOCKOUT_SECONDS });
     return { success: false, message: 'Invalid Username/Mobile/Email or Password' };
   }
   await env.KV_SESSIONS.delete(lockKey);
+
+  // Transparently migrate a legacy bare-SHA-256 row to PBKDF2 now that we hold
+  // the plaintext and know it's correct. Best-effort — a failure here must never
+  // block a valid login.
+  if (needsUpgrade) {
+    try {
+      const upgraded = await hashPassword(password.toString().trim());
+      await env.DB_CORE.prepare('UPDATE login_users SET password = ?, updated_at = ? WHERE id = ?')
+        .bind(upgraded, new Date().toISOString(), user.id).run();
+    } catch (e) { /* non-fatal: login still succeeds, upgrade retried next time */ }
+  }
 
   const actualName = user.name.trim();
   const token = crypto.randomUUID();
@@ -120,7 +228,12 @@ export async function withAuth(env, req, fn) {
 }
 
 export function withApiKey(env, req, fn) {
-  if (!req.apiKey || req.apiKey !== env.WHATSAPP_QUEUE_API_KEY) {
+  // Constant-time compare so the queue API key can't be recovered one character
+  // at a time via response-timing differences.
+  if (!req.apiKey || !env.WHATSAPP_QUEUE_API_KEY || !timingSafeEqualHex(
+    Array.from(req.apiKey.toString()).map(c => c.charCodeAt(0).toString(16).padStart(2, '0')).join(''),
+    Array.from(env.WHATSAPP_QUEUE_API_KEY.toString()).map(c => c.charCodeAt(0).toString(16).padStart(2, '0')).join('')
+  )) {
     throw PermissionError('Invalid API key');
   }
   return fn();

@@ -11,6 +11,12 @@ compatibility_date = "2025-01-01"
 # the placeholder value below.
 CONSENT_BASE_URL = "https://YOUR-FRONTEND-DOMAIN.example.com"
 
+# Optional CORS allow-list (comma-separated EXACT origins, e.g.
+# "https://mgmt.example.com,https://admin.example.com"). When set, the API only
+# reflects Access-Control-Allow-Origin for these origins; unknown origins are
+# denied. Leave unset (or "*") to keep the previous wildcard behaviour.
+# ALLOWED_ORIGINS = "https://YOUR-FRONTEND-DOMAIN.example.com"
+
 # ---- Secrets (set with `wrangler secret put NAME`, NOT here) ----
 # PASSWORD_SALT
 # WHATSAPP_QUEUE_API_KEY
