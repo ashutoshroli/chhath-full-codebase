@@ -385,6 +385,12 @@ export const api = {
   getStorageOverview: () => call('getStorageOverview'),
   moveYearToDrive: (year) => call('moveYearToDrive', { year }),
 
+  // Full Backup & Restore (Superadmin). exportBackup returns all DB data as JSON
+  // (the view zips it client-side); restoreBackup is destructive and requires
+  // confirm === 'RESTORE'.
+  exportBackup: () => call('exportBackup'),
+  restoreBackup: (backup, confirm) => call('restoreBackup', { backup, confirm }),
+
   // Popup Management (Superadmin) + login-time fetch
   getPopups: () => call('getPopups'),
   getPopupWithSlides: (popupId) => call('getPopupWithSlides', { popupId }),
