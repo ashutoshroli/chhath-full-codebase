@@ -201,21 +201,39 @@ export async function getPendingMessages(env, limit) {
         ORDER BY id ASC LIMIT ?`
     ).bind(MAX_ATTEMPTS, pageSize).all();
 
-    for (const row of results || []) {
-      // Conditional claim: if a concurrent poll grabbed it first, meta.changes
-      // is 0 and we simply skip the row instead of handing it out twice.
-      const claim = await env.DB_WHATSAPP_INDEX.prepare(
-        `UPDATE ${table} SET status = 'sending', claimed_at = ?, attempts = COALESCE(attempts, 0) + 1
-          WHERE id = ? AND status IN ('pending', 'resending')`
-      ).bind(nowIso, row.id).run();
-      if (!claim.meta.changes) continue;
-      out.push(normalizeQueueRow({ ...row, type, status: 'sending', attempts: (parseInt(row.attempts) || 0) + 1 }));
+    const rows = results || [];
+    if (!rows.length) continue;
+
+    // Claim all eligible rows in ONE atomic set-based UPDATE instead of a
+    // per-row UPDATE loop. The old loop issued one D1 write PER ROW (up to 100
+    // round-trips per poll), which — with a 5s poller and a burst of freshly
+    // queued messages — overwhelmed D1 and produced
+    // "D1 DB storage operation exceeded timeout". A single `id IN (...)` write
+    // is one round-trip. A short-lived `claimToken` in claimed_at makes the
+    // claim verifiable so a concurrent poll can't double-serve the same rows.
+    const ids = rows.map(r => r.id);
+    const claimToken = `${nowIso}#${crypto.randomUUID()}`;
+    const placeholders = ids.map(() => '?').join(', ');
+    await env.DB_WHATSAPP_INDEX.prepare(
+      `UPDATE ${table} SET status = 'sending', claimed_at = ?, attempts = COALESCE(attempts, 0) + 1
+        WHERE status IN ('pending', 'resending') AND id IN (${placeholders})`
+    ).bind(claimToken, ...ids).run();
+
+    // Re-read exactly the rows THIS poll claimed (claimed_at === our token).
+    // Anything a concurrent poll grabbed first won't carry our token, so it's
+    // naturally excluded — no double-serve.
+    const { results: claimed } = await env.DB_WHATSAPP_INDEX.prepare(
+      `SELECT * FROM ${table} WHERE claimed_at = ?`
+    ).bind(claimToken).all();
+
+    for (const row of claimed || []) {
+      out.push(normalizeQueueRow({ ...row, type, status: 'sending' }));
     }
   }
 
   // Anything that burned through MAX_ATTEMPTS without a terminal status is a
-  // real delivery failure — mark it failed and log it so it shows in the portal
-  // instead of sitting invisible forever.
+  // real delivery failure — mark it failed so it shows in the portal instead of
+  // sitting invisible forever. Now a single batched write (see below).
   await failExhaustedMessages(env);
   return out;
 }
@@ -223,19 +241,28 @@ export async function getPendingMessages(env, limit) {
 async function failExhaustedMessages(env) {
   for (const type of ['person', 'group']) {
     const table = tableFor(type);
-    const { results } = await env.DB_WHATSAPP_INDEX.prepare(
-      `SELECT message_id, attempts FROM ${table}
-        WHERE status NOT IN ('sent', 'failed') AND COALESCE(attempts, 0) >= ? LIMIT 50`
-    ).bind(MAX_ATTEMPTS).all().catch(() => ({ results: [] }));
-    for (const r of results || []) {
-      await env.DB_WHATSAPP_INDEX.prepare(
-        `UPDATE ${table} SET status = 'failed', sent_at = ?, remarks = COALESCE(remarks, '') || ' | auto-failed after ${MAX_ATTEMPTS} attempts'
-          WHERE message_id = ? AND status NOT IN ('sent', 'failed')`
-      ).bind(new Date().toISOString(), r.message_id).run().catch(() => {});
-      await logWarn(env, 'whatsapp-queue', 'failExhaustedMessages',
-        `WhatsApp ${type} message ${r.message_id} auto-failed after ${MAX_ATTEMPTS} delivery attempts`,
-        { type, messageId: r.message_id, attempts: r.attempts });
-    }
+    // Count first so we only touch the DB (and log) when there's actually
+    // something to fail — the common case is zero, and then this is a single
+    // cheap COUNT with no writes at all.
+    const countRow = await env.DB_WHATSAPP_INDEX.prepare(
+      `SELECT COUNT(*) AS n FROM ${table}
+        WHERE status NOT IN ('sent', 'failed') AND COALESCE(attempts, 0) >= ?`
+    ).bind(MAX_ATTEMPTS).first().catch(() => null);
+    const n = countRow ? (parseInt(countRow.n) || 0) : 0;
+    if (!n) continue;
+
+    // ONE set-based UPDATE for every exhausted row instead of a per-row loop
+    // (the old loop did 1 write + 1 error_log write PER row — a major
+    // contributor to the D1 write-storm that caused the timeout).
+    await env.DB_WHATSAPP_INDEX.prepare(
+      `UPDATE ${table} SET status = 'failed', sent_at = ?, remarks = COALESCE(remarks, '') || ' | auto-failed after ${MAX_ATTEMPTS} attempts'
+        WHERE status NOT IN ('sent', 'failed') AND COALESCE(attempts, 0) >= ?`
+    ).bind(new Date().toISOString(), MAX_ATTEMPTS).run().catch(() => {});
+
+    // One summary log line for the whole batch (not one per message).
+    await logWarn(env, 'whatsapp-queue', 'failExhaustedMessages',
+      `${n} WhatsApp ${type} message(s) auto-failed after ${MAX_ATTEMPTS} delivery attempts`,
+      { type, count: n });
   }
 }
 
