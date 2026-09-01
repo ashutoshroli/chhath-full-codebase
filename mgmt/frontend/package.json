@@ -10,19 +10,23 @@
   },
   "dependencies": {
     "docxtemplater": "^3.69.3",
+    "docxtemplater-image-module-free": "^1.1.1",
     "dompurify": "^3.4.13",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "marked": "^18.0.9",
     "pizzip": "^3.2.0",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.30.4",
-    "qrcode": "^1.5.4",
-    "docxtemplater-image-module-free": "^1.1.1"
+    "react-router-dom": "^6.30.6"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
     "vite": "^5.4.1"
+  },
+  "comment:overrides": "SECURITY (audit S3): docxtemplater-image-module-free pulls in the deprecated, unmaintained 'xmldom' (0.1.x) which has CRITICAL advisories and no upstream fix. We redirect it to its maintained, patched successor '@xmldom/xmldom' via an npm override. The DOMParser/XMLSerializer API the module uses is compatible. Re-run `npm install` after cloning so the override applies, then `npm audit` should no longer list xmldom.",
+  "overrides": {
+    "xmldom": "npm:@xmldom/xmldom@^0.9.12"
   }
 }

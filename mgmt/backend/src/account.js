@@ -153,7 +153,13 @@ export async function changePassword(env, currentPassword, newPassword, user) {
 // names are read by NO code anywhere. Don't set them; they do nothing.
 // This mirrors Code.js's uploadFileToDrive() but over the REST API since Workers
 // has no DriveApp equivalent.
-export async function uploadFileToDrive(env, base64Data, fileName, mimeType) {
+// `opts.makePublic` (default true, to preserve the existing popup-image behaviour)
+// controls whether the uploaded file is shared as {role:'reader', type:'anyone'}.
+// SECURITY (audit S6): consent PHOTOS and SIGNATURES are sensitive personal data
+// and must NOT be world-readable — the loans.js consent path now passes
+// makePublic:false so those objects stay private to the Drive account.
+export async function uploadFileToDrive(env, base64Data, fileName, mimeType, opts) {
+  const makePublic = !opts || opts.makePublic !== false;
   if (!env.DRIVE_FOLDER_ID) throw new Error('DRIVE_FOLDER_ID not configured on server');
   const accessToken = await getDriveAccessToken(env);
   const boundary = 'chhathmgmt' + crypto.randomUUID();
@@ -179,11 +185,15 @@ export async function uploadFileToDrive(env, base64Data, fileName, mimeType) {
   if (!uploadRes.ok) throw new Error('Drive upload failed: ' + await uploadRes.text());
   const { id } = await uploadRes.json();
 
-  await fetch(`https://www.googleapis.com/drive/v3/files/${id}/permissions`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ role: 'reader', type: 'anyone' }),
-  });
+  // Only grant public read when explicitly allowed (popup images). Sensitive
+  // consent media is uploaded with makePublic:false and stays private.
+  if (makePublic) {
+    await fetch(`https://www.googleapis.com/drive/v3/files/${id}/permissions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: 'reader', type: 'anyone' }),
+    });
+  }
 
   return {
     success: true,

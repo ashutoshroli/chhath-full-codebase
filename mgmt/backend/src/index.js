@@ -45,6 +45,36 @@ const READ_ONLY_ACTIONS = new Set([
   'requestConsentOtp', 'verifyConsentOtp', 'verifyAnnouncementPin',
 ]);
 
+// SECURITY (audit S5): actions reachable WITHOUT a session token (the public
+// consent + announcement pages, error reporting, and the external WhatsApp queue
+// key endpoints). These get a per-IP rate limit since there is no login/role gate
+// in front of them. Authenticated actions are intentionally NOT listed — they are
+// protected by the session + role checks, and login/OTP already have their own
+// dedicated attempt caps in auth.js / loans.js.
+const RATE_LIMITED_ACTIONS = new Set([
+  'login',
+  'logError', 'reportErrorToWhatsApp',
+  'getConsentByToken', 'requestConsentOtp', 'verifyConsentOtp', 'respondConsent',
+  'getDocxTemplatePublic', 'convertDocxToPdfPublic',
+  'verifyAnnouncementPin', 'getAnnouncementQueue', 'markAnnounced', 'reannounceAll',
+]);
+
+// Fixed-window per-IP+action counter in KV. RATE_LIMIT_MAX requests per
+// RATE_LIMIT_WINDOW_SECONDS. Best-effort: any KV error means "not limited" so a
+// KV outage can never take the whole API offline (fail open).
+const RATE_LIMIT_WINDOW_SECONDS = 60;
+const RATE_LIMIT_MAX = 40;
+async function isRateLimited(env, ip, action) {
+  if (!env || !env.KV_SESSIONS) return false;
+  const bucket = Math.floor(Date.now() / (RATE_LIMIT_WINDOW_SECONDS * 1000));
+  const key = `rl:${action}:${ip}:${bucket}`;
+  const current = parseInt((await env.KV_SESSIONS.get(key)) || '0', 10) || 0;
+  if (current >= RATE_LIMIT_MAX) return true;
+  // TTL slightly longer than the window so the key self-expires.
+  await env.KV_SESSIONS.put(key, String(current + 1), { expirationTtl: RATE_LIMIT_WINDOW_SECONDS + 5 });
+  return false;
+}
+
 // CORS origin handling.
 //
 // This API used to answer every request with `Access-Control-Allow-Origin: *`.
@@ -85,11 +115,17 @@ function notImplemented(name, hint) {
 // computing all three on every request only to throw them away. They're folded
 // into the existing `context` column so "which admin, on which device" is finally
 // answerable from the Error Log screen.
+//
+// SECURITY (audit S7): clientIp/deviceId are CLIENT-supplied and therefore
+// spoofable. We keep the client's self-reported IP only as a labelled hint
+// (`clientIpReported`) and record the server-observed Cloudflare edge IP
+// (`clientIp`, from CF-Connecting-IP) as the authoritative value.
 function buildLogContext(req) {
   const extra = {
     deviceId: req.deviceId || '',
     deviceInfo: (req.deviceInfo || '').toString().slice(0, 200),
-    clientIp: req.clientIp || '',
+    clientIp: req.serverIp || '',
+    clientIpReported: req.clientIp || '',
   };
   const supplied = req.context;
   if (!supplied) return JSON.stringify(extra);
@@ -142,6 +178,30 @@ export default {
       return jsonOut({ success: false, message: 'Invalid JSON body' }, request, env);
     }
     const action = req.action;
+
+    // SECURITY (audit S7): overwrite the client-reported IP with the real
+    // Cloudflare edge IP so consent records (respondConsent stores req.clientIp)
+    // and the error log carry a value the client cannot forge. The original
+    // client value is preserved separately as a hint (see buildLogContext).
+    const edgeIp = request.headers.get('CF-Connecting-IP') || '';
+    req.serverIp = edgeIp;
+    req.clientIpReported = req.clientIp || '';
+    if (edgeIp) req.clientIp = edgeIp;
+
+    // SECURITY (audit S5): lightweight per-IP rate limit on UNAUTHENTICATED /
+    // public actions (the authenticated ones are already gated by login + role,
+    // and login/OTP have their own dedicated caps). Uses KV with a short TTL as a
+    // fixed-window counter — best-effort, fails OPEN if KV is unavailable so a KV
+    // hiccup never takes the API down.
+    if (edgeIp && RATE_LIMITED_ACTIONS.has(action)) {
+      const limited = await isRateLimited(env, edgeIp, action).catch(() => false);
+      if (limited) {
+        return jsonOut(
+          { success: false, message: 'Bahut zyada requests. Thodi der baad koshish karein.' },
+          request, env
+        );
+      }
+    }
 
     const handlers = {
       // Login failures (wrong password, unknown user, the 5-attempt lockout) used

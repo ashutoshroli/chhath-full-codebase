@@ -28,8 +28,14 @@ async function uploadConsentFile(env, base64, fileName, year) {
     const key = keyForYear(year, 'consent', fileName);
     return putToR2(env, key, bytes, 'image/jpeg');
   }
-  // Drive fallback (returns the lh3 directUrl, unchanged behaviour).
-  return (await uploadFileToDrive(env, base64, fileName, 'image/jpeg')).directUrl;
+  // Drive fallback. SECURITY (audit S6): consent photos/signatures are sensitive
+  // personal data, so they are uploaded PRIVATE (makePublic:false) rather than
+  // world-readable. The preferred storage path is R2 above; the R2 custom-domain
+  // bucket should itself be access-controlled. When Drive is used as a fallback,
+  // the returned link is not anonymously viewable — the mgmt UI must fetch such
+  // media through an authenticated proxy. Prefer configuring R2 in production.
+  const uploaded = await uploadFileToDrive(env, base64, fileName, 'image/jpeg', { makePublic: false });
+  return uploaded.directUrl;
 }
 
 // OTP hardening: previously an OTP never expired and verifyConsentOtp() had NO
