@@ -174,11 +174,27 @@ async function logPublicError(env, source, page, message, stack, context) {
   }
 }
 
+// CORS: if ALLOWED_ORIGINS (comma-separated exact origins) is configured, echo
+// back the caller's Origin only when it's on the list; otherwise fall back to
+// '*' so an un-configured deployment behaves exactly as before. This is a
+// read-only public portal, so '*' is a reasonable default here, but the option
+// lets an operator lock it down.
+function corsOriginFor(request, env) {
+  const configured = (env && env.ALLOWED_ORIGINS ? env.ALLOWED_ORIGINS.toString() : '').trim();
+  if (!configured) return '*';
+  const list = configured.split(',').map(s => s.trim()).filter(Boolean);
+  if (list.includes('*')) return '*';
+  const origin = (request.headers.get('Origin') || '').trim();
+  return origin && list.includes(origin) ? origin : list[0];
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const action = url.searchParams.get('action');
-    const cors = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' };
+    const corsOrigin = corsOriginFor(request, env);
+    const cors = { 'Access-Control-Allow-Origin': corsOrigin, 'Content-Type': 'application/json' };
+    if (corsOrigin !== '*') cors['Vary'] = 'Origin';
 
     if (request.method === 'OPTIONS') {
       return new Response(null, {

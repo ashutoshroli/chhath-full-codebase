@@ -12,8 +12,36 @@ import * as loans from './loans.js';
 import * as tpl from './templates.js';
 import * as docx from './docxTemplates.js';
 
-function jsonOut(obj) {
-  return new Response(JSON.stringify(obj), { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
+// CORS origin handling.
+//
+// This API used to answer every request with `Access-Control-Allow-Origin: *`.
+// Auth tokens travel in the request BODY (not cookies), so this was not a direct
+// CSRF hole, but a wildcard still lets any site on the internet script the API
+// from a victim's browser. If ALLOWED_ORIGINS is configured (comma-separated
+// list of exact origins), we echo back the caller's Origin only when it's on the
+// list; otherwise we fall back to '*' so an un-configured deployment keeps
+// working exactly as before.
+function allowedOrigin(request, env) {
+  const configured = (env && env.ALLOWED_ORIGINS ? env.ALLOWED_ORIGINS.toString() : '').trim();
+  if (!configured) return '*';
+  const list = configured.split(',').map(s => s.trim()).filter(Boolean);
+  if (list.includes('*')) return '*';
+  const origin = (request.headers.get('Origin') || '').trim();
+  return origin && list.includes(origin) ? origin : list[0]; // deny unknown origins by pinning to the first allowed one
+}
+
+function corsHeaders(request, env, extra) {
+  const origin = allowedOrigin(request, env);
+  const headers = { 'Access-Control-Allow-Origin': origin, ...(extra || {}) };
+  // When we echo a specific origin (not '*'), caches must vary on Origin.
+  if (origin !== '*') headers['Vary'] = 'Origin';
+  return headers;
+}
+
+function jsonOut(obj, request, env) {
+  return new Response(JSON.stringify(obj), {
+    headers: corsHeaders(request, env, { 'Content-Type': 'application/json' }),
+  });
 }
 
 function notImplemented(name, hint) {
@@ -60,10 +88,15 @@ function isExpectedError(err) {
 export default {
   async fetch(request, env, ctx) {
     if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, GET, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' } });
+      return new Response(null, {
+        headers: corsHeaders(request, env, {
+          'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        }),
+      });
     }
     if (request.method === 'GET') {
-      return jsonOut({ status: 'ok', message: 'Chhath Puja Management API is live (Cloudflare Worker)' });
+      return jsonOut({ status: 'ok', message: 'Chhath Puja Management API is live (Cloudflare Worker)' }, request, env);
     }
 
     let req;
@@ -73,7 +106,7 @@ export default {
       // Was returned with nothing persisted, so a bot or a broken client hammering
       // the API was completely invisible.
       ctx.waitUntil(logError(env, 'backend', 'router', 'Invalid JSON body: ' + (e && e.message), '', ''));
-      return jsonOut({ success: false, message: 'Invalid JSON body' });
+      return jsonOut({ success: false, message: 'Invalid JSON body' }, request, env);
     }
     const action = req.action;
 
@@ -371,12 +404,12 @@ export default {
       // Previously returned silently, so a mis-configured client or a bot probing
       // the API left no trace anywhere.
       ctx.waitUntil(logError(env, 'backend', 'router', `Unknown action: ${action}`, '', buildLogContext(req)));
-      return jsonOut({ success: false, message: 'Unknown action' });
+      return jsonOut({ success: false, message: 'Unknown action' }, request, env);
     }
 
     try {
       const result = await handlers[action]();
-      return jsonOut(result);
+      return jsonOut(result, request, env);
     } catch (err) {
       const status = err.authError ? 'authError' : (err.announceSessionExpired ? 'announceSessionExpired' : 'error');
 
@@ -392,7 +425,7 @@ export default {
         );
       }
 
-      return jsonOut({ success: false, message: err.message || String(err), [status]: true });
+      return jsonOut({ success: false, message: err.message || String(err), [status]: true }, request, env);
     }
   },
 };

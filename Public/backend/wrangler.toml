@@ -2,6 +2,13 @@ name = "chhath-public-api"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
 
+[vars]
+# Optional CORS allow-list (comma-separated EXACT origins). When set, only these
+# origins get an Access-Control-Allow-Origin reflection; leave unset (or "*") to
+# keep the previous wildcard behaviour. This is a read-only public portal, so a
+# wildcard is an acceptable default.
+# ALLOWED_ORIGINS = "https://YOUR-PUBLIC-PORTAL-DOMAIN.example.com"
+
 # READ-ONLY scope by convention (see MIGRATION_NOTES.md) — this Worker's code
 # never issues an INSERT/UPDATE/DELETE, but D1 bindings themselves don't have
 # a separate read-only permission mode yet. If Cloudflare ships read-only D1

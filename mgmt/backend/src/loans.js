@@ -1,5 +1,5 @@
 import { getSheetDataAsJSON, saveRecord } from './crud.js';
-import { requireRole, requireYearUnlocked, requireYearAccess, requireSuperadmin, requireAdminOrAbove, requireStaffRole, ValidationError } from './auth.js';
+import { requireRole, requireYearUnlocked, requireYearAccess, requireSuperadmin, requireAdminOrAbove, requireStaffRole, ValidationError, timingSafeEqualHex } from './auth.js';
 import { toColumnPayload } from './tableRegistry.js';
 import { otpConsentSenderNumber } from './settings.js';
 import { getConsentPageTemplate } from './settings.js';
@@ -444,7 +444,11 @@ export async function verifyConsentOtp(env, token, otp) {
   // Normalize both sides — otp is a REAL column, so '012345' can come back as 12345.
   const expected = rowObj.otp.toString().trim().replace(/\.0+$/, '');
   const supplied = (otp === undefined || otp === null ? '' : otp.toString()).trim();
-  if (supplied !== expected) {
+  // Constant-time compare so a wrong OTP can't be narrowed down digit-by-digit
+  // via response timing (the attempt cap is small, but this closes the side
+  // channel regardless). Hex-encode first since the helper compares hex strings.
+  const toHexStr = (s) => Array.from(s).map(c => c.charCodeAt(0).toString(16).padStart(2, '0')).join('');
+  if (!timingSafeEqualHex(toHexStr(supplied), toHexStr(expected))) {
     await writeOtpMeta(env, rowObj.consent_id, Object.assign({}, meta, { attempts: attempts + 1 }));
     const left = OTP_MAX_VERIFY_ATTEMPTS - (attempts + 1);
     throw new Error(`OTP galat hai.${left > 0 ? ` ${left} koshish bachi hai.` : ' Naya OTP request karein.'}`);

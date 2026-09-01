@@ -1,14 +1,15 @@
 import { getSheetDataAsJSON } from './crud.js';
-import { requireAdminOrAbove, requireSuperadmin, PermissionError } from './auth.js';
+import { requireAdminOrAbove, requireSuperadmin, PermissionError, hashPassword, verifyPassword } from './auth.js';
 import { base64ToBytes } from './base64.js';
 
 const ROLE_PERMISSIONS_KEYS = ['Superadmin', 'Admin', 'Subadmin'];
 
-async function hashPassword(pw, salt) {
-  const enc = new TextEncoder();
-  const digest = await crypto.subtle.digest('SHA-256', enc.encode(pw + salt));
-  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
-}
+// Minimum length for any login password set/changed through the portal. The old
+// code allowed 4 characters (or, for addLoginUser, no minimum at all) for
+// accounts that can edit financial records — far too weak.
+const MIN_PASSWORD_LENGTH = 8;
+
+// hashPassword / verifyPassword now come from auth.js (PBKDF2 + per-user salt).
 
 export async function getLoginUsers(env, user) {
   requireAdminOrAbove(user);
@@ -45,6 +46,9 @@ export async function addLoginUser(env, userId, password, roleVal, mobile, email
     throw PermissionError('Aap sirf Subadmin login add kar sakte hain.');
   }
   if (!userId || !password || !roleVal) throw new Error('User, Password aur Role zaroori hai.');
+  if (password.toString().trim().length < MIN_PASSWORD_LENGTH) {
+    throw new Error(`Password kam se kam ${MIN_PASSWORD_LENGTH} characters ka hona chahiye.`);
+  }
   if (!ROLE_PERMISSIONS_KEYS.includes(roleVal)) throw new Error('Invalid role.');
   const mobileTrim = (mobile || '').toString().trim();
   const emailTrim = (email || '').toString().trim();
@@ -78,6 +82,9 @@ export async function updateLoginUser(env, rowIndex, password, roleVal, mobile, 
   if (conflict) throw new Error(conflict);
 
   if (password) {
+    if (password.toString().trim().length < MIN_PASSWORD_LENGTH) {
+      throw new Error(`Password kam se kam ${MIN_PASSWORD_LENGTH} characters ka hona chahiye.`);
+    }
     const hashed = await hashPassword(password.toString(), env.PASSWORD_SALT);
     await env.DB_CORE.prepare(
       'UPDATE login_users SET role = ?, mobile = ?, email = ?, password = ?, updated_at = ? WHERE id = ?'
@@ -118,15 +125,20 @@ export async function updateOwnProfile(env, payload, user) {
 
 export async function changePassword(env, currentPassword, newPassword, user) {
   if (!currentPassword || !newPassword) throw new Error('Current and new password required');
-  if (newPassword.toString().trim().length < 4) throw new Error('New password kam se kam 4 characters ka ho');
+  if (newPassword.toString().trim().length < MIN_PASSWORD_LENGTH) {
+    throw new Error(`New password kam se kam ${MIN_PASSWORD_LENGTH} characters ka hona chahiye`);
+  }
 
   const row = await env.DB_CORE.prepare('SELECT id, password FROM login_users WHERE name = ?').bind(user.name).first();
   if (!row) throw new Error('Login record not found');
 
-  const currentHashed = await hashPassword(currentPassword.toString().trim(), env.PASSWORD_SALT);
-  if ((row.password || '').toString().trim() !== currentHashed) throw new Error('Current password galat hai');
+  // verifyPassword accepts both the legacy bare-SHA-256 hash and the new PBKDF2
+  // format, and does a constant-time comparison.
+  const { ok } = await verifyPassword(env, currentPassword.toString().trim(), row.password);
+  if (!ok) throw new Error('Current password galat hai');
 
-  const newHashed = await hashPassword(newPassword.toString().trim(), env.PASSWORD_SALT);
+  // The new password is always written in the new PBKDF2 format.
+  const newHashed = await hashPassword(newPassword.toString().trim());
   await env.DB_CORE.prepare('UPDATE login_users SET password = ?, updated_at = ? WHERE id = ?')
     .bind(newHashed, new Date().toISOString(), row.id).run();
   return { success: true };

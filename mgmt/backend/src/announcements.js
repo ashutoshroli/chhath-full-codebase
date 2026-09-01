@@ -1,5 +1,5 @@
 import { getSheetDataAsJSON } from './crud.js';
-import { requireAdminOrAbove, ValidationError } from './auth.js';
+import { requireAdminOrAbove, ValidationError, hashPassword, verifyPassword } from './auth.js';
 
 const ANNOUNCE_MAX_PIN_ATTEMPTS = 5;
 const ANNOUNCE_PIN_LOCKOUT_SECONDS = 900; // 15 min, mirrors login lockout
@@ -12,21 +12,24 @@ function generateAnnouncementToken() {
 }
 function generateCustomAnnouncementId() { return 'CA' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
-async function hashPassword(pw, salt) {
-  const enc = new TextEncoder();
-  const digest = await crypto.subtle.digest('SHA-256', enc.encode(pw + salt));
-  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
-}
+// PIN minimum length. A shared on-stage announce link protected by a 4-digit PIN
+// (10k combinations) was too weak even with the 5-attempt lockout; require 6.
+const ANNOUNCE_MIN_PIN_LENGTH = 6;
+
+// hashPassword / verifyPassword come from auth.js (PBKDF2 + per-link random salt,
+// constant-time verification). Legacy bare-SHA-256 PINs still verify.
 
 // ---- Superadmin/Admin: manage links ----
 
 export async function generateAnnouncementLink(env, year, pin, expiresAt, user) {
   requireAdminOrAbove(user);
   if (!year) throw ValidationError('Year zaroori hai');
-  if (!pin || pin.toString().trim().length < 4) throw ValidationError('PIN kam se kam 4 digit ka hona chahiye');
+  if (!pin || pin.toString().trim().length < ANNOUNCE_MIN_PIN_LENGTH) {
+    throw ValidationError(`PIN kam se kam ${ANNOUNCE_MIN_PIN_LENGTH} digit ka hona chahiye`);
+  }
 
   const token = generateAnnouncementToken();
-  const hashedPin = await hashPassword(pin.toString().trim(), env.PASSWORD_SALT);
+  const hashedPin = await hashPassword(pin.toString().trim());
   await env.DB_MISC.prepare(
     'INSERT INTO announcement_links (token, year, pin, expiresat, active, createdby, createdat) VALUES (?, ?, ?, ?, 1, ?, ?)'
   ).bind(token, year, hashedPin, expiresAt || '', user.name, new Date().toISOString()).run();
@@ -77,12 +80,22 @@ export async function verifyAnnouncementPin(env, token, pin) {
     if (!isNaN(exp) && Date.now() > exp) return { success: false, message: 'Ye link expire ho chuka hai', expired: true };
   }
 
-  const hashed = await hashPassword(pin.toString().trim(), env.PASSWORD_SALT);
-  if ((row.pin || '').toString().trim() !== hashed) {
+  // Constant-time verification; accepts both the legacy bare-SHA-256 PIN hash and
+  // the new PBKDF2 format.
+  const { ok, needsUpgrade } = await verifyPassword(env, pin.toString().trim(), row.pin);
+  if (!ok) {
     await env.KV_SESSIONS.put(lockKey, String(fails + 1), { expirationTtl: ANNOUNCE_PIN_LOCKOUT_SECONDS });
     return { success: false, message: 'Galat PIN' };
   }
   await env.KV_SESSIONS.delete(lockKey);
+
+  // Upgrade a legacy PIN hash to PBKDF2 now that we've confirmed it. Best-effort.
+  if (needsUpgrade) {
+    try {
+      const upgraded = await hashPassword(pin.toString().trim());
+      await env.DB_MISC.prepare('UPDATE announcement_links SET pin = ? WHERE token = ?').bind(upgraded, token).run();
+    } catch (e) { /* non-fatal */ }
+  }
 
   const announceToken = generateAnnouncementToken();
   await env.KV_SESSIONS.put(
