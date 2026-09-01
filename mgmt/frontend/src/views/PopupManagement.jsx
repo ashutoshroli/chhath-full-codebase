@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { api, reportClientError } from '../api.js';
 import { isTruthyFlag } from '../flags.js';
 import { prepareImageForUpload } from '../imagePrep.js';
+// Purane rows me Drive ka viewer-page URL ya `uc?export=view` ho sakta hai — dono
+// browser me render nahi hote. driveUrl.js sab ko lh3 CDN form me badal deta hai.
+import { driveImageUrl, driveImgOnError } from '../driveUrl.js';
 
 const ROLES = ['Superadmin', 'Admin', 'Subadmin', 'Public'];
 const BLANK_SLIDE = { imageUrl: '', text: '', linkUrl: '', linkText: '' };
@@ -51,13 +54,6 @@ function fmtStamp(v) {
 // text/link_url/link_text = NULL. Coercing here (as well as on the backend) means
 // no `.trim()` in this file can ever hit null again.
 const str = (v) => (v === undefined || v === null ? '' : v.toString());
-
-// Old rows may hold the Drive VIEWER page URL (…/file/d/<id>/view) instead of the
-// direct image URL (…/uc?export=view&id=<id>), which renders as a broken image.
-function driveImageUrl(url) {
-  const m = /\/file\/d\/([A-Za-z0-9_-]+)/.exec(url || '');
-  return m ? `https://drive.google.com/uc?export=view&id=${m[1]}` : url;
-}
 
 // NOTE: yahan pehle ek `fileToBase64()` tha jo file ko jaisi-hai waisi bhej deta
 // tha. Usko `imagePrep.js` ke `prepareImageForUpload()` ne replace kar diya —
@@ -324,8 +320,16 @@ export default function PopupManagement() {
                     style={{ maxWidth: '100%', maxHeight: 150, marginTop: 8, borderRadius: 8 }}
                     // Pehle yahan `display='none'` tha — image load na hone par woh
                     // CHUPCHAP gayab ho jati thi, to admin ko pata hi nahi chalta ki
-                    // upload hua ya nahi. Ab saaf placeholder dikhta hai.
-                    onError={() => updateSlide(i, { imageBroken: true })}
+                    // upload hua ya nahi. Ab pehle fallback endpoint, phir saaf
+                    // placeholder.
+                    onError={(e) => {
+                      const img = e.currentTarget;
+                      if (img.dataset.driveFallbackTried !== '1') {
+                        driveImgOnError(slide.imageUrl)(e);
+                        if (img.dataset.driveFallbackTried === '1') return;
+                      }
+                      updateSlide(i, { imageBroken: true });
+                    }}
                     onLoad={() => slide.imageBroken && updateSlide(i, { imageBroken: false })}
                   />
                 )}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, fmt } from '../api.js';
+import { driveImageUrl, driveImgOnError } from '../driveUrl.js';
 
 const VERIFICATION_BADGE = {
   pending: 'badge-pending', verified: 'badge-ok', rejected: 'badge-warn',
@@ -76,11 +77,18 @@ export default function ConsentReview() {
           {r.status === 'accepted' && (
             <>
               <div style={{ display: 'flex', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
+                {/* photo_url/signature_url DB me `uc?export=view` form me hain, jo
+                    303 redirect ke baad `cross-origin-resource-policy: same-site`
+                    deta hai — yani browser inhe embed hone se BLOCK karta hai. Yani
+                    consent verify karne wale Superadmin ko photo/signature kabhi
+                    dikhe hi nahi. driveImageUrl inhe lh3 CDN form me badal deta hai.
+                    Link (href) ke liye original hi theek hai — woh naya tab kholta
+                    hai, jahan CORP lagu nahi hota. */}
                 {r.photo_url && (
                   <div>
                     <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 4 }}>Photo</div>
                     <a href={r.photo_url} target="_blank" rel="noreferrer">
-                      <img src={r.photo_url} alt="Photo" style={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 8, border: '1px solid #eee' }} />
+                      <img src={driveImageUrl(r.photo_url, 400)} onError={driveImgOnError(r.photo_url, 400)} alt="Photo" style={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 8, border: '1px solid #eee' }} />
                     </a>
                   </div>
                 )}
@@ -88,7 +96,7 @@ export default function ConsentReview() {
                   <div>
                     <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 4 }}>Signature</div>
                     <a href={r.signature_url} target="_blank" rel="noreferrer">
-                      <img src={r.signature_url} alt="Signature" style={{ width: 140, height: 100, objectFit: 'contain', borderRadius: 8, border: '1px solid #eee', background: '#fff' }} />
+                      <img src={driveImageUrl(r.signature_url, 400)} onError={driveImgOnError(r.signature_url, 400)} alt="Signature" style={{ width: 140, height: 100, objectFit: 'contain', borderRadius: 8, border: '1px solid #eee', background: '#fff' }} />
                     </a>
                   </div>
                 )}

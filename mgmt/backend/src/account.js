@@ -175,8 +175,19 @@ export async function uploadFileToDrive(env, base64Data, fileName, mimeType) {
 
   return {
     success: true,
+    // Insaan ke liye link (Drive ka viewer page) — <img src> me ye kaam nahi karta.
     url: `https://drive.google.com/file/d/${id}/view`,
-    directUrl: `https://drive.google.com/uc?export=view&id=${id}`,
+    // <img src> ke liye. Pehle ye `uc?export=view&id=` tha, jo 303 redirect karta
+    // hai `drive.usercontent.google.com` pe, aur wahan
+    // `cross-origin-resource-policy: same-site` hota hai — yani browser use kisi
+    // doosri site se embed hone par BLOCK kar deta hai. Isse popup images AUR
+    // consent photo/signature dono chupchap khaali dikhte the.
+    // `lh3.googleusercontent.com` Google ka image CDN hai (ACAO *, koi CORP nahi).
+    // Detail: mgmt/frontend/src/driveUrl.js
+    directUrl: `https://lh3.googleusercontent.com/d/${id}=w1600`,
+    // Agar lh3 kabhi fail ho to ye doosra CORP-free endpoint hai.
+    thumbnailUrl: `https://drive.google.com/thumbnail?id=${id}&sz=w1600`,
+    fileId: id,
   };
 }
 
