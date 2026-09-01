@@ -206,6 +206,38 @@ function etagFor(action, version) {
   return `W/"${action}-v${version}"`;
 }
 
+// Edge cache (caches.default) for the version-keyed payloads.
+//
+// A `Cache-Control: immutable` header alone tells the BROWSER to cache, but a
+// Worker response is NOT put on Cloudflare's edge automatically — and Cache
+// Rules don't reliably apply to *.workers.dev. So we cache explicitly here: on a
+// HIT the big payload is returned without ever reading D1; on a MISS we build it
+// and store it under the versioned URL. Because the URL carries ?v=<version>, a
+// data change (new version -> new URL) is a fresh key, so a stale body can never
+// be served. Keyed on the full request URL (which includes ?v=).
+//
+// Safe/degrades: if the Cache API is unavailable, build() runs normally.
+async function edgeCached(request, ctx, build) {
+  let cache;
+  try { cache = caches.default; } catch (e) { cache = null; }
+  if (!cache) return build();
+
+  const hit = await cache.match(request).catch(() => null);
+  if (hit) return hit;
+
+  const res = await build();
+  // Only cache a good, cacheable response.
+  try {
+    const cc = res.headers.get('Cache-Control') || '';
+    if (res.status === 200 && /max-age=\d/.test(cc)) {
+      const toStore = res.clone();
+      if (ctx && ctx.waitUntil) ctx.waitUntil(cache.put(request, toStore));
+      else await cache.put(request, toStore);
+    }
+  } catch (e) { /* caching is best-effort — never fail the response */ }
+  return res;
+}
+
 // True when the client already holds this exact version (If-None-Match matches).
 function clientHasCurrent(request, etag) {
   const inm = request.headers.get('If-None-Match');
@@ -286,14 +318,16 @@ export default {
         // changes, the version bumps, the URL changes (?v=<new>), and that fresh
         // URL is a cache MISS -> one Worker fetch, then cached again.
         if (requestedV && requestedV === version) {
-          const data = await getAllPortalData(env);
-          return new Response(JSON.stringify(data), {
-            headers: {
-              ...cors,
-              ETag: etagFor('portalData', version),
-              // 1 year + immutable: safe because the URL is version-specific.
-              'Cache-Control': 'public, max-age=31536000, immutable',
-            },
+          return edgeCached(request, ctx, async () => {
+            const data = await getAllPortalData(env);
+            return new Response(JSON.stringify(data), {
+              headers: {
+                ...cors,
+                ETag: etagFor('portalData', version),
+                // 1 year + immutable: safe because the URL is version-specific.
+                'Cache-Control': 'public, max-age=31536000, immutable',
+              },
+            });
           });
         }
 
@@ -319,13 +353,15 @@ export default {
         const requestedV = (url.searchParams.get('v') || '').trim();
 
         if (requestedV && requestedV === version) {
-          const data = await getActivePublicPopups(env);
-          return new Response(JSON.stringify(data), {
-            headers: {
-              ...cors,
-              ETag: etagFor('activePopups', version),
-              'Cache-Control': 'public, max-age=31536000, immutable',
-            },
+          return edgeCached(request, ctx, async () => {
+            const data = await getActivePublicPopups(env);
+            return new Response(JSON.stringify(data), {
+              headers: {
+                ...cors,
+                ETag: etagFor('activePopups', version),
+                'Cache-Control': 'public, max-age=31536000, immutable',
+              },
+            });
           });
         }
 
