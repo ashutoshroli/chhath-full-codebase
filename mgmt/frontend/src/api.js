@@ -381,6 +381,10 @@ export const api = {
   searchUsersByVillageAndName: (village, query) => call('searchUsersByVillageAndName', { village, query }),
   getPersonDownloads: (userId) => call('getPersonDownloads', { userId }),
 
+  // Storage Management (Superadmin) — R2 overview + archive a year to Drive
+  getStorageOverview: () => call('getStorageOverview'),
+  moveYearToDrive: (year) => call('moveYearToDrive', { year }),
+
   // Popup Management (Superadmin) + login-time fetch
   getPopups: () => call('getPopups'),
   getPopupWithSlides: (popupId) => call('getPopupWithSlides', { popupId }),

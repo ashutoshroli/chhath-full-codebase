@@ -5,6 +5,8 @@ import { otpConsentSenderNumber } from './settings.js';
 import { getConsentPageTemplate } from './settings.js';
 import { pickRandomActive, renderTemplateChecked, queuePersonMessageDirect, queueGroupMessageDirect, isTruthyFlag as waTruthyFlag } from './whatsapp.js';
 import { uploadFileToDrive } from './account.js';
+import { r2Available, putToR2, keyForYear } from './r2.js';
+import { base64ToBytes } from './base64.js';
 import { logErrorAt, logWarn } from './logger.js';
 import { waNumberOf, looksLikeAttemptedNumber } from './phone.js';
 import { buildConsentPlaceholders } from './consentPlaceholders.js';
@@ -15,6 +17,20 @@ function generateConsentToken() { return crypto.randomUUID().replace(/-/g, '') +
 function generateOtp() { return String(Math.floor(100000 + Math.random() * 900000)); }
 function parseAmt(v) { return parseFloat((v || '').toString().replace(/[^0-9.-]+/g, '')) || 0; }
 const isTruthyFlag = waTruthyFlag;
+
+// Uploads a consent photo/signature. Prefers R2 (year-wise key), falls back to
+// Google Drive when R2 isn't configured — so this keeps working before the
+// bucket exists. `year` groups the object so the Superadmin "Move <year> to
+// Drive" feature can find it later; returns the public URL to store.
+async function uploadConsentFile(env, base64, fileName, year) {
+  if (r2Available(env)) {
+    const bytes = base64ToBytes(base64, { label: fileName || 'File' });
+    const key = keyForYear(year, 'consent', fileName);
+    return putToR2(env, key, bytes, 'image/jpeg');
+  }
+  // Drive fallback (returns the lh3 directUrl, unchanged behaviour).
+  return (await uploadFileToDrive(env, base64, fileName, 'image/jpeg')).directUrl;
+}
 
 // OTP hardening: previously an OTP never expired and verifyConsentOtp() had NO
 // attempt limit at all — unlimited guesses against a 6-digit code.
@@ -481,8 +497,14 @@ export async function respondConsent(env, token, decision, deviceId, deviceInfo,
     if (!photoBase64) throw new Error('Photo capture karna zaroori hai Accept karne ke liye.');
     if (!signatureBase64) throw new Error('Signature upload karna zaroori hai Accept karne ke liye.');
     try {
-      photoUrl = (await uploadFileToDrive(env, photoBase64, `consent_${rowObj.consent_id}_photo.jpg`, 'image/jpeg')).directUrl;
-      signatureUrl = (await uploadFileToDrive(env, signatureBase64, `consent_${rowObj.consent_id}_signature.jpg`, 'image/jpeg')).directUrl;
+      // Derive the loan's year so the files land under the right R2 year prefix
+      // (used by the Superadmin "Move <year> to Drive" feature). If the loan
+      // can't be resolved, keyForYear() falls back to an 'unknown-year' prefix.
+      const loansList = await getSheetDataAsJSON(env, 'LOANS');
+      const loanRow = loansList.find(l => l['Loan ID'] === rowObj.loan_id);
+      const consentYear = loanRow ? loanRow.Year : '';
+      photoUrl = await uploadConsentFile(env, photoBase64, `consent_${rowObj.consent_id}_photo.jpg`, consentYear);
+      signatureUrl = await uploadConsentFile(env, signatureBase64, `consent_${rowObj.consent_id}_signature.jpg`, consentYear);
     } catch (err) {
       // The original Drive error text used to be wrapped away and only reached
       // the log if the caller happened to be the mgmt React app — but this is a

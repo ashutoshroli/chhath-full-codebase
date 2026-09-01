@@ -1,6 +1,7 @@
 import { requireAdminOrAbove, ValidationError } from './auth.js';
 import { uploadFileToDrive, getDriveAccessToken } from './account.js';
 import { base64ToBytes, sniffImageMime } from './base64.js';
+import { r2Available, putToR2, keyForPopup, isR2Url, keyFromR2Url, deleteFromR2 } from './r2.js';
 import { logWarn, logErrorAt } from './logger.js';
 
 // `popups.active` and the flag columns elsewhere are TEXT (see db/schema/misc.sql),
@@ -102,9 +103,22 @@ export async function savePopup(env, popupId, title, roles, active, startAt, end
   return { success: true, popup_id: id };
 }
 
-// Best-effort Drive cleanup. Popup images used to be left in Drive forever when a
-// popup was deleted, with nothing anywhere recording the orphan.
+// Best-effort cleanup when a popup is deleted. Handles both R2-hosted images
+// (new) and legacy Drive images (old) so neither is orphaned.
 async function trashDriveFileByUrl(env, url) {
+  // R2-hosted popup image -> delete the R2 object.
+  if (isR2Url(env, url)) {
+    const key = keyFromR2Url(env, url);
+    if (key) {
+      try { await deleteFromR2(env, key); }
+      catch (err) {
+        await logWarn(env, 'backend-popups', 'trashDriveFileByUrl',
+          `Popup image left in R2: ${key} — ${err && err.message}`, { key });
+      }
+    }
+    return;
+  }
+
   const m = /[?&]id=([A-Za-z0-9_-]+)|\/d\/([A-Za-z0-9_-]+)/.exec(url || '');
   const fileId = m && (m[1] || m[2]);
   if (!fileId) return;
@@ -205,6 +219,15 @@ export async function uploadPopupImage(env, base64, fileName, mimeType, user) {
   const ext = sniffed.split('/')[1].replace('jpeg', 'jpg');
   const safeName = (fileName || '').toString().trim().replace(/[^\w.\-]+/g, '_').slice(0, 80)
     || `popup_${Date.now()}.${ext}`;
+
+  // Popup images go to R2 under `popups/` (NO year — popups are year-independent
+  // and are never moved to Drive by the "Move year to Drive" feature). Falls back
+  // to Drive when R2 isn't configured.
+  if (r2Available(env)) {
+    const key = keyForPopup(safeName);
+    const imageUrl = await putToR2(env, key, bytes, sniffed);
+    return { success: true, imageUrl, url: imageUrl, directUrl: imageUrl, mimeType: sniffed, bytes: bytes.length };
+  }
 
   const res = await uploadFileToDrive(env, base64, safeName, sniffed);
   // `url` is the Drive VIEWER PAGE (…/file/d/<id>/view) — putting that in an

@@ -1,6 +1,8 @@
 import { getSheetDataAsJSON, filterByYear } from './crud.js';
 import { requireSuperadmin, requireYearAccess, requireStaffRole, PermissionError, ValidationError } from './auth.js';
-import { getOrCreateFolder, uploadDocxFile, getFileBytesBase64, copyFile, convertDocxBytesToPdf } from './drive.js';
+import { getOrCreateFolder, uploadDocxFile, getFileBytesBase64, copyFile, convertDocxBytesToPdf, trashFile } from './drive.js';
+import { r2Available, putToR2, keyForYear } from './r2.js';
+import { base64ToBytes } from './base64.js';
 import { logErrorAt } from './logger.js';
 import { consentPlaceholderFactory } from './consentPlaceholders.js';
 
@@ -260,14 +262,38 @@ export async function convertDocxToPdf(env, docType, year, recordId, base64, fil
     }
   }
 
+  // The DOCX->PDF rendering can only be done by Google Drive (Google Docs
+  // converter), so we always produce the PDF via Drive first. If R2 is
+  // configured, we then copy those PDF bytes into R2 (year-wise), store the R2
+  // public URL, and trash the intermediate Drive PDF — so the served file lives
+  // on R2. If R2 isn't configured, we keep the Drive PDF and its link (unchanged
+  // behaviour), so nothing breaks before the bucket exists.
   const genFolderId = await getOrCreateFolder(env, env.DRIVE_ROOT_FOLDER_ID, 'Generated PDFs');
   const typeFolderName = TYPE_FOLDER_NAMES[docType];
   const typeFolderId = await getOrCreateFolder(env, genFolderId, typeFolderName);
   const yearFolderId = await getOrCreateFolder(env, typeFolderId, String(year));
 
   const { fileId, fileName: pdfName } = await convertDocxBytesToPdf(env, base64, fileName || 'document.docx', yearFolderId);
-  const publicLink = `https://drive.google.com/uc?export=download&id=${fileId}`;
-  const drivePath = `Generated PDFs/${typeFolderName}/${year}/${pdfName}`;
+
+  let publicLink = `https://drive.google.com/uc?export=download&id=${fileId}`;
+  let drivePath = `Generated PDFs/${typeFolderName}/${year}/${pdfName}`;
+
+  if (r2Available(env)) {
+    try {
+      const pdfB64 = await getFileBytesBase64(env, fileId);
+      const pdfBytes = base64ToBytes(pdfB64, { label: pdfName });
+      const key = keyForYear(year, 'pdf', pdfName, docType);
+      publicLink = await putToR2(env, key, pdfBytes, 'application/pdf');
+      drivePath = key; // store the R2 key in drive_path so the move feature can find it
+      await trashFile(env, fileId); // remove the intermediate Drive PDF
+    } catch (err) {
+      // R2 copy failed — fall back to serving the Drive PDF we already made.
+      // Non-fatal: the file exists and is downloadable via the Drive link.
+      await logErrorAt(env, 'backend-docxTemplates', 'convertDocxToPdf:r2Copy', err, { docType, year, recordId });
+      publicLink = `https://drive.google.com/uc?export=download&id=${fileId}`;
+      drivePath = `Generated PDFs/${typeFolderName}/${year}/${pdfName}`;
+    }
+  }
 
   // Record in the DB — this MUST succeed for the public portal to show the file.
   if (recordId) {
