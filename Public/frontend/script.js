@@ -281,13 +281,22 @@ const app = {
       const entry = (app.data.collections || []).find(c =>
         (c.__rowIndex || '').toString() === ref && parseInt(c.Year) === parseInt(year));
       if (entry) {
-        const u = app.getUser(entry.Name);
-        detailsHtml = `
-          <div style="margin-top:8px; font-size:0.9rem;">
-            <div><strong>${u.Name}</strong>${u.Village && u.Village !== '-' ? ' — ' + u.Village : ''}</div>
-            ${entry.Amount ? `<div>Amount: ${fmt(entry.Amount)}</div>` : ''}
-            ${entry.Detail ? `<div>Detail: ${entry.Detail}</div>` : ''}
-          </div>`;
+        // A resold-item receipt has no contributor — show the item, not a user.
+        if (app.isResellRow(entry)) {
+          detailsHtml = `
+            <div style="margin-top:8px; font-size:0.9rem;">
+              <div><strong>♻️ Resell: ${escapeHtml(entry.Detail || '-')}</strong></div>
+              ${entry.Amount ? `<div>Amount: ${fmt(entry.Amount)}</div>` : ''}
+            </div>`;
+        } else {
+          const u = app.getUser(entry.Name);
+          detailsHtml = `
+            <div style="margin-top:8px; font-size:0.9rem;">
+              <div><strong>${escapeHtml(u.Name)}</strong>${u.Village && u.Village !== '-' ? ' — ' + escapeHtml(u.Village) : ''}</div>
+              ${entry.Amount ? `<div>Amount: ${fmt(entry.Amount)}</div>` : ''}
+              ${entry.Detail ? `<div>Detail: ${escapeHtml(entry.Detail)}</div>` : ''}
+            </div>`;
+        }
       }
     }
 
@@ -296,7 +305,7 @@ const app = {
         <span class="material-icons-round" style="color:${genFile ? 'var(--success)' : 'var(--danger)'};">${genFile ? 'verified' : 'error_outline'}</span>
         <strong>${genFile ? 'Verified Record' : 'Record Not Found'}</strong>
       </div>
-      <div style="font-size:0.85rem; color:var(--text-muted); margin-top:4px;">${docLabel} — Year ${year}</div>
+      <div style="font-size:0.85rem; color:var(--text-muted); margin-top:4px;">${escapeHtml(docLabel)} — Year ${escapeHtml(year)}</div>
       ${genFile ? detailsHtml : `<p style="font-size:0.85rem; margin-top:8px;">This record could not be verified against the committee's records. If you believe this is an error, please contact the committee.</p>`}
     `;
 
@@ -345,18 +354,40 @@ const app = {
     app.renderCommittee();
   },
 
+  // A collection row is a "Resell" (committee resold a donated item) when Is Resell
+  // is truthy. Such a row has NO contributor person — its Name field does not point
+  // at a USER — so we must show the resold item (Detail), NOT run it through
+  // getUser() (which would render "Unknown User"). Mirrors mgmt Home.jsx.
+  isResellRow: (r) => r && (r['Is Resell'] === true || r['Is Resell'] === 'TRUE' || (typeof r['Is Resell'] === 'string' && r['Is Resell'].trim().toLowerCase() === 'true')),
+
   renderHomeList: () => {
     const s = document.getElementById('home-search').value.toLowerCase();
     const html = app.currentData.col
       .filter(r => {
+         // Resell rows are searchable by their item name (Detail); everyone else
+         // by contributor name. Previously resell rows matched only the literal
+         // string "unknown user".
+         if (app.isResellRow(r)) return (r.Detail || '').toLowerCase().includes(s);
          const u = app.getUser(r.ID || r.Name);
-         return u.Name.toLowerCase().includes(s);
+         return (u.Name || '').toLowerCase().includes(s);
       })
       .map(r => {
-         const u = app.getUser(r.ID || r.Name);
          const cType = (r['Contribution Type'] || 1).toString();
          const isMoney = cType === '1';
+         const yrTag = app.currentData.isAll ? `<span class="yr-tag">[${escapeHtml(r.Year)}]</span>` : '';
 
+         // ---- Resell row: an item that was resold, not a person's contribution ----
+         if (app.isResellRow(r)) {
+            return `<div class="data-row">
+               <div>
+                 <strong style="display:block;">♻️ Resell: ${escapeHtml(r.Detail || '-')} ${yrTag}</strong>
+                 <span style="font-size:0.8rem; color:var(--text-muted);">Resold item</span>
+               </div>
+               <strong style="color:var(--success);">+${fmt(r.Amount)}</strong>
+            </div>`;
+         }
+
+         const u = app.getUser(r.ID || r.Name);
          // Material/Service contributions do not have a monetary amount, since no
          // cash is involved — so instead of the amount, we show what was given /
          // what work was done (Detail).
@@ -364,13 +395,13 @@ const app = {
             ? `<strong style="color:var(--success);">+${fmt(r.Amount)}</strong>`
             : `<div style="text-align:right;">
                  <span class="badge" style="background:#DBEAFE; color:#1E40AF;">${cType === '2' ? 'Material' : 'Service'}</span>
-                 ${r.Detail ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px; max-width:150px;">${r.Detail}</div>` : ''}
+                 ${r.Detail ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px; max-width:150px;">${escapeHtml(r.Detail)}</div>` : ''}
                </div>`;
 
          return `<div class="data-row">
             <div>
-              <strong style="display:block;">${u.Name} (${u.Designation || '-'}) ${app.currentData.isAll ? `<span class="yr-tag">[${r.Year}]</span>` : ''}</strong>
-              <span style="font-size:0.8rem; color:var(--text-muted);">${u.Village || r.Village || '-'} | ${u["Father's Name"] || '-'}</span>
+              <strong style="display:block;">${escapeHtml(u.Name)} (${escapeHtml(u.Designation || '-')}) ${yrTag}</strong>
+              <span style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(u.Village || r.Village || '-')} | ${escapeHtml(u["Father's Name"] || '-')}</span>
             </div>
             
             ${rightSide}
@@ -380,10 +411,17 @@ const app = {
   },
 
   renderExpenses: () => {
-    const html = app.currentData.exp.map(r => `<div class="data-row">
-        <div><strong style="display:block; max-width:200px;">${r.Discription||r.Description} ${app.currentData.isAll ? `<span class="yr-tag">[${r.Year}]</span>` : ''}</strong></div>
+    const html = app.currentData.exp.map(r => {
+      // The column is misspelled "Discription" in the schema; some payloads use
+      // "Description". Fall back across both (and to a dash) so the name is never
+      // blank, and escape it.
+      const desc = r.Discription || r.Description || '-';
+      const yrTag = app.currentData.isAll ? `<span class="yr-tag">[${escapeHtml(r.Year)}]</span>` : '';
+      return `<div class="data-row">
+        <div><strong style="display:block; max-width:200px;">${escapeHtml(desc)} ${yrTag}</strong></div>
         <strong style="color:var(--danger);">-${fmt(r.Amount)}</strong>
-      </div>`).join('');
+      </div>`;
+    }).join('');
     document.getElementById('exp-list').innerHTML = html || '<div style="text-align:center; padding:20px;">No expenses recorded.</div>';
   },
 
@@ -421,17 +459,25 @@ const app = {
          
          const isCont = isContributor(gid);
          const isCom = isCommittee(gid);
-         
-         let statusBadge = isCont && !isCom ? '<span class="badge badge-ok">Valid Guarantor</span>' : '<span class="badge badge-warn">Rule Violation</span>';
+
+         // The actual committee rule (backend saveLoanTransaction) is only:
+         // "a Committee Member cannot be a guarantor". There is NO requirement
+         // that a guarantor also be a contributor that year — so the old badge,
+         // which flagged every non-contributor guarantor as "Rule Violation",
+         // produced false red flags for perfectly valid guarantors. Now only an
+         // actual committee-member guarantor is a violation.
+         const statusBadge = isCom
+            ? '<span class="badge badge-warn">Rule Violation (Committee Member)</span>'
+            : '<span class="badge badge-ok">Valid Guarantor</span>';
 
          gHtml += `<div class="glass-card" style="padding:15px; margin-bottom:10px;">
             <div style="display:flex; justify-content:space-between; align-items:center;">
-              <strong>${uGuarantor.Name}</strong>
+              <strong>${escapeHtml(uGuarantor.Name)}</strong>
               ${statusBadge}
             </div>
            
             <div style="font-size:0.75rem; color:gray; margin-top:5px;">
-              Village: ${uGuarantor.Village || '-'} | Contributor: ${isCont ? 'Yes':'No'} | Committee: ${isCom ? 'Yes':'No'}
+              Village: ${escapeHtml(uGuarantor.Village || '-')} | Contributor: ${isCont ? 'Yes':'No'} | Committee: ${isCom ? 'Yes':'No'}
             </div>
          </div>`;
       });
@@ -443,11 +489,11 @@ const app = {
         
         <div style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #FDE68A; margin-bottom: 15px;">
           <div style="font-size: 0.8rem; color: var(--text-muted);">Receiver Name</div>
-          <div style="font-size: 1.3rem; font-weight: bold; color: var(--text-main); margin-bottom: 10px;">${uReceiver.Name}</div>
+          <div style="font-size: 1.3rem; font-weight: bold; color: var(--text-main); margin-bottom: 10px;">${escapeHtml(uReceiver.Name)}</div>
           <div class="grid-3">
             <div><span style="font-size:0.75rem;">Amount</span><br><strong style="font-size: 0.95rem;">${fmt(curLoan.Amount)}</strong></div>
-            <div><span style="font-size:0.75rem;">Int. Rate</span><br><strong style="font-size: 0.95rem;">${curLoan['Intrest Rate'] || curLoan['Interest Rate'] || '0'}%</strong></div>
-            <div><span style="font-size:0.75rem;">Tenure</span><br><strong style="font-size: 0.95rem;">${curLoan.Tenure || '0'} Mo</strong></div>
+            <div><span style="font-size:0.75rem;">Int. Rate</span><br><strong style="font-size: 0.95rem;">${escapeHtml(curLoan['Intrest Rate'] || curLoan['Interest Rate'] || '0')}%</strong></div>
+            <div><span style="font-size:0.75rem;">Tenure</span><br><strong style="font-size: 0.95rem;">${escapeHtml(curLoan.Tenure || '0')} Mo</strong></div>
           </div>
         </div>
         
@@ -465,24 +511,28 @@ const app = {
     const targetCom = isAll ? app.data.committee : app.data.committee.filter(r => parseInt(r.Year) === app.currentData.tYear);
     const html = targetCom.map(r => {
        const u = app.getUser(r.ID || r.Name); 
-       
+       // `u.Name[0]` threw a TypeError (blanking the WHOLE list) if a committee
+       // member's Name was ever undefined. Coerce to a string first.
+       const nameStr = (u.Name || '').toString();
+       const initial = (nameStr.charAt(0) || '?').toUpperCase();
+
        // Naya Professional ID Card Layout
        return `
        <div class="glass-card" style="padding:15px; margin-bottom:12px; display:flex; gap:15px; align-items:center;">
           <div style="width:50px;height:50px;border-radius:50%;background:var(--saffron-light);color:var(--primary-saffron);display:flex;align-items:center;justify-content:center;font-size:1.2rem;font-weight:bold;flex-shrink:0;">
-             ${(u.Name[0] || '?').toUpperCase()}
+             ${escapeHtml(initial)}
           </div>
           <div style="flex-grow:1;">
              <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                <strong style="font-size:1.05rem;">${u.Name}</strong>
-                <span class="badge" style="background:#f3f4f6; color:#374151;">${r.Year}</span>
+                <strong style="font-size:1.05rem;">${escapeHtml(nameStr || '-')}</strong>
+                <span class="badge" style="background:#f3f4f6; color:#374151;">${escapeHtml(r.Year)}</span>
              </div>
              <div style="font-size:0.85rem; color:var(--primary-saffron); font-weight:600; margin-bottom:4px;">
-                ${r.Role || u.Designation || 'Member'}
+                ${escapeHtml(r.Role || u.Designation || 'Member')}
              </div>
              <div style="font-size:0.8rem; color:var(--text-muted); display:flex; flex-wrap:wrap; gap:10px;">
-                <span style="display:flex; align-items:center; gap:3px;"><span class="material-icons-round" style="font-size:12px;">call</span> ${u.Mobile || 'N/A'}</span>
-                <span style="display:flex; align-items:center; gap:3px;"><span class="material-icons-round" style="font-size:12px;">place</span> ${u.Village || 'N/A'}</span>
+                <span style="display:flex; align-items:center; gap:3px;"><span class="material-icons-round" style="font-size:12px;">call</span> ${escapeHtml(u.Mobile || 'N/A')}</span>
+                <span style="display:flex; align-items:center; gap:3px;"><span class="material-icons-round" style="font-size:12px;">place</span> ${escapeHtml(u.Village || 'N/A')}</span>
              </div>
           </div>
        </div>`;
@@ -497,7 +547,7 @@ const app = {
     (app.data.users || []).forEach(u => { if (u.Village) villages.add(u.Village.trim()); });
     const arr = Array.from(villages).sort((a, b) => a.localeCompare(b));
     const sel = document.getElementById('dc-village');
-    sel.innerHTML = `<option value="">-- Select Village --</option>` + arr.map(v => `<option value="${v}">${v}</option>`).join('');
+    sel.innerHTML = `<option value="">-- Select Village --</option>` + arr.map(v => `<option value="${escapeAttr(v)}">${escapeHtml(v)}</option>`).join('');
     sel.value = '';
   },
 
@@ -537,14 +587,20 @@ const app = {
       .filter(u => !q || (u.Name || '').toLowerCase().includes(q))
       .slice(0, 50);
 
-    const html = list.map(u => `
-      <div class="data-row" style="cursor:pointer;" onclick="app.selectDownloadPerson('${(u.ID || '').toString().replace(/'/g, "\\'")}')">
+    const html = list.map(u => {
+      // ID goes into a JS string inside an onclick attribute — escape for BOTH
+      // the JS-string context and the HTML-attribute context. Names/villages are
+      // HTML-escaped like everywhere else.
+      const idJs = (u.ID || '').toString().replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      return `
+      <div class="data-row" style="cursor:pointer;" onclick="app.selectDownloadPerson('${escapeAttr(idJs)}')">
         <div>
-          <strong style="display:block;">${u.Name}</strong>
-          <span style="font-size:0.8rem; color:var(--text-muted);">${u.Village || '-'}</span>
+          <strong style="display:block;">${escapeHtml(u.Name)}</strong>
+          <span style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(u.Village || '-')}</span>
         </div>
         <span class="material-icons-round" style="color:var(--primary-saffron);">chevron_right</span>
-      </div>`).join('');
+      </div>`;
+    }).join('');
 
     document.getElementById('dc-people-wrap').innerHTML = `<div class="glass-card" id="dc-people-list">${html || '<div style="text-align:center; padding:20px;">No matches found.</div>'}</div>`;
   },
@@ -625,14 +681,14 @@ const app = {
 
     const rowHtml = (item) => `
       <div class="data-row">
-        <div><strong style="display:block; font-size:0.9rem;">${item.label}</strong></div>
-        ${item.publicLink
-          ? `<a href="${item.publicLink}" target="_blank" class="badge badge-ok" style="text-decoration:none;">Download</a>`
+        <div><strong style="display:block; font-size:0.9rem;">${escapeHtml(item.label)}</strong></div>
+        ${item.publicLink && safeUrl(item.publicLink)
+          ? `<a href="${escapeAttr(item.publicLink)}" target="_blank" rel="noreferrer" class="badge badge-ok" style="text-decoration:none;">Download</a>`
           : `<span class="badge" style="background:#f3f4f6; color:#9CA3AF;">Not Available</span>`}
       </div>`;
 
     const section = (title, items) => `
-      <h4 style="margin: 15px 0 8px; color: var(--text-main);">${title}</h4>
+      <h4 style="margin: 15px 0 8px; color: var(--text-main);">${escapeHtml(title)}</h4>
       <div class="glass-card" style="padding:10px 15px;">
         ${items.length ? items.map(rowHtml).join('') : '<div style="text-align:center; padding:10px; color:var(--text-muted); font-size:0.85rem;">No records available.</div>'}
       </div>`;
@@ -640,8 +696,8 @@ const app = {
     wrap.innerHTML = `
       <div class="glass-card" style="display:flex; justify-content:space-between; align-items:center;">
         <div>
-          <strong style="display:block; font-size:1.05rem;">${u.Name}</strong>
-          <span style="font-size:0.8rem; color:var(--text-muted);">${u.Village || '-'}</span>
+          <strong style="display:block; font-size:1.05rem;">${escapeHtml(u.Name)}</strong>
+          <span style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(u.Village || '-')}</span>
         </div>
         <button style="background:#e5e7eb; color:#111; border:none; padding:8px 14px; border-radius:8px; font-weight:600; font-size:0.85rem; cursor:pointer;" onclick="app.backToDownloadList()">← Back</button>
       </div>

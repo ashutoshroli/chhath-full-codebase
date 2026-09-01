@@ -117,7 +117,9 @@ export default function Loans({ year, users, committee, role, editable }) {
       {loans.length === 0 && <div className="glass-card" style={{ textAlign: 'center', padding: 20 }}>Not Distributed Yet</div>}
 
       {loans.map((loan, idx) => {
-        const uReceiver = userMap[loan.Name] || { Name: 'Unknown' };
+        // When the receiver isn't in USERS (deleted user, or an ID/name mismatch),
+        // show the raw identifier instead of a bare "Unknown" so it can be traced.
+        const uReceiver = userMap[loan.Name] || { Name: loan.Name ? `${loan.Name} (not in Users)` : 'Unknown' };
         const guars = loan['Loan ID']
           ? guarantors.filter(g => (g['Loan ID'] || '').toString().trim() === loan['Loan ID'].toString().trim())
           : guarantors.filter(g => parseInt(g.Year) === parseInt(loan.Year) && g.Loaner === loan.Name);
@@ -151,7 +153,7 @@ export default function Loans({ year, users, committee, role, editable }) {
             <h4 style={{ marginBottom: 10, color: '#92400E' }}>Guarantors</h4>
             {guars.length === 0 && <p>No guarantors on record.</p>}
             {guars.map((g, gi) => {
-              const uG = userMap[g.Guarantor] || { Name: 'Unknown' };
+              const uG = userMap[g.Guarantor] || { Name: g.Guarantor ? `${g.Guarantor} (not in Users)` : 'Unknown' };
               return (
                 <div className="glass-card" style={{ padding: 15, marginBottom: 10 }} key={gi}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
