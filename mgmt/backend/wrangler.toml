@@ -11,11 +11,14 @@ compatibility_date = "2025-01-01"
 # the placeholder value below.
 CONSENT_BASE_URL = "https://mgmt-chhath.shaharpura.com"
 
-# Optional CORS allow-list (comma-separated EXACT origins, e.g.
-# "https://mgmt.example.com,https://admin.example.com"). When set, the API only
+# CORS allow-list (comma-separated EXACT origins). When set, the API only
 # reflects Access-Control-Allow-Origin for these origins; unknown origins are
-# denied. Leave unset (or "*") to keep the previous wildcard behaviour.
-# ALLOWED_ORIGINS = "https://YOUR-FRONTEND-DOMAIN.example.com"
+# denied. Leaving it unset (or "*") falls back to the old wildcard, which lets
+# ANY site on the internet script the API from a victim's browser.
+# SECURITY (audit S4): locked to the real mgmt frontend origin. If the admin
+# panel is also served from another origin (e.g. a vercel.app URL), add it here
+# comma-separated, e.g. "https://mgmt-chhath.shaharpura.com,https://foo.vercel.app".
+ALLOWED_ORIGINS = "https://mgmt-chhath.shaharpura.com"
 
 # ---- R2 object storage (new uploads: consent photos/signatures, generated PDFs,
 # popup images) ----
