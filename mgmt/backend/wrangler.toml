@@ -9,7 +9,7 @@ compatibility_date = "2025-01-01"
 # misconfigured Worker sent DEAD links that were still recorded as `sent`.
 # loans.js now refuses to send and raises a clear error while this still contains
 # the placeholder value below.
-CONSENT_BASE_URL = "https://YOUR-FRONTEND-DOMAIN.example.com"
+CONSENT_BASE_URL = "https://mgmt-chhath.shaharpura.com"
 
 # Optional CORS allow-list (comma-separated EXACT origins, e.g.
 # "https://mgmt.example.com,https://admin.example.com"). When set, the API only
