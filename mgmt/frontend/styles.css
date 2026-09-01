@@ -21,13 +21,23 @@ button, input, select { font: inherit; }
 .page-view { max-width: 1000px; margin: 90px auto 0; padding: 0 15px; animation: fade 0.3s; }
 @keyframes fade { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-.glass-card { background: var(--card-white); border-radius: 12px; padding: 20px; box-shadow: var(--shadow); margin-bottom: 15px; border: 1px solid #eee; }
+/* overflow-wrap:anywhere — a long unbreakable token (a consent URL, a pasted
+   link, a very long word) can no longer push the card wider than the viewport
+   and cause the whole page to scroll sideways. This is the single most common
+   source of the "content extends past the card" bug across every screen. */
+.glass-card { background: var(--card-white); border-radius: 12px; padding: 20px; box-shadow: var(--shadow); margin-bottom: 15px; border: 1px solid #eee; overflow-wrap: anywhere; }
 .budget-card { background: linear-gradient(135deg, #1F2937 0%, #111827 100%); color: white; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
 .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
 .stat-box { background: #f3f4f6; padding: 15px; border-radius: 8px; border-left: 4px solid; }
-.data-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px dashed #eee; align-items: center; }
+.data-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px dashed #eee; align-items: center; gap: 10px; }
 .data-row:last-child { border-bottom: none; }
+/* A flex item defaults to min-width:auto, which REFUSES to shrink below its
+   content's intrinsic width — so a long name/detail/URL in the left cell pushed
+   the row (and the card) wider instead of wrapping. min-width:0 lets the cell
+   shrink and its text wrap. Applied to the direct children of every data-row. */
+.data-row > * { min-width: 0; }
+.data-row > *:first-child { overflow-wrap: anywhere; }
 
 .profile-box-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
 .profile-mini-box { background: #f3f4f6; border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
@@ -72,7 +82,7 @@ input[type="checkbox"], input[type="radio"] {
 }
 
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 15px; }
-.modal-content { background: white; width: 100%; max-width: 500px; border-radius: 12px; padding: 20px; max-height: 90vh; overflow-y: auto; }
+.modal-content { background: white; width: 100%; max-width: 500px; border-radius: 12px; padding: 20px; max-height: 90vh; overflow-y: auto; overflow-wrap: anywhere; }
 
 #loader { position: fixed; inset: 0; background: rgba(255,255,255,0.9); z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center; }
 .spinner { border: 4px solid #FFE4D6; border-top: 4px solid var(--primary-saffron); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 10px; }
@@ -85,6 +95,9 @@ input[type="checkbox"], input[type="radio"] {
 .badge-pending { background: #FEF3C7; color: #92400E; }
 .badge-danger { background: #FEE2E2; color: #991B1B; }
 
+/* Admin-authored template text can contain long URLs; keep them inside the
+   preview/PDF-preview box instead of spilling out of it. */
+.consent-doc { overflow-wrap: anywhere; }
 .consent-doc h2 { font-size: 1.3rem; margin: 10px 0 4px; }
 .consent-doc h3 { font-size: 1.05rem; margin: 18px 0 6px; color: var(--primary-saffron); }
 .consent-doc p { margin: 6px 0; line-height: 1.5; font-size: 0.9rem; }
@@ -95,8 +108,13 @@ input[type="checkbox"], input[type="radio"] {
 .consent-doc strong { color: #111827; }
 .error-banner { background: #FEE2E2; color: #991B1B; padding: 10px 15px; border-radius: 8px; margin-bottom: 15px; font-size: 0.9rem; }
 
-.subtabs { display: flex; gap: 8px; margin-bottom: 15px; border-bottom: 1px solid #eee; }
-.subtab-btn { background: none; border: none; padding: 10px 4px; font-size: 0.9rem; font-weight: 600; color: var(--text-muted); cursor: pointer; border-bottom: 3px solid transparent; }
+/* Was a plain flex row with no overflow handling, so a tab bar with many items
+   (Loan message templates has ~11, Document Templates has 8) squeezed the tabs
+   into an unreadable/clipped strip on a phone. Now the bar scrolls sideways and
+   each tab keeps its full label on one line. */
+.subtabs { display: flex; gap: 8px; margin-bottom: 15px; border-bottom: 1px solid #eee; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.subtabs::-webkit-scrollbar { display: none; }
+.subtab-btn { background: none; border: none; padding: 10px 4px; font-size: 0.9rem; font-weight: 600; color: var(--text-muted); cursor: pointer; border-bottom: 3px solid transparent; white-space: nowrap; flex-shrink: 0; }
 .subtab-btn.active { color: var(--primary-saffron); border-bottom-color: var(--primary-saffron); }
 .toggle-switch { cursor: pointer; }
 
