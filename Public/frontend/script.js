@@ -103,12 +103,31 @@ const app = {
     // the whole migration (Public/frontend has no build step / env vars, unlike
     // mgmt/frontend, so this can't be an env var — see FRONTEND_DIFF_NOTES.md).
     const BASE_API_URL = "https://chhath-public-api.shaharpura.workers.dev/";
-    const API_URL = BASE_API_URL + "?action=portalData";
     ERROR_LOG_URL = BASE_API_URL + "?action=logError";
 
-    app.loadPopup(BASE_API_URL); // fire-and-forget, independent of portalData — a popup failure should never block the rest of the site
+    // Fetch the current data version FIRST (one tiny, always-fresh call), then
+    // request the big payloads with `?v=<version>`. Those version-keyed URLs are
+    // served from Cloudflare's edge cache (immutable), so on a plain refresh the
+    // Worker/DB are not touched for portalData/activePopups — only this small
+    // version ping reaches the Worker. When mgmt data changes the version bumps,
+    // the URL changes, and the fresh URL is fetched once (then cached again).
+    //
+    // If the version call fails for any reason, we fall back to the un-versioned
+    // URL, which the Worker still serves via its ETag path — so nothing breaks.
+    fetch(BASE_API_URL + "?action=dataVersion")
+      .then(r => (r.ok ? r.json() : null))
+      .then(vr => (vr && vr.v != null ? vr.v.toString() : ''))
+      .catch(() => '')
+      .then(version => {
+        const vq = version ? ("&v=" + encodeURIComponent(version)) : "";
+        const API_URL = BASE_API_URL + "?action=portalData" + vq;
 
-    fetch(API_URL)
+        // fire-and-forget, independent of portalData — a popup failure should
+        // never block the rest of the site. Same version so popups are edge-cached too.
+        app.loadPopup(BASE_API_URL, version);
+
+        return fetch(API_URL);
+      })
       .then(response => {
         if (!response.ok) throw new Error('portalData HTTP ' + response.status);
         return response.json();
@@ -180,8 +199,11 @@ const app = {
   popupSlides: [],
   popupIndex: 0,
 
-  loadPopup: (baseApiUrl) => {
-    fetch(baseApiUrl + "?action=activePopups")
+  loadPopup: (baseApiUrl, version) => {
+    // Version-keyed URL so activePopups is served from the edge cache too; falls
+    // back to the un-versioned (ETag) URL if no version was resolved.
+    const vq = version ? ("&v=" + encodeURIComponent(version)) : "";
+    fetch(baseApiUrl + "?action=activePopups" + vq)
       .then(r => r.json())
       .then(popups => {
         if (!Array.isArray(popups) || !popups.length) return;

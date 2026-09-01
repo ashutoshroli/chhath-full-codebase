@@ -257,10 +257,50 @@ export default {
     // Every read path is wrapped now — previously a single D1 hiccup took the whole
     // Worker down with a 1101 and nothing recorded anywhere.
     try {
-      if (action === 'portalData') {
-        // Read the version FIRST (one tiny row). If the client already has this
-        // version, short-circuit with 304 — no 8-table scan, no payload.
+      // ---- dataVersion: the ONE tiny call every page makes on load ----
+      //
+      // Returns just the current data version. The frontend reads this first,
+      // then requests portalData/activePopups with `?v=<version>`. Those
+      // version-keyed URLs get a long immutable CDN cache (below), so as long as
+      // the version is unchanged the big payloads are served straight from
+      // Cloudflare's edge — the Worker/DB are not touched at all. Only this
+      // lightweight version ping reaches the Worker on a refresh.
+      //
+      // Kept essentially uncacheable (short max-age) so a version bump is picked
+      // up almost immediately. It's a single-row read, so it's cheap.
+      if (action === 'dataVersion') {
         const version = await getDataVersion(env);
+        return new Response(JSON.stringify({ v: version }), {
+          headers: { ...cors, 'Cache-Control': 'no-cache' },
+        });
+      }
+
+      if (action === 'portalData') {
+        const version = await getDataVersion(env);
+        const requestedV = (url.searchParams.get('v') || '').trim();
+
+        // FAST PATH: the client asked for a specific version (?v=) and it still
+        // matches the live version -> return the payload with a long IMMUTABLE
+        // cache so Cloudflare's edge caches it and serves every future request
+        // for this exact URL without ever hitting the Worker again. When the data
+        // changes, the version bumps, the URL changes (?v=<new>), and that fresh
+        // URL is a cache MISS -> one Worker fetch, then cached again.
+        if (requestedV && requestedV === version) {
+          const data = await getAllPortalData(env);
+          return new Response(JSON.stringify(data), {
+            headers: {
+              ...cors,
+              ETag: etagFor('portalData', version),
+              // 1 year + immutable: safe because the URL is version-specific.
+              'Cache-Control': 'public, max-age=31536000, immutable',
+            },
+          });
+        }
+
+        // FALLBACK PATH (no ?v=, or a stale ?v=): behave like before — ETag
+        // revalidation. This keeps old cached frontends and direct/no-version
+        // callers working, and covers the moment right after a version bump when
+        // a client still asks with the old v.
         const etag = etagFor('portalData', version);
         if (clientHasCurrent(request, etag)) {
           return new Response(null, {
@@ -270,17 +310,25 @@ export default {
         }
         const data = await getAllPortalData(env);
         return new Response(JSON.stringify(data), {
-          headers: {
-            ...cors,
-            ETag: etag,
-            // "Cache it, but revalidate every time" — revalidation is a single
-            // conditional request that returns 304 until mgmt data changes.
-            'Cache-Control': 'no-cache',
-          },
+          headers: { ...cors, ETag: etag, 'Cache-Control': 'no-cache' },
         });
       }
+
       if (action === 'activePopups') {
         const version = await getDataVersion(env);
+        const requestedV = (url.searchParams.get('v') || '').trim();
+
+        if (requestedV && requestedV === version) {
+          const data = await getActivePublicPopups(env);
+          return new Response(JSON.stringify(data), {
+            headers: {
+              ...cors,
+              ETag: etagFor('activePopups', version),
+              'Cache-Control': 'public, max-age=31536000, immutable',
+            },
+          });
+        }
+
         const etag = etagFor('activePopups', version);
         if (clientHasCurrent(request, etag)) {
           return new Response(null, {
