@@ -1,0 +1,407 @@
+====================================================================
+  CHHATH PUJA PORTAL - SECURITY, BUG & PRODUCTION AUDIT REPORT
+====================================================================
+  Repository : ashutoshroli/chhath-full-codebase
+  Scope      : mgmt backend (Cloudflare Worker), mgmt frontend (React/Vite),
+               Public backend (Cloudflare Worker), Public frontend (static)
+  Date       : 2026-09-01
+  Method     : Manual source review + static pattern scans + secret scan +
+               dependency audit + simulated attack (hacking) test cases
+====================================================================
+
+
+--------------------------------------------------------------------
+0. OVERALL VERDICT
+--------------------------------------------------------------------
+The codebase is in GOOD shape overall. The authentication, session,
+password, OTP and SQL layers are notably well hardened - many classic
+mistakes have already been found and fixed (visible in code comments).
+No SQL injection and no unauthenticated privilege escalation was found
+in the current code.
+
+The remaining problems are mostly around SECRETS COMMITTED TO GIT,
+VULNERABLE DEPENDENCIES, and a few DEFENSE-IN-DEPTH / PRODUCTION
+HARDENING gaps. None are "the whole system is wide open", but items
+S1 and S2 below should be treated as urgent.
+
+Severity legend: CRITICAL > HIGH > MEDIUM > LOW > INFO
+
+
+====================================================================
+1. SECURITY ISSUES
+====================================================================
+
+[S1] CRITICAL - Cloudflare account identity committed to git
+--------------------------------------------------------------------
+Files (tracked in repo):
+  mgmt/backend/.wrangler/cache/wrangler-account.json
+  Public/backend/.wrangler/cache/wrangler-account.json
+Content leaked:
+  Cloudflare Account ID : d8f09975639ca7538da9d4da90ee76c7
+  Account owner email   : Shaharpura.815312@gmail.com
+Problem:
+  .gitignore DOES list ".wrangler/", but these files were committed
+  BEFORE that rule, so they are still tracked and live in history.
+  This exposes the real account ID + the owner Gmail (useful for
+  targeted phishing / account-takeover attempts on Cloudflare + Drive
+  OAuth, which uses the same Gmail).
+Fix:
+  - git rm --cached the two files, commit, and purge from history
+    (git filter-repo / BFG) since history retains them.
+  - Rotate nothing secret is here, but treat the email as known-public.
+
+[S2] HIGH - Infrastructure IDs exposed in wrangler.toml
+--------------------------------------------------------------------
+Files: mgmt/backend/wrangler.toml, Public/backend/wrangler.toml
+Exposed: all 8 D1 database_id values + KV namespace id
+         (fc720867ed48459bb723279a56767711) + bucket + domains.
+Problem:
+  These IDs are not directly "keys", but combined with any leaked API
+  token they let an attacker address your exact resources. They should
+  not be in a public repo. Real secrets (PASSWORD_SALT,
+  WHATSAPP_QUEUE_API_KEY, DRIVE_OAUTH_*) are correctly kept out (set via
+  `wrangler secret put`) - good.
+Fix:
+  Keep wrangler.toml private, or template the IDs via CI variables.
+
+[S3] HIGH - Vulnerable dependencies (npm audit)
+--------------------------------------------------------------------
+mgmt/frontend:
+  * xmldom (any version) - CRITICAL. Pulled in via
+    docxtemplater-image-module-free. Multiple advisories:
+    XML injection, unsafe CDATA/PI/comment serialization, DoS via
+    uncontrolled recursion. NO FIX available upstream.
+  * react-router / react-router-dom (6.x) - MODERATE. Open redirect
+    via backslash in <Link>/useNavigate, and constructor injection in
+    SSR hydration. FIX available via `npm audit fix`.
+Risk here:
+  xmldom runs during DOCX->PDF image handling. A malicious .docx
+  template (only Superadmin can upload templates, which limits it) could
+  trigger the XML parser bugs. react-router open-redirect could be used
+  in phishing links.
+Fix:
+  - `npm audit fix` for react-router (do this now).
+  - Evaluate replacing docxtemplater-image-module-free or pinning/patching
+    xmldom; at minimum restrict who can upload .docx templates (already
+    Superadmin-gated) and validate uploaded files.
+
+[S4] MEDIUM - CORS allow-list not actually enforced by browser
+--------------------------------------------------------------------
+Where: mgmt/backend/src/index.js allowedOrigin()/corsHeaders(),
+       mgmt/frontend/src/api.js call()
+Problem:
+  a) ALLOWED_ORIGINS is OPTIONAL; if unset the API returns
+     Access-Control-Allow-Origin: * (documented as "backwards compatible"
+     but ships unconfigured).
+  b) api.js deliberately sends the body as text/plain (no explicit
+     Content-Type) to AVOID the CORS preflight. Because these are then
+     "simple requests", the browser does not block them on the allow-list,
+     so cross-site pages can still POST to the API from a victim browser.
+  Auth tokens travel in the request BODY (not cookies), so this is NOT a
+  classic CSRF hole - an attacker page cannot read the response nor knows
+  the victim's token. But the allow-list gives less protection than it
+  appears to.
+Fix:
+  - Set ALLOWED_ORIGINS in production (do not rely on the * fallback).
+  - Consider requiring a custom header (forces preflight) for state-changing
+    actions.
+
+[S5] MEDIUM - No general server-side rate limiting
+--------------------------------------------------------------------
+Where: both Workers.
+Problem:
+  Good targeted limits exist: login lockout (5 tries / 15 min), OTP
+  request cap (5/hour) and OTP verify cap (5). But there is NO global
+  per-IP / per-token rate limit on the other authenticated or public
+  actions (portalData, getConsentByToken, logError, announcement queue,
+  the WhatsApp queue apiKey endpoints). A bot can hammer these.
+Fix:
+  Add Cloudflare rate-limiting rules or a KV/Durable-Object token bucket
+  keyed on CF-Connecting-IP, especially for public/unauthenticated actions.
+
+[S6] MEDIUM - Publicly readable Drive uploads
+--------------------------------------------------------------------
+Where: mgmt/backend/src/account.js uploadFileToDrive()
+Problem:
+  Every uploaded file (consent PHOTOS, SIGNATURES, popup images) is given
+  permission {role:'reader', type:'anyone'}. Consent photos + signatures
+  are sensitive personal data; anyone with the (unguessable) Drive file ID
+  can view them, and IDs can leak via logs/referrers.
+Fix:
+  Serve sensitive media through an authenticated Worker proxy or signed,
+  expiring URLs instead of world-readable Drive links; keep only
+  non-sensitive images public.
+
+[S7] LOW - Client-supplied IP / device info stored as fact
+--------------------------------------------------------------------
+Where: mgmt/frontend/src/device.js getClientIp() (via api.ipify.org),
+       stored by respondConsent() / buildLogContext().
+Problem:
+  clientIp, deviceId and deviceInfo are entirely client-controlled and
+  written verbatim into consent records (ip_address) and the error log.
+  A user can spoof these, so they are NOT trustworthy for legal/forensic
+  use even though consent records are legal artifacts.
+Fix:
+  Record the server-observed request.headers.get('CF-Connecting-IP') as
+  the authoritative IP; keep the client value only as a labelled hint.
+
+[S8] LOW - dangerouslySetInnerHTML without sanitization
+--------------------------------------------------------------------
+Where: mgmt/frontend ReceiptModal.jsx, ConsentPage.jsx, and the
+       Certificate/Receipt/Samaan/Consent Templates preview views.
+Problem:
+  Template HTML is injected via dangerouslySetInnerHTML. The content is
+  Superadmin-authored template text (trusted), so risk is low, BUT
+  dompurify IS already a dependency and is not used here. If a lower role
+  ever gains template edit, this becomes stored XSS.
+Fix:
+  Pipe these through DOMPurify.sanitize() (dep already installed).
+Note (positive): the PUBLIC portal (Public/frontend/script.js) already
+  escapes popup text/URLs and restricts link schemes to http/https - the
+  earlier XSS (PM-10) there is fixed.
+
+
+====================================================================
+2. FUNCTIONAL BUGS (current / residual)
+====================================================================
+
+[B1] MEDIUM - saveLoanTransaction reports success on partial failure
+--------------------------------------------------------------------
+Where: mgmt/backend/src/loans.js saveLoanTransaction()
+Behaviour:
+  The loan + guarantor rows are committed first; if consent-record /
+  WhatsApp creation then fails it returns {success:true, consentWarning}.
+  This is intentional (loan must not roll back) and surfaces a warning,
+  but callers that only check success===true will treat a loan with NO
+  consent invitations as fully done. Ensure the UI always shows
+  consentWarning prominently.
+
+[B2] LOW - "logError" is intentionally unauthenticated (abuse surface)
+--------------------------------------------------------------------
+Where: index.js logError handler (both workers).
+Behaviour:
+  Deliberate (consent/announce pages are no-login). Mitigated by dedup +
+  hourly WhatsApp cap. Residual risk: an attacker can still write junk
+  rows into error_log (storage growth / log noise) at whatever rate S5
+  allows. Tie to the S5 rate-limit fix.
+
+[B3] LOW - TEXT boolean columns hold mixed 'True'/'1' values
+--------------------------------------------------------------------
+Where: popups.active, templates.active, whatsapp_groups.active etc.
+Behaviour:
+  Migration wrote 'True'; portal writes '1'/'0'. Code compensates with a
+  permissive isTruthyFlag() everywhere (fixed), but any NEW raw SQL that
+  does `WHERE active = 1` will silently miss 'True' rows (this exact bug
+  bit the Public popups query before). Prefer normalizing the column to
+  a real 0/1 INTEGER via migration to remove the foot-gun permanently.
+
+[B4] INFO - Non-atomic multi-DB writes (no cross-D1 transaction)
+--------------------------------------------------------------------
+Where: loans.js (loans in one D1, consents/guarantors, file_index purge
+       spanning multiple D1 databases).
+Behaviour:
+  D1 has no cross-database transaction. A failure between writes to
+  different databases can leave partially-consistent state. Code tries
+  to compensate with warnings/logging. Acceptable for this scale but
+  document it and add a periodic consistency check.
+
+[B5] INFO - ID generation uses Date.now()+Math.random() in places
+--------------------------------------------------------------------
+Where: consentId/loanId/template IDs (whatsapp.js switched to
+       crypto.randomUUID after a real collision; loans still uses the
+       36-base timestamp+random for LN/CN ids).
+Behaviour:
+  Low collision odds and there is no UNIQUE constraint on some of these.
+  Prefer crypto.randomUUID() consistently and add UNIQUE constraints.
+
+
+====================================================================
+3. PRODUCTION-READINESS ISSUES
+====================================================================
+
+[P1] Secrets/config hygiene - see S1, S2. Purge committed cache, keep
+     wrangler.toml private, confirm all secrets are set via
+     `wrangler secret put` (PASSWORD_SALT, WHATSAPP_QUEUE_API_KEY,
+     DRIVE_OAUTH_CLIENT_ID/SECRET/REFRESH_TOKEN, DRIVE_FOLDER_ID,
+     DRIVE_ROOT_FOLDER_ID).
+
+[P2] CONSENT_BASE_URL still ships a placeholder domain in wrangler.toml.
+     Code now refuses to send consent links while it is a placeholder
+     (good), but deployment WILL break loan-consent sending until the
+     real domain is set. Make this a pre-deploy checklist item.
+
+[P3] ALLOWED_ORIGINS unset by default -> wildcard CORS in production
+     (see S4). Must be configured before go-live.
+
+[P4] No rate limiting / WAF rules configured (see S5). Add Cloudflare
+     rate-limit + bot-fight rules for the Worker routes.
+
+[P5] Dependency risk (see S3): a CRITICAL, no-fix xmldom transitive dep
+     ships to production via the image module. Plan a replacement.
+
+[P6] Logging/observability: strong now (both workers log to error_log,
+     dedup + context). Add alerting on error_log growth and on
+     getStuckMessages (dead WhatsApp sender / rotated key) so silent
+     backlogs are noticed.
+
+[P7] Data retention / PII: consent photos, signatures, geolocation and
+     IPs are stored indefinitely and (S6) world-readable on Drive. Define
+     a retention policy and lock down media access before scaling.
+
+[P8] Backups: mgmt/db has schema + migration SQL but no automated D1
+     backup/export job documented. Add scheduled `wrangler d1 export`.
+
+
+====================================================================
+4. SIMULATED HACKING TESTS (attack cases + result)
+====================================================================
+The following attack scenarios were reasoned through against the actual
+code paths (no live target was hit - this is a static/logical red-team).
+
+T1  SQL injection via `sheet`/table name
+    Attempt: action=saveRecord with sheet="users;DROP TABLE..."
+    Result : BLOCKED. resolveSheet() looks the name up in a fixed
+             TABLE_REGISTRY; unknown -> throws. Table/column identifiers
+             never come from raw user input; all VALUES use bound params.
+
+T2  SQL injection via payload column names
+    Attempt: payload key like `name = 1; --`
+    Result : BLOCKED. toColumnPayload() maps keys through COLUMN_ALIASES
+             or requires SNAKE_SAFE regex ^[a-z][a-z0-9_]*$; anything else
+             throws. No injection into SET/INSERT column lists.
+
+T3  Auth bypass / privilege escalation
+    Attempt: call Superadmin actions with a Subadmin token; call with no
+             token; forged token.
+    Result : BLOCKED. withAuth() verifies token in KV + expiry;
+             requireSuperadmin/requireAdminOrAbove/requireRole enforce
+             role. whatsappDiagnostic (once missing a check) now enforces
+             Superadmin.
+
+T4  Public docx/template theft & fake "verified record" injection
+    Attempt: call convertDocxToPdfPublic / getDocxTemplatePublic with a
+             chosen docType/year/recordId.
+    Result : BLOCKED (now). Everything is derived from a server-verified
+             consent token; the old unauthenticated path is closed.
+
+T5  Password brute force / user enumeration
+    Attempt: many login attempts; time responses to detect valid users.
+    Result : MITIGATED. 5-attempt/15-min lockout; unknown user still runs
+             a full PBKDF2 against a dummy hash (constant-time-ish);
+             PBKDF2 210k iters + per-user salt; timing-safe hash compare.
+
+T6  OTP guessing on consent flow
+    Attempt: brute the 6-digit OTP; reuse an old OTP; request floods.
+    Result : MITIGATED. 10-min TTL, 5 verify attempts, 5 requests/hour,
+             constant-time compare, OTP burned after use.
+
+T7  Queue API key recovery via timing
+    Attempt: probe WHATSAPP_QUEUE_API_KEY char-by-char.
+    Result : MITIGATED. withApiKey() uses a constant-time hex compare.
+
+T8  Stored XSS via popup / template content on public site
+    Attempt: inject <script>/javascript: into popup text/link.
+    Result : BLOCKED on public portal (escapeHtml/escapeAttr/safeUrl).
+             Residual: mgmt preview uses raw dangerouslySetInnerHTML but
+             content is Superadmin-authored (see S8).
+
+T9  CSRF against state-changing actions
+    Attempt: auto-submit cross-site POST from a victim's browser.
+    Result : LOW RISK. Token is in body not cookies, so a cross-site page
+             cannot supply a valid token nor read the reply. But see S4
+             (text/plain avoids preflight; set ALLOWED_ORIGINS).
+
+T10 Secret scanning of the repo
+    Attempt: grep for keys/tokens/private keys.
+    Result : No live API keys / private keys found in source. BUT the
+             Cloudflare account id + owner email are committed (S1) and
+             infra IDs are exposed (S2).
+
+T11 Dependency / supply-chain
+    Result : 1 CRITICAL (xmldom, no fix) + 2 MODERATE (react-router)
+             (see S3).
+
+T12 IP / device spoofing of consent evidence
+    Attempt: submit forged clientIp/deviceId with a consent response.
+    Result : SUCCEEDS - values are stored verbatim (see S7). Consent
+             "evidence" IP is not trustworthy; use CF-Connecting-IP.
+
+
+====================================================================
+5. PRIORITISED ACTION LIST
+====================================================================
+DO NOW (urgent):
+  1. S1  Remove wrangler-account.json from git + purge history.
+  2. S3  `npm audit fix` for react-router; plan xmldom replacement.
+  3. P2  Set real CONSENT_BASE_URL before deploy.
+  4. S4/P3  Set ALLOWED_ORIGINS in production.
+
+SOON (this cycle):
+  5. S5/P4  Add Cloudflare rate-limiting on public + queue endpoints.
+  6. S6/P7  Stop making consent photos/signatures world-readable; add a
+            retention policy.
+  7. S2  Move infra IDs out of the public repo.
+
+HARDENING (backlog):
+  8. S7  Record server-side CF-Connecting-IP for consent/log evidence.
+  9. S8  Run mgmt template HTML through DOMPurify.
+ 10. B3/B5  Normalize boolean columns; use UUIDs + UNIQUE constraints.
+ 11. P8  Automate D1 backups.
+
+====================================================================
+POSITIVE NOTES
+====================================================================
+  - Parameterized SQL everywhere; identifiers gated by allow-lists.
+  - PBKDF2 (210k) + per-user salt, legacy-hash auto-upgrade, timing-safe
+    compares, login lockout, user-enumeration hardening.
+  - OTP TTL + attempt caps + request caps + burn-after-use.
+  - Public portal is read-only, data-minimized (drops email/whatsapp/
+    internal drive paths), output-escaped, and fails closed.
+  - Consent/docx public endpoints are now token-verified server-side.
+  - Robust error logging + dedup on both Workers.
+====================================================================
+                          END OF REPORT
+====================================================================
+
+
+
+====================================================================
+  ADDENDUM - FIXES APPLIED IN BRANCH fix/security-audit-hardening
+====================================================================
+Date: 2026-09-01
+
+FIXED IN CODE (this branch):
+  S1  Removed both .wrangler/cache/wrangler-account.json files from git
+      tracking (git rm --cached). NOTE: they remain in git HISTORY; run a
+      history purge (BFG / git filter-repo) separately to fully erase.
+  S5  Added a per-IP fixed-window rate limiter (KV-backed, 40 req / 60s)
+      on all UNAUTHENTICATED / public actions in mgmt/backend/src/index.js
+      (RATE_LIMITED_ACTIONS + isRateLimited). Fails OPEN if KV is down.
+  S6  mgmt/backend/src/account.js uploadFileToDrive() now takes an
+      { makePublic } option (default true). loans.js consent photo/
+      signature uploads pass makePublic:false so they are NO LONGER
+      world-readable on Drive. (Prefer R2 in production.)
+  S7  mgmt/backend/src/index.js now records the server-observed
+      CF-Connecting-IP as the authoritative req.clientIp (used by consent
+      records + error log) and keeps the client's self-reported value only
+      as a labelled hint (clientIpReported).
+  S3  mgmt/frontend: react-router-dom pinned to 6.30.6 (backport patch,
+      non-breaking) and an npm "overrides" entry redirects the deprecated,
+      unfixable "xmldom" to its maintained successor "@xmldom/xmldom@^0.9.12".
+      This CLEARS the CRITICAL xmldom advisory. `npm run build` verified OK.
+
+CORRECTION TO ORIGINAL REPORT:
+  S8  NOT actually a vulnerability. On re-check, all six mgmt template/
+      preview components already wrap their HTML in DOMPurify.sanitize(
+      marked.parse(...)) before dangerouslySetInnerHTML. No change needed.
+
+STILL REQUIRES ACTION (cannot be fixed purely in code / needs your decision):
+  S2  Infra IDs in wrangler.toml - keep the file private / template via CI.
+  S3  Remaining npm audit items (react-router "moderate", esbuild
+      "moderate") only clear with BREAKING major upgrades (react-router 7,
+      vite 8). esbuild issue is DEV-SERVER-ONLY (not in the production
+      build). Deferred to avoid breaking the app; upgrade when you can test.
+  S4  Set ALLOWED_ORIGINS in production (see deploy instructions) so the
+      API stops falling back to Access-Control-Allow-Origin: *.
+  S1  Purge the two cache files from git history (BFG / git filter-repo).
+====================================================================
