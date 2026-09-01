@@ -20,7 +20,10 @@ body { background-color: var(--bg-offwhite); color: var(--text-main); padding-bo
 .active-view { display: block; }
 @keyframes fade { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-.glass-card { background: var(--card-white); border-radius: 12px; padding: 20px; box-shadow: var(--shadow); margin-bottom: 15px; border: 1px solid #eee; }
+/* overflow-wrap:anywhere — a long unbreakable token (a name, a detail, a
+   document label, a URL) can no longer stretch the card past the viewport and
+   cause the whole page to scroll sideways. Mirrors mgmt/frontend/styles.css. */
+.glass-card { background: var(--card-white); border-radius: 12px; padding: 20px; box-shadow: var(--shadow); margin-bottom: 15px; border: 1px solid #eee; overflow-wrap: anywhere; }
 .budget-card { background: linear-gradient(135deg, #1F2937 0%, #111827 100%); color: white; }
 
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
@@ -29,8 +32,13 @@ body { background-color: var(--bg-offwhite); color: var(--text-main); padding-bo
 
 .search-bar { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 15px; font-size: 1rem; outline: none;}
 .search-bar:focus { border-color: var(--primary-saffron); }
-.data-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px dashed #eee; align-items: center;}
+.data-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px dashed #eee; align-items: center; gap: 10px;}
 .data-row:last-child { border-bottom: none; }
+/* A flex item defaults to min-width:auto and refuses to shrink below its
+   content width, so a long name/detail/label pushed the row (and card) wider
+   instead of wrapping. min-width:0 lets the left cell shrink and wrap. */
+.data-row > * { min-width: 0; }
+.data-row > *:first-child { overflow-wrap: anywhere; }
 
 .bottom-nav { position: fixed; bottom: 0; width: 100%; height: 65px; background: white; display: flex; justify-content: space-around; align-items: center; box-shadow: 0 -2px 10px rgba(0,0,0,0.05); z-index: 100; }
 .nav-btn { display: flex; flex-direction: column; align-items: center; background: none; border: none; color: var(--text-muted); font-size: 0.75rem; font-weight: 600; width: 20%; cursor: pointer;}
@@ -70,10 +78,11 @@ body { background-color: var(--bg-offwhite); color: var(--text-main); padding-bo
   line-height: 1; cursor: pointer; z-index: 2;
 }
 .popup-slide-img { width: 100%; display: block; border-radius: 14px 14px 0 0; }
-.popup-slide-text { padding: 16px; font-size: 0.9rem; color: var(--text-main, #333); }
+.popup-slide-text { padding: 16px; font-size: 0.9rem; color: var(--text-main, #333); overflow-wrap: anywhere; }
 .popup-slide-link {
   display: inline-block; margin: 0 16px 16px; padding: 8px 16px; border-radius: 8px;
   background: var(--primary-saffron); color: #fff; text-decoration: none; font-weight: 600; font-size: 0.85rem;
+  overflow-wrap: anywhere; max-width: calc(100% - 32px);
 }
 .popup-slide-nav {
   display: flex; align-items: center; justify-content: center; gap: 14px; padding: 0 0 12px;

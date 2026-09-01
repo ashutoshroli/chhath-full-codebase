@@ -459,7 +459,7 @@ function MessageLog() {
               <span className={`badge ${badgeClass(m.status)}`}>{m.status}</span>
             </div>
           </div>
-          <p style={{ margin: '0 0 6px', fontSize: '0.9rem' }}>{m.message}</p>
+          <p style={{ margin: '0 0 6px', fontSize: '0.9rem', overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }}>{m.message}</p>
           {m.from && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>From: {m.from}</div>}
           {m.file_link && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>📎 <a href={m.file_link} target="_blank" rel="noreferrer">Attached file</a></div>}
           {m.remarks && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Remarks: {m.remarks}</div>}

@@ -471,9 +471,9 @@ const app = {
             : '<span class="badge badge-ok">Valid Guarantor</span>';
 
          gHtml += `<div class="glass-card" style="padding:15px; margin-bottom:10px;">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-              <strong>${escapeHtml(uGuarantor.Name)}</strong>
-              ${statusBadge}
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+              <strong style="min-width:0; overflow-wrap:anywhere;">${escapeHtml(uGuarantor.Name)}</strong>
+              <span style="flex-shrink:0;">${statusBadge}</span>
             </div>
            
             <div style="font-size:0.75rem; color:gray; margin-top:5px;">
@@ -523,9 +523,9 @@ const app = {
              ${escapeHtml(initial)}
           </div>
           <div style="flex-grow:1;">
-             <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                <strong style="font-size:1.05rem;">${escapeHtml(nameStr || '-')}</strong>
-                <span class="badge" style="background:#f3f4f6; color:#374151;">${escapeHtml(r.Year)}</span>
+             <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+                <strong style="font-size:1.05rem; min-width:0; overflow-wrap:anywhere;">${escapeHtml(nameStr || '-')}</strong>
+                <span class="badge" style="background:#f3f4f6; color:#374151; flex-shrink:0;">${escapeHtml(r.Year)}</span>
              </div>
              <div style="font-size:0.85rem; color:var(--primary-saffron); font-weight:600; margin-bottom:4px;">
                 ${escapeHtml(r.Role || u.Designation || 'Member')}
@@ -694,12 +694,12 @@ const app = {
       </div>`;
 
     wrap.innerHTML = `
-      <div class="glass-card" style="display:flex; justify-content:space-between; align-items:center;">
-        <div>
+      <div class="glass-card" style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+        <div style="min-width:0; overflow-wrap:anywhere;">
           <strong style="display:block; font-size:1.05rem;">${escapeHtml(u.Name)}</strong>
           <span style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(u.Village || '-')}</span>
         </div>
-        <button style="background:#e5e7eb; color:#111; border:none; padding:8px 14px; border-radius:8px; font-weight:600; font-size:0.85rem; cursor:pointer;" onclick="app.backToDownloadList()">← Back</button>
+        <button style="background:#e5e7eb; color:#111; border:none; padding:8px 14px; border-radius:8px; font-weight:600; font-size:0.85rem; cursor:pointer; flex-shrink:0;" onclick="app.backToDownloadList()">← Back</button>
       </div>
       ${section('Collections (Receipt / Certificate / Samaan)', collections)}
       ${section('Loan Consent — As Loaner', loanerItems)}
