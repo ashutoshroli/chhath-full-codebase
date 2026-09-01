@@ -11,6 +11,7 @@ import * as announce from './announcements.js';
 import * as loans from './loans.js';
 import * as tpl from './templates.js';
 import * as docx from './docxTemplates.js';
+import * as storage from './storage.js';
 import { bumpDataVersion } from './dataVersion.js';
 
 // Actions that only READ — after any OTHER successful action we bump the public
@@ -33,6 +34,7 @@ const READ_ONLY_ACTIONS = new Set([
   'getSamaanTemplates', 'getSamaanTemplate', 'getSamaanData',
   'getDocxTemplates', 'getDocxTemplate', 'getDocxTemplateForDoc', 'getDocxTemplatePublic',
   'getRecordsForDocType', 'getGeneratedFilesForYear', 'searchUsersByVillageAndName', 'getPersonDownloads',
+  'getStorageOverview',
   'getPopups', 'getPopupWithSlides', 'getActivePopups', 'previewPublicPopups',
   'logError', 'reportErrorToWhatsApp', 'getErrorLog',
   'getLoanTemplates',
@@ -296,6 +298,10 @@ export default {
       getGeneratedFilesForYear: () => withAuth(env, req, (user) => docx.getGeneratedFilesForYear(env, req.year, user, req.docType)),
       searchUsersByVillageAndName: () => withAuth(env, req, (user) => docx.searchUsersByVillageAndName(env, req.village, req.query, user)),
       getPersonDownloads: () => withAuth(env, req, (user) => docx.getPersonDownloads(env, req.userId, user)),
+
+      // ---- Storage Management (Superadmin): R2 <-> Drive ----
+      getStorageOverview: () => withAuth(env, req, (user) => storage.getStorageOverview(env, user)),
+      moveYearToDrive: () => withAuth(env, req, (user) => storage.moveYearToDrive(env, req.year, user)),
 
       // ---- Popup Management ----
       getPopups: () => withAuth(env, req, (user) => popups.getPopups(env, user)),

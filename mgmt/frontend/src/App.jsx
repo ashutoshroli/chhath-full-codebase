@@ -10,6 +10,7 @@ import Users from './views/Users.jsx';
 import Committee from './views/Committee.jsx';
 import LoginManagement from './views/LoginManagement.jsx';
 import LockYears from './views/LockYears.jsx';
+import StorageManagement from './views/StorageManagement.jsx';
 import WhatsApp from './views/WhatsApp.jsx';
 import ListManagement from './views/ListManagement.jsx';
 import ConsentTemplates from './views/ConsentTemplates.jsx';
@@ -55,6 +56,7 @@ const DOCX_TEMPLATES_TAB = { id: 'docxtemplates', label: 'Document Templates', i
 const BULK_GENERATE_TAB = { id: 'bulkgenerate', label: 'Generate PDFs', icon: 'auto_awesome_mosaic' };
 const POPUP_MGMT_TAB = { id: 'popupmgmt', label: 'Popup Management', icon: 'campaign' };
 const DOWNLOAD_CENTER_TAB = { id: 'downloadcenter', label: 'Download Center', icon: 'download' };
+const STORAGE_TAB = { id: 'storage', label: 'Storage Management', icon: 'cloud' };
 const ANNOUNCEMENT_TAB = { id: 'announcementportal', label: 'Announcement Portal', icon: 'campaign' };
 // Superadmin: everything below, tucked behind a single "More" button instead of
 // crowding the nav bar (there'd be 14 tabs otherwise). Grouped into categories
@@ -63,7 +65,7 @@ const SUPERADMIN_TAB_GROUPS = [
   { title: '📄 Documents & Templates', tabs: [RECEIPT_TEMPLATES_TAB, CERTIFICATE_TEMPLATES_TAB, SAMAAN_TEMPLATES_TAB, DOCX_TEMPLATES_TAB, BULK_GENERATE_TAB, DOWNLOAD_CENTER_TAB, PDF_TAB] },
   { title: '🤝 Loan Consent', tabs: [CONSENT_TEMPLATES_TAB, CONSENT_REVIEW_TAB] },
   { title: '💬 Communication', tabs: [WHATSAPP_TAB, POPUP_MGMT_TAB, ANNOUNCEMENT_TAB] },
-  { title: '⚙️ Data & Settings', tabs: [LOCK_TAB, LIST_TAB, ERROR_LOG_TAB, LOGIN_MGMT_TAB] },
+  { title: '⚙️ Data & Settings', tabs: [LOCK_TAB, LIST_TAB, STORAGE_TAB, ERROR_LOG_TAB, LOGIN_MGMT_TAB] },
 ];
 // Admin: a smaller subset — no data-editing/config tools (Templates, Lock Data,
 // WhatsApp, List Management, Error Log), and Download Center is view/download
@@ -216,6 +218,7 @@ export default function App() {
         {tab === 'users' && <Users users={usersView.data} loading={usersView.loading} error={usersView.error} onRefresh={usersView.refresh} role={user.role} />}
         {tab === 'committee' && <Committee year={year} users={usersView.data} role={user.role} editable={editable} />}
         {tab === 'lock' && canAccessTab('lock') && <LockYears years={years} lockedYears={lockedYearsSet} onChange={lockedYearsView.refresh} onYearAdded={refreshYears} />}
+        {tab === 'storage' && canAccessTab('storage') && <StorageManagement />}
         {tab === 'whatsapp' && canAccessTab('whatsapp') && <WhatsApp />}
         {tab === 'lists' && canAccessTab('lists') && <ListManagement />}
         {tab === 'consenttemplates' && canAccessTab('consenttemplates') && <ConsentTemplates />}

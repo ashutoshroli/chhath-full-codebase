@@ -17,6 +17,14 @@ CONSENT_BASE_URL = "https://mgmt-chhath.shaharpura.com"
 # denied. Leave unset (or "*") to keep the previous wildcard behaviour.
 # ALLOWED_ORIGINS = "https://YOUR-FRONTEND-DOMAIN.example.com"
 
+# ---- R2 object storage (new uploads: consent photos/signatures, generated PDFs,
+# popup images) ----
+# Public base URL of the R2 bucket's custom domain. Set this to the domain you
+# connect to the bucket (see README / PR steps). Until this is set AND the
+# [[r2_buckets]] binding below exists, the code falls back to Google Drive, so
+# nothing breaks. Files are served as `${R2_PUBLIC_BASE}/<key>`.
+R2_PUBLIC_BASE = "https://files-chhath.shaharpura.com"
+
 # ---- Secrets (set with `wrangler secret put NAME`, NOT here) ----
 # PASSWORD_SALT
 # WHATSAPP_QUEUE_API_KEY
@@ -35,6 +43,15 @@ CONSENT_BASE_URL = "https://mgmt-chhath.shaharpura.com"
 [[kv_namespaces]]
 binding = "KV_SESSIONS"
 id = "fc720867ed48459bb723279a56767711"
+
+# R2 bucket for uploaded files. Create the bucket first (see PR/setup steps):
+#   wrangler r2 bucket create chhath-files
+# then keep this binding. `binding = "R2_FILES"` is the name the code uses
+# (env.R2_FILES). If the bucket doesn't exist yet, remove/comment this block so
+# the Worker still deploys and falls back to Drive.
+[[r2_buckets]]
+binding = "R2_FILES"
+bucket_name = "chhath-files"
 
 [[d1_databases]]
 binding = "DB_CORE"
