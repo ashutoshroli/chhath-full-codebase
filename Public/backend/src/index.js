@@ -174,6 +174,46 @@ async function logPublicError(env, source, page, message, stack, context) {
   }
 }
 
+// ---- Data-version driven caching (ETag) ----
+//
+// The mgmt Worker bumps a single counter (portal_settings.public_data_version in
+// DB_CORE) after every write. We turn that counter into a weak ETag so the
+// browser/CDN can revalidate cheaply: if the client sends back the same ETag via
+// If-None-Match, nothing has changed since they last fetched, and we answer
+// `304 Not Modified` with NO body and NO table scans. Only when the version
+// actually moved do we build and send the full payload again.
+//
+// `Cache-Control: no-cache` here does NOT mean "don't cache" — it means "you may
+// cache, but you MUST revalidate with the server before reusing". Combined with
+// the ETag that revalidation is a single tiny conditional request. This is
+// exactly the "serve from cache until the data changes" behaviour we want.
+const DATA_VERSION_KEY = 'public_data_version';
+
+async function getDataVersion(env) {
+  try {
+    if (!env || !env.DB_CORE) return '0';
+    const row = await env.DB_CORE.prepare('SELECT value FROM portal_settings WHERE "key" = ?')
+      .bind(DATA_VERSION_KEY).first();
+    return (row && row.value != null ? row.value.toString() : '0') || '0';
+  } catch (e) {
+    return '0';
+  }
+}
+
+// A weak ETag scoped per action (portalData vs activePopups) so the two payloads
+// never collide on the same version string.
+function etagFor(action, version) {
+  return `W/"${action}-v${version}"`;
+}
+
+// True when the client already holds this exact version (If-None-Match matches).
+function clientHasCurrent(request, etag) {
+  const inm = request.headers.get('If-None-Match');
+  if (!inm) return false;
+  // A client/CDN may send a comma-separated list; match any token.
+  return inm.split(',').some(t => t.trim() === etag);
+}
+
 // CORS: if ALLOWED_ORIGINS (comma-separated exact origins) is configured, echo
 // back the caller's Origin only when it's on the list; otherwise fall back to
 // '*' so an un-configured deployment behaves exactly as before. This is a
@@ -218,20 +258,39 @@ export default {
     // Worker down with a 1101 and nothing recorded anywhere.
     try {
       if (action === 'portalData') {
+        // Read the version FIRST (one tiny row). If the client already has this
+        // version, short-circuit with 304 — no 8-table scan, no payload.
+        const version = await getDataVersion(env);
+        const etag = etagFor('portalData', version);
+        if (clientHasCurrent(request, etag)) {
+          return new Response(null, {
+            status: 304,
+            headers: { ...cors, ETag: etag, 'Cache-Control': 'no-cache' },
+          });
+        }
         const data = await getAllPortalData(env);
         return new Response(JSON.stringify(data), {
           headers: {
             ...cors,
-            // The payload had NO cache headers, so every visitor re-downloaded the
-            // entire dataset on every page load.
-            'Cache-Control': 'public, max-age=60, stale-while-revalidate=300',
+            ETag: etag,
+            // "Cache it, but revalidate every time" — revalidation is a single
+            // conditional request that returns 304 until mgmt data changes.
+            'Cache-Control': 'no-cache',
           },
         });
       }
       if (action === 'activePopups') {
+        const version = await getDataVersion(env);
+        const etag = etagFor('activePopups', version);
+        if (clientHasCurrent(request, etag)) {
+          return new Response(null, {
+            status: 304,
+            headers: { ...cors, ETag: etag, 'Cache-Control': 'no-cache' },
+          });
+        }
         const data = await getActivePublicPopups(env);
         return new Response(JSON.stringify(data), {
-          headers: { ...cors, 'Cache-Control': 'public, max-age=60' },
+          headers: { ...cors, ETag: etag, 'Cache-Control': 'no-cache' },
         });
       }
       return new Response(JSON.stringify({ status: false, message: 'Invalid Request' }), { headers: cors });

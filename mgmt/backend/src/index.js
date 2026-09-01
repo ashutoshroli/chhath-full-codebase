@@ -11,6 +11,37 @@ import * as announce from './announcements.js';
 import * as loans from './loans.js';
 import * as tpl from './templates.js';
 import * as docx from './docxTemplates.js';
+import { bumpDataVersion } from './dataVersion.js';
+
+// Actions that only READ — after any OTHER successful action we bump the public
+// data-version counter so the Public portal's ETag changes and cached copies are
+// revalidated. Keeping the READ list (rather than a WRITE list) is the safe
+// default: a new action that isn't listed here is treated as a write and simply
+// causes one extra (harmless) public revalidation. Anything that can change data
+// the public portal renders MUST NOT be added here.
+const READ_ONLY_ACTIONS = new Set([
+  'logout',
+  'getYears', 'getUsers', 'getCommittee', 'getHome', 'getExpenses', 'getLoans',
+  'getUserHistory', 'getUserProfile', 'getYearContributors', 'getLockedYears',
+  'getLoginUsers',
+  'getPersonTemplates', 'getGroupTemplates', 'getWhatsappGroups', 'getMessageLog',
+  'getDropdownList', 'getAllDropdownLists',
+  'getConsentByToken', 'getLoanConsents', 'getConsentsForReview',
+  'getFestivalDates', 'getPortalSetting', 'getConsentPageTemplate',
+  'getReceiptTemplates', 'getReceiptTemplate', 'getReceiptData',
+  'getCertificateTemplates', 'getCertificateTemplate', 'getCertificateData',
+  'getSamaanTemplates', 'getSamaanTemplate', 'getSamaanData',
+  'getDocxTemplates', 'getDocxTemplate', 'getDocxTemplateForDoc', 'getDocxTemplatePublic',
+  'getRecordsForDocType', 'getGeneratedFilesForYear', 'searchUsersByVillageAndName', 'getPersonDownloads',
+  'getPopups', 'getPopupWithSlides', 'getActivePopups', 'previewPublicPopups',
+  'logError', 'reportErrorToWhatsApp', 'getErrorLog',
+  'getLoanTemplates',
+  'getPendingMessages', 'getStuckMessages',
+  'whatsappDiagnostic',
+  'getAnnouncementLinks', 'getCustomAnnouncements', 'getAnnouncementQueue',
+  // OTP request/verify only touch consent-flow state, not public-portal data.
+  'requestConsentOtp', 'verifyConsentOtp', 'verifyAnnouncementPin',
+]);
 
 // CORS origin handling.
 //
@@ -409,6 +440,14 @@ export default {
 
     try {
       const result = await handlers[action]();
+      // Bump the public data-version after any successful write so the Public
+      // portal's ETag changes and browsers/CDN revalidate. Reads are skipped.
+      // A handler that returned an explicit failure ({success:false}) made no
+      // change, so skip those too. Runs in the background — never delays or
+      // fails the response.
+      if (!READ_ONLY_ACTIONS.has(action) && !(result && result.success === false)) {
+        ctx.waitUntil(bumpDataVersion(env));
+      }
       return jsonOut(result, request, env);
     } catch (err) {
       const status = err.authError ? 'authError' : (err.announceSessionExpired ? 'announceSessionExpired' : 'error');
