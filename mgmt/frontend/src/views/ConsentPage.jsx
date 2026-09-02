@@ -144,6 +144,14 @@ export default function ConsentPage() {
   const [error, setError] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [otp, setOtp] = useState('');
+  // Verified DURING THIS page session (as opposed to data.otpVerified, which is the
+  // stale DB flag from the initial load). The Accept/Decline step only unlocks once
+  // the OTP has been verified in this session, so a re-opened link — where the DB
+  // still shows otp_verified=1 from a previous visit but the server will actually
+  // reject the submit (a new OTP request resets it to 0, and the audit-1.4 verify
+  // window may have elapsed) — always asks for a fresh OTP instead of skipping
+  // straight to submit and then failing with "verify with the WhatsApp OTP first."
+  const [verifiedThisSession, setVerifiedThisSession] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [finalStatus, setFinalStatus] = useState(null);
@@ -175,6 +183,13 @@ export default function ConsentPage() {
     try {
       await api.requestConsentOtp(token);
       setOtpSent(true);
+      // BUGFIX: requestConsentOtp resets otp_verified=0 on the server (a fresh OTP
+      // must be re-verified). A newly requested OTP is NOT yet verified in this
+      // session, so ensure the OTP input is shown (never skipped) and clear any
+      // stale code left in the box. The Accept/Decline step is gated on
+      // `verifiedThisSession`, which stays false until this new OTP is verified.
+      setOtp('');
+      setVerifiedThisSession(false);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -188,6 +203,7 @@ export default function ConsentPage() {
     setError('');
     try {
       await api.verifyConsentOtp(token, otp.trim());
+      setVerifiedThisSession(true);
       load();
     } catch (err) {
       setError(err.message);
@@ -303,7 +319,7 @@ export default function ConsentPage() {
               <button className="btn-submit" onClick={sendOtp} disabled={busy || !agreed}>
                 {busy ? 'Sending...' : 'Send OTP via WhatsApp'}
               </button>
-            ) : !data.otpVerified ? (
+            ) : !verifiedThisSession ? (
               <>
                 <div className="form-group">
                   <label>Enter OTP (sent via WhatsApp)</label>
