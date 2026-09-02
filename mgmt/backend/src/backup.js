@@ -65,22 +65,48 @@ function assertSafeTable(table) {
   return table;
 }
 
+// Quote a validated (SAFE_IDENT) identifier for use in SQL. Several real columns
+// are SQLite RESERVED WORDS — `order` (custom_announcements), `key`
+// (portal_settings), `from` (group_messages / person_messages). They pass
+// SAFE_IDENT (all lowercase letters) but, emitted UNQUOTED into an INSERT column
+// list, raise a syntax error for EVERY row — which (because the table is DELETEd
+// first) wiped those four tables' entire contents on restore while the report
+// only showed a harmless "rows skipped". Double-quoting makes any identifier,
+// reserved or not, safe. Only ever called on identifiers already validated by
+// SAFE_IDENT, so there is nothing to escape beyond the quote char itself.
+function quoteIdent(ident) {
+  return `"${String(ident).replace(/"/g, '""')}"`;
+}
+
 function dbHandle(env, binding) {
   const db = env[binding];
   if (!db) throw new Error(`D1 binding ${binding} not configured on server`);
   return db;
 }
 
-// Reads every row of one table. Returns [] if the table happens not to exist on
-// this deployment (older schema) rather than failing the whole backup.
+// Reads every row of one table.
+//
+// DATA-SAFETY (was a silent data-loss path): this used to `return []` on ANY
+// error. A transient read error (timeout, momentary lock, etc.) therefore made a
+// table that actually HAD rows come out EMPTY in the backup — and because restore
+// wipes each table before inserting, restoring that backup later DELETEd the live
+// rows and inserted nothing. Worse, exportBackup is also used to build the
+// pre-restore safety snapshot, so a read hiccup could poison the rollback too.
+//
+// Now: a genuinely ABSENT table (older schema — "no such table") is still treated
+// as `[]` (nothing to back up). ANY OTHER error is re-thrown so the whole backup
+// fails loudly instead of quietly producing an incomplete/poisoned file.
 async function dumpTable(db, table) {
   assertSafeTable(table);
   try {
-    const { results } = await db.prepare(`SELECT * FROM ${table}`).all();
+    const { results } = await db.prepare(`SELECT * FROM ${quoteIdent(table)}`).all();
     return results || [];
   } catch (e) {
-    // Missing table / other read error — record it as empty but don't abort.
-    return [];
+    const msg = (e && e.message ? e.message : String(e)).toLowerCase();
+    if (msg.includes('no such table') || msg.includes('no such column')) {
+      return []; // table genuinely not on this deployment — safe to treat as empty
+    }
+    throw new Error(`Backup aborted: could not read table "${table}" (${e && e.message || e}). No partial/empty backup was produced.`);
   }
 }
 
@@ -152,10 +178,16 @@ export async function restoreBackup(env, user, backup, confirm) {
     throw new Error('Restore stopped: could not create a safety snapshot of the current data (' + e.message + '). Your data is safe, nothing was changed.');
   }
 
-  // partialTables = restored fine but a few individual rows were skipped (e.g.
-  //   duplicate rows inside the backup itself). NOT a hard failure.
-  // errors = the whole table could not be restored (missing table, etc.).
-  const report = { restoredTables: {}, partialTables: {}, skippedTables: {}, errors: [] };
+  // restoredTables = table restored (value = rows inserted).
+  // partialTables   = restored, but SOME individual rows were skipped (e.g. a
+  //                   duplicate inside the backup). Reported, not fatal.
+  // emptyTables     = the backup had 0 rows for this table, so the live table was
+  //                   left UNTOUCHED on purpose (see restoreOneTable / BUG 3).
+  //                   Surfaced so the operator can tell a real-empty table apart
+  //                   from an export glitch — no longer a silent wipe.
+  // errors          = whole-table failure (missing table, or ALL rows failed so we
+  //                   refused to wipe the live table). These flip success=false.
+  const report = { restoredTables: {}, partialTables: {}, emptyTables: {}, skippedTables: {}, errors: [] };
 
   for (const [binding, tables] of Object.entries(backup.data)) {
     if (!BACKUP_MAP[binding]) { report.skippedTables[binding] = 'unknown db binding'; continue; }
@@ -170,6 +202,17 @@ export async function restoreBackup(env, user, backup, confirm) {
       const rowArr = Array.isArray(rows) ? rows : [];
       try {
         const res = await restoreOneTable(db, table, rowArr);
+        if (res.skippedEmpty) {
+          // Backup carried no rows for this table — live data was left as-is.
+          report.emptyTables[`${binding}.${table}`] = 'backup had 0 rows — live table left unchanged';
+          continue;
+        }
+        if (res.allRowsFailed) {
+          // Every row failed to insert; we refused to wipe the live table. This is
+          // a real failure, NOT a silent success.
+          report.errors.push(`${binding}.${table}: all ${res.skipped} row(s) failed to restore, live table left unchanged (${res.examples.join('; ')})`);
+          continue;
+        }
         report.restoredTables[`${binding}.${table}`] = res.inserted;
         if (res.skipped > 0) {
           report.partialTables[`${binding}.${table}`] = `${res.skipped} row(s) skipped: ${res.examples.join('; ')}`;
@@ -182,15 +225,15 @@ export async function restoreBackup(env, user, backup, confirm) {
   }
 
   const partialCount = Object.keys(report.partialTables).length;
+  const emptyCount = Object.keys(report.emptyTables).length;
   const errCount = report.errors.length;
-  let message;
-  if (errCount === 0 && partialCount === 0) {
-    message = `Restore complete — ${Object.keys(report.restoredTables).length} table(s) restored.`;
-  } else if (errCount === 0) {
-    message = `Restore complete. Some duplicate/invalid rows were skipped in ${partialCount} table(s) (everything else was restored) — see the report.`;
-  } else {
-    message = `Restore completed, but ${errCount} table(s) could not be restored — see the report.`;
-  }
+  const parts = [`${Object.keys(report.restoredTables).length} table(s) restored`];
+  if (partialCount) parts.push(`${partialCount} with some rows skipped`);
+  if (emptyCount) parts.push(`${emptyCount} left unchanged (backup had no rows)`);
+  if (errCount) parts.push(`${errCount} FAILED`);
+  const message = (errCount === 0)
+    ? `Restore complete — ${parts.join(', ')}.`
+    : `Restore finished with problems — ${parts.join(', ')}. See the report.`;
 
   return {
     // Partial-row skips do NOT count as failure — only whole-table errors do.
@@ -203,22 +246,47 @@ export async function restoreBackup(env, user, backup, confirm) {
   };
 }
 
-// DELETE-all + batched INSERT for one table. Column list is derived from the
-// union of keys across the backup rows (so a NULL-in-some-rows column is still
-// written). Values are always bound (never interpolated).
-// Returns { inserted, skipped, examples } — throws ONLY on a whole-table failure
-// (e.g. the table doesn't exist on this deployment). Individual bad/duplicate
-// rows are skipped and reported, not fatal.
+// Restores one table's rows.
+//
+// This was rewritten to close three data-loss bugs (all confirmed against the
+// live schema + this code):
+//
+//   BUG 1 (reserved-word columns): the generated INSERT put column names in
+//   UNQUOTED, so `order` / `key` / `from` (real columns on custom_announcements,
+//   portal_settings, group_messages, person_messages) produced a SQL syntax error
+//   on EVERY row — and since the table was DELETEd first, those four tables lost
+//   ALL their data while the report showed only "rows skipped". FIX: every table
+//   and column identifier is now double-quoted via quoteIdent().
+//
+//   BUG 3 (wipe-then-check ordering): the "no rows" guard ran AFTER `DELETE FROM`,
+//   so an empty rows array wiped the live table. Combined with dumpTable's old
+//   silent `[]` on a read error, a single export hiccup could erase a table on the
+//   next restore. FIX: the live table is NOT touched until the new rows have been
+//   successfully staged (see below), and an EMPTY backup for a table no longer
+//   auto-wipes — it is reported as skippedEmpty so the operator notices instead of
+//   silently losing data.
+//
+//   NON-DESTRUCTIVE SWAP: we insert every backup row into a TEMP staging table
+//   first. Only if staging succeeds do we, in a single atomic db.batch, DELETE the
+//   real table and copy the staged rows in. So if the inserts were going to fail,
+//   the live data is left intact rather than wiped-then-empty.
+//
+// Returns { inserted, skipped, examples, skippedEmpty }.
+//   - skippedEmpty=true means the backup had 0 rows for this table; the live table
+//     was left UNTOUCHED on purpose (see BUG 3). The caller decides how to report.
+//   - throws only on a genuine whole-table failure (e.g. the table doesn't exist).
 async function restoreOneTable(db, table, rows) {
   assertSafeTable(table);
+  const qTable = quoteIdent(table);
 
-  // Wipe the table first. If the table doesn't exist on this deployment, treat
-  // that as fatal for THIS table only (reported by the caller).
-  await db.prepare(`DELETE FROM ${table}`).run();
+  // An empty backup array for a table is treated as "nothing to restore" and the
+  // live table is deliberately NOT wiped (guards against an export read-glitch
+  // that turned a populated table into []). A legitimately empty table simply
+  // stays empty if it already was; if it had data, the operator is told.
+  if (!rows.length) return { inserted: 0, skipped: 0, examples: [], skippedEmpty: true };
 
-  if (!rows.length) return { inserted: 0, skipped: 0, examples: [] };
-
-  // Union of columns across all rows, in first-seen order.
+  // Union of columns across all rows, in first-seen order. All are validated by
+  // SAFE_IDENT (defends the identifier) and then quoted (handles reserved words).
   const colSet = [];
   const seen = new Set();
   for (const row of rows) {
@@ -226,48 +294,72 @@ async function restoreOneTable(db, table, rows) {
       if (!seen.has(k) && SAFE_IDENT.test(k)) { seen.add(k); colSet.push(k); }
     }
   }
-  if (!colSet.length) return { inserted: 0, skipped: 0, examples: [] };
+  if (!colSet.length) return { inserted: 0, skipped: 0, examples: [], skippedEmpty: true };
 
+  const qCols = colSet.map(quoteIdent).join(', ');
   const placeholders = colSet.map(() => '?').join(', ');
-  // INSERT OR REPLACE (not plain INSERT): the backup preserves each row's own
-  // `id`, and three tables carry UNIQUE indexes (generated_files,
-  // docx_templates, group_messages/person_messages message_id). If a backup
-  // happens to contain two rows that collide on a PRIMARY KEY or UNIQUE index —
-  // which is exactly what made a whole table's restore fail before — REPLACE lets
-  // the later row win instead of aborting the entire table. For a clean backup
-  // (no dupes) this behaves identically to INSERT.
-  const sql = `INSERT OR REPLACE INTO ${table} (${colSet.join(', ')}) VALUES (${placeholders})`;
+
+  // Unique per-restore staging table name (validated identifier). Temp tables are
+  // per-connection; on D1 we create/drop an ordinary table with a random suffix to
+  // avoid any collision, then always drop it in finally.
+  // Must start with a lowercase letter to satisfy SAFE_IDENT (no leading '_').
+  const stg = `zzrestorestg_${table}_${Math.random().toString(36).slice(2, 8)}`;
+  assertSafeTable(stg);
+  const qStg = quoteIdent(stg);
 
   const bindRow = (row) => colSet.map(c => (row[c] === undefined ? null : row[c]));
 
-  // D1 batches are limited; chunk to stay well within statement limits. A D1
-  // batch is atomic, so if ONE row in a chunk still fails (e.g. a value that
-  // violates a CHECK/type the schema enforces), the whole chunk would roll back.
-  // To avoid losing the other 49 good rows, we retry a failed chunk row-by-row
-  // and only skip the genuinely bad ones — reported back to the caller.
-  const CHUNK = 50;
   let inserted = 0;
   let skipped = 0;
   const examples = [];
-  for (let i = 0; i < rows.length; i += CHUNK) {
-    const slice = rows.slice(i, i + CHUNK);
-    try {
-      const stmts = slice.map(row => db.prepare(sql).bind(...bindRow(row)));
-      await db.batch(stmts);
-      inserted += slice.length;
-    } catch (batchErr) {
-      // Fall back to per-row inserts so one bad row can't drop the whole chunk.
-      for (const row of slice) {
-        try {
-          await db.prepare(sql).bind(...bindRow(row)).run();
-          inserted++;
-        } catch (rowErr) {
-          skipped++;
-          if (examples.length < 5) examples.push(rowErr.message);
+
+  try {
+    // 1) Build the staging table with the SAME shape as the real table, but only
+    //    the columns present in the backup (CREATE ... AS SELECT ... WHERE 0 keeps
+    //    column affinities without copying rows). If the real table is missing,
+    //    this throws -> caller records a whole-table error, live data untouched.
+    await db.prepare(`CREATE TABLE ${qStg} AS SELECT ${qCols} FROM ${qTable} WHERE 0`).run();
+
+    // 2) Insert the backup rows into STAGING (never the live table yet). Staging
+    //    has no constraints, so every row lands here; duplicates in the backup are
+    //    collapsed later by the OR REPLACE copy-in (step 3) against the REAL
+    //    table's keys. Individually bad rows (e.g. a wrong type) are skipped and
+    //    reported rather than aborting the whole table.
+    const stgSql = `INSERT INTO ${qStg} (${qCols}) VALUES (${placeholders})`;
+    const CHUNK = 50;
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const slice = rows.slice(i, i + CHUNK);
+      try {
+        await db.batch(slice.map(row => db.prepare(stgSql).bind(...bindRow(row))));
+        inserted += slice.length;
+      } catch (batchErr) {
+        // Fall back to per-row so one bad row doesn't drop the whole chunk.
+        for (const row of slice) {
+          try { await db.prepare(stgSql).bind(...bindRow(row)).run(); inserted++; }
+          catch (rowErr) { skipped++; if (examples.length < 5) examples.push(rowErr.message); }
         }
       }
     }
-  }
 
-  return { inserted, skipped, examples };
+    // 3) Atomic swap: only NOW do we touch the live table. DELETE + copy-in run in
+    //    a single db.batch so the live rows are replaced in one shot. If every row
+    //    was skipped (inserted === 0) we do NOT wipe the live table — that would be
+    //    the exact "lost everything" outcome we are preventing; report it instead.
+    if (inserted === 0) {
+      return { inserted: 0, skipped, examples, skippedEmpty: false, allRowsFailed: true };
+    }
+    // INSERT OR REPLACE (not plain INSERT) on the final copy-in: the staging table
+    // has no constraints (CREATE ... AS SELECT copies affinity only), so any
+    // duplicate rows in the backup survive staging. REPLACE collapses them against
+    // the REAL table's PRIMARY KEY / UNIQUE indexes instead of failing the swap.
+    await db.batch([
+      db.prepare(`DELETE FROM ${qTable}`),
+      db.prepare(`INSERT OR REPLACE INTO ${qTable} (${qCols}) SELECT ${qCols} FROM ${qStg}`),
+    ]);
+
+    return { inserted, skipped, examples, skippedEmpty: false };
+  } finally {
+    // Always clean up the staging table, success or failure.
+    try { await db.prepare(`DROP TABLE IF EXISTS ${qStg}`).run(); } catch (e) { /* best effort */ }
+  }
 }

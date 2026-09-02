@@ -238,6 +238,12 @@ export default function Backup() {
                 <ul>{Object.entries(restoreReport.partialTables).map(([t, msg]) => <li key={t}><code>{t}</code>: {msg}</li>)}</ul>
               </div>
             )}
+            {restoreReport.emptyTables && Object.keys(restoreReport.emptyTables).length > 0 && (
+              <div style={{ color: '#6b7280', marginTop: 6 }}>
+                Left unchanged (the backup contained no rows for these tables, so the current data was kept — nothing was deleted):
+                <ul>{Object.entries(restoreReport.emptyTables).map(([t, msg]) => <li key={t}><code>{t}</code>: {msg}</li>)}</ul>
+              </div>
+            )}
             {restoreReport.errors && restoreReport.errors.length > 0 && (
               <div style={{ color: 'var(--danger, #dc2626)', marginTop: 6 }}>
                 Errors (these tables could not be restored):
