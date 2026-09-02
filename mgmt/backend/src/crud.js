@@ -34,6 +34,45 @@ export async function getSheetDataAsJSON(env, sheetName) {
   return results.map(r => fromColumnRow(table, r));
 }
 
+// SCALABILITY (Phase 1): year-scoped variant of getSheetDataAsJSON. Instead of a
+// full-table scan followed by a JS `filterByYear`, this pushes `WHERE year = ?`
+// into D1 so the existing per-table year indexes (idx_<table>_year) are used.
+// Returns the IDENTICAL header-keyed shape (same fromColumnRow mapping, same
+// `ORDER BY id ASC`), so callers get byte-for-byte the same rows they got from
+// `filterByYear(getSheetDataAsJSON(...), year)` — only cheaper.
+//
+// For year === 'All' / empty there is nothing to scope, so it falls back to the
+// full read (that view genuinely needs every row). Only tables that actually have
+// a `year` column are eligible; anything else falls back to the full read too, so
+// this can never produce a "no such column: year" error.
+export async function getSheetDataByYear(env, sheetName, year) {
+  const { db, table } = resolveSheet(sheetName);
+  if (!year || year === 'All' || !TABLES_WITH_YEAR.has(table)) {
+    return getSheetDataAsJSON(env, sheetName);
+  }
+  const y = parseInt(year);
+  if (!y) return getSheetDataAsJSON(env, sheetName);
+  const d1 = dbFor(env, db);
+  const { results } = await d1.prepare(`SELECT * FROM ${table} WHERE year = ? ORDER BY id ASC`).bind(y).all();
+  return results.map(r => fromColumnRow(table, r));
+}
+
+// SCALABILITY (Phase 1): fetch rows of a table where an INDEXED text column equals
+// a value (e.g. collections by contributor `name`, loans by `name`,
+// loan_guarantors by `guarantor`). Same shape as getSheetDataAsJSON. `column` is a
+// real D1 column name and MUST be validated by the caller against a fixed
+// whitelist — never pass user input directly. Guarded by SNAKE_SAFE as defence in
+// depth so it can never become an injection point.
+export async function getSheetDataByColumn(env, sheetName, column, value) {
+  const { db, table } = resolveSheet(sheetName);
+  if (!/^[a-z][a-z0-9_]*$/.test(column)) {
+    throw Object.assign(new Error(`Unsafe column for scoped read: ${column}`), { authError: false });
+  }
+  const d1 = dbFor(env, db);
+  const { results } = await d1.prepare(`SELECT * FROM ${table} WHERE ${column} = ? ORDER BY id ASC`).bind(value).all();
+  return results.map(r => fromColumnRow(table, r));
+}
+
 export function filterByYear(rows, year) {
   if (!year || year === 'All') return rows;
   return rows.filter(r => parseInt(r.Year) === parseInt(year));
