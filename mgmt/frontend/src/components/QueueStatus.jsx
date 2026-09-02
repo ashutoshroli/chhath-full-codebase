@@ -11,10 +11,26 @@ export default function QueueStatus({ refreshKey }) {
   const [recent, setRecent] = useState([]);
   const timer = useRef(null);
 
+  const kickedRef = useRef(false);
+
   const load = async () => {
     try {
       const res = await api.getCollectionQueueStatus();
-      if (res && res.counts) { setCounts(res.counts); setRecent(res.recent || []); }
+      if (res && res.counts) {
+        setCounts(res.counts);
+        setRecent(res.recent || []);
+        // If jobs are sitting pending (e.g. the unreliable cron hasn't run),
+        // nudge the on-demand processor once — so the queue drains even when no
+        // new save happens. Guarded so we don't hammer it every poll.
+        const waiting = (res.counts.pending || 0) + (res.counts.processing || 0);
+        if (waiting > 0 && !kickedRef.current) {
+          kickedRef.current = true;
+          api.processCollectionQueue().catch(() => {}).finally(() => {
+            // Allow another nudge on a later poll if jobs are still waiting.
+            setTimeout(() => { kickedRef.current = false; }, 15000);
+          });
+        }
+      }
     } catch (e) { /* silent — queue status is non-critical */ }
   };
 

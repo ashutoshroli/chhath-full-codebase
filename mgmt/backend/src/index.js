@@ -381,6 +381,13 @@ export default {
       // a read-only status panel available to any staff role.
       enqueueCollectionJob: () => withAuth(env, req, (user) => cq.enqueueCollectionJob(env, req.job, user)),
       getCollectionQueueStatus: () => withAuth(env, req, (user) => cq.getCollectionQueueStatus(env, user)),
+      // On-demand queue drain. Cloudflare Cron Triggers on the free plan fire
+      // unreliably (and never in local/preview), so the frontend calls this
+      // fire-and-forget right after a save — the PDF + WhatsApp then process
+      // within seconds instead of waiting for (or depending on) the cron. The
+      // cron in wrangler.toml stays as a backup. Safe to call concurrently: jobs
+      // are claimed with an optimistic UPDATE so two runs never double-process.
+      processCollectionQueue: () => withAuth(env, req, (user) => cq.processCollectionQueueOnDemand(env, user)),
 
       // ---- Popup Management ----
       getPopups: () => withAuth(env, req, (user) => popups.getPopups(env, user)),
