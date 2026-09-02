@@ -164,6 +164,11 @@ export default function Home({ year, users, onUserCreated, role, editable }) {
           filledBase64: filled.filledBase64,
           fileName: filled.fileName,
         });
+        // Kick the queue to drain NOW (fire-and-forget) — the free-plan Cron
+        // Trigger fires unreliably, so we don't wait for it. This returns
+        // immediately; the PDF + WhatsApp finish in the background within
+        // seconds. The cron stays as a backup for anything this misses.
+        api.processCollectionQueue().catch(() => { /* backup cron will pick it up */ });
         warnings.push('PDF aur WhatsApp background mein queue ho gaye — thodi der mein complete honge.');
       } catch (err) {
         // FALLBACK: queue unreachable — do it inline the old way so nothing is lost.

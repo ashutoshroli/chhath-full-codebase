@@ -396,6 +396,9 @@ export const api = {
   // powers a small status panel visible to any staff role.
   enqueueCollectionJob: (job) => call('enqueueCollectionJob', { job }),
   getCollectionQueueStatus: () => call('getCollectionQueueStatus'),
+  // Drains the queue on demand (called fire-and-forget after a save so we don't
+  // wait for the unreliable free-plan cron).
+  processCollectionQueue: () => call('processCollectionQueue'),
 
   // Popup Management (Superadmin) + login-time fetch
   getPopups: () => call('getPopups'),

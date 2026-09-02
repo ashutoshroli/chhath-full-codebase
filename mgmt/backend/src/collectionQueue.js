@@ -100,6 +100,17 @@ export async function getCollectionQueueStatus(env, user) {
   return { success: true, counts, recent: recent || [] };
 }
 
+// ---- ON-DEMAND PROCESSOR (called by the frontend right after a save) ----
+//
+// Cloudflare Cron Triggers on the free plan fire unreliably, so we don't wait
+// for them: the UI calls this fire-and-forget after enqueuing, and it drains the
+// queue within seconds. Staff-gated (any logged-in staff role). Reuses the exact
+// same claim-and-process path as the cron, so concurrent runs are safe.
+export async function processCollectionQueueOnDemand(env, user) {
+  requireStaffRole(user);
+  return processPendingJobs(env);
+}
+
 // ---- CRON PROCESSOR (called from scheduled()) ----
 //
 // Claims up to CLAIM_BATCH pending (or stuck 'processing') jobs and processes
