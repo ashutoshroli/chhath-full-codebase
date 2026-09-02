@@ -1,6 +1,7 @@
 import { resolveSheet, toColumnPayload, fromColumnRow } from './tableRegistry.js';
 import { requireRole, requireYearUnlocked, requireYearAccess } from './auth.js';
 import { logErrorAt } from './logger.js';
+import { isTruthyFlag } from './flags.js';
 
 const DB_BINDINGS = {
   core: 'DB_CORE',
@@ -18,6 +19,11 @@ export function dbFor(env, dbName) {
   if (!binding || !env[binding]) throw new Error(`No D1 binding for db "${dbName}" (expected env.${binding})`);
   return env[binding];
 }
+
+// D1 tables (resolved names) that carry a `year` column and are therefore
+// subject to the year-lock / year-access checks. USERS and LOGIN have no year
+// column, so a `SELECT year` there would D1-error — they're deliberately absent.
+const TABLES_WITH_YEAR = new Set(['collections', 'expenses', 'committee_members', 'loans', 'loan_guarantors']);
 
 // Equivalent of getSheetDataAsJSON(sheetName) — returns rows in the original
 // header-keyed shape the frontend already expects, `__rowIndex` included.
@@ -42,16 +48,8 @@ const REQUIRED_FIELDS = {
   LOANS: ['Name', 'Amount'],
 };
 
-// Was case-sensitive (`v === 'true' || v === 'TRUE' || v === '1'`), so the
-// 'True' form that the sheet migration actually wrote was read as FALSE.
-// FIXES_20260831.md claimed this file already held an "already-correct version" —
-// it did not.
-function isTruthyFlag(v) {
-  if (v === true || v === 1) return true;
-  if (v === false || v === 0 || v === null || v === undefined) return false;
-  const s = v.toString().trim().toLowerCase();
-  return s === 'true' || s === '1' || s === 'yes';
-}
+// isTruthyFlag now comes from the shared flags.js util (audit 6.1) — see the
+// import at the top of this file.
 
 function validatePayload(sheetName, payload) {
   const normalized = sheetName.toString().trim().toUpperCase();
@@ -116,13 +114,45 @@ export async function saveRecord(env, sheetName, payload, user) {
 }
 
 export async function updateRecordByIdx(env, sheetName, rowIndex, payload, user) {
-  requireRole(user, 'edit');
-  if (payload.Year) await requireYearUnlocked(env, payload.Year);
-  if (payload.Year) await requireYearAccess(env, user, payload.Year);
-  validatePayload(sheetName, payload);
+  requireRole(user, 'edit', sheetName);
 
   const { db, table } = resolveSheet(sheetName);
   const d1 = dbFor(env, db);
+
+  // SECURITY (audit 2.1 — IDOR / year-lock bypass on edit): the lock + access
+  // checks used to run ONLY against payload.Year, which is CLIENT-supplied. A
+  // caller could send a payload.Year that is unlocked / they have access to,
+  // while `rowIndex` actually points at a row in a LOCKED year (or a year they
+  // must not touch), and the UPDATE went through. deleteRecordByIdx was already
+  // hardened this way; the edit path must match it — enforce against the row's
+  // STORED year first, then also against payload.Year so a record can't be moved
+  // into a locked/forbidden year.
+  //
+  // Only tables that actually carry a `year` column participate in the lookup
+  // (USERS / LOGIN have none — SELECTing `year` there would D1-error and wrongly
+  // block every edit). For those year-less tables there is nothing to lock.
+  if (TABLES_WITH_YEAR.has(table)) {
+    let stored;
+    try {
+      stored = await d1.prepare(`SELECT year FROM ${table} WHERE id = ?`).bind(rowIndex).first();
+    } catch (err) {
+      await logErrorAt(env, 'backend-crud', 'updateRecordByIdx:yearLookup', err, { sheetName, table, rowIndex });
+      throw new Error('Could not verify the record\'s year before updating — the update was stopped for safety. Please try again.');
+    }
+    if (!stored) throw new Error('Record not found (or it has already been deleted).');
+
+    if (stored.year) {
+      await requireYearUnlocked(env, stored.year);
+      await requireYearAccess(env, user, stored.year);
+    }
+    if (payload.Year && parseInt(payload.Year) !== parseInt(stored.year)) {
+      await requireYearUnlocked(env, payload.Year);
+      await requireYearAccess(env, user, payload.Year);
+    }
+  }
+
+  validatePayload(sheetName, payload);
+
   const cols = toColumnPayload(table, payload);
   const keys = Object.keys(cols);
   const setClause = keys.map(k => `${k} = ?`).join(', ');

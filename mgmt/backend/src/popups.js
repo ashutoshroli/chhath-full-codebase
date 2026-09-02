@@ -3,17 +3,11 @@ import { uploadFileToDrive, getDriveAccessToken } from './account.js';
 import { base64ToBytes, sniffImageMime } from './base64.js';
 import { r2Available, putToR2, keyForPopup, isR2Url, keyFromR2Url, deleteFromR2 } from './r2.js';
 import { logWarn, logErrorAt } from './logger.js';
+import { isTruthyFlag } from './flags.js';
 
-// `popups.active` and the flag columns elsewhere are TEXT (see db/schema/misc.sql),
-// so a bound number 1 is stored as the STRING '1' by SQLite's TEXT affinity, and
-// the sheet migration wrote 'True'. Any comparison therefore has to accept all of
-// those forms — this is the same class of bug as the WhatsApp `active` flag.
-function isTruthyFlag(v) {
-  if (v === true || v === 1) return true;
-  if (v === false || v === 0 || v === null || v === undefined) return false;
-  const s = v.toString().trim().toLowerCase();
-  return s === '1' || s === 'true' || s === 'yes';
-}
+// isTruthyFlag comes from the shared flags.js util (audit 6.1). `popups.active`
+// and the other flag columns are TEXT, so a bound 1 is stored as '1' and the
+// sheet migration wrote 'True' — the shared helper accepts every form.
 
 // Dates are stored as ISO-8601 with an explicit offset (the frontend now converts
 // the datetime-local wall time to a real instant before sending). Legacy rows from

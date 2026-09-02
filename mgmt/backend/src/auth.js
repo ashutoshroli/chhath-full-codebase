@@ -21,6 +21,7 @@ export function PermissionError(message) {
   const e = new Error(message);
   e.authError = false;
   e.expected = true;
+  e.permission = true; // lets the router map this to HTTP 403 (vs 400 for validation)
   return e;
 }
 
@@ -157,11 +158,21 @@ async function findLoginRowByIdentifier(env, identifier) {
   return row || null;
 }
 
-export async function login(env, name, password, rememberMe) {
+export async function login(env, name, password, rememberMe, clientIp) {
   if (!name || !password) return { success: false, message: 'Name and password required' };
   name = name.toString().trim();
 
-  const lockKey = 'loginfail:' + name;
+  // SECURITY (audit 1.1): the lockout counter used to key on the raw supplied
+  // identifier ALONE ('loginfail:' + name). That let an attacker lock any known
+  // user out for 15 min just by sending 5 bad attempts against their
+  // name/mobile/email (an account-lockout DoS). Keying on identifier + edge IP
+  // means an attacker's bad guesses only lock out THEIR OWN IP, never a
+  // legitimate user's login, while a real user hammering their own password from
+  // one device is still throttled. The per-IP request rate limit in index.js is
+  // the second layer against distributed guessing. (Falls back to the old
+  // identifier-only key if the edge IP is somehow unavailable.)
+  const ip = (clientIp || '').toString().trim();
+  const lockKey = ip ? `loginfail:${name}:${ip}` : `loginfail:${name}`;
   const fails = parseInt((await env.KV_SESSIONS.get(lockKey)) || '0');
   if (fails >= MAX_LOGIN_ATTEMPTS) {
     // `lockedOut` lets index.js log ONLY the lockout instead of every wrong

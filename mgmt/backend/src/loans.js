@@ -43,6 +43,11 @@ async function uploadConsentFile(env, base64, fileName, year) {
 const OTP_TTL_MS = 10 * 60 * 1000;
 const OTP_MAX_VERIFY_ATTEMPTS = 5;
 const OTP_MAX_REQUESTS_PER_HOUR = 5;
+// Audit 1.4: a consent is a legal document (geo + photo + signature). After the
+// OTP is verified, the actual Accept/Decline must happen within this window,
+// otherwise the person must re-verify with a fresh OTP. Without this, a
+// once-verified token could be used to respond arbitrarily long afterwards.
+const OTP_RESPOND_WINDOW_MS = 20 * 60 * 1000;
 
 // CONSENT_BASE_URL used to fall back to '' (`env.CONSENT_BASE_URL || ''`), so a
 // misconfigured Worker silently sent every consent invitation with a dead
@@ -379,11 +384,22 @@ export async function getConsentByToken(env, token) {
 const otpMetaKey = (consentId) => `consentotp:${consentId}`;
 
 async function readOtpMeta(env, consentId) {
-  if (!env.KV_SESSIONS) return null;
+  if (!env.KV_SESSIONS) {
+    // Audit 4.3: without KV the OTP attempt cap + expiry can't be enforced (this
+    // returning null resets the attempt counter). Surface it so a mis-wired
+    // deployment is visible rather than silently unthrottling the 6-digit OTP.
+    await logWarn(env, 'backend-loans', 'readOtpMeta',
+      'KV_SESSIONS binding missing — OTP attempt/expiry limits are DISABLED (failing open).', { consentId });
+    return null;
+  }
   try {
     const raw = await env.KV_SESSIONS.get(otpMetaKey(consentId));
     return raw ? JSON.parse(raw) : null;
-  } catch (e) { return null; }
+  } catch (e) {
+    await logWarn(env, 'backend-loans', 'readOtpMeta',
+      'OTP meta read failed (failing open — attempt/expiry cap not enforced this call): ' + (e && e.message), { consentId });
+    return null;
+  }
 }
 
 async function writeOtpMeta(env, consentId, meta) {
@@ -488,6 +504,17 @@ export async function respondConsent(env, token, decision, deviceId, deviceInfo,
   if (!rowObj) throw ValidationError('This link is not valid.');
   if (rowObj.status !== 'pending') throw ValidationError('Your response for this loan has already been recorded — it is locked.');
   if (!isTruthyFlag(rowObj.otp_verified)) throw ValidationError('Please verify with the WhatsApp OTP first.');
+
+  // Audit 1.4: enforce a verify->respond window. verifyConsentOtp stamps
+  // `verifiedAt` in KV; if the OTP was verified too long ago, require a fresh
+  // OTP before the (legally significant) Accept/Decline is accepted. If the KV
+  // meta is unavailable we do NOT block (fail open) — the otp_verified flag on
+  // the row still gates this, so a KV outage can't lock a genuine user out of
+  // responding; see readOtpMeta.
+  const respondMeta = await readOtpMeta(env, rowObj.consent_id);
+  if (respondMeta && respondMeta.verifiedAt && Date.now() - respondMeta.verifiedAt > OTP_RESPOND_WINDOW_MS) {
+    throw ValidationError('Your verification has expired. Please request and enter a new OTP, then submit your response.');
+  }
 
   let photoUrl = '', signatureUrl = '';
 

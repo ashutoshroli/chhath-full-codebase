@@ -1,8 +1,9 @@
 import { getSheetDataAsJSON } from './crud.js';
 import { requireSuperadmin } from './auth.js';
 import { queuePersonMessageDirect } from './whatsapp.js';
-import { logError, logErrorAt } from './logger.js';
+import { logError, logErrorAt, logWarn } from './logger.js';
 import { waNumberOf } from './phone.js';
+import { isTruthyFlag } from './flags.js';
 
 // The actual INSERT now lives in logger.js so that whatsapp.js / docxTemplates.js /
 // index.js can all use the SAME writer (they each had their own, and two of the
@@ -10,15 +11,7 @@ import { waNumberOf } from './phone.js';
 // Re-exported here so existing imports keep working.
 export { logError };
 
-// D1 flag columns have TEXT affinity, so a bound 1 comes back as the STRING '1'
-// and the sheet migration wrote 'True'/'False'. A strict === 1 check (which is
-// what this used to do) never matched anything.
-function isTruthyFlag(v) {
-  if (v === true || v === 1) return true;
-  if (v === false || v === 0 || v === null || v === undefined) return false;
-  const s = v.toString().trim().toLowerCase();
-  return s === '1' || s === 'true' || s === 'yes';
-}
+// isTruthyFlag comes from the shared flags.js util (audit 6.1) — see import above.
 
 // ---- Abuse guard for the two PUBLIC error endpoints ----
 // logError and reportErrorToWhatsApp must stay callable without a session (the
@@ -29,7 +22,12 @@ const REPORT_LIMIT_PER_HOUR = 10;
 const REPORT_LIMIT_KEY = 'errreport:count';
 
 async function withinReportRateLimit(env) {
-  if (!env.KV_SESSIONS) return true; // no KV -> don't hard-fail the feature
+  if (!env.KV_SESSIONS) {
+    // Audit 4.3: fail open (don't break error reporting) but make it visible.
+    await logWarn(env, 'backend-errorLog', 'withinReportRateLimit',
+      'KV_SESSIONS binding missing — error-report WhatsApp rate limit is DISABLED (failing open).', {});
+    return true;
+  }
   try {
     const hourBucket = Math.floor(Date.now() / 3600000);
     const key = `${REPORT_LIMIT_KEY}:${hourBucket}`;
@@ -38,6 +36,8 @@ async function withinReportRateLimit(env) {
     await env.KV_SESSIONS.put(key, String(used + 1), { expirationTtl: 7200 });
     return true;
   } catch (e) {
+    await logWarn(env, 'backend-errorLog', 'withinReportRateLimit',
+      'Error-report rate-limit check failed (failing open): ' + (e && e.message), {}).catch(() => {});
     return true;
   }
 }

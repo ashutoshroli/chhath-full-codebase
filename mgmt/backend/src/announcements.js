@@ -1,11 +1,13 @@
 import { getSheetDataAsJSON } from './crud.js';
 import { requireAdminOrAbove, ValidationError, hashPassword, verifyPassword } from './auth.js';
+// Audit 6.1: use the shared flag parser. This file's local copy did NOT trim or
+// accept 'yes'/0/false the way every other module did — exactly the divergence
+// that causes "Active but never shown" bugs.
+import { isTruthyFlag } from './flags.js';
 
 const ANNOUNCE_MAX_PIN_ATTEMPTS = 5;
 const ANNOUNCE_PIN_LOCKOUT_SECONDS = 900; // 15 min, mirrors login lockout
 const ANNOUNCE_SESSION_TTL_SECONDS = 21600; // 6 hours
-
-function isTruthyFlag(v) { return v === true || v === 1 || v === '1' || String(v).toLowerCase() === 'true'; }
 
 function generateAnnouncementToken() {
   return crypto.randomUUID().replace(/-/g, '') + Math.random().toString(36).slice(2, 8);

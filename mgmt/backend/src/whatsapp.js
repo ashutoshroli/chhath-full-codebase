@@ -398,15 +398,9 @@ export function templatesForContribution(allTemplates, contributionType, docSubT
   return pool;
 }
 
-export function isTruthyFlag(v) {
-  if (typeof v === 'boolean') return v;
-  if (typeof v === 'number') return v === 1;
-  if (typeof v === 'string') {
-    const normalized = v.toLowerCase().trim();
-    return normalized === 'true' || normalized === '1' || normalized === 'yes';
-  }
-  return false;
-}
+// Re-exported from the shared util (audit 6.1) so the many modules that import
+// `isTruthyFlag as waTruthyFlag` from whatsapp.js keep working unchanged.
+export { isTruthyFlag } from './flags.js';
 
 // Resolves the "from" (sender) WhatsApp number for a COLLECTION message: the
 // number of the STAFF member who saved the entry, so the recipient sees who it

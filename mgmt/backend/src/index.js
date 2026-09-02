@@ -15,6 +15,7 @@ import * as storage from './storage.js';
 import * as backup from './backup.js';
 import * as cq from './collectionQueue.js';
 import { bumpDataVersion } from './dataVersion.js';
+import { healthCheck } from './config.js';
 
 // Actions that only READ — after any OTHER successful action we bump the public
 // data-version counter so the Public portal's ETag changes and cached copies are
@@ -69,7 +70,14 @@ const RATE_LIMITED_ACTIONS = new Set([
 const RATE_LIMIT_WINDOW_SECONDS = 60;
 const RATE_LIMIT_MAX = 40;
 async function isRateLimited(env, ip, action) {
-  if (!env || !env.KV_SESSIONS) return false;
+  if (!env || !env.KV_SESSIONS) {
+    // Audit 4.3: make the fail-open condition VISIBLE. Without a KV binding the
+    // per-IP limits on all public actions silently disappear; log it (best
+    // effort) so an operator can notice a mis-wired deployment instead of
+    // discovering it only during an attack.
+    ctxWaitLog(env, 'backend', 'isRateLimited', 'KV_SESSIONS binding missing — public rate limiting is DISABLED (failing open).');
+    return false;
+  }
   const bucket = Math.floor(Date.now() / (RATE_LIMIT_WINDOW_SECONDS * 1000));
   const key = `rl:${action}:${ip}:${bucket}`;
   const current = parseInt((await env.KV_SESSIONS.get(key)) || '0', 10) || 0;
@@ -77,6 +85,11 @@ async function isRateLimited(env, ip, action) {
   // TTL slightly longer than the window so the key self-expires.
   await env.KV_SESSIONS.put(key, String(current + 1), { expirationTtl: RATE_LIMIT_WINDOW_SECONDS + 5 });
   return false;
+}
+
+// Small fire-and-forget logger for fail-open notices (no ctx here, so best-effort).
+function ctxWaitLog(env, source, page, message) {
+  try { logError(env, source, page, message, '', ''); } catch (e) { /* never throw from a limiter */ }
 }
 
 // CORS origin handling.
@@ -88,31 +101,67 @@ async function isRateLimited(env, ip, action) {
 // list of exact origins), we echo back the caller's Origin only when it's on the
 // list; otherwise we fall back to '*' so an un-configured deployment keeps
 // working exactly as before.
+// Returns the value to send in Access-Control-Allow-Origin, or null when no ACAO
+// header should be sent at all.
+//
+// SECURITY (audit 4.2 + 1.5):
+//   * This is the MGMT API — it mutates financial data. It must NOT fall open to
+//     '*' when ALLOWED_ORIGINS is unset (a fresh/misconfigured deploy would then
+//     be scriptable from any site on the internet). When nothing is configured we
+//     return null (no ACAO) so a browser blocks cross-origin reads by default.
+//     An explicit "*" in ALLOWED_ORIGINS is still honoured for operators who want
+//     it, but it is now a deliberate opt-in, never the default.
+//   * An UNKNOWN origin gets null (header omitted), not list[0]. Echoing a
+//     mismatched-but-valid origin was harmless (the browser still blocks) but
+//     misleading; omitting the header is the correct "deny".
 function allowedOrigin(request, env) {
   const configured = (env && env.ALLOWED_ORIGINS ? env.ALLOWED_ORIGINS.toString() : '').trim();
-  if (!configured) return '*';
+  if (!configured) return null; // fail CLOSED — no wildcard default for the mgmt API
   const list = configured.split(',').map(s => s.trim()).filter(Boolean);
-  if (list.includes('*')) return '*';
+  if (list.includes('*')) return '*'; // explicit, deliberate opt-in only
   const origin = (request.headers.get('Origin') || '').trim();
-  return origin && list.includes(origin) ? origin : list[0]; // deny unknown origins by pinning to the first allowed one
+  return origin && list.includes(origin) ? origin : null; // unknown origin -> no ACAO
 }
 
 function corsHeaders(request, env, extra) {
   const origin = allowedOrigin(request, env);
-  const headers = { 'Access-Control-Allow-Origin': origin, ...(extra || {}) };
-  // When we echo a specific origin (not '*'), caches must vary on Origin.
-  if (origin !== '*') headers['Vary'] = 'Origin';
+  const headers = { ...(extra || {}) };
+  if (origin) {
+    headers['Access-Control-Allow-Origin'] = origin;
+    // When we echo a specific origin (not '*'), caches must vary on Origin.
+    if (origin !== '*') headers['Vary'] = 'Origin';
+  }
   return headers;
 }
 
-function jsonOut(obj, request, env) {
+function jsonOut(obj, request, env, status) {
   return new Response(JSON.stringify(obj), {
+    status: status || 200,
     headers: corsHeaders(request, env, { 'Content-Type': 'application/json' }),
   });
 }
 
-function notImplemented(name, hint) {
-  return () => { throw new Error(`${name} is not yet ported to the Worker — see MIGRATION_NOTES.md ("Not yet ported") for status. ${hint || ''}`); };
+// Maps a thrown error to an HTTP status code (audit 3.1: the API used to answer
+// EVERYTHING — validation, auth, unknown action, internal exceptions — with 200,
+// so infra-level monitoring / retries / WAF rules could not tell success from
+// failure. The JSON body is unchanged so the frontend keeps working; only the
+// status line now reflects reality.)
+//   AuthError            -> 401 (session expired / not logged in)
+//   PermissionError      -> 403 (wrong role, bad API key)
+//   ValidationError      -> 400 (user-facing message: bad input, not found, ...)
+//   announceSessionExpired -> 401
+//   anything else        -> 500 (a real, unexpected server error)
+function httpStatusForError(err) {
+  if (!err) return 500;
+  if (err.authError || err.announceSessionExpired) return 401;
+  // PermissionError sets authError=false + expected=true.
+  if (err.expected && err.authError === false) {
+    // Distinguish a role/API-key denial (403) from a plain validation message
+    // (400). Both are ValidationError/PermissionError shaped; use the message as
+    // the only available signal, defaulting validation-style to 400.
+    return err.permission ? 403 : 400;
+  }
+  return 500;
 }
 
 // The error_log table has no columns for actor/device/IP, and api.js was already
@@ -169,6 +218,16 @@ export default {
       });
     }
     if (request.method === 'GET') {
+      // Readiness health check (audit 3.3 + 4.1): `?health=1` actually touches
+      // D1 + KV and reports any missing binding/secret/var by NAME (never a
+      // value), returning HTTP 503 when the deployment is degraded so uptime
+      // monitors see a real failure instead of a cheerful "ok" while databases
+      // are down. A plain GET stays a cheap liveness string.
+      const url = new URL(request.url);
+      if (url.searchParams.has('health')) {
+        const report = await healthCheck(env);
+        return jsonOut(report, request, env, report.status === 'ok' ? 200 : 503);
+      }
       return jsonOut({ status: 'ok', message: 'Chhath Puja Management API is live (Cloudflare Worker)' }, request, env);
     }
 
@@ -179,7 +238,7 @@ export default {
       // Was returned with nothing persisted, so a bot or a broken client hammering
       // the API was completely invisible.
       ctx.waitUntil(logError(env, 'backend', 'router', 'Invalid JSON body: ' + (e && e.message), '', ''));
-      return jsonOut({ success: false, message: 'Invalid JSON body' }, request, env);
+      return jsonOut({ success: false, message: 'Invalid JSON body' }, request, env, 400);
     }
     const action = req.action;
 
@@ -198,11 +257,15 @@ export default {
     // fixed-window counter — best-effort, fails OPEN if KV is unavailable so a KV
     // hiccup never takes the API down.
     if (edgeIp && RATE_LIMITED_ACTIONS.has(action)) {
-      const limited = await isRateLimited(env, edgeIp, action).catch(() => false);
+      const limited = await isRateLimited(env, edgeIp, action).catch((e) => {
+        // Audit 4.3: a KV error here means the limit fails open — record it.
+        ctx.waitUntil(logError(env, 'backend', 'isRateLimited', 'Rate-limit check failed (failing open): ' + (e && e.message), (e && e.stack) || '', ''));
+        return false;
+      });
       if (limited) {
         return jsonOut(
           { success: false, message: 'Too many requests. Please try again in a little while.' },
-          request, env
+          request, env, 429
         );
       }
     }
@@ -213,7 +276,10 @@ export default {
       // excluded 'login' from auto-logging — so there was zero brute-force
       // visibility. The identifier is recorded; the password never is.
       login: async () => {
-        const res = await login(env, req.name, req.password, req.rememberMe);
+        // Pass the server-observed edge IP so the lockout is keyed on
+        // identifier + IP (audit 1.1) — an attacker can no longer lock out a
+        // real user by guessing against their username.
+        const res = await login(env, req.name, req.password, req.rememberMe, req.serverIp);
         // Only the LOCKOUT is logged, not every wrong password. Logging each
         // failed attempt flooded the log while telling nobody anything; the
         // lockout is the actual security signal worth a Superadmin's attention.
@@ -284,10 +350,6 @@ export default {
       addDropdownListItem: () => withAuth(env, req, (user) => addDropdownListItem(env, req.type, req.englishValue, req.hindiLabel, user)),
       updateDropdownListItem: () => withAuth(env, req, (user) => updateDropdownListItem(env, req.rowIndex, req.englishValue, req.hindiLabel, req.active, user)),
       deleteDropdownListItem: () => withAuth(env, req, (user) => deleteDropdownListItem(env, req.rowIndex, user)),
-
-      // ---- Dropped: D1 schema has all bilingual columns from day one, nothing to backfill ----
-      ensureColumns: () => withAuth(env, req, (user) => { requireSuperadmin(user); return { success: true, report: { note: 'Not needed on D1 — schema already has every column.' } }; }),
-      bulkFillHindi: notImplemented('bulkFillHindi', 'One-time backfill utility — confirm with Vhhb whether any real backfill work remains before porting, or drop entirely.'),
 
       // ---- Loan Consent — PUBLIC + Admin (fully ported — see loans.js) ----
       getConsentByToken: () => loans.getConsentByToken(env, req.token),
@@ -532,7 +594,7 @@ export default {
       // Previously returned silently, so a mis-configured client or a bot probing
       // the API left no trace anywhere.
       ctx.waitUntil(logError(env, 'backend', 'router', `Unknown action: ${action}`, '', buildLogContext(req)));
-      return jsonOut({ success: false, message: 'Unknown action' }, request, env);
+      return jsonOut({ success: false, message: 'Unknown action' }, request, env, 404);
     }
 
     try {
@@ -545,7 +607,12 @@ export default {
       if (!READ_ONLY_ACTIONS.has(action) && !(result && result.success === false)) {
         ctx.waitUntil(bumpDataVersion(env));
       }
-      return jsonOut(result, request, env);
+      // A handler that returned an explicit {success:false} (e.g. a bad login,
+      // "no active group") is a business-level failure, not a server error —
+      // surface it as 400 so infra sees it as a client-correctable outcome, not
+      // a 200 "success". Everything else is a real 200.
+      const status = (result && result.success === false) ? 400 : 200;
+      return jsonOut(result, request, env, status);
     } catch (err) {
       const status = err.authError ? 'authError' : (err.announceSessionExpired ? 'announceSessionExpired' : 'error');
 
@@ -561,7 +628,10 @@ export default {
         );
       }
 
-      return jsonOut({ success: false, message: err.message || String(err), [status]: true }, request, env);
+      return jsonOut(
+        { success: false, message: err.message || String(err), [status]: true },
+        request, env, httpStatusForError(err)
+      );
     }
   },
 
