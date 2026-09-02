@@ -19,10 +19,6 @@ export default function ListManagement() {
   const [saving, setSaving] = useState(false);
   const [editingRow, setEditingRow] = useState(null); // rowIndex being edited
   const [editValue, setEditValue] = useState({ en: '', hi: '' });
-  const [setupRunning, setSetupRunning] = useState(false);
-  const [setupResult, setSetupResult] = useState(null);
-  const [bulkRunning, setBulkRunning] = useState(null); // sheetName currently running, or null
-  const [bulkResult, setBulkResult] = useState(null); // { sheetName, filled, skipped }
 
   const switchType = (t) => {
     setActiveType(t);
@@ -76,81 +72,15 @@ export default function ListManagement() {
     }
   };
 
-  const runColumnSetup = async () => {
-    setSetupRunning(true);
-    setSetupResult(null);
-    try {
-      const res = await api.ensureColumns();
-      setSetupResult(res.report);
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setSetupRunning(false);
-    }
-  };
-
-  const runBulkFill = async (sheetName) => {
-    setBulkRunning(sheetName);
-    setBulkResult(null);
-    try {
-      const res = await api.bulkFillHindi(sheetName);
-      setBulkResult({ sheetName, filled: res.filled, skipped: res.skipped });
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setBulkRunning(null);
-    }
-  };
+  // NOTE: the "Column Setup" and "Bulk-Fill Hindi" one-time migration tools were
+  // removed. On D1 the schema already has every bilingual column from day one, so
+  // the backend ensureColumns/bulkFillHindi handlers were dropped (they were a
+  // no-op stub and a throwing stub respectively). Their UI + handlers are gone too
+  // so nothing calls the now-removed api methods.
 
   return (
     <>
       <h2 style={{ marginBottom: 15 }}>List Management</h2>
-
-      <div className="glass-card" style={{ padding: 15, marginBottom: 15 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-          <div>
-            <strong>Column Setup</strong>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '2px 0 0' }}>
-              Adds new bilingual columns (Name Hindi, Description Hindi, etc.) to the sheet. Running it once is enough — running it again causes no harm.
-            </p>
-          </div>
-          <button className="btn-submit" style={{ width: 'auto' }} onClick={runColumnSetup} disabled={setupRunning}>
-            {setupRunning ? 'Running...' : 'Run Column Setup'}
-          </button>
-        </div>
-        {setupResult && (
-          <div style={{ marginTop: 10, fontSize: '0.8rem', background: '#f9fafb', padding: 10, borderRadius: 8 }}>
-            {Object.entries(setupResult).map(([sheet, msg]) => (
-              <div key={sheet}><strong>{sheet}:</strong> {msg}</div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="glass-card" style={{ padding: 15, marginBottom: 15 }}>
-        <strong>Bulk Fill Hindi (for existing records)</strong>
-        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '2px 0 10px' }}>
-          Run this after Column Setup — it auto-transliterates any empty Hindi field. Fields that already have Hindi text will not be touched.
-        </p>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {[['USERS', 'Users'], ['EXPENSES', 'Expenses'], ['COMMITEE MEMBERS', 'Committee']].map(([sheetName, label]) => (
-            <button
-              key={sheetName}
-              className="btn-submit"
-              style={{ width: 'auto' }}
-              onClick={() => runBulkFill(sheetName)}
-              disabled={bulkRunning !== null}
-            >
-              {bulkRunning === sheetName ? 'Running...' : `Fill Hindi — ${label}`}
-            </button>
-          ))}
-        </div>
-        {bulkResult && (
-          <div style={{ marginTop: 10, fontSize: '0.8rem', background: '#f9fafb', padding: 10, borderRadius: 8 }}>
-            <strong>{bulkResult.sheetName}:</strong> {bulkResult.filled} filled, {bulkResult.skipped} already had Hindi/blank English (skipped)
-          </div>
-        )}
-      </div>
 
       {yearsError && <div className="error-banner">Years failed to load: {yearsError}</div>}
       <FestivalDates years={years} />
