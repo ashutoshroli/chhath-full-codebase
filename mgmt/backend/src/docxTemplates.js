@@ -50,14 +50,14 @@ async function resolveConsentContext(env, token) {
   const row = await env.DB_LOANS_EXPENSES.prepare(
     'SELECT * FROM loan_consents WHERE token = ?'
   ).bind(token.toString().trim()).first();
-  if (!row) throw PermissionError('Ye consent link valid nahi hai ya expire ho chuka hai.');
+  if (!row) throw PermissionError('This consent link is not valid or has expired.');
   if (row.status !== 'accepted' && row.status !== 'declined') {
-    throw PermissionError('Consent PDF sirf jawab record hone ke baad download kiya ja sakta hai.');
+    throw PermissionError('The consent PDF can only be downloaded after a response has been recorded.');
   }
 
   const loans = await getSheetDataAsJSON(env, 'LOANS');
   const loan = loans.find(l => l['Loan ID'] === row.loan_id);
-  if (!loan) throw PermissionError('Loan record nahi mila.');
+  if (!loan) throw PermissionError('Loan record not found.');
 
   const docType = row.role === 'loaner' ? 'consent_loaner' : 'consent_guarantor';
   const year = parseInt(loan.Year);
@@ -99,13 +99,13 @@ function assertValidDocxBase64(base64) {
   if (!b64) throw ValidationError('File required');
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(b64) || b64.length % 4 !== 0) {
     throw ValidationError(
-      'File theek se upload nahi hui (base64 data kharab hai). Page refresh karke dobara file select karein.'
+      'The file did not upload correctly (the base64 data is corrupt). Refresh the page and select the file again.'
     );
   }
   if (!b64.startsWith('UEsDB')) {
     throw ValidationError(
-      'Ye file .docx nahi lagti. Word me "Save As" karke format "Word Document (.docx)" chunein — ' +
-      'purana .doc, .pdf ya image kaam nahi karega.'
+      'This does not appear to be a .docx file. In Word, use "Save As" and choose the "Word Document (.docx)" format — ' +
+      'an older .doc, a .pdf, or an image will not work.'
     );
   }
   return b64;
@@ -139,9 +139,9 @@ export async function copyDocxTemplate(env, docType, fromYear, toYear, user) {
   requireSuperadmin(user);
   if (!toYear) throw new Error('Target year required');
   const conflict = await env.DB_TEMPLATES.prepare('SELECT id FROM docx_templates WHERE doc_type = ? AND year = ?').bind(docType, parseInt(toYear)).first();
-  if (conflict) throw ValidationError(`${toYear} ke liye pehle se ek template maujood hai.`);
+  if (conflict) throw ValidationError(`A template already exists for ${toYear}.`);
   const source = await env.DB_TEMPLATES.prepare('SELECT * FROM docx_templates WHERE doc_type = ? AND year = ?').bind(docType, parseInt(fromYear)).first();
-  if (!source) throw ValidationError('Source template nahi mila.');
+  if (!source) throw ValidationError('Source template not found.');
 
   const folderId = await getOrCreateFolder(env, env.DRIVE_ROOT_FOLDER_ID, 'DOCX Templates');
   const copy = await copyFile(env, source.drive_file_id, `${docType}-${toYear}.docx`, folderId);
@@ -155,7 +155,7 @@ export async function copyDocxTemplate(env, docType, fromYear, toYear, user) {
 export async function deleteDocxTemplate(env, docType, year, user) {
   requireSuperadmin(user);
   const result = await env.DB_TEMPLATES.prepare('DELETE FROM docx_templates WHERE doc_type = ? AND year = ?').bind(docType, parseInt(year)).run();
-  if (!result.meta.changes) throw ValidationError('Template nahi mila.');
+  if (!result.meta.changes) throw ValidationError('Template not found.');
   return { success: true };
 }
 
@@ -193,7 +193,7 @@ async function recordGeneratedFile(env, docType, year, recordId, fileName, publi
   } catch (err) {
     // The old INSERT here omitted error_id AND reported, so the resulting row
     // showed "Ref: undefined" in the UI, gave React duplicate null keys, and
-    // "Report to WhatsApp" always threw "Error record nahi mila." -- the one
+    // "Report to WhatsApp" always threw "Error record not found." -- the one
     // diagnostic this code added could be SEEN but never ESCALATED.
     // logErrorAt() writes the correct column set.
     console.error('[recordGeneratedFile] Database insert failed:', err.message, { docType, year, recordId });
@@ -230,7 +230,7 @@ export async function getGeneratedFilesForYear(env, year, user, docType) {
 //       that the public portal shows as "Verified Record".
 //     - ReceiptModal calls this WITHOUT isAutoGenerate, so per-row "Download PDF"
 //       demanded Superadmin even though the download icon renders for every role
-//       -> Admin/Subadmin always got "Sirf Superadmin ye action kar sakta hai."
+//       -> Admin/Subadmin always got "Only a Superadmin can perform this action."
 //   NEW: an explicit `mode`:
 //       'auto'   Home auto-PDF after a save        -> staff (Admin/Subadmin/Superadmin)
 //       'single' one row's own document (Receipt)  -> staff
@@ -303,7 +303,7 @@ export async function convertDocxToPdf(env, docType, year, recordId, base64, fil
         publicLink,
         fileName: pdfName,
         indexFailed: true,
-        error: 'PDF ban gaya lekin public portal ke index mein record nahi hua. Superadmin ko batayein.',
+        error: 'The PDF was created but was not recorded in the public portal index. Please inform the Superadmin.',
       };
     }
   }

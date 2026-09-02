@@ -51,9 +51,9 @@ export default class ErrorBoundary extends React.Component {
     if (this.isChunkLoadError()) {
       return (
         <div className="glass-card" style={{ padding: 20, textAlign: 'center', margin: 15 }}>
-          <p style={{ fontWeight: 600, marginBottom: 8 }}>App update ho gaya hai</p>
+          <p style={{ fontWeight: 600, marginBottom: 8 }}>The app has been updated</p>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 12 }}>
-            Naya version deploy hua hai, isliye ye page load nahi ho paya. Page refresh karein.
+            A new version was deployed, so this page could not load. Please refresh the page.
           </p>
           <button className="btn-submit" style={{ width: 'auto' }} onClick={() => window.location.reload()}>
             🔄 Refresh
@@ -64,10 +64,10 @@ export default class ErrorBoundary extends React.Component {
 
     return (
       <div className="glass-card" style={{ padding: 20, margin: 15 }}>
-        <p style={{ fontWeight: 600, marginBottom: 8 }}>Kuch galat ho gaya</p>
+        <p style={{ fontWeight: 600, marginBottom: 8 }}>Something went wrong</p>
         <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 12 }}>
-          Is screen mein ek error aa gaya. Ye error apne aap Error Log mein record ho gaya hai —
-          Superadmin ise dekh sakta hai. Aap doosre tab par ja sakte hain ya page refresh kar sakte hain.
+          An error occurred on this screen. It has been recorded automatically in the Error Log —
+          a Superadmin can review it. You can switch to another tab or refresh the page.
         </p>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn-submit" style={{ width: 'auto' }} onClick={() => window.location.reload()}>
@@ -79,7 +79,7 @@ export default class ErrorBoundary extends React.Component {
             style={{ width: 'auto', background: '#e5e7eb', color: '#111' }}
             onClick={() => this.setState({ showDetails: !showDetails })}
           >
-            {showDetails ? 'Details chhupayein' : 'Technical details'}
+            {showDetails ? 'Hide details' : 'Technical details'}
           </button>
         </div>
         {showDetails && (

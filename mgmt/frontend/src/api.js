@@ -111,7 +111,7 @@ function fireAndForgetLogError(source, message, stack, context) {
       const now = Date.now();
       if (now - lastTransportReportAt < TRANSPORT_REPORT_WINDOW_MS) return;
       lastTransportReportAt = now;
-      message = `Network/transport failure — server se connect nahi ho paya (${message})`;
+      message = `Network/transport failure — could not connect to the server (${message})`;
     }
     const body = {
       action: 'logError',
@@ -151,7 +151,7 @@ async function call(action, params = {}, requireAuth = true) {
       data = await res.json();
     } catch (parseErr) {
       // Non-JSON body (an HTML error page from the CDN/host, a 502, etc.)
-      throw new Error(`Server ne galat jawab bheja (HTTP ${res.status}). Thodi der baad koshish karein.`);
+      throw new Error(`The server returned an invalid response (HTTP ${res.status}). Please try again in a little while.`);
     }
 
     // `data` can legitimately be NULL: getDocxTemplate() returns null when no
@@ -159,7 +159,7 @@ async function call(action, params = {}, requireAuth = true) {
     // "null". The old `data.authError` then threw
     //     "Cannot read properties of null (reading 'authError')"
     // — the single most frequent real error in production (12+ rows), firing on
-    // the most ordinary path there is ("is saal ka template nahi hai"). Callers
+    // the most ordinary path there is ("there is no template for this year"). Callers
     // already handle a null/empty template row, so pass it straight through.
     if (data === null || data === undefined) {
       flushBufferedLogs();
@@ -399,6 +399,11 @@ export const api = {
   // Drains the queue on demand (called fire-and-forget after a save so we don't
   // wait for the unreliable free-plan cron).
   processCollectionQueue: () => call('processCollectionQueue'),
+  // Queue Monitor (Superadmin only): full job list across all users, with an
+  // optional status filter ('pending' | 'processing' | 'done' | 'failed'), and a
+  // retry action for a failed/stuck job.
+  getQueueJobsForSuperadmin: (status, limit) => call('getQueueJobsForSuperadmin', { status, limit }),
+  retryQueueJob: (jobId) => call('retryQueueJob', { jobId }),
 
   // Popup Management (Superadmin) + login-time fetch
   getPopups: () => call('getPopups'),

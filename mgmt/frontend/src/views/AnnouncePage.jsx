@@ -302,7 +302,7 @@ export default function AnnouncePage() {
           {pinError && <div className="error-banner">{pinError}</div>}
           {sessionPersistWarning && (
             <div style={{ background: '#FEF3C7', color: '#92400E', borderRadius: 8, padding: '8px 12px', fontSize: '0.8rem', marginBottom: 10 }}>
-              ⚠️ Aapka browser session save nahi kar pa raha (private/incognito mode). Page refresh karne par PIN dobara daalna padega.
+              ⚠️ Your browser is unable to save the session (private/incognito mode). You will need to enter the PIN again after refreshing the page.
             </div>
           )}
           <div className="form-group">
@@ -326,7 +326,7 @@ export default function AnnouncePage() {
       <div className="announce-top-bar" ref={announceTopBarRef}>
         {pollFailed && (
           <span
-            title="Live refresh ruk gaya hai — data purana ho sakta hai"
+            title="Live refresh has stopped — the data may be out of date"
             style={{ color: '#DC2626', fontSize: '0.7rem', fontWeight: 700, marginRight: 6 }}
           >
             ● OFFLINE

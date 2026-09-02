@@ -133,13 +133,13 @@ export async function restoreBackup(env, user, backup, confirm) {
   requireSuperadmin(user);
 
   if ((confirm || '').toString().trim().toUpperCase() !== 'RESTORE') {
-    throw new Error('Restore confirm nahi hua — confirmation box mein exactly "RESTORE" likhein.');
+    throw new Error('Restore not confirmed — type exactly "RESTORE" in the confirmation box.');
   }
   if (!backup || typeof backup !== 'object' || !backup.data) {
-    throw new Error('Backup file valid nahi hai (koi data nahi mila).');
+    throw new Error('The backup file is not valid (no data found).');
   }
   if (backup.formatVersion && backup.formatVersion > BACKUP_FORMAT_VERSION) {
-    throw new Error(`Backup ka format version (${backup.formatVersion}) is server se naya hai — pehle deploy update karein.`);
+    throw new Error(`The backup's format version (${backup.formatVersion}) is newer than this server — please update the deployment first.`);
   }
 
   // 1) Safety snapshot of CURRENT data before we overwrite anything.
@@ -149,7 +149,7 @@ export async function restoreBackup(env, user, backup, confirm) {
   } catch (e) {
     // If we can't snapshot, refuse to proceed — restoring without a rollback
     // option is too dangerous.
-    throw new Error('Restore rok diya: current data ka safety snapshot nahi ban paya (' + e.message + '). Data safe hai, kuch change nahi hua.');
+    throw new Error('Restore stopped: could not create a safety snapshot of the current data (' + e.message + '). Your data is safe, nothing was changed.');
   }
 
   // partialTables = restored fine but a few individual rows were skipped (e.g.
@@ -172,7 +172,7 @@ export async function restoreBackup(env, user, backup, confirm) {
         const res = await restoreOneTable(db, table, rowArr);
         report.restoredTables[`${binding}.${table}`] = res.inserted;
         if (res.skipped > 0) {
-          report.partialTables[`${binding}.${table}`] = `${res.skipped} row(s) skip: ${res.examples.join('; ')}`;
+          report.partialTables[`${binding}.${table}`] = `${res.skipped} row(s) skipped: ${res.examples.join('; ')}`;
         }
       } catch (err) {
         // A genuine whole-table failure (e.g. the table doesn't exist here).
@@ -185,11 +185,11 @@ export async function restoreBackup(env, user, backup, confirm) {
   const errCount = report.errors.length;
   let message;
   if (errCount === 0 && partialCount === 0) {
-    message = `Restore complete — ${Object.keys(report.restoredTables).length} table(s) restore ho gaye.`;
+    message = `Restore complete — ${Object.keys(report.restoredTables).length} table(s) restored.`;
   } else if (errCount === 0) {
-    message = `Restore ho gaya. ${partialCount} table(s) mein kuch duplicate/invalid rows skip huin (baaki sab restore hua) — report dekhein.`;
+    message = `Restore complete. Some duplicate/invalid rows were skipped in ${partialCount} table(s) (everything else was restored) — see the report.`;
   } else {
-    message = `Restore hua lekin ${errCount} table(s) restore nahi ho paye — report dekhein.`;
+    message = `Restore completed, but ${errCount} table(s) could not be restored — see the report.`;
   }
 
   return {

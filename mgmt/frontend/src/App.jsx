@@ -19,6 +19,7 @@ import ReceiptTemplates from './views/ReceiptTemplates.jsx';
 import CertificateTemplates from './views/CertificateTemplates.jsx';
 import SamaanTemplates from './views/SamaanTemplates.jsx';
 import ErrorLog from './views/ErrorLog.jsx';
+import QueueMonitor from './views/QueueMonitor.jsx';
 // docxtemplater+pizzip (used to fill .docx templates) are lazy — only Superadmin
 // on these tabs (or someone downloading a Receipt/Certificate/Consent PDF) needs them.
 const DocxTemplates = lazy(() => import('./views/DocxTemplates.jsx'));
@@ -61,6 +62,7 @@ const DOWNLOAD_CENTER_TAB = { id: 'downloadcenter', label: 'Download Center', ic
 const STORAGE_TAB = { id: 'storage', label: 'Storage Management', icon: 'cloud' };
 const BACKUP_TAB = { id: 'backup', label: 'Backup & Restore', icon: 'backup' };
 const ANNOUNCEMENT_TAB = { id: 'announcementportal', label: 'Announcement Portal', icon: 'campaign' };
+const QUEUE_MONITOR_TAB = { id: 'queuemonitor', label: 'Queue Monitor', icon: 'sync' };
 // Superadmin: everything below, tucked behind a single "More" button instead of
 // crowding the nav bar (there'd be 14 tabs otherwise). Grouped into categories
 // so the More menu is scannable instead of one long flat list.
@@ -68,7 +70,7 @@ const SUPERADMIN_TAB_GROUPS = [
   { title: '📄 Documents & Templates', tabs: [RECEIPT_TEMPLATES_TAB, CERTIFICATE_TEMPLATES_TAB, SAMAAN_TEMPLATES_TAB, DOCX_TEMPLATES_TAB, BULK_GENERATE_TAB, DOWNLOAD_CENTER_TAB, PDF_TAB] },
   { title: '🤝 Loan Consent', tabs: [CONSENT_TEMPLATES_TAB, CONSENT_REVIEW_TAB] },
   { title: '💬 Communication', tabs: [WHATSAPP_TAB, POPUP_MGMT_TAB, ANNOUNCEMENT_TAB] },
-  { title: '⚙️ Data & Settings', tabs: [LOCK_TAB, LIST_TAB, STORAGE_TAB, BACKUP_TAB, ERROR_LOG_TAB, LOGIN_MGMT_TAB] },
+  { title: '⚙️ Data & Settings', tabs: [LOCK_TAB, LIST_TAB, STORAGE_TAB, BACKUP_TAB, QUEUE_MONITOR_TAB, ERROR_LOG_TAB, LOGIN_MGMT_TAB] },
 ];
 // Admin: a smaller subset — no data-editing/config tools (Templates, Lock Data,
 // WhatsApp, List Management, Error Log), and Download Center is view/download
@@ -235,6 +237,7 @@ export default function App() {
         {tab === 'certificatetemplates' && canAccessTab('certificatetemplates') && <CertificateTemplates />}
         {tab === 'samaantemplates' && canAccessTab('samaantemplates') && <SamaanTemplates />}
         {tab === 'errorlog' && canAccessTab('errorlog') && <ErrorLog />}
+        {tab === 'queuemonitor' && canAccessTab('queuemonitor') && <QueueMonitor />}
         {tab === 'loginmgmt' && canAccessTab('loginmgmt') && <LoginManagement users={usersView.data} role={user.role} />}
         {tab === 'docxtemplates' && canAccessTab('docxtemplates') && (
           <Suspense fallback={<div className="inline-spinner">Loading...</div>}>

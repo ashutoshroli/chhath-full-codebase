@@ -27,9 +27,9 @@ export function PermissionError(message) {
 // A message meant FOR THE USER: wrong PIN, wrong OTP, expired link, "already
 // exists", "not found", missing required field. Also NOT a defect.
 //
-// Why this exists: the Error Log filled up with ~50 rows of "Galat PIN",
-// "Sirf Superadmin ye action kar sakta hai", "OTP galat hai", "Ye Email pehle se
-// registered hai" etc., which buried the handful of REAL defects (278 rows, 276
+// Why this exists: the Error Log filled up with ~50 rows of "Incorrect PIN",
+// "Only a Superadmin can perform this action", "Incorrect OTP", "This email is
+// already registered" etc., which buried the handful of REAL defects (278 rows, 276
 // unreported). Anything thrown as a ValidationError is still returned to the user
 // exactly as before — it just isn't recorded as a system error.
 export function ValidationError(message) {
@@ -250,25 +250,25 @@ const SUBADMIN_ADD_SHEETS = ['USERS', 'COLLECTIONS'];
 export function requireRole(user, action, sheetName) {
   const allowed = ROLE_PERMISSIONS[user.role] || [];
   if (!allowed.includes(action)) {
-    throw PermissionError(`Aapke role (${user.role || 'unknown'}) ko is action ki permission nahi hai.`);
+    throw PermissionError(`Your role (${user.role || 'unknown'}) does not have permission for this action.`);
   }
   if (action === 'add' && user.role === 'Subadmin' && sheetName) {
     const normalized = sheetName.toString().trim().toUpperCase();
     if (!SUBADMIN_ADD_SHEETS.includes(normalized)) {
-      throw PermissionError('Aapka role sirf User aur Contribution add kar sakta hai.');
+      throw PermissionError('Your role can only add Users and Contributions.');
     }
   }
 }
 
 export function requireSuperadmin(user) {
-  if (user.role !== 'Superadmin') throw PermissionError('Sirf Superadmin ye action kar sakta hai.');
+  if (user.role !== 'Superadmin') throw PermissionError('Only a Superadmin can perform this action.');
 }
 export function requireAdminOrAbove(user) {
-  if (user.role !== 'Superadmin' && user.role !== 'Admin') throw PermissionError('Sirf Admin ya Superadmin ye action kar sakta hai.');
+  if (user.role !== 'Superadmin' && user.role !== 'Admin') throw PermissionError('Only an Admin or Superadmin can perform this action.');
 }
 export function requireStaffRole(user) {
   if (!['Superadmin', 'Admin', 'Subadmin'].includes(user.role)) {
-    throw PermissionError(`Aapke role (${user.role || 'unknown'}) ko is action ki permission nahi hai.`);
+    throw PermissionError(`Your role (${user.role || 'unknown'}) does not have permission for this action.`);
   }
 }
 
@@ -303,7 +303,7 @@ export async function requireYearUnlocked(env, year) {
   if (!y) return;
   const locked = await getLockedYearsSet(env);
   if (locked.has(y)) {
-    throw PermissionError('Ye year lock hai — is year mein add/edit/delete allowed nahi hai.');
+    throw PermissionError('This year is locked — add/edit/delete is not allowed for this year.');
   }
 }
 
@@ -320,6 +320,6 @@ export async function requireYearAccess(env, user, year) {
   if (!y) return;
   const years = await getCommitteeYearsForName(env, user.name);
   if (!years.has(y)) {
-    throw PermissionError('Aap sirf un saalon ka data add/edit kar sakte hain jis saal aap khud Committee member the.');
+    throw PermissionError('You can only add/edit data for the years in which you were a Committee member.');
   }
 }

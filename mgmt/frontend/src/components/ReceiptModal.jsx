@@ -29,7 +29,7 @@ const DOC_CONFIG = {
 // strict popup blockers swallowed it and the user just saw the spinner stop.
 // Appending the node and falling back to window.location makes it reliable.
 function openDownload(url) {
-  if (!url) throw new Error('Download link server se nahi mila.');
+  if (!url) throw new Error('The server did not return a download link.');
   const a = document.createElement('a');
   a.href = url;
   a.target = '_blank';
@@ -136,7 +136,7 @@ export default function ReceiptModal({ row, year, open, onClose, docType = 'rece
         // the misleading "no template exists" path — and then silently produced a
         // rasterised fallback PDF instead of the proper document.
         reportClientError('ReceiptModal', `Template fetch failed for ${docType} ${year}`, err, { docType, year, recordId });
-        throw new Error(`${label} template load nahi hua: ${err.message}`);
+        throw new Error(`Failed to load the ${label} template: ${err.message}`);
       }
 
       if (docxRow && (docxRow.base64 || docxRow.downloadUrl)) {
@@ -154,7 +154,7 @@ export default function ReceiptModal({ row, year, open, onClose, docType = 'rece
         const fileName = `${label}-${placeholders[docNoKey]}.docx`;
         // mode 'single' — one row's own document. This call used to omit the flag
         // entirely, which made the server demand Superadmin, so Admin/Subadmin
-        // always got "Sirf Superadmin ye action kar sakta hai." even though the
+        // always got "Only a Superadmin can perform this action." even though the
         // download icon renders for every role.
         const res = await api.convertDocxToPdf(docType, year, recordId, filledBase64, fileName, 'single');
 
@@ -162,7 +162,7 @@ export default function ReceiptModal({ row, year, open, onClose, docType = 'rece
         // callers — so the user got a working file while the public portal would
         // show "Not Available" forever, with nobody told.
         if (res && res.indexFailed) {
-          setWarning(res.error || 'PDF ban gaya lekin public portal mein index nahi hua.');
+          setWarning(res.error || 'The PDF was generated but was not indexed on the public portal.');
           reportClientError('ReceiptModal', `PDF generated but NOT indexed: ${recordId}`, null,
             { docType, year, recordId, publicLink: res.publicLink });
         }
@@ -173,12 +173,12 @@ export default function ReceiptModal({ row, year, open, onClose, docType = 'rece
         if (!previewRef.current) {
           // Was a bare `return` from inside the try: the spinner just stopped and
           // NOTHING was shown to the user or logged.
-          throw new Error('Preview taiyaar nahi hai — modal band karke dobara kholein.');
+          throw new Error('The preview is not ready — please close the modal and open it again.');
         }
         await snapshotToPdf(previewRef.current, data.pageSize, `${label}-${placeholders[docNoKey]}.pdf`);
         setWarning(
-          `Is saal (${year}) ke liye koi .docx template upload nahi hai, isliye preview ka image-based PDF diya gaya hai. ` +
-          'Ye PDF public portal par available nahi hoga — Superadmin se Document Templates mein template upload karwayein.'
+          `No .docx template has been uploaded for this year (${year}), so an image-based PDF of the preview was generated. ` +
+          'This PDF will not be available on the public portal — ask a Superadmin to upload a template under Document Templates.'
         );
       }
     } catch (err) {
@@ -208,7 +208,7 @@ export default function ReceiptModal({ row, year, open, onClose, docType = 'rece
       )}
       {qrWarning && (
         <div style={{ background: '#FEF3C7', color: '#92400E', borderRadius: 8, padding: '8px 12px', fontSize: '0.8rem', marginBottom: 10 }}>
-          ⚠️ QR code generate nahi ho saka — is document ka QR blank rahega.
+          ⚠️ The QR code could not be generated — this document's QR will be blank.
         </div>
       )}
 

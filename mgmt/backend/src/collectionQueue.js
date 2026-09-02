@@ -22,7 +22,7 @@
 //     risky server-side docxtemplater port. Only the orchestration moved.
 //   * enqueue enforces the same staff permission the direct save always required.
 
-import { requireStaffRole, requireRole, requireYearUnlocked, requireYearAccess } from './auth.js';
+import { requireStaffRole, requireRole, requireYearUnlocked, requireYearAccess, requireSuperadmin } from './auth.js';
 import { convertDocxToPdf } from './docxTemplates.js';
 import { triggerCollectionMessages } from './whatsapp.js';
 import { logErrorAt, logWarn } from './logger.js';
@@ -98,6 +98,85 @@ export async function getCollectionQueueStatus(env, user) {
   ).all();
 
   return { success: true, counts, recent: recent || [] };
+}
+
+// ---- SUPERADMIN QUEUE MONITOR: full job list across ALL users ----
+//
+// Powers the dedicated "Queue Monitor" tab (Superadmin only). Unlike the compact
+// getCollectionQueueStatus (last 20, any staff role), this returns a fuller,
+// filterable list with the acting user (created_by) so a Superadmin can audit
+// every user's background jobs and retry the failed ones.
+//
+// filled_base64 is intentionally NOT selected — it is large and the monitor UI
+// never needs it (retry re-reads it server-side from the row).
+export async function getQueueJobsForSuperadmin(env, user, opts = {}) {
+  requireSuperadmin(user);
+  const db = jobsDb(env);
+
+  const status = (opts.status || '').toString().trim().toLowerCase();
+  const validStatuses = ['pending', 'processing', 'done', 'failed'];
+  let limit = parseInt(opts.limit);
+  if (!Number.isFinite(limit) || limit <= 0) limit = 100;
+  if (limit > 500) limit = 500;
+
+  // Summary counts (unaffected by the status filter, so the tab always shows the
+  // full picture).
+  const { results: countRows } = await db.prepare(
+    `SELECT status, COUNT(*) AS c FROM collection_jobs GROUP BY status`
+  ).all();
+  const counts = { pending: 0, processing: 0, done: 0, failed: 0 };
+  for (const r of countRows || []) {
+    if (counts[r.status] !== undefined) counts[r.status] = r.c;
+  }
+
+  const cols = `job_id, status, doc_type, year, record_id, attempts, last_error,
+                public_link, created_by, created_at, claimed_at, finished_at`;
+  let query, binds;
+  if (validStatuses.includes(status)) {
+    query = `SELECT ${cols} FROM collection_jobs WHERE status = ? ORDER BY id DESC LIMIT ?`;
+    binds = [status, limit];
+  } else {
+    query = `SELECT ${cols} FROM collection_jobs ORDER BY id DESC LIMIT ?`;
+    binds = [limit];
+  }
+  const { results: jobs } = await db.prepare(query).bind(...binds).all();
+
+  return { success: true, counts, jobs: jobs || [], maxAttempts: MAX_ATTEMPTS };
+}
+
+// ---- SUPERADMIN QUEUE MONITOR: retry a job ----
+//
+// Resets a job back to 'pending' with attempts = 0 so the on-demand processor
+// (or cron) picks it up again. Intended for 'failed' jobs, but any non-'done'
+// job may be retried (a stuck 'processing' row can be re-queued this way too).
+// A 'done' job is refused — its filled_base64 has already been consumed and the
+// side effects (PDF + WhatsApp) already ran, so retrying would duplicate them.
+//
+// After resetting, it fire-and-forget nudges the processor so the retry starts
+// draining immediately instead of waiting for the next cron tick.
+export async function retryQueueJob(env, user, jobId) {
+  requireSuperadmin(user);
+  const db = jobsDb(env);
+
+  const id = (jobId || '').toString().trim();
+  if (!id) throw new Error('jobId is required.');
+
+  const row = await db.prepare(
+    `SELECT id, status FROM collection_jobs WHERE job_id = ?`
+  ).bind(id).first();
+  if (!row) throw new Error('Job not found.');
+  if (row.status === 'done') throw new Error('This job has already completed successfully and cannot be retried.');
+
+  await db.prepare(
+    `UPDATE collection_jobs
+        SET status = 'pending', attempts = 0, last_error = '', claimed_at = NULL, finished_at = NULL
+      WHERE job_id = ?`
+  ).bind(id).run();
+
+  // Kick the processor so the retry runs now (best-effort; the cron is a backup).
+  try { await processPendingJobs(env); } catch (e) { /* non-fatal — cron will pick it up */ }
+
+  return { success: true, jobId: id };
 }
 
 // ---- ON-DEMAND PROCESSOR (called by the frontend right after a save) ----

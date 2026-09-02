@@ -53,8 +53,8 @@ function consentLinkBuilder(env) {
   const isPlaceholder = !base || /YOUR-FRONTEND-DOMAIN|example\.com/i.test(base);
   if (isPlaceholder) {
     throw new Error(
-      'CONSENT_BASE_URL server par configure nahi hai (abhi placeholder value hai). ' +
-      'Consent link bheja nahi ja sakta — wrangler.toml / Worker vars mein asli frontend domain set karein.'
+      'CONSENT_BASE_URL is not configured on the server (it is still the placeholder value). ' +
+      'The consent link cannot be sent — set the real frontend domain in wrangler.toml / Worker vars.'
     );
   }
   return (token) => `${base}/consent/${token}`;
@@ -156,14 +156,14 @@ export async function saveLoanTransaction(env, loanPayload, guarantorPayloads, u
       success: true,
       loanId,
       consentWarning:
-        'Loan save ho gaya, lekin consent records / WhatsApp invitations banane mein problem hui: ' +
-        err.message + ' — Loan Consents screen se "Resend" karein.',
+        'The loan was saved, but there was a problem creating the consent records / WhatsApp invitations: ' +
+        err.message + ' — use "Resend" on the Loan Consents screen.',
     };
   }
 
   const warnings = (consentResult && consentResult.warnings) || [];
   return warnings.length
-    ? { success: true, loanId, consentWarning: 'Loan save ho gaya, lekin: ' + warnings.join(' | ') }
+    ? { success: true, loanId, consentWarning: 'The loan was saved, but: ' + warnings.join(' | ') }
     : { success: true, loanId };
 }
 
@@ -231,7 +231,7 @@ async function createLoanConsents(env, loanId, loanPayload, guarantorPayloads, u
   await trySend(env, 'createLoanConsents:group', async () => {
     const groups = (await getSheetDataAsJSON(env, 'WHATSAPP_GROUPS')).filter(g => isTruthyFlag(g.active));
     if (!groups.length) {
-      warnings.push('koi active WhatsApp group nahi hai');
+      warnings.push('there is no active WhatsApp group');
       await logWarn(env, 'whatsapp-loans', 'createLoanConsents:group',
         'No ACTIVE WhatsApp group configured — loan consent group announcement was not queued.', { loanId });
       return;
@@ -239,7 +239,7 @@ async function createLoanConsents(env, loanId, loanPayload, guarantorPayloads, u
     for (const g of groups) {
       const tpl = tpls.pick('consent_group');
       if (!tpl) {
-        warnings.push('consent_group template active nahi hai');
+        warnings.push('the consent_group template is not active');
         await logWarn(env, 'whatsapp-loans', 'createLoanConsents:group',
           'No active "consent_group" loan message template — group announcement was not queued.', { loanId });
         return;
@@ -254,13 +254,13 @@ async function createLoanConsents(env, loanId, loanPayload, guarantorPayloads, u
     const loanerWa = waNumberOf(loanerU);
     const tpl = tpls.pick('consent_personal_loaner');
     if (!tpl) {
-      warnings.push('consent_personal_loaner template active nahi hai');
+      warnings.push('the consent_personal_loaner template is not active');
       await logWarn(env, 'whatsapp-loans', 'createLoanConsents:loaner',
         'No active "consent_personal_loaner" template — the loaner got no consent link.', { loanId, loanerId: loanPayload.Name });
       return;
     }
     if (!loanerWa) {
-      warnings.push(`loaner ka WhatsApp number invalid/missing hai`);
+      warnings.push(`the loaner's WhatsApp number is invalid/missing`);
       await logWarn(env, 'whatsapp-loans', 'createLoanConsents:loaner',
         looksLikeAttemptedNumber(loanerU.WhatsApp || loanerU.Mobile)
           ? `Loaner ${loanPayload.Name} has an INVALID WhatsApp/Mobile number — consent link not sent.`
@@ -282,7 +282,7 @@ async function createLoanConsents(env, loanId, loanPayload, guarantorPayloads, u
   await trySend(env, 'createLoanConsents:guarantors', async () => {
     const tpl0 = tpls.countFor('consent_personal_guarantor');
     if (!tpl0) {
-      warnings.push('consent_personal_guarantor template active nahi hai');
+      warnings.push('the consent_personal_guarantor template is not active');
       await logWarn(env, 'whatsapp-loans', 'createLoanConsents:guarantors',
         'No "consent_personal_guarantor" template — none of the guarantors got a consent link.', { loanId });
       return;
@@ -294,7 +294,7 @@ async function createLoanConsents(env, loanId, loanPayload, guarantorPayloads, u
       const tpl = tpls.pick('consent_personal_guarantor');
       if (!tpl) continue;
       if (!gWa) {
-        warnings.push(`guarantor ${gU.Name || c.personId} ka WhatsApp number invalid/missing hai`);
+        warnings.push(`guarantor ${gU.Name || c.personId}'s WhatsApp number is invalid/missing`);
         await logWarn(env, 'whatsapp-loans', 'createLoanConsents:guarantors',
           looksLikeAttemptedNumber(gU.WhatsApp || gU.Mobile)
             ? `Guarantor ${gU.Name || c.personId} has an INVALID WhatsApp/Mobile number — consent link not sent.`
@@ -332,12 +332,12 @@ async function findConsentRowByToken(env, token) {
 
 export async function getConsentByToken(env, token) {
   const rowObj = await findConsentRowByToken(env, token);
-  if (!rowObj) throw ValidationError('Ye link valid nahi hai ya expire ho chuka hai.');
+  if (!rowObj) throw ValidationError('This link is not valid or has expired.');
   const loanId = rowObj.loan_id;
 
   const loans = await getSheetDataAsJSON(env, 'LOANS');
   const loan = loans.find(l => l['Loan ID'] === loanId);
-  if (!loan) throw ValidationError('Loan record nahi mila.');
+  if (!loan) throw ValidationError('Loan record not found.');
 
   const users = await getSheetDataAsJSON(env, 'USERS');
   const userMap = {};
@@ -397,13 +397,13 @@ async function writeOtpMeta(env, consentId, meta) {
 
 export async function requestConsentOtp(env, token) {
   const rowObj = await findConsentRowByToken(env, token);
-  if (!rowObj) throw ValidationError('Ye link valid nahi hai.');
-  if (rowObj.status !== 'pending') throw ValidationError('Is loan par aapka jawab pehle hi record ho chuka hai.');
+  if (!rowObj) throw ValidationError('This link is not valid.');
+  if (rowObj.status !== 'pending') throw ValidationError('Your response for this loan has already been recorded.');
 
   const users = await getSheetDataAsJSON(env, 'USERS');
   const person = users.find(u => u.ID === rowObj.person_id);
   const wa = waNumberOf(person || {});
-  if (!wa) throw new Error('Aapka WhatsApp number portal mein register nahi hai. Superadmin se contact karein.');
+  if (!wa) throw new Error('Your WhatsApp number is not registered in the portal. Please contact the Superadmin.');
 
   // requestConsentOtp is unauthenticated by design (the token IS the credential),
   // but previously anyone holding a link could enqueue UNLIMITED OTP messages to
@@ -412,7 +412,7 @@ export async function requestConsentOtp(env, token) {
   const hourAgo = Date.now() - 3600000;
   const recentRequests = ((prev && prev.requests) || []).filter(t => t > hourAgo);
   if (recentRequests.length >= OTP_MAX_REQUESTS_PER_HOUR) {
-    throw new Error(`Ek ghante mein sirf ${OTP_MAX_REQUESTS_PER_HOUR} baar OTP bheja ja sakta hai. Thodi der baad koshish karein.`);
+    throw new Error(`An OTP can only be sent ${OTP_MAX_REQUESTS_PER_HOUR} times per hour. Please try again after a while.`);
   }
 
   const otp = generateOtp();
@@ -428,29 +428,29 @@ export async function requestConsentOtp(env, token) {
   const otpTpl = tpls.pick('otp');
   const message = otpTpl
     ? await renderLoanTemplate(env, 'requestConsentOtp', otpTpl, { OTP: otp, Name: person ? person.Name : '' }, { consentId: rowObj.consent_id })
-    : `Aapka loan consent verification OTP hai: ${otp}. Ye ${Math.round(OTP_TTL_MS / 60000)} minute mein expire ho jayega. Kisi ke saath share na karein.`;
+    : `Your loan consent verification OTP is: ${otp}. It will expire in ${Math.round(OTP_TTL_MS / 60000)} minutes. Do not share it with anyone.`;
 
   const res = await queuePersonMessageDirect(env, wa, message, tpls.sender, otpTpl ? otpTpl.message_type : 'normal', otpTpl ? otpTpl.file_link : '');
   if (!res || !res.success) {
     await logWarn(env, 'whatsapp-loans', 'requestConsentOtp',
       `OTP message could NOT be queued for consent ${rowObj.consent_id} (number rejected).`,
       { consentId: rowObj.consent_id, personId: rowObj.person_id });
-    throw new Error('OTP bheja nahi ja saka — aapka registered number valid nahi hai. Superadmin se contact karein.');
+    throw new Error('The OTP could not be sent — your registered number is not valid. Please contact the Superadmin.');
   }
   return { success: true, expiresInMinutes: Math.round(OTP_TTL_MS / 60000) };
 }
 
 export async function verifyConsentOtp(env, token, otp) {
   const rowObj = await findConsentRowByToken(env, token);
-  if (!rowObj) throw ValidationError('Ye link valid nahi hai.');
-  if (rowObj.status !== 'pending') throw ValidationError('Is loan par aapka jawab pehle hi record ho chuka hai.');
-  if (!rowObj.otp || rowObj.otp.toString().trim() === '') throw ValidationError('Pehle OTP request karein.');
+  if (!rowObj) throw ValidationError('This link is not valid.');
+  if (rowObj.status !== 'pending') throw ValidationError('Your response for this loan has already been recorded.');
+  if (!rowObj.otp || rowObj.otp.toString().trim() === '') throw ValidationError('Please request an OTP first.');
 
   const meta = (await readOtpMeta(env, rowObj.consent_id)) || {};
 
   // Expiry: an OTP used to be valid forever.
   if (meta.issuedAt && Date.now() - meta.issuedAt > OTP_TTL_MS) {
-    throw ValidationError('OTP expire ho gaya hai. Naya OTP request karein.');
+    throw ValidationError('The OTP has expired. Please request a new OTP.');
   }
 
   // Attempt limit: there was NO limit at all — unlimited guesses against a
@@ -460,7 +460,7 @@ export async function verifyConsentOtp(env, token, otp) {
     await logWarn(env, 'backend-loans', 'verifyConsentOtp',
       `OTP verification locked for consent ${rowObj.consent_id} after ${attempts} wrong attempts.`,
       { consentId: rowObj.consent_id, personId: rowObj.person_id });
-    throw ValidationError('Bahut baar galat OTP daala gaya. Naya OTP request karein.');
+    throw ValidationError('The OTP was entered incorrectly too many times. Please request a new OTP.');
   }
 
   // Normalize both sides — otp is a REAL column, so '012345' can come back as 12345.
@@ -473,7 +473,7 @@ export async function verifyConsentOtp(env, token, otp) {
   if (!timingSafeEqualHex(toHexStr(supplied), toHexStr(expected))) {
     await writeOtpMeta(env, rowObj.consent_id, Object.assign({}, meta, { attempts: attempts + 1 }));
     const left = OTP_MAX_VERIFY_ATTEMPTS - (attempts + 1);
-    throw new Error(`OTP galat hai.${left > 0 ? ` ${left} koshish bachi hai.` : ' Naya OTP request karein.'}`);
+    throw new Error(`The OTP is incorrect.${left > 0 ? ` ${left} attempt(s) remaining.` : ' Please request a new OTP.'}`);
   }
 
   await env.DB_LOANS_EXPENSES.prepare('UPDATE loan_consents SET otp_verified = 1 WHERE id = ?').bind(rowObj.id).run();
@@ -485,9 +485,9 @@ export async function verifyConsentOtp(env, token, otp) {
 export async function respondConsent(env, token, decision, deviceId, deviceInfo, clientIp, geoLat, geoLng, geoAccuracy, photoBase64, signatureBase64, declineRemarks) {
   if (decision !== 'accepted' && decision !== 'declined') throw new Error('Invalid decision');
   const rowObj = await findConsentRowByToken(env, token);
-  if (!rowObj) throw ValidationError('Ye link valid nahi hai.');
-  if (rowObj.status !== 'pending') throw ValidationError('Is loan par aapka jawab pehle hi record ho chuka hai — ye locked hai.');
-  if (!isTruthyFlag(rowObj.otp_verified)) throw ValidationError('Pehle WhatsApp OTP se verify karein.');
+  if (!rowObj) throw ValidationError('This link is not valid.');
+  if (rowObj.status !== 'pending') throw ValidationError('Your response for this loan has already been recorded — it is locked.');
+  if (!isTruthyFlag(rowObj.otp_verified)) throw ValidationError('Please verify with the WhatsApp OTP first.');
 
   let photoUrl = '', signatureUrl = '';
 
@@ -497,11 +497,11 @@ export async function respondConsent(env, token, decision, deviceId, deviceInfo,
         "SELECT status FROM loan_consents WHERE loan_id = ? AND role = 'guarantor' AND status != 'replaced'"
       ).bind(rowObj.loan_id).all();
       const allAccepted = guarantorConsents.length > 0 && guarantorConsents.every(c => c.status === 'accepted');
-      if (!allAccepted) throw new Error('Abhi Final Acceptance available nahi hai — pehle teeno guarantors ko Accept karna hoga.');
+      if (!allAccepted) throw new Error('Final Acceptance is not available yet — all three guarantors must Accept first.');
     }
-    if (!geoLat || !geoLng) throw new Error('Location permission zaroori hai Accept karne ke liye.');
-    if (!photoBase64) throw new Error('Photo capture karna zaroori hai Accept karne ke liye.');
-    if (!signatureBase64) throw new Error('Signature upload karna zaroori hai Accept karne ke liye.');
+    if (!geoLat || !geoLng) throw new Error('Location permission is required in order to Accept.');
+    if (!photoBase64) throw new Error('Capturing a photo is required in order to Accept.');
+    if (!signatureBase64) throw new Error('Uploading a signature is required in order to Accept.');
     try {
       // Derive the loan's year so the files land under the right R2 year prefix
       // (used by the Superadmin "Move <year> to Drive" feature). If the loan
@@ -518,10 +518,10 @@ export async function respondConsent(env, token, decision, deviceId, deviceInfo,
       await logErrorAt(env, 'backend-loans', 'respondConsent:driveUpload', err, {
         consentId: rowObj.consent_id, personId: rowObj.person_id, role: rowObj.role,
       });
-      throw new Error('Photo/Signature upload fail hua: ' + err.message);
+      throw new Error('Photo/Signature upload failed: ' + err.message);
     }
   } else {
-    if (!declineRemarks || !declineRemarks.toString().trim()) throw new Error('Decline karne ke liye remarks likhna zaroori hai.');
+    if (!declineRemarks || !declineRemarks.toString().trim()) throw new Error('Remarks are required in order to Decline.');
   }
 
   const now = new Date().toISOString();
@@ -663,7 +663,7 @@ export async function setConsentVerification(env, consentId, status, remarks, us
   const result = await env.DB_LOANS_EXPENSES.prepare(
     'UPDATE loan_consents SET verification_status = ?, verification_remarks = ?, verified_by = ?, verified_at = ? WHERE consent_id = ?'
   ).bind(status, remarks || '', user.name, new Date().toISOString(), consentId).run();
-  if (!result.meta.changes) throw ValidationError('Consent record nahi mila.');
+  if (!result.meta.changes) throw ValidationError('Consent record not found.');
   if (status === 'verified') await notifyConsentVerified(env, consentId);
   return { success: true };
 }
@@ -709,10 +709,10 @@ async function notifyConsentVerified(env, consentId) {
 export async function resendConsent(env, consentId, user) {
   requireSuperadmin(user);
   const rowObj = await env.DB_LOANS_EXPENSES.prepare('SELECT * FROM loan_consents WHERE consent_id = ?').bind(consentId).first();
-  if (!rowObj) throw ValidationError('Consent record nahi mila.');
-  if (rowObj.status === 'accepted') throw new Error('Ye pehle hi accept ho chuka hai — resend ki zaroorat nahi.');
+  if (!rowObj) throw ValidationError('Consent record not found.');
+  if (rowObj.status === 'accepted') throw new Error('This has already been accepted — no resend is needed.');
   const sendCount = parseInt(rowObj.send_count) || 0;
-  if (sendCount >= 5) throw new Error('Is guarantor/loaner ko already 5 baar bheja ja chuka hai. Ab guarantor replace karein.');
+  if (sendCount >= 5) throw new Error('This guarantor/loaner has already been sent the invitation 5 times. Please replace the guarantor now.');
 
   const newToken = generateConsentToken();
   await env.DB_LOANS_EXPENSES.prepare(
@@ -733,12 +733,12 @@ export async function resendConsent(env, consentId, user) {
   const tpls = await loanTemplateContext(env);
   const tpl = tpls.pick(tplType);
 
-  if (!tpl) throw new Error(`"${tplType}" ka koi active template nahi hai — pehle WhatsApp templates mein add karein.`);
+  if (!tpl) throw new Error(`There is no active "${tplType}" template — add one in the WhatsApp templates first.`);
   if (!wa) {
     await logWarn(env, 'whatsapp-loans', 'resendConsent',
       `Cannot resend consent ${consentId}: ${rowObj.person_id} has no valid WhatsApp/Mobile number.`,
       { consentId, personId: rowObj.person_id });
-    throw new Error('Is person ka valid WhatsApp/Mobile number registered nahi hai — pehle USERS mein number theek karein.');
+    throw new Error('This person does not have a valid WhatsApp/Mobile number registered — please correct the number in USERS first.');
   }
 
   const data2 = Object.assign(notificationData(loan, loanerU, person, rowObj.role, guarantorUsers), {
@@ -753,21 +753,21 @@ export async function resendConsent(env, consentId, user) {
 export async function replaceGuarantor(env, loanId, oldConsentId, newPersonId, user) {
   requireSuperadmin(user);
   const oldRow = await env.DB_LOANS_EXPENSES.prepare('SELECT * FROM loan_consents WHERE consent_id = ?').bind(oldConsentId).first();
-  if (!oldRow) throw ValidationError('Consent record nahi mila.');
-  if (oldRow.role !== 'guarantor') throw new Error('Sirf guarantor replace kiya ja sakta hai.');
-  if (oldRow.status === 'accepted') throw new Error('Ye guarantor pehle hi accept kar chuka hai — replace nahi kiya ja sakta.');
+  if (!oldRow) throw ValidationError('Consent record not found.');
+  if (oldRow.role !== 'guarantor') throw new Error('Only a guarantor can be replaced.');
+  if (oldRow.status === 'accepted') throw new Error('This guarantor has already accepted — they cannot be replaced.');
 
   const loans = await getSheetDataAsJSON(env, 'LOANS');
   const loan = loans.find(l => l['Loan ID'] === loanId);
-  if (!loan) throw ValidationError('Loan nahi mila.');
+  if (!loan) throw ValidationError('Loan not found.');
 
   const { results: activeRows } = await env.DB_LOANS_EXPENSES.prepare(
     "SELECT person_id FROM loan_consents WHERE loan_id = ? AND status != 'replaced' AND consent_id != ?"
   ).bind(loanId, oldConsentId).all();
   const activeParticipants = activeRows.map(c => c.person_id);
-  if (activeParticipants.includes(newPersonId)) throw new Error('Ye person pehle se is loan mein shaamil hai.');
+  if (activeParticipants.includes(newPersonId)) throw new Error('This person is already part of this loan.');
   const committee = (await getSheetDataAsJSON(env, 'COMMITEE MEMBERS')).map(c => c.Name);
-  if (committee.includes(newPersonId)) throw new Error('Rule Violation: Committee Member guarantor nahi ban sakta.');
+  if (committee.includes(newPersonId)) throw new Error('Rule Violation: A Committee Member cannot become a guarantor.');
 
   await env.DB_LOANS_EXPENSES.prepare("UPDATE loan_consents SET status = 'replaced' WHERE consent_id = ?").bind(oldConsentId).run();
 
@@ -812,8 +812,8 @@ export async function replaceGuarantor(env, loanId, oldConsentId, newPersonId, u
       success: true,
       consentId,
       warning: !tpl
-        ? 'Guarantor replace ho gaya, lekin consent_personal_guarantor template active nahi hai — invitation nahi gaya.'
-        : 'Guarantor replace ho gaya, lekin uska WhatsApp number valid nahi hai — invitation nahi gaya.',
+        ? 'The guarantor was replaced, but the consent_personal_guarantor template is not active — the invitation was not sent.'
+        : 'The guarantor was replaced, but their WhatsApp number is not valid — the invitation was not sent.',
     };
   }
 
@@ -830,11 +830,11 @@ export async function markLoanDisbursed(env, loanId, cashAmount, onlineAmount, u
   requireSuperadmin(user);
   const cash = parseFloat(cashAmount) || 0;
   const online = parseFloat(onlineAmount) || 0;
-  if (cash <= 0 && online <= 0) throw new Error('Cash ya Online, kam se kam ek amount daalein.');
+  if (cash <= 0 && online <= 0) throw new Error('Enter at least one amount, either Cash or Online.');
 
   const loanRow = await env.DB_LOANS_EXPENSES.prepare('SELECT * FROM loans WHERE loan_id = ?').bind(loanId).first();
-  if (!loanRow) throw ValidationError('Loan nahi mila.');
-  if (loanRow.loan_status !== 'Approved') throw new Error('Loan abhi Approved nahi hai — pehle sabhi consents accept hone chahiye.');
+  if (!loanRow) throw ValidationError('Loan not found.');
+  if (loanRow.loan_status !== 'Approved') throw new Error('The loan is not Approved yet — all consents must be accepted first.');
 
   await env.DB_LOANS_EXPENSES.prepare(
     "UPDATE loans SET loan_status = 'Disbursed', cash_amount = ?, online_amount = ? WHERE loan_id = ?"
@@ -875,7 +875,7 @@ export async function markLoanDisbursed(env, loanId, cashAmount, onlineAmount, u
   // the confirmation message did not go out (it used to be a silent console.error
   // followed by a flat {success:true}).
   return (notify && (notify.failed || notify.skipped))
-    ? { success: true, messageWarning: 'Loan Disbursed mark ho gaya, lekin WhatsApp confirmation nahi bheja ja saka. Error Log dekhein.' }
+    ? { success: true, messageWarning: 'The loan was marked as Disbursed, but the WhatsApp confirmation could not be sent. Please check the Error Log.' }
     : { success: true };
 }
 

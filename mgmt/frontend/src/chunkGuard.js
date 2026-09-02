@@ -74,8 +74,8 @@ export async function safeImport(importFn, label) {
       await new Promise(() => {});
     }
     throw new Error(
-      `${label || 'Module'} load nahi hua${err && err.message ? ': ' + err.message : ''}. ` +
-      'Page refresh karke dobara koshish karein.'
+      `${label || 'Module'} failed to load${err && err.message ? ': ' + err.message : ''}. ` +
+      'Please refresh the page and try again.'
     );
   }
 }

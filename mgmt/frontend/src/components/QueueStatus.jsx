@@ -70,8 +70,8 @@ export default function QueueStatus({ refreshKey }) {
         <span className="material-icons-round" style={{ fontSize: 18 }}>
           {pending > 0 ? 'sync' : (failed > 0 ? 'error_outline' : 'check_circle')}
         </span>
-        {pending > 0 && <span>{pending} queue mein</span>}
-        {failed > 0 && <span>{failed} fail</span>}
+        {pending > 0 && <span>{pending} in queue</span>}
+        {failed > 0 && <span>{failed} failed</span>}
         <span className="material-icons-round" style={{ fontSize: 16 }}>{open ? 'expand_less' : 'expand_more'}</span>
       </div>
 

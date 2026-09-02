@@ -98,7 +98,7 @@ export async function getStorageOverview(env, user) {
 // ---- Move a whole year's R2 files to Drive ----
 export async function moveYearToDrive(env, year, user) {
   requireSuperadmin(user);
-  if (!r2Available(env)) throw new Error('R2 storage server par configure nahi hai.');
+  if (!r2Available(env)) throw new Error('R2 storage is not configured on the server.');
   const y = parseInt(year);
   if (!y) throw new Error('Valid year required');
 
@@ -157,7 +157,7 @@ export async function moveYearToDrive(env, year, user) {
     skipped,
     errors: errors.slice(0, 20),
     message: failed === 0
-      ? `${y}: ${moved} file(s) Drive par move ho gaye${skipped ? `, ${skipped} pehle se Drive par the` : ''}.`
-      : `${y}: ${moved} move hue, ${failed} fail hue — Error Log dekhein aur dobara try karein.`,
+      ? `${y}: ${moved} file(s) moved to Drive${skipped ? `, ${skipped} were already on Drive` : ''}.`
+      : `${y}: ${moved} moved, ${failed} failed — check the Error Log and try again.`,
   };
 }

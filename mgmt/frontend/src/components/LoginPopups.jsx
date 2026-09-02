@@ -41,9 +41,9 @@ export default function LoginPopups() {
             src={driveImageUrl(slide.image_url)}
             alt=""
             style={{ maxWidth: '100%', maxHeight: 320, borderRadius: 10, marginBottom: 15 }}
-            // Pehle lh3 fail hone par thumbnail endpoint try karo; dono fail ho to
-            // hi image ko hide karo — har user ko login pe toota icon dikhane ka
-            // matlab nahi hai.
+            // If lh3 fails, first try the thumbnail endpoint; only hide the image
+            // if both fail — there's no point showing every user a broken icon at
+            // login.
             onError={(e) => {
               const img = e.currentTarget;
               if (img.dataset.driveFallbackTried !== '1') {

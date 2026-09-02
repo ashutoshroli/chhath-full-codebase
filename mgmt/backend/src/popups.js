@@ -73,14 +73,14 @@ export async function getPopups(env, user) {
 export async function getPopupWithSlides(env, popupId, user) {
   requireAdminOrAbove(user);
   const popup = await env.DB_MISC.prepare('SELECT * FROM popups WHERE popup_id = ?').bind(popupId).first();
-  if (!popup) throw ValidationError('Popup nahi mila.');
+  if (!popup) throw ValidationError('Popup not found.');
   const { results } = await env.DB_MISC.prepare('SELECT * FROM popup_slides WHERE popup_id = ? ORDER BY slide_order ASC').bind(popupId).all();
   return { popup: popupOut(popup), slides: results.map(slideOut) };
 }
 
 export async function savePopup(env, popupId, title, roles, active, startAt, endAt, user) {
   requireAdminOrAbove(user);
-  if (!title || !title.toString().trim()) throw ValidationError('Title zaroori hai.');
+  if (!title || !title.toString().trim()) throw ValidationError('Title is required.');
   const rolesStr = Array.isArray(roles) ? roles.join(',') : (roles || '');
   const now = new Date().toISOString();
   // Bind the STRING form: the column is TEXT, and writing a number left the DB
@@ -89,7 +89,7 @@ export async function savePopup(env, popupId, title, roles, active, startAt, end
 
   if (popupId) {
     const existing = await env.DB_MISC.prepare('SELECT id FROM popups WHERE popup_id = ?').bind(popupId).first();
-    if (!existing) throw ValidationError('Popup nahi mila.');
+    if (!existing) throw ValidationError('Popup not found.');
     await env.DB_MISC.prepare(
       'UPDATE popups SET title = ?, roles = ?, active = ?, start_at = ?, end_at = ?, updated_at = ? WHERE popup_id = ?'
     ).bind(title.toString().trim(), rolesStr, activeStr, startAt || '', endAt || '', now, popupId).run();
@@ -186,36 +186,37 @@ export async function savePopupSlides(env, popupId, slides, user) {
 
 // Popup images reuse the same Drive folder/upload path as consent photos.
 //
-// 8 MB — frontend pehle se canvas se downscale karke ~200-400 KB bhejta hai, to ye
-// sirf safety net hai (purana client, ya jisme canvas decode fail ho gaya).
+// 8 MB — the frontend already downscales via canvas and sends ~200-400 KB, so this
+// is only a safety net (for an old client, or one where the canvas decode failed).
 const MAX_POPUP_IMAGE_BYTES = 8 * 1024 * 1024;
 
 export async function uploadPopupImage(env, base64, fileName, mimeType, user) {
   requireAdminOrAbove(user);
-  if (!base64) throw ValidationError('Image zaroori hai.');
+  if (!base64) throw ValidationError('An image is required.');
 
-  // Pehle yahan SIRF `if (!base64)` tha. Uske aage jo bhi aata — PDF, .exe, 20 MB
-  // ki RAW photo — sab 'image/jpeg' label lagakar Drive pe chala jata tha, aur
-  // phir har user ko login popup me broken image dikhta tha. Ab bytes ke magic
-  // number se asli format check hota hai (client ka mimeType bharosemand nahi).
+  // Previously there was ONLY `if (!base64)` here. Anything past that — a PDF, an
+  // .exe, a 20 MB RAW photo — was sent to Drive labelled 'image/jpeg', and then
+  // every user saw a broken image in the login popup. Now the real format is
+  // checked from the bytes' magic number (the client's mimeType is not trusted).
   const bytes = base64ToBytes(base64, { label: 'Image', maxBytes: MAX_POPUP_IMAGE_BYTES });
   const sniffed = sniffImageMime(bytes);
   if (!sniffed) {
-    throw ValidationError('Ye file image nahi hai (JPG, PNG, GIF ya WebP chahiye).');
+    throw ValidationError('This file is not an image (JPG, PNG, GIF or WebP is required).');
   }
-  // HEIC (iPhone ka default format) Drive pe chadh jata hai par Chrome/Firefox/
-  // Android WebView use render NAHI kar paate — popup silently khaali dikhta.
-  // Frontend canvas se JPEG bana deta hai; yahan tak HEIC pahunche to iska matlab
-  // conversion fail hua, aur chupchap toota image dene se behtar hai saaf batana.
+  // HEIC (iPhone's default format) uploads to Drive fine but Chrome/Firefox/
+  // Android WebView cannot render it — the popup silently appears blank. The
+  // frontend canvas produces a JPEG; if HEIC reaches this point it means the
+  // conversion failed, and it is better to say so clearly than to silently serve
+  // a broken image.
   if (sniffed === 'image/heic') {
     throw ValidationError(
-      'iPhone ka HEIC format browser me nahi dikhta. Photo ko JPG me save karke ' +
-      'upload karein (iPhone: Settings > Camera > Formats > Most Compatible).'
+      'The iPhone HEIC format does not display in browsers. Save the photo as JPG and ' +
+      'upload it (iPhone: Settings > Camera > Formats > Most Compatible).'
     );
   }
 
-  // mimeType hardcoded 'image/jpeg' tha — PNG/WebP bhi jpeg bankar Drive pe jata
-  // tha, yani stored Content-Type galat hota tha. Ab asli format bhejte hain.
+  // mimeType was hardcoded to 'image/jpeg' — PNG/WebP also went to Drive as jpeg,
+  // so the stored Content-Type was wrong. Now we send the real format.
   const ext = sniffed.split('/')[1].replace('jpeg', 'jpg');
   const safeName = (fileName || '').toString().trim().replace(/[^\w.\-]+/g, '_').slice(0, 80)
     || `popup_${Date.now()}.${ext}`;

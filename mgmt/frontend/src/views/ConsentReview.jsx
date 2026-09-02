@@ -77,13 +77,13 @@ export default function ConsentReview() {
           {r.status === 'accepted' && (
             <>
               <div style={{ display: 'flex', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
-                {/* photo_url/signature_url DB me `uc?export=view` form me hain, jo
-                    303 redirect ke baad `cross-origin-resource-policy: same-site`
-                    deta hai — yani browser inhe embed hone se BLOCK karta hai. Yani
-                    consent verify karne wale Superadmin ko photo/signature kabhi
-                    dikhe hi nahi. driveImageUrl inhe lh3 CDN form me badal deta hai.
-                    Link (href) ke liye original hi theek hai — woh naya tab kholta
-                    hai, jahan CORP lagu nahi hota. */}
+                {/* photo_url/signature_url are stored in DB in `uc?export=view`
+                    form, which after a 303 redirect returns
+                    `cross-origin-resource-policy: same-site` — i.e. the browser
+                    BLOCKS them from being embedded. So the Superadmin verifying
+                    consent never saw the photo/signature. driveImageUrl converts
+                    them to the lh3 CDN form. The original is fine for the link
+                    (href) — it opens a new tab, where CORP does not apply. */}
                 {r.photo_url && (
                   <div>
                     <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 4 }}>Photo</div>

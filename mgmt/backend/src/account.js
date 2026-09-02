@@ -31,10 +31,10 @@ async function findLoginConflict(env, mobile, email, excludeName) {
   for (const r of rows) {
     if (excludeName && (r.Name || '').toString().trim() === excludeName) continue;
     if (mobile && (r.Mobile || '').toString().trim() === mobile) {
-      return `Ye Mobile number pehle se '${r.Name}' ke login mein registered hai.`;
+      return `This mobile number is already registered to '${r.Name}'s login.`;
     }
     if (email && (r.Email || '').toString().trim().toLowerCase() === email.toLowerCase()) {
-      return `Ye Email pehle se '${r.Name}' ke login mein registered hai.`;
+      return `This email is already registered to '${r.Name}'s login.`;
     }
   }
   return null;
@@ -43,20 +43,20 @@ async function findLoginConflict(env, mobile, email, excludeName) {
 export async function addLoginUser(env, userId, password, roleVal, mobile, email, user) {
   requireAdminOrAbove(user);
   if (user.role === 'Admin' && roleVal !== 'Subadmin') {
-    throw PermissionError('Aap sirf Subadmin login add kar sakte hain.');
+    throw PermissionError('You can only add Subadmin logins.');
   }
-  if (!userId || !password || !roleVal) throw new Error('User, Password aur Role zaroori hai.');
+  if (!userId || !password || !roleVal) throw new Error('User, Password and Role are required.');
   if (password.toString().trim().length < MIN_PASSWORD_LENGTH) {
-    throw new Error(`Password kam se kam ${MIN_PASSWORD_LENGTH} characters ka hona chahiye.`);
+    throw new Error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
   }
   if (!ROLE_PERMISSIONS_KEYS.includes(roleVal)) throw new Error('Invalid role.');
   const mobileTrim = (mobile || '').toString().trim();
   const emailTrim = (email || '').toString().trim();
-  if (!/^\d{10}$/.test(mobileTrim)) throw new Error('Mobile number 10 digits ka hona chahiye.');
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) throw new Error('Valid Email zaroori hai.');
+  if (!/^\d{10}$/.test(mobileTrim)) throw new Error('Mobile number must be 10 digits.');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) throw new Error('A valid Email is required.');
 
   const existing = await env.DB_CORE.prepare('SELECT id FROM login_users WHERE name = ?').bind(userId.toString().trim()).first();
-  if (existing) throw new Error('Is user ka login pehle se maujood hai — edit karein.');
+  if (existing) throw new Error('A login for this user already exists — please edit it instead.');
   const conflict = await findLoginConflict(env, mobileTrim, emailTrim, null);
   if (conflict) throw new Error(conflict);
 
@@ -73,8 +73,8 @@ export async function updateLoginUser(env, rowIndex, password, roleVal, mobile, 
   if (!roleVal || !ROLE_PERMISSIONS_KEYS.includes(roleVal)) throw new Error('Invalid role.');
   const mobileTrim = (mobile || '').toString().trim();
   const emailTrim = (email || '').toString().trim();
-  if (!/^\d{10}$/.test(mobileTrim)) throw new Error('Mobile number 10 digits ka hona chahiye.');
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) throw new Error('Valid Email zaroori hai.');
+  if (!/^\d{10}$/.test(mobileTrim)) throw new Error('Mobile number must be 10 digits.');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) throw new Error('A valid Email is required.');
 
   const current = await env.DB_CORE.prepare('SELECT name FROM login_users WHERE id = ?').bind(rowIndex).first();
   const currentName = current ? current.name.trim() : null;
@@ -83,7 +83,7 @@ export async function updateLoginUser(env, rowIndex, password, roleVal, mobile, 
 
   if (password) {
     if (password.toString().trim().length < MIN_PASSWORD_LENGTH) {
-      throw new Error(`Password kam se kam ${MIN_PASSWORD_LENGTH} characters ka hona chahiye.`);
+      throw new Error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
     }
     const hashed = await hashPassword(password.toString(), env.PASSWORD_SALT);
     await env.DB_CORE.prepare(
@@ -109,7 +109,7 @@ export async function updateOwnProfile(env, payload, user) {
   const COL_OF = { Mobile: 'mobile', Email: 'email', WhatsApp: 'whatsapp' };
   ['Mobile', 'WhatsApp'].forEach(f => {
     if (payload[f] !== undefined && payload[f] !== null && payload[f].toString().trim() !== '') {
-      if (!/^\d{10}$/.test(payload[f].toString().trim())) throw new Error(f + ' 10 digits ka hona chahiye');
+      if (!/^\d{10}$/.test(payload[f].toString().trim())) throw new Error(f + ' must be 10 digits');
     }
   });
   const sets = [];
@@ -126,7 +126,7 @@ export async function updateOwnProfile(env, payload, user) {
 export async function changePassword(env, currentPassword, newPassword, user) {
   if (!currentPassword || !newPassword) throw new Error('Current and new password required');
   if (newPassword.toString().trim().length < MIN_PASSWORD_LENGTH) {
-    throw new Error(`New password kam se kam ${MIN_PASSWORD_LENGTH} characters ka hona chahiye`);
+    throw new Error(`New password must be at least ${MIN_PASSWORD_LENGTH} characters`);
   }
 
   const row = await env.DB_CORE.prepare('SELECT id, password FROM login_users WHERE name = ?').bind(user.name).first();
@@ -135,7 +135,7 @@ export async function changePassword(env, currentPassword, newPassword, user) {
   // verifyPassword accepts both the legacy bare-SHA-256 hash and the new PBKDF2
   // format, and does a constant-time comparison.
   const { ok } = await verifyPassword(env, currentPassword.toString().trim(), row.password);
-  if (!ok) throw new Error('Current password galat hai');
+  if (!ok) throw new Error('Current password is incorrect');
 
   // The new password is always written in the new PBKDF2 format.
   const newHashed = await hashPassword(newPassword.toString().trim());
@@ -164,10 +164,10 @@ export async function uploadFileToDrive(env, base64Data, fileName, mimeType, opt
   const accessToken = await getDriveAccessToken(env);
   const boundary = 'chhathmgmt' + crypto.randomUUID();
   const metadata = { name: fileName, parents: [env.DRIVE_FOLDER_ID] };
-  // Tha: Uint8Array.from(atob(base64Data), c => c.charCodeAt(0)) — per-char
-  // callback, indexed loop se 15-23x slower (8 MB photo pe 552ms vs 24ms CPU).
-  // Ye helper data-URL prefix/whitespace bhi saaf karta hai, warna atob raw
-  // TypeError phenkta hai (log me 4 rows).
+  // Was: Uint8Array.from(atob(base64Data), c => c.charCodeAt(0)) — the per-char
+  // callback is 15-23x slower than an indexed loop (552ms vs 24ms CPU for an 8 MB photo).
+  // This helper also strips the data-URL prefix/whitespace; otherwise atob throws a
+  // raw TypeError (4 rows in the log).
   const bytes = base64ToBytes(base64Data, { label: fileName || 'File' });
 
   const body = new Blob([
@@ -197,17 +197,17 @@ export async function uploadFileToDrive(env, base64Data, fileName, mimeType, opt
 
   return {
     success: true,
-    // Insaan ke liye link (Drive ka viewer page) — <img src> me ye kaam nahi karta.
+    // Human-facing link (Drive's viewer page) — this does not work in <img src>.
     url: `https://drive.google.com/file/d/${id}/view`,
-    // <img src> ke liye. Pehle ye `uc?export=view&id=` tha, jo 303 redirect karta
-    // hai `drive.usercontent.google.com` pe, aur wahan
-    // `cross-origin-resource-policy: same-site` hota hai — yani browser use kisi
-    // doosri site se embed hone par BLOCK kar deta hai. Isse popup images AUR
-    // consent photo/signature dono chupchap khaali dikhte the.
-    // `lh3.googleusercontent.com` Google ka image CDN hai (ACAO *, koi CORP nahi).
-    // Detail: mgmt/frontend/src/driveUrl.js
+    // For <img src>. This was previously `uc?export=view&id=`, which 303-redirects
+    // to `drive.usercontent.google.com`, where the response carries
+    // `cross-origin-resource-policy: same-site` — meaning the browser BLOCKS it
+    // when embedded from another site. This caused both popup images AND consent
+    // photos/signatures to silently appear blank.
+    // `lh3.googleusercontent.com` is Google's image CDN (ACAO *, no CORP).
+    // Details: mgmt/frontend/src/driveUrl.js
     directUrl: `https://lh3.googleusercontent.com/d/${id}=w1600`,
-    // Agar lh3 kabhi fail ho to ye doosra CORP-free endpoint hai.
+    // If lh3 ever fails, this is another CORP-free endpoint.
     thumbnailUrl: `https://drive.google.com/thumbnail?id=${id}&sz=w1600`,
     fileId: id,
   };
