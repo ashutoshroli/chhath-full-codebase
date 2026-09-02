@@ -63,3 +63,32 @@ CREATE TABLE popups (
 );
 CREATE INDEX idx_popups_active ON popups(active);
 
+
+
+-- source: app feature (Collection Queue) — see migration/2026-09-02/01-collection-jobs.sql
+-- Background job queue: a COLLECTION save enqueues one row here; a Worker Cron
+-- Trigger processes pending rows (PDF generation + WhatsApp queueing) so the
+-- save itself returns instantly.
+CREATE TABLE IF NOT EXISTS collection_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  doc_type TEXT,
+  year TEXT,
+  row_index INTEGER,
+  record_id TEXT,
+  is_new_entry INTEGER DEFAULT 1,
+  payload TEXT,
+  filled_base64 TEXT,
+  file_name TEXT,
+  public_link TEXT,
+  attempts INTEGER DEFAULT 0,
+  last_error TEXT,
+  created_by TEXT,
+  created_at TEXT,
+  claimed_at TEXT,
+  finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_collection_jobs_status ON collection_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_collection_jobs_created_at ON collection_jobs(created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_collection_jobs_job_id ON collection_jobs(job_id);

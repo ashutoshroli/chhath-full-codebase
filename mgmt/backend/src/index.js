@@ -13,6 +13,7 @@ import * as tpl from './templates.js';
 import * as docx from './docxTemplates.js';
 import * as storage from './storage.js';
 import * as backup from './backup.js';
+import * as cq from './collectionQueue.js';
 import { bumpDataVersion } from './dataVersion.js';
 
 // Actions that only READ — after any OTHER successful action we bump the public
@@ -37,6 +38,7 @@ const READ_ONLY_ACTIONS = new Set([
   'getRecordsForDocType', 'getGeneratedFilesForYear', 'searchUsersByVillageAndName', 'getPersonDownloads',
   'getStorageOverview',
   'exportBackup',
+  'getCollectionQueueStatus',
   'getPopups', 'getPopupWithSlides', 'getActivePopups', 'previewPublicPopups',
   'logError', 'reportErrorToWhatsApp', 'getErrorLog',
   'getLoanTemplates',
@@ -372,6 +374,14 @@ export default {
       exportBackup: () => withAuth(env, req, (user) => backup.exportBackup(env, user)),
       restoreBackup: () => withAuth(env, req, (user) => backup.restoreBackup(env, user, req.backup, req.confirm)),
 
+      // ---- Collection Queue (background PDF + WhatsApp) ----
+      // enqueueCollectionJob: called right after a COLLECTION save so the browser
+      // doesn't have to wait for PDF conversion + WhatsApp queueing (a Cron
+      // Trigger does those — see scheduled() below). getCollectionQueueStatus is
+      // a read-only status panel available to any staff role.
+      enqueueCollectionJob: () => withAuth(env, req, (user) => cq.enqueueCollectionJob(env, req.job, user)),
+      getCollectionQueueStatus: () => withAuth(env, req, (user) => cq.getCollectionQueueStatus(env, user)),
+
       // ---- Popup Management ----
       getPopups: () => withAuth(env, req, (user) => popups.getPopups(env, user)),
       getPopupWithSlides: () => withAuth(env, req, (user) => popups.getPopupWithSlides(env, req.popupId, user)),
@@ -541,5 +551,17 @@ export default {
 
       return jsonOut({ success: false, message: err.message || String(err), [status]: true }, request, env);
     }
+  },
+
+  // ---- Cron Trigger (see wrangler.toml [triggers] crons) ----
+  // Drains the Collection Queue: processes any `pending` collection_jobs rows
+  // (PDF generation + WhatsApp queueing) that a save enqueued. Wrapped so a
+  // failure is logged, never thrown — the scheduled handler must return cleanly.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(
+      cq.processPendingJobs(env).catch((err) =>
+        logError(env, 'backend', 'scheduled:collectionQueue', err && err.message || String(err), err && err.stack || '', '')
+      )
+    );
   },
 };
