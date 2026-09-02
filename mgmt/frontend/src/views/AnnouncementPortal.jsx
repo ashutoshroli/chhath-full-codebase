@@ -72,7 +72,7 @@ export default function AnnouncementPortal({ years }) {
     if (!navigator.clipboard) return window.prompt('Copy this link:', url);
     navigator.clipboard.writeText(url)
       .then(() => alert('Link copied'))
-      .catch(() => window.prompt('Copy karne ki permission nahi mili — ye link manually copy karein:', url));
+      .catch(() => window.prompt('Permission to copy was not granted — please copy this link manually:', url));
   };
 
   const resetCustomForm = () => { setTextHindi(''); setTextEnglish(''); setPriority(false); setEditingId(null); };

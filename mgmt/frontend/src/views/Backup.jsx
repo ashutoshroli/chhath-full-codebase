@@ -71,7 +71,7 @@ async function readBackupFile(file) {
   const buf = await file.arrayBuffer();
   const zip = new PizZip(buf);
   const entry = zip.file('backup.json');
-  if (!entry) throw new Error('Zip mein backup.json nahi mila — ye is portal ka backup nahi lagta.');
+  if (!entry) throw new Error('backup.json was not found in the zip — this does not appear to be a backup of this portal.');
   return JSON.parse(entry.asText());
 }
 
@@ -89,16 +89,16 @@ export default function Backup() {
   const doDownload = async () => {
     setError(''); setStatus(''); setBusy(true);
     try {
-      setStatus('Data collect ho raha hai...');
+      setStatus('Collecting data...');
       const res = await api.exportBackup();
       const backupObj = res && res.backup ? res.backup : res;
-      if (!backupObj || !backupObj.data) throw new Error('Backend se backup data nahi mila.');
-      setStatus('Zip bana rahe hain...');
+      if (!backupObj || !backupObj.data) throw new Error('No backup data was returned from the backend.');
+      setStatus('Building the zip...');
       const blob = await buildZip(backupObj);
       downloadBlob(blob, `chhath-backup-${tsStamp()}.zip`);
-      setStatus(`Backup download ho gaya — ${backupObj.totalRows} rows, ${Object.keys(backupObj.counts || {}).length} tables.`);
+      setStatus(`Backup downloaded — ${backupObj.totalRows} rows, ${Object.keys(backupObj.counts || {}).length} tables.`);
     } catch (err) {
-      setError('Backup fail hua: ' + err.message);
+      setError('Backup failed: ' + err.message);
       reportClientError('Backup', 'exportBackup/zip failed', err);
     } finally {
       setBusy(false);
@@ -113,11 +113,11 @@ export default function Backup() {
     setBusy(true);
     try {
       const obj = await readBackupFile(file);
-      if (!obj || !obj.data) throw new Error('File mein valid backup data nahi hai.');
+      if (!obj || !obj.data) throw new Error('The file does not contain valid backup data.');
       setPendingBackup(obj);
       setPendingName(file.name);
     } catch (err) {
-      setError('Backup file padhi nahi ja saki: ' + err.message);
+      setError('The backup file could not be read: ' + err.message);
       reportClientError('Backup', 'readBackupFile failed', err);
     } finally {
       setBusy(false);
@@ -128,7 +128,7 @@ export default function Backup() {
     if (!pendingBackup) return;
     setError(''); setStatus(''); setBusy(true);
     try {
-      setStatus('Restore ho raha hai (pehle current data ka safety snapshot ban raha hai)...');
+      setStatus('Restoring (a safety snapshot of the current data is being created first)...');
       const res = await api.restoreBackup(pendingBackup, confirmText);
       setRestoreReport(res.report || null);
       // Immediately offer the pre-restore safety snapshot as a rollback download.
@@ -143,7 +143,7 @@ export default function Backup() {
       setPendingName('');
       setConfirmText('');
     } catch (err) {
-      setError('Restore fail hua: ' + err.message);
+      setError('Restore failed: ' + err.message);
       reportClientError('Backup', 'restoreBackup failed', err);
     } finally {
       setBusy(false);
@@ -165,9 +165,9 @@ export default function Backup() {
       <div className="glass-card" style={{ padding: 18, marginBottom: 18 }}>
         <h3 style={{ marginTop: 0 }}>1. Full Backup Download</h3>
         <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-          Poore database (saari 8 D1 databases, har table) ka backup ek zip file mein download karein.
-          File ki tasveerein/PDF backup mein nahi hoti (woh R2/Drive par safe rehti hain) — backup mein
-          unke links hote hain.
+          Download a backup of the entire database (all 8 D1 databases, every table) as a single zip file.
+          Uploaded images/PDFs are not included in the backup (they stay safely on R2/Drive) — the backup
+          only contains links to them.
         </p>
         <button className="btn-submit" onClick={doDownload} disabled={busy}>
           <span className="material-icons-round" style={{ verticalAlign: 'middle', marginRight: 6 }}>download</span>
@@ -179,33 +179,33 @@ export default function Backup() {
       <div className="glass-card" style={{ padding: 18, border: '1px solid #f0c000' }}>
         <h3 style={{ marginTop: 0, color: '#b45309' }}>2. Restore from Backup</h3>
         <div style={{ background: '#fff7ed', border: '1px solid #fdba74', borderRadius: 8, padding: 12, marginBottom: 14, fontSize: '0.88rem', color: '#7c2d12' }}>
-          <strong>⚠️ Dhyaan dein:</strong> Restore poore data ko backup wale data se REPLACE kar deta hai —
-          ye undo nahi hota. Safety ke liye restore se pehle current data ka snapshot automatically download
-          ho jayega (rollback ke liye rakh lein).
+          <strong>⚠️ Please note:</strong> Restore REPLACES all data with the data from the backup —
+          this cannot be undone. For safety, a snapshot of the current data will download automatically
+          before the restore (keep it for rollback).
         </div>
 
         {!pendingBackup ? (
           <label className="btn-secondary" style={{ cursor: busy ? 'not-allowed' : 'pointer', display: 'inline-block' }}>
             <span className="material-icons-round" style={{ verticalAlign: 'middle', marginRight: 6 }}>upload_file</span>
-            Backup file chunein (.zip ya .json)
+            Choose a backup file (.zip or .json)
             <input type="file" accept=".zip,.json,application/zip,application/json" style={{ display: 'none' }} onChange={onFilePicked} disabled={busy} />
           </label>
         ) : (
           <div>
             <p style={{ fontSize: '0.9rem' }}>
               <strong>File:</strong> {pendingName}<br />
-              <strong>Banaya gaya:</strong> {pendingBackup.createdAt || 'unknown'} by {pendingBackup.createdBy || 'unknown'}<br />
+              <strong>Created:</strong> {pendingBackup.createdAt || 'unknown'} by {pendingBackup.createdBy || 'unknown'}<br />
               <strong>Total rows:</strong> {pendingBackup.totalRows != null ? pendingBackup.totalRows : 'n/a'}
             </p>
             {counts && (
               <details style={{ marginBottom: 12 }}>
-                <summary style={{ cursor: 'pointer', fontSize: '0.85rem' }}>Tables &amp; row counts dekhein</summary>
+                <summary style={{ cursor: 'pointer', fontSize: '0.85rem' }}>View tables &amp; row counts</summary>
                 <ul style={{ fontSize: '0.8rem', maxHeight: 200, overflow: 'auto', columns: 2 }}>
                   {Object.entries(counts).map(([k, v]) => <li key={k}>{k}: {v}</li>)}
                 </ul>
               </details>
             )}
-            <p style={{ fontSize: '0.9rem', marginBottom: 6 }}>Confirm karne ke liye niche box mein <code>RESTORE</code> (capital) likhein:</p>
+            <p style={{ fontSize: '0.9rem', marginBottom: 6 }}>To confirm, type <code>RESTORE</code> (uppercase) in the box below:</p>
             <input
               type="text"
               value={confirmText}
@@ -234,13 +234,13 @@ export default function Backup() {
             <div>Restored tables: {Object.keys(restoreReport.restoredTables || {}).length}</div>
             {restoreReport.partialTables && Object.keys(restoreReport.partialTables).length > 0 && (
               <div style={{ color: '#b45309', marginTop: 6 }}>
-                Kuch rows skip huin (baaki restore ho gayin) — ye aam taur par backup ke andar hi duplicate rows ki wajah se hota hai:
+                Some rows were skipped (the rest restored) — this usually happens because of duplicate rows within the backup itself:
                 <ul>{Object.entries(restoreReport.partialTables).map(([t, msg]) => <li key={t}><code>{t}</code>: {msg}</li>)}</ul>
               </div>
             )}
             {restoreReport.errors && restoreReport.errors.length > 0 && (
               <div style={{ color: 'var(--danger, #dc2626)', marginTop: 6 }}>
-                Errors (ye tables restore nahi ho paye):
+                Errors (these tables could not be restored):
                 <ul>{restoreReport.errors.map((e, i) => <li key={i}>{e}</li>)}</ul>
               </div>
             )}

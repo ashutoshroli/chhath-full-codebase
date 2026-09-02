@@ -65,10 +65,10 @@ function validatePayload(sheetName, payload) {
     }
   }
   if (normalized === 'COLLECTIONS' && isResell && !(payload.Detail || '').toString().trim()) {
-    throw new Error('Resold item ka naam zaroori hai');
+    throw new Error('The name of the resold item is required');
   }
   if (normalized === 'COLLECTIONS' && !isResell && (payload['Contribution Type'] || '1').toString() !== '1' && !(payload.Detail || '').toString().trim()) {
-    throw new Error('Detail zaroori hai is Contribution Type ke liye');
+    throw new Error('Detail is required for this Contribution Type');
   }
   if (payload.Amount !== undefined && payload.Amount !== '' && isNaN(parseFloat(payload.Amount))) {
     throw new Error('Amount must be a number');
@@ -76,7 +76,7 @@ function validatePayload(sheetName, payload) {
   ['Mobile', 'WhatsApp'].forEach(f => {
     if (payload[f] !== undefined && payload[f] !== null && payload[f].toString().trim() !== '') {
       if (!/^\d{10}$/.test(payload[f].toString().trim())) {
-        throw new Error(f + ' 10 digits ka hona chahiye');
+        throw new Error(f + ' must be 10 digits');
       }
     }
   });
@@ -157,9 +157,9 @@ export async function deleteRecordByIdx(env, sheetName, rowIndex, user) {
     row = await d1.prepare(`SELECT year FROM ${table} WHERE id = ?`).bind(rowIndex).first();
   } catch (err) {
     await logErrorAt(env, 'backend-crud', 'deleteRecordByIdx:yearLookup', err, { sheetName, table, rowIndex });
-    throw new Error('Delete se pehle record ka year check nahi ho saka — safety ke liye delete roka gaya. Dobara koshish karein.');
+    throw new Error('Could not verify the record\'s year before deletion — the delete was stopped for safety. Please try again.');
   }
-  if (!row) throw new Error('Record nahi mila (ya pehle hi delete ho chuka hai).');
+  if (!row) throw new Error('Record not found (or it has already been deleted).');
 
   if (row.year) {
     await requireYearUnlocked(env, row.year);

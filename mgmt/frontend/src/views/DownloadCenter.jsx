@@ -22,7 +22,7 @@ function DownloadItem({ item, onGenerated, canGenerate }) {
         // misleading "no template exists — upload one" message.
         reportClientError('DownloadCenter', `Template load failed for ${item.docType} ${item.year}`, err,
           { docType: item.docType, year: item.year, recordId: item.recordId });
-        setError(`Template load nahi hua: ${err.message}`);
+        setError(`Template failed to load: ${err.message}`);
         return;
       }
       if (!templateRow || (!templateRow.base64 && !templateRow.downloadUrl)) {
@@ -34,7 +34,7 @@ function DownloadItem({ item, onGenerated, canGenerate }) {
       try {
         qrCode = await generateQrDataUrl(publicRecordUrl(item.recordId));
       } catch (qrErr) {
-        setWarning('QR generate nahi hua — PDF ka QR blank rahega.');
+        setWarning('QR generation failed — the QR in the PDF will be blank.');
         reportClientError('DownloadCenter', `QR generation failed for ${item.recordId}`, qrErr,
           { docType: item.docType, year: item.year, recordId: item.recordId });
       }
@@ -54,7 +54,7 @@ function DownloadItem({ item, onGenerated, canGenerate }) {
       // indexFailed was returned by the backend and ignored here, so the file
       // looked generated while the public portal would show "Not Available".
       if (res && res.indexFailed) {
-        setWarning(res.error || 'PDF ban gaya lekin public portal mein index nahi hua.');
+        setWarning(res.error || 'The PDF was generated but not indexed in the public portal.');
         reportClientError('DownloadCenter', `PDF generated but NOT indexed: ${item.recordId}`, null,
           { docType: item.docType, year: item.year, recordId: item.recordId, publicLink: res.publicLink });
       }

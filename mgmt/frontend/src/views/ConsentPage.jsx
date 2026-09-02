@@ -479,7 +479,7 @@ function ConsentPdfDownload({ role, fundYear, placeholders, consentId, docTypeFr
       a.click();
       document.body.removeChild(a);
     } catch (err) {
-      setError('PDF banate waqt problem hui: ' + err.message);
+      setError('There was a problem while generating the PDF: ' + err.message);
       reportClientError('ConsentPage', `Consent PDF generation failed (${consentRefId})`, err, { docType, fundYear, consentId: consentRefId });
     } finally {
       setDownloading(false);

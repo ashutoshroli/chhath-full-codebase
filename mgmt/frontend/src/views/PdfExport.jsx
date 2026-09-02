@@ -49,7 +49,7 @@ export default function PdfExport() {
       // as "no reports generated yet for this year".
       Object.values(DOC_TYPE_FOR_MODE).map(dt =>
         api.getGeneratedFilesForYear(y, dt).catch(err => {
-          setWarning(`Purani reports ki list load nahi hui (${dt}): ${err.message}`);
+          setWarning(`Could not load the list of previous reports (${dt}): ${err.message}`);
           reportClientError('PdfExport', `getGeneratedFilesForYear failed for ${dt} ${y}`, err, { year: y, docType: dt });
           return [];
         })
@@ -79,7 +79,7 @@ export default function PdfExport() {
         // template uploaded", sending the Superadmin to upload a template that
         // already existed.
         reportClientError('PdfExport', `Template load failed for ${docType} ${year}`, err, { docType, year });
-        throw new Error(`Report template load nahi hua: ${err.message}`);
+        throw new Error(`Report template failed to load: ${err.message}`);
       }
       if (!docxRow || !(docxRow.base64 || docxRow.downloadUrl)) {
         throw new Error(`No Report template (${mode}) has been uploaded for Year ${year} yet. Please upload one under Document Templates.`);
@@ -172,7 +172,7 @@ export default function PdfExport() {
 
       const rep = getLastRenderReport();
       if (rep.missingTags.length) {
-        setWarning(`Report template mein ye placeholders resolve nahi hue (blank rahenge): ${[...new Set(rep.missingTags)].join(', ')}`);
+        setWarning(`These placeholders in the report template could not be resolved (they will be blank): ${[...new Set(rep.missingTags)].join(', ')}`);
         reportClientError('PdfExport', 'Report template had unresolved placeholders', null,
           { docType, year, missingTags: [...new Set(rep.missingTags)] });
       }
@@ -188,7 +188,7 @@ export default function PdfExport() {
       const res = await api.convertDocxToPdf(docType, year, recordId, filledBase64, fileName, 'bulk', true);
 
       if (res && res.indexFailed) {
-        setWarning(res.error || 'Report PDF ban gaya lekin index nahi hua.');
+        setWarning(res.error || 'The report PDF was generated but not indexed.');
         reportClientError('PdfExport', `Report generated but NOT indexed: ${recordId}`, null,
           { docType, year, recordId, publicLink: res.publicLink });
       }

@@ -21,13 +21,13 @@ function safeUrl(v) {
 // Popup images saved before the uploadPopupImage fix hold the Drive VIEWER page
 // URL (.../file/d/<id>/view), which is an HTML document and renders as a broken
 // image. Rewrite it to the direct image URL.
-// Ye file bundle nahi hoti (plain <script>), isliye mgmt ke driveUrl.js ka import
-// nahi kar sakte — logic wahan se copy hai, dono ko saath badalna.
+// This file is not bundled (plain <script>), so it cannot import mgmt's
+// driveUrl.js — the logic is copied from there, and both must be changed together.
 //
-// `uc?export=view` 303 redirect karta hai drive.usercontent.google.com pe, jahan
-// `cross-origin-resource-policy: same-site` hota hai — yani browser use doosri site
-// se embed hone par BLOCK kar deta hai, aur popup image chupchap khaali dikhti hai.
-// `lh3.googleusercontent.com` Google ka image CDN hai (ACAO *, koi CORP nahi).
+// `uc?export=view` does a 303 redirect to drive.usercontent.google.com, which
+// returns `cross-origin-resource-policy: same-site` — i.e. the browser BLOCKS it
+// from being embedded by another site, and the popup image silently appears blank.
+// `lh3.googleusercontent.com` is Google's image CDN (ACAO *, no CORP).
 function driveFileId(url) {
   const s = (url === undefined || url === null) ? '' : url.toString();
   if (!s) return null;

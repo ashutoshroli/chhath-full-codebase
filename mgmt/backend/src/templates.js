@@ -53,7 +53,7 @@ const CERTIFICATE_TEMPLATE_SAMPLE = `## नवयुवक छठ पूजा �
 
 ---
 
-Ye प्रमाणित किया जाता है कि **[NAME]** ने वर्ष [YEAR] की छठ पूजा में निम्न कार्य में अपना योगदान दिया:
+यह प्रमाणित किया जाता है कि **[NAME]** ने वर्ष [YEAR] की छठ पूजा में निम्न कार्य में अपना योगदान दिया:
 
 *This is to certify that **[NAME]** contributed to the following work during the [YEAR] Chhath Puja celebration:*
 
@@ -147,9 +147,9 @@ export async function copyTemplate(env, kind, fromYear, toYear, user) {
   if (!toYear) throw new Error('Target year required');
   const { table } = ENGINES[kind];
   const conflict = await env.DB_TEMPLATES.prepare(`SELECT id FROM ${table} WHERE year = ?`).bind(parseInt(toYear)).first();
-  if (conflict) throw new Error(`${toYear} ke liye pehle se ek template maujood hai.`);
+  if (conflict) throw new Error(`A template already exists for ${toYear}.`);
   const source = await env.DB_TEMPLATES.prepare(`SELECT * FROM ${table} WHERE year = ?`).bind(parseInt(fromYear)).first();
-  if (!source) throw new Error('Source template nahi mila.');
+  if (!source) throw new Error('Source template not found.');
   return saveTemplate(env, kind, toYear, source.template_text, source.page_size, user);
 }
 
@@ -157,7 +157,7 @@ export async function deleteTemplate(env, kind, year, user) {
   requireSuperadmin(user);
   const { table } = ENGINES[kind];
   const result = await env.DB_TEMPLATES.prepare(`DELETE FROM ${table} WHERE year = ?`).bind(parseInt(year)).run();
-  if (!result.meta.changes) throw new Error('Template nahi mila.');
+  if (!result.meta.changes) throw new Error('Template not found.');
   return { success: true };
 }
 
@@ -185,7 +185,7 @@ const formatAmt = (v) => (parseAmt(v) > 0 ? new Intl.NumberFormat('en-IN', { max
 async function resolveEntry(env, rowIndex, year) {
   const collections = filterByYear(await getSheetDataAsJSON(env, 'COLLECTIONS'), year);
   const entry = collections.find(c => parseInt(c.__rowIndex) === parseInt(rowIndex));
-  if (!entry) throw new Error('Collection entry nahi mila.');
+  if (!entry) throw new Error('Collection entry not found.');
   const users = await getSheetDataAsJSON(env, 'USERS');
   // Collections.Name actually stores the contributor's User ID (see Home.jsx's
   // contributor picker), not their display name — so this must match on ID, not

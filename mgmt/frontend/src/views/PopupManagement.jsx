@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { api, reportClientError } from '../api.js';
 import { isTruthyFlag } from '../flags.js';
 import { prepareImageForUpload } from '../imagePrep.js';
-// Purane rows me Drive ka viewer-page URL ya `uc?export=view` ho sakta hai — dono
-// browser me render nahi hote. driveUrl.js sab ko lh3 CDN form me badal deta hai.
+// Older rows may contain a Drive viewer-page URL or `uc?export=view` — neither
+// renders in the browser. driveUrl.js converts them all to the lh3 CDN form.
 import { driveImageUrl, driveImgOnError } from '../driveUrl.js';
 
 const ROLES = ['Superadmin', 'Admin', 'Subadmin', 'Public'];
@@ -55,12 +55,12 @@ function fmtStamp(v) {
 // no `.trim()` in this file can ever hit null again.
 const str = (v) => (v === undefined || v === null ? '' : v.toString());
 
-// NOTE: yahan pehle ek `fileToBase64()` tha jo file ko jaisi-hai waisi bhej deta
-// tha. Usko `imagePrep.js` ke `prepareImageForUpload()` ne replace kar diya —
-// wajah wahan comment me hai (payload size + Worker CPU + iPhone HEIC).
+// NOTE: there used to be a `fileToBase64()` here that sent the file as-is. It was
+// replaced by `prepareImageForUpload()` in `imagePrep.js` — the reason is in the
+// comment there (payload size + Worker CPU + iPhone HEIC).
 
-// Link jaisa dikhne wala button. `btn-link` class styles.css me maujood NAHI hai,
-// isliye inline style — warna ye default grey browser button dikhta.
+// A button that looks like a link. The `btn-link` class does NOT exist in styles.css,
+// so we use an inline style — otherwise it would show the default grey browser button.
 const linkBtnStyle = {
   background: 'none', border: 'none', padding: 0, font: 'inherit',
   color: 'var(--primary-saffron)', textDecoration: 'underline', cursor: 'pointer',
@@ -133,15 +133,15 @@ export default function PopupManagement() {
   const uploadSlideImage = async (i, file) => {
     setUploadingSlide(i);
     setError('');
-    // Pichhle attempt ka error/flag saaf karo, warna purana message naye upload pe
-    // bhi chipka rehta hai.
+    // Clear the previous attempt's error/flag, otherwise the old message stays
+    // stuck on the new upload too.
     updateSlide(i, { imageError: '', imageBroken: false });
     try {
-      // Pehle file jaisi-hai waisi bhej di jati thi. Ek phone photo 3-8 MB ki hoti
-      // hai (base64 me +33%), aur Worker ka decode uspe aadha second se zyada CPU
-      // le leta tha — badi photo pe upload fail. prepareImageForUpload browser me
-      // hi 1600px tak downscale + JPEG kar deta hai (~200-400 KB), aur iOS ki HEIC
-      // photo ko bhi JPEG bana deta hai.
+      // The file used to be sent as-is. A phone photo is 3-8 MB (+33% as base64),
+      // and the Worker's decode burnt over half a second of CPU on it — large
+      // photos failed to upload. prepareImageForUpload downscales to 1600px + JPEG
+      // right in the browser (~200-400 KB), and also converts iOS HEIC photos to
+      // JPEG.
       const prepped = await prepareImageForUpload(file);
       const res = await api.uploadPopupImage(prepped.base64, prepped.fileName, prepped.mimeType);
       // `res.url` is the Drive VIEWER PAGE (…/file/d/<id>/view) — an HTML document,
@@ -149,13 +149,13 @@ export default function PopupManagement() {
       // actual image (…/uc?export=view&id=<id>). Every popup image uploaded through
       // this screen was broken in the editor, at login AND on the public portal.
       const imageUrl = res.imageUrl || res.directUrl || res.url;
-      if (!imageUrl) throw new Error('Server ne image URL nahi bheja.');
+      if (!imageUrl) throw new Error('The server did not return an image URL.');
       updateSlide(i, { imageUrl, imageError: '', imageBroken: false });
     } catch (err) {
-      // `alert()` mobile pe kabhi-kabhi suppress ho jata hai, aur tab admin ko
-      // lagta hai ki "kuch hua hi nahi". Error slide ke andar bhi dikhata hu.
-      updateSlide(i, { imageError: err.message || 'Upload fail hua.' });
-      setError(`Slide ${i + 1} ki image upload nahi hui: ${err.message}`);
+      // `alert()` is sometimes suppressed on mobile, and then the admin thinks
+      // "nothing happened at all". So the error is shown inside the slide as well.
+      updateSlide(i, { imageError: err.message || 'Upload failed.' });
+      setError(`Slide ${i + 1} image upload failed: ${err.message}`);
       reportClientError('PopupManagement', 'Popup image upload failed', err, {
         slide: i, fileName: file && file.name, fileType: file && file.type, fileSize: file && file.size,
       });
@@ -174,8 +174,8 @@ export default function PopupManagement() {
       const title = str(form.title).trim();
       if (!title) throw new Error('Please enter a title');
 
-      // Sirf persist hone wale 4 field bhejo. `imageError`/`imageBroken` UI-only
-      // state hai — usko request me bhejna bekaar payload hai.
+      // Send only the 4 persisted fields. `imageError`/`imageBroken` are UI-only
+      // state — sending them in the request is wasted payload.
       const usable = slides
         .filter(s => str(s.imageUrl) || str(s.text).trim())
         .map(s => ({
@@ -185,7 +185,7 @@ export default function PopupManagement() {
           linkText: str(s.linkText),
         }));
       if (!usable.length) throw new Error('At least one slide must have an image or text');
-      if (!form.roles.length) throw new Error('Kam se kam ek role select karein, warna popup kisi ko nahi dikhega.');
+      if (!form.roles.length) throw new Error('Select at least one role, otherwise the popup will not be shown to anyone.');
 
       const popupId = editingId === 'new' ? undefined : editingId;
       const res = await api.savePopup(
@@ -268,8 +268,8 @@ export default function PopupManagement() {
             <label>End Date &amp; Time</label>
             <input type="datetime-local" value={form.endAt} onChange={e => setForm({ ...form, endAt: e.target.value })} />
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
-              Dono khaali chhod sakte hain — tab popup bina time limit ke chalega.
-              Time aapke phone ke local time me hai ({Intl.DateTimeFormat().resolvedOptions().timeZone}).
+              You can leave both empty — the popup will then run with no time limit.
+              The time is in your phone's local time ({Intl.DateTimeFormat().resolvedOptions().timeZone}).
             </div>
           </div>
         </div>
@@ -306,7 +306,7 @@ export default function PopupManagement() {
                 <input type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif" onChange={e => e.target.files[0] && uploadSlideImage(i, e.target.files[0])} />
                 {uploadingSlide === i && <div className="inline-spinner">Uploading...</div>}
 
-                {/* Upload ka error yahin dikhta hai — sirf alert() pe bharosa nahi. */}
+                {/* The upload error is shown right here — we don't rely on alert() alone. */}
                 {slide.imageError && (
                   <div style={{ marginTop: 8, padding: '8px 10px', borderRadius: 8, background: '#fdecea', color: 'var(--danger)', fontSize: '0.8rem' }}>
                     {slide.imageError}
@@ -318,10 +318,10 @@ export default function PopupManagement() {
                     src={driveImageUrl(slide.imageUrl)}
                     alt=""
                     style={{ maxWidth: '100%', maxHeight: 150, marginTop: 8, borderRadius: 8 }}
-                    // Pehle yahan `display='none'` tha — image load na hone par woh
-                    // CHUPCHAP gayab ho jati thi, to admin ko pata hi nahi chalta ki
-                    // upload hua ya nahi. Ab pehle fallback endpoint, phir saaf
-                    // placeholder.
+                    // This used to be `display='none'` — if the image failed to
+                    // load it disappeared SILENTLY, so the admin had no idea whether
+                    // the upload succeeded. Now it tries the fallback endpoint first,
+                    // then shows a clear placeholder.
                     onError={(e) => {
                       const img = e.currentTarget;
                       if (img.dataset.driveFallbackTried !== '1') {
@@ -337,13 +337,13 @@ export default function PopupManagement() {
                 {slide.imageUrl && slide.imageBroken && (
                   <div style={{ marginTop: 8, padding: 10, borderRadius: 8, border: '1px dashed var(--danger)', fontSize: '0.8rem' }}>
                     <div style={{ fontWeight: 600, color: 'var(--danger)', marginBottom: 4 }}>
-                      Image load nahi hui — public portal pe bhi nahi dikhegi
+                      The image failed to load — it will not show on the public portal either
                     </div>
                     <div style={{ color: 'var(--text-muted)', wordBreak: 'break-all', marginBottom: 6 }}>{slide.imageUrl}</div>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      <a href={slide.imageUrl} target="_blank" rel="noreferrer">Link kholein</a>
-                      <button type="button" style={linkBtnStyle} onClick={() => updateSlide(i, { imageBroken: false })}>Dobara koshish</button>
-                      <button type="button" style={linkBtnStyle} onClick={() => updateSlide(i, { imageUrl: '', imageBroken: false, imageError: '' })}>Image hatayein</button>
+                      <a href={slide.imageUrl} target="_blank" rel="noreferrer">Open link</a>
+                      <button type="button" style={linkBtnStyle} onClick={() => updateSlide(i, { imageBroken: false })}>Try again</button>
+                      <button type="button" style={linkBtnStyle} onClick={() => updateSlide(i, { imageUrl: '', imageBroken: false, imageError: '' })}>Remove image</button>
                     </div>
                   </div>
                 )}
@@ -394,17 +394,17 @@ export default function PopupManagement() {
       {/* Popups are NOT year-scoped, but this screen sits under the app's global
           year selector, which made it look as though they were. */}
       <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 12 }}>
-        Popups saal se independent hain — upar ka year selector inpe apply nahi hota.
+        Popups are independent of the year — the year selector above does not apply to them.
       </p>
       {error && <div className="error-banner">{error}</div>}
 
       {preview && (
         <div className="glass-card" style={{ padding: 15, marginBottom: 15 }}>
-          <strong style={{ fontSize: '0.9rem' }}>Public portal par abhi kya dikhega</strong>
+          <strong style={{ fontSize: '0.9rem' }}>What will show on the public portal right now</strong>
           {preview.shown.length === 0 ? (
             <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '8px 0 0' }}>
-              Kuch bhi nahi. Public portal par dikhne ke liye popup me: <strong>Public</strong> role hona chahiye,
-              Active hona chahiye, date window ke andar hona chahiye, aur kam se kam 1 slide honi chahiye.
+              Nothing. To appear on the public portal, a popup must have the <strong>Public</strong> role,
+              be Active, fall within its date window, and have at least 1 slide.
             </p>
           ) : (
             <p style={{ fontSize: '0.8rem', margin: '8px 0 0' }}>
@@ -413,21 +413,21 @@ export default function PopupManagement() {
           )}
           {preview.alsoEligibleButNotShown.length > 0 && (
             <div style={{ background: '#FEF3C7', color: '#92400E', borderRadius: 6, padding: '6px 10px', fontSize: '0.75rem', marginTop: 8 }}>
-              ⚠️ Public portal ek waqt me sirf <strong>pehla</strong> popup dikhata hai. Ye eligible hain par
-              nahi dikhenge: {preview.alsoEligibleButNotShown.map(x => x.title).join(', ')}. Inke start/end
-              time alag-alag karein.
+              ⚠️ The public portal shows only the <strong>first</strong> popup at a time. These are eligible but
+              will not show: {preview.alsoEligibleButNotShown.map(x => x.title).join(', ')}. Set their start/end
+              times to different windows.
             </div>
           )}
           {preview.droppedNoSlides.length > 0 && (
             <div style={{ background: '#FEE2E2', color: '#991B1B', borderRadius: 6, padding: '6px 10px', fontSize: '0.75rem', marginTop: 8 }}>
-              ⚠️ Bina slide ke chhod diye gaye: {preview.droppedNoSlides.map(x => x.title).join(', ')}
+              ⚠️ Dropped because they have no slides: {preview.droppedNoSlides.map(x => x.title).join(', ')}
             </div>
           )}
           <button
             type="button" className="btn-submit"
             style={{ width: 'auto', marginTop: 10, padding: '4px 10px', fontSize: '0.75rem', background: '#e5e7eb', color: '#111' }}
             onClick={() => setPreview(null)}
-          >Band karein</button>
+          >Close</button>
         </div>
       )}
 
@@ -462,23 +462,23 @@ export default function PopupManagement() {
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
                 <span className={`badge ${isActive ? 'badge-ok' : 'badge-warn'}`}>{isActive ? 'Active' : 'Inactive'}</span>
-                {liveNow && <span className="badge badge-ok" style={{ fontSize: '0.65rem' }}>Abhi dikh raha hai</span>}
+                {liveNow && <span className="badge badge-ok" style={{ fontSize: '0.65rem' }}>Showing now</span>}
               </div>
             </div>
 
             {isActive && noSlides && (
               <div style={{ background: '#FEE2E2', color: '#991B1B', borderRadius: 6, padding: '6px 10px', fontSize: '0.75rem', marginTop: 8 }}>
-                ⚠️ Is popup me koi slide nahi hai — ye kisi ko <strong>nahi</strong> dikhega. Edit karke slide add karein.
+                ⚠️ This popup has no slides — it will <strong>not</strong> be shown to anyone. Edit it to add a slide.
               </div>
             )}
             {isActive && notYet && (
               <div style={{ background: '#FEF3C7', color: '#92400E', borderRadius: 6, padding: '6px 10px', fontSize: '0.75rem', marginTop: 8 }}>
-                ⏳ Start time abhi aaya nahi hai ({start}) — tab tak nahi dikhega.
+                ⏳ The start time has not arrived yet ({start}) — it will not show until then.
               </div>
             )}
             {isActive && over && (
               <div style={{ background: '#FEF3C7', color: '#92400E', borderRadius: 6, padding: '6px 10px', fontSize: '0.75rem', marginTop: 8 }}>
-                ⌛ End time nikal chuka hai ({end}) — ab nahi dikhega.
+                ⌛ The end time has passed ({end}) — it will no longer show.
               </div>
             )}
             <div className="row-actions" style={{ marginTop: 10 }}>

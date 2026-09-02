@@ -30,7 +30,7 @@ export default function StorageManagement() {
   useEffect(() => { load(); }, []);
 
   const moveYear = async (year) => {
-    if (!confirm(`${year} ke saare files (PDFs + consent photos/signatures) Google Drive par move honge, aur R2 se hata diye jaayenge. Ye action R2 space free karta hai. Continue?`)) return;
+    if (!confirm(`All files for ${year} (PDFs + consent photos/signatures) will be moved to Google Drive and removed from R2. This frees up R2 space. Continue?`)) return;
     setBusyYear(year);
     setResult('');
     try {
@@ -48,9 +48,9 @@ export default function StorageManagement() {
     <>
       <h2 style={{ marginBottom: 15 }}>Storage Management</h2>
       <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 15 }}>
-        Naye files R2 (fast storage) par jaate hain. Purane saal ko "Move to Drive"
-        se archive kar sakte hain — us saal ke saare files Drive par chale jaayenge
-        aur R2 ka space free ho jaayega. Popup images hamesha R2 par rehti hain.
+        New files are stored on R2 (fast storage). You can archive an older year
+        using "Move to Drive" — all of that year's files move to Drive and free up
+        R2 space. Popup images always remain on R2.
       </p>
 
       {loading && <div className="inline-spinner">Loading...</div>}
@@ -58,9 +58,9 @@ export default function StorageManagement() {
 
       {!loading && data && !data.r2Enabled && (
         <div style={{ background: '#FEF3C7', color: '#92400E', borderRadius: 8, padding: '10px 12px', fontSize: '0.85rem', marginBottom: 15 }}>
-          ⚠️ R2 storage abhi configure nahi hai (bucket + R2_PUBLIC_BASE). Files
-          filhaal Google Drive par ja rahe hain. Setup ke baad ye screen R2 usage
-          dikhayegi.
+          ⚠️ R2 storage is not configured yet (bucket + R2_PUBLIC_BASE). Files are
+          currently going to Google Drive. Once set up, this screen will show R2
+          usage.
         </div>
       )}
 

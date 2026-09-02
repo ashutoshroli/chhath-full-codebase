@@ -46,11 +46,11 @@ export async function reportErrorToWhatsApp(env, errorId) {
   if (!errorId) throw new Error('errorId required');
 
   const row = await env.DB_LOGS.prepare('SELECT * FROM error_log WHERE error_id = ?').bind(errorId).first();
-  if (!row) throw new Error('Error record nahi mila.');
+  if (!row) throw new Error('Error record not found.');
   if (isTruthyFlag(row.reported)) return { success: true, alreadyReported: true };
 
   if (!(await withinReportRateLimit(env))) {
-    throw new Error('Bahut zyada error reports bheje ja chuke hain. Thodi der baad koshish karein.');
+    throw new Error('Too many error reports have been sent. Please try again after a while.');
   }
 
   const users = await getSheetDataAsJSON(env, 'USERS');
@@ -66,7 +66,7 @@ export async function reportErrorToWhatsApp(env, errorId) {
       .filter(Boolean)
   )];
   if (numbers.length === 0) {
-    throw new Error('Koi Superadmin ka WhatsApp/Mobile number USERS mein registered nahi hai.');
+    throw new Error('No Superadmin WhatsApp/Mobile number is registered in USERS.');
   }
 
   const msg = `⚠️ Error Report\nPage: ${row.page}\nSource: ${row.source}\nMessage: ${row.message}\nTime: ${row.created_at}\nRef: ${row.error_id}`;
@@ -96,7 +96,7 @@ export async function reportErrorToWhatsApp(env, errorId) {
     await logErrorAt(env, 'backend-errorLog', 'reportErrorToWhatsApp', err, {
       errorId, queued, total: numbers.length,
     });
-    throw new Error(`Error report bhejte waqt problem hui (${queued}/${numbers.length} bheje gaye): ${err.message}`);
+    throw new Error(`A problem occurred while sending the error report (${queued}/${numbers.length} sent): ${err.message}`);
   }
 
   return { success: true, sentTo: queued };

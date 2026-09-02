@@ -46,8 +46,8 @@ export default function ReportErrorButton({ page, message, stack }) {
   if (logFailed) {
     return (
       <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: 10 }}>
-        Ye error server par record nahi ho paya (internet ya server ki problem).
-        Kripya Superadmin ko direct batayein.
+        This error could not be recorded on the server (an internet or server problem).
+        Please inform the Superadmin directly.
       </p>
     );
   }
@@ -60,7 +60,7 @@ export default function ReportErrorButton({ page, message, stack }) {
       onClick={send}
       disabled={!errorId || sending}
     >
-      {sending ? 'Sending...' : !errorId ? 'Taiyaar ho raha hai...' : '📩 Report this to Superadmin'}
+      {sending ? 'Sending...' : !errorId ? 'Preparing...' : '📩 Report this to Superadmin'}
     </button>
   );
 }

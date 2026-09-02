@@ -152,7 +152,7 @@ export default function ListManagement() {
         )}
       </div>
 
-      {yearsError && <div className="error-banner">Years load nahi hue: {yearsError}</div>}
+      {yearsError && <div className="error-banner">Years failed to load: {yearsError}</div>}
       <FestivalDates years={years} />
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 15, flexWrap: 'wrap' }}>

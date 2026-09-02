@@ -23,9 +23,9 @@ const ANNOUNCE_MIN_PIN_LENGTH = 6;
 
 export async function generateAnnouncementLink(env, year, pin, expiresAt, user) {
   requireAdminOrAbove(user);
-  if (!year) throw ValidationError('Year zaroori hai');
+  if (!year) throw ValidationError('Year is required');
   if (!pin || pin.toString().trim().length < ANNOUNCE_MIN_PIN_LENGTH) {
-    throw ValidationError(`PIN kam se kam ${ANNOUNCE_MIN_PIN_LENGTH} digit ka hona chahiye`);
+    throw ValidationError(`PIN must be at least ${ANNOUNCE_MIN_PIN_LENGTH} digits`);
   }
 
   const token = generateAnnouncementToken();
@@ -56,28 +56,28 @@ export async function getAnnouncementLinks(env, user) {
 export async function revokeAnnouncementLink(env, token, user) {
   requireAdminOrAbove(user);
   const result = await env.DB_MISC.prepare('UPDATE announcement_links SET active = 0 WHERE token = ?').bind(token).run();
-  if (!result.meta.changes) throw ValidationError('Link nahi mila');
+  if (!result.meta.changes) throw ValidationError('Link not found');
   return { success: true };
 }
 
 // ---- Public: PIN verification -> short announceToken session (KV, mirrors login-fail-lock pattern) ----
 
 export async function verifyAnnouncementPin(env, token, pin) {
-  if (!token || !pin) return { success: false, message: 'PIN zaroori hai' };
+  if (!token || !pin) return { success: false, message: 'PIN is required' };
 
   const lockKey = 'announcepinfail:' + token;
   const fails = parseInt((await env.KV_SESSIONS.get(lockKey)) || '0');
   if (fails >= ANNOUNCE_MAX_PIN_ATTEMPTS) {
-    return { success: false, message: 'Bahut zyada galat attempt. Kuch der baad try karein.' };
+    return { success: false, message: 'Too many incorrect attempts. Please try again after some time.' };
   }
 
   const row = await env.DB_MISC.prepare('SELECT * FROM announcement_links WHERE token = ?').bind(token).first();
-  if (!row) return { success: false, message: 'Ye link valid nahi hai' };
+  if (!row) return { success: false, message: 'This link is not valid' };
 
-  if (!isTruthyFlag(row.active)) return { success: false, message: 'Ye link expire ho chuka hai', expired: true };
+  if (!isTruthyFlag(row.active)) return { success: false, message: 'This link has expired', expired: true };
   if (row.expiresat) {
     const exp = new Date(row.expiresat).getTime();
-    if (!isNaN(exp) && Date.now() > exp) return { success: false, message: 'Ye link expire ho chuka hai', expired: true };
+    if (!isNaN(exp) && Date.now() > exp) return { success: false, message: 'This link has expired', expired: true };
   }
 
   // Constant-time verification; accepts both the legacy bare-SHA-256 PIN hash and
@@ -85,7 +85,7 @@ export async function verifyAnnouncementPin(env, token, pin) {
   const { ok, needsUpgrade } = await verifyPassword(env, pin.toString().trim(), row.pin);
   if (!ok) {
     await env.KV_SESSIONS.put(lockKey, String(fails + 1), { expirationTtl: ANNOUNCE_PIN_LOCKOUT_SECONDS });
-    return { success: false, message: 'Galat PIN' };
+    return { success: false, message: 'Incorrect PIN' };
   }
   await env.KV_SESSIONS.delete(lockKey);
 
@@ -117,7 +117,7 @@ export async function verifyAnnouncementPin(env, token, pin) {
 export async function requireAnnounceSession(env, announceToken) {
   const raw = await env.KV_SESSIONS.get('announce:' + announceToken);
   if (!raw) {
-    const err = new Error('Session expire ho gaya, PIN dobara daalein');
+    const err = new Error('Session expired, please enter the PIN again');
     err.announceSessionExpired = true;
     throw err;
   }
@@ -216,7 +216,7 @@ export async function markAnnounced(env, announceToken, itemId, itemType) {
     return { success: true, announcedCount: currentCount + 1 };
   }
   const rowIndex = parseInt(itemId);
-  if (!rowIndex) throw ValidationError('Item nahi mila');
+  if (!rowIndex) throw ValidationError('Item not found');
   const row = await env.DB_COLLECTIONS.prepare('SELECT announcedcount FROM collections WHERE id = ?').bind(rowIndex).first();
   const currentCount = row ? (parseInt(row.announcedcount) || 0) : 0;
   await env.DB_COLLECTIONS.prepare('UPDATE collections SET announced = 1, announcedcount = ? WHERE id = ?')
@@ -250,8 +250,8 @@ export async function reannounceAll(env, announceToken, typeFilter) {
 
 export async function addCustomAnnouncement(env, year, textHindi, textEnglish, priority, user) {
   requireAdminOrAbove(user);
-  if (!year) throw ValidationError('Year zaroori hai');
-  if (!(textHindi || '').toString().trim() && !(textEnglish || '').toString().trim()) throw ValidationError('Hindi ya English text me se kam se kam ek zaroori hai');
+  if (!year) throw ValidationError('Year is required');
+  if (!(textHindi || '').toString().trim() && !(textEnglish || '').toString().trim()) throw ValidationError('At least one of Hindi or English text is required');
 
   const collectionsForYear = (await getSheetDataAsJSON(env, 'COLLECTIONS')).filter(r => parseInt(r.Year) === parseInt(year));
   const id = generateCustomAnnouncementId();
@@ -266,14 +266,14 @@ export async function updateCustomAnnouncement(env, id, textHindi, textEnglish, 
   const result = await env.DB_MISC.prepare(
     'UPDATE custom_announcements SET texthindi = ?, textenglish = ?, priority = ? WHERE id_code = ?'
   ).bind(textHindi || '', textEnglish || '', priority ? 1 : 0, id.toString()).run();
-  if (!result.meta.changes) throw ValidationError('Custom announcement nahi mila');
+  if (!result.meta.changes) throw ValidationError('Custom announcement not found');
   return { success: true };
 }
 
 export async function deleteCustomAnnouncement(env, id, user) {
   requireAdminOrAbove(user);
   const result = await env.DB_MISC.prepare('DELETE FROM custom_announcements WHERE id_code = ?').bind(id.toString()).run();
-  if (!result.meta.changes) throw ValidationError('Custom announcement nahi mila');
+  if (!result.meta.changes) throw ValidationError('Custom announcement not found');
   return { success: true };
 }
 

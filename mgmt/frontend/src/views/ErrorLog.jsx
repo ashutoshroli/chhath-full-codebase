@@ -43,7 +43,7 @@ function ErrorRow({ r, onReport, busy }) {
             color: 'var(--primary-saffron)', fontSize: '0.75rem', textDecoration: 'underline',
           }}
         >
-          {open ? 'Details chhupayein' : 'Stack / context dekhein'}
+          {open ? 'Hide details' : 'View stack / context'}
         </button>
       )}
       {open && (
@@ -55,7 +55,7 @@ function ErrorRow({ r, onReport, busy }) {
           }}
         >
           {r.context ? `context: ${r.context}\n\n` : ''}
-          {r.stack || '(koi stack trace record nahi hua)'}
+          {r.stack || '(no stack trace was recorded)'}
         </pre>
       )}
 
@@ -65,10 +65,10 @@ function ErrorRow({ r, onReport, busy }) {
           <span style={{ fontSize: '0.75rem', color: 'var(--success)' }}>✓ Reported</span>
         ) : !r.error_id ? (
           // Rows written by the OLD docxTemplates.js INSERT have no error_id at
-          // all, which made "Report to WhatsApp" always throw "Error record nahi
-          // mila." Tell the admin instead of offering a button that can't work.
+          // all, which made "Report to WhatsApp" always throw "Error record not
+          // found." Tell the admin instead of offering a button that can't work.
           <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-            Purana record (Ref missing) — report nahi kiya ja sakta
+            Old record (Ref missing) — cannot be reported
           </span>
         ) : (
           <button
@@ -111,9 +111,9 @@ export default function ErrorLog() {
     try {
       const res = await api.reportErrorToWhatsApp(errorId);
       if (res && res.alreadyReported) {
-        alert('Ye error pehle hi report ho chuka hai.');
+        alert('This error has already been reported.');
       } else {
-        alert(`WhatsApp par bhej diya gaya (${(res && res.sentTo) || 0} Superadmin).`);
+        alert(`Sent to WhatsApp (${(res && res.sentTo) || 0} Superadmin(s)).`);
       }
       load(limit);
     } catch (err) {
@@ -165,7 +165,7 @@ export default function ErrorLog() {
         />
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)} style={{ width: 'auto', flex: '0 1 auto' }}>
-            {sources.map(s => <option key={s} value={s}>{s === 'All' ? 'Saare sources' : s}</option>)}
+            {sources.map(s => <option key={s} value={s}>{s === 'All' ? 'All sources' : s}</option>)}
           </select>
           <select value={limit} onChange={e => setLimit(Number(e.target.value))} style={{ width: 'auto', flex: '0 1 auto' }}>
             <option value={300}>Last 300</option>
@@ -174,13 +174,13 @@ export default function ErrorLog() {
           </select>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, margin: 0, fontSize: '0.8rem' }}>
             <input type="checkbox" checked={onlyUnreported} onChange={e => setOnlyUnreported(e.target.checked)} style={{ width: 'auto' }} />
-            Sirf un-reported ({unreportedCount})
+            Unreported only ({unreportedCount})
           </label>
         </div>
         {rows && (
           <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '8px 0 0' }}>
-            {filtered.length} / {rows.length} rows dikh rahe hain.
-            {' '}Ek jaisa error 5 minute ke andar dobara aaye to naya row nahi banta (de-duplication), isliye purane errors list se bahar nahi jate.
+            Showing {filtered.length} / {rows.length} rows.
+            {' '}If the same error recurs within 5 minutes, no new row is created (de-duplication), so older errors stay in the list.
           </p>
         )}
       </div>
@@ -188,7 +188,7 @@ export default function ErrorLog() {
       {loading && <div className="inline-spinner">Loading...</div>}
       {!loading && (!rows || rows.length === 0) && <div style={{ textAlign: 'center', padding: 20 }}>No errors have been logged.</div>}
       {!loading && rows && rows.length > 0 && filtered.length === 0 && (
-        <div style={{ textAlign: 'center', padding: 20 }}>Is filter se koi error match nahi hua.</div>
+        <div style={{ textAlign: 'center', padding: 20 }}>No errors match this filter.</div>
       )}
 
       {!loading && filtered.map((r, i) => (

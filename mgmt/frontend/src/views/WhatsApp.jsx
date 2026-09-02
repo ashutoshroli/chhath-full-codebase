@@ -437,9 +437,9 @@ function MessageLog() {
 
       {stuckCount > 0 && (
         <div style={{ background: '#FEE2E2', color: '#991B1B', borderRadius: 8, padding: '10px 12px', fontSize: '0.85rem', margin: '10px 0' }}>
-          🚨 <strong>{stuckCount} message{stuckCount === 1 ? '' : 's'}</strong> 30 minute se zyada se queue mein atke hain
-          ({stuck.person.length} person, {stuck.group.length} group) — matlab bahar wala WhatsApp sender script chal nahi raha,
-          ya uska API key / URL galat hai. Sender script aur <code>WHATSAPP_QUEUE_API_KEY</code> check karein.
+          🚨 <strong>{stuckCount} message{stuckCount === 1 ? '' : 's'}</strong> have been stuck in the queue for over 30 minutes
+          ({stuck.person.length} person, {stuck.group.length} group) — this means the external WhatsApp sender script is not running,
+          or its API key / URL is incorrect. Check the sender script and <code>WHATSAPP_QUEUE_API_KEY</code>.
         </div>
       )}
 

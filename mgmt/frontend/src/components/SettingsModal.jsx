@@ -60,8 +60,8 @@ export default function SettingsModal({ open, onClose, userId }) {
     <Modal open={open} onClose={onClose}>
       {loadError && (
         <div className="error-banner">
-          Profile load nahi hua: {loadError} — save karne se pehle page refresh karein,
-          warna aapka mobile/email/WhatsApp mit sakta hai.
+          Profile failed to load: {loadError} — please refresh the page before saving,
+          otherwise your mobile/email/WhatsApp may be lost.
         </div>
       )}
       <h3 style={{ marginBottom: 15 }}>Settings</h3>

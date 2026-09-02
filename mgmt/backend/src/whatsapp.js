@@ -273,22 +273,22 @@ export async function resendMessage(env, type, messageId, user) {
   const row = await env.DB_WHATSAPP_INDEX.prepare(
     `SELECT id, status, attempts FROM ${table} WHERE message_id = ?`
   ).bind(messageId.toString().trim()).first();
-  if (!row) throw ValidationError('Message nahi mila.');
-  if (row.status === 'sent') throw ValidationError('Ye message pehle hi bhej diya gaya hai.');
+  if (!row) throw ValidationError('Message not found.');
+  if (row.status === 'sent') throw ValidationError('This message has already been sent.');
 
   // Previously this HARD-REQUIRED status === 'failed'. But nothing in this repo
   // ever sets 'failed' (only the external sender does), so a message stuck at
   // 'pending' was unrecoverable through the UI. A stuck/claimed/pending row is
   // now resendable too.
   if (!['failed', 'pending', 'sending', 'resending'].includes(row.status)) {
-    throw ValidationError('Is status ka message resend nahi kiya ja sakta (current status: ' + row.status + ')');
+    throw ValidationError('A message with this status cannot be resent (current status: ' + row.status + ')');
   }
 
   // resendMessage had no attempt cap at all (unlike resendConsent's send_count
   // >= 5), so a Superadmin could loop it indefinitely.
   const attempts = parseInt(row.attempts) || 0;
   if (attempts >= MAX_ATTEMPTS) {
-    throw ValidationError(`Ye message ${attempts} baar try ho chuka hai. Number/template check karein, phir naya message queue karein.`);
+    throw ValidationError(`This message has already been tried ${attempts} times. Check the number/template, then queue a new message.`);
   }
 
   await env.DB_WHATSAPP_INDEX.prepare(

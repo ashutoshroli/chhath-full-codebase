@@ -94,7 +94,7 @@ export default function BulkGeneratePdfs() {
           // Was `.catch(() => '')`. An empty QR value produced a permanently
           // archived PDF with a broken QR, silently killing the public
           // "Verified Record" scan for that document.
-          appendLog(`⚠️ ${label} — ${rec.recordId}: QR generate nahi hua, PDF ka QR blank rahega.`);
+          appendLog(`⚠️ ${label} — ${rec.recordId}: QR generation failed; the QR in the PDF will be blank.`);
           reportClientError('BulkGeneratePdfs', `QR generation failed for ${rec.recordId}`, qrErr, { docType, year, recordId: rec.recordId });
         }
 
@@ -124,7 +124,7 @@ export default function BulkGeneratePdfs() {
         // public portal looked completely fine here.
         const notIndexed = !!(res && res.indexFailed);
         if (notIndexed) {
-          appendLog(`⚠️ ${label} — ${rec.recordId}: PDF bana lekin public portal mein INDEX nahi hua.`);
+          appendLog(`⚠️ ${label} — ${rec.recordId}: PDF was generated but NOT indexed in the public portal.`);
           reportClientError('BulkGeneratePdfs', `PDF generated but NOT indexed: ${rec.recordId}`, null,
             { docType, year, recordId: rec.recordId, publicLink: res && res.publicLink });
         }

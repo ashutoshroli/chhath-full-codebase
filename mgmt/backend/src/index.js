@@ -38,7 +38,7 @@ const READ_ONLY_ACTIONS = new Set([
   'getRecordsForDocType', 'getGeneratedFilesForYear', 'searchUsersByVillageAndName', 'getPersonDownloads',
   'getStorageOverview',
   'exportBackup',
-  'getCollectionQueueStatus',
+  'getCollectionQueueStatus', 'getQueueJobsForSuperadmin',
   'getPopups', 'getPopupWithSlides', 'getActivePopups', 'previewPublicPopups',
   'logError', 'reportErrorToWhatsApp', 'getErrorLog',
   'getLoanTemplates',
@@ -149,9 +149,9 @@ const NO_SERVER_AUTOLOG = new Set(['logError', 'reportErrorToWhatsApp', 'getErro
 // refusal, a user-facing validation message.
 //
 // This used to only check authError/announceSessionExpired, so every
-// PermissionError ("Sirf Superadmin ye action kar sakta hai") and every
-// validation message ("Galat PIN", "OTP galat hai", "Ye Email pehle se
-// registered hai") became an Error Log row. The live log had 278 rows of which
+// PermissionError ("Only a Superadmin can perform this action") and every
+// validation message ("Incorrect PIN", "Incorrect OTP", "This email is already
+// registered") became an Error Log row. The live log had 278 rows of which
 // ~50 were these — real defects were impossible to spot. `expected` is set by
 // PermissionError / AuthError / ValidationError in auth.js.
 function isExpectedError(err) {
@@ -201,7 +201,7 @@ export default {
       const limited = await isRateLimited(env, edgeIp, action).catch(() => false);
       if (limited) {
         return jsonOut(
-          { success: false, message: 'Bahut zyada requests. Thodi der baad koshish karein.' },
+          { success: false, message: 'Too many requests. Please try again in a little while.' },
           request, env
         );
       }
@@ -381,6 +381,11 @@ export default {
       // a read-only status panel available to any staff role.
       enqueueCollectionJob: () => withAuth(env, req, (user) => cq.enqueueCollectionJob(env, req.job, user)),
       getCollectionQueueStatus: () => withAuth(env, req, (user) => cq.getCollectionQueueStatus(env, user)),
+      // Superadmin-only Queue Monitor tab: full, filterable job list across ALL
+      // users (getQueueJobsForSuperadmin) + a retry action for failed/stuck jobs
+      // (retryQueueJob). Both enforce requireSuperadmin inside collectionQueue.js.
+      getQueueJobsForSuperadmin: () => withAuth(env, req, (user) => cq.getQueueJobsForSuperadmin(env, user, { status: req.status, limit: req.limit })),
+      retryQueueJob: () => withAuth(env, req, (user) => cq.retryQueueJob(env, user, req.jobId)),
       // On-demand queue drain. Cloudflare Cron Triggers on the free plan fire
       // unreliably (and never in local/preview), so the frontend calls this
       // fire-and-forget right after a save — the PDF + WhatsApp then process
