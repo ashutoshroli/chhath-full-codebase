@@ -405,8 +405,13 @@ async function readOtpMeta(env, consentId) {
 async function writeOtpMeta(env, consentId, meta) {
   if (!env.KV_SESSIONS) return;
   try {
+    // TTL must comfortably outlast BOTH the OTP validity and the verify->respond
+    // window, otherwise the meta (which now also holds the verifyToken) could
+    // expire mid-window and wrongly block a legitimate submit. Use the larger of
+    // the two windows + a 5-min buffer.
+    const ttlSeconds = Math.ceil(Math.max(OTP_TTL_MS, OTP_RESPOND_WINDOW_MS) / 1000) + 300;
     await env.KV_SESSIONS.put(otpMetaKey(consentId), JSON.stringify(meta), {
-      expirationTtl: Math.max(60, Math.ceil(OTP_TTL_MS / 1000) * 2),
+      expirationTtl: Math.max(60, ttlSeconds),
     });
   } catch (e) { /* KV unavailable — verification still works, just without TTL */ }
 }
@@ -434,22 +439,21 @@ export async function requestConsentOtp(env, token) {
   const otp = generateOtp();
   const issuedAt = Date.now();
   // BUGFIX (Issue 2 — parallel OTP request invalidated an already-verified user):
-  // this used to also set `otp_verified = 0`. So if person A verified their OTP and
-  // then ANY new OTP was requested for the same consent (a second tab, a resend, or
-  // simply re-opening the link), A's verified state was wiped and A's submit failed
-  // with "Please verify with the WhatsApp OTP first." Issuing a fresh OTP must NOT
-  // revoke an existing verification. Security is unaffected: verifyConsentOtp still
-  // sets otp_verified=1 + a fresh verifiedAt, respondConsent still requires
-  // otp_verified=1 AND enforces the 20-min verify->respond window (audit 1.4), and
-  // the new OTP overwrites the `otp` column so the old code can't be reused. We only
-  // update the `otp` column here and leave otp_verified as-is.
+  // issuing a fresh OTP must NOT revoke an existing verification. We only overwrite
+  // the `otp` column (so the previous code can't be reused) and PRESERVE the prior
+  // verification proof (verifiedAt + verifyToken) in KV, so a user who already
+  // verified in their own browser keeps working even if a second tab / resend /
+  // another visitor requests a new OTP. That other visitor still has no verifyToken
+  // of their own, so THEY must verify to act (see respondConsent). verifyConsentOtp
+  // mints a fresh verifyToken + verifiedAt when the new OTP is verified.
   await env.DB_LOANS_EXPENSES.prepare('UPDATE loan_consents SET otp = ? WHERE id = ?').bind(otp, rowObj.id).run();
   await writeOtpMeta(env, rowObj.consent_id, {
     issuedAt,
     attempts: 0,
-    // Preserve an existing verifiedAt so a prior verification keeps its window;
-    // verifying the new OTP will refresh it.
+    // Preserve an existing verification so a prior verified client keeps its
+    // window + token; verifying the new OTP overwrites these with fresh values.
     verifiedAt: (prev && prev.verifiedAt) || undefined,
+    verifyToken: (prev && prev.verifyToken) || undefined,
     requests: recentRequests.concat(issuedAt),
   });
 
@@ -506,26 +510,47 @@ export async function verifyConsentOtp(env, token, otp) {
   }
 
   await env.DB_LOANS_EXPENSES.prepare('UPDATE loan_consents SET otp_verified = 1 WHERE id = ?').bind(rowObj.id).run();
-  // Burn the OTP so the same code can't be reused after the decision window.
-  await writeOtpMeta(env, rowObj.consent_id, Object.assign({}, meta, { attempts: 0, verifiedAt: Date.now() }));
-  return { success: true };
+
+  // SECURITY: bind this verification to WHOEVER just proved control of the OTP,
+  // instead of leaving a permanent otp_verified=1 flag that ANY later visitor to
+  // the link could ride on (that flag persists in the DB, so once one person
+  // verified, a stranger who merely opened the link could Accept WITHOUT any OTP).
+  // We mint a random verifyToken, hand it back to this client only, and require it
+  // in respondConsent. A different browser/person has no such token, so they must
+  // verify their own OTP. The token is stored in KV with the same 20-min window as
+  // the verify->respond limit (audit 1.4).
+  const verifyToken = crypto.randomUUID().replace(/-/g, '') + Math.random().toString(36).slice(2, 8);
+  const verifiedAt = Date.now();
+  // Burn the OTP so the same code can't be reused, and record the verify token.
+  await writeOtpMeta(env, rowObj.consent_id, Object.assign({}, meta, { attempts: 0, verifiedAt, verifyToken }));
+  return { success: true, verifyToken };
 }
 
-export async function respondConsent(env, token, decision, deviceId, deviceInfo, clientIp, geoLat, geoLng, geoAccuracy, photoBase64, signatureBase64, declineRemarks) {
+export async function respondConsent(env, token, decision, deviceId, deviceInfo, clientIp, geoLat, geoLng, geoAccuracy, photoBase64, signatureBase64, declineRemarks, verifyToken) {
   if (decision !== 'accepted' && decision !== 'declined') throw new Error('Invalid decision');
   const rowObj = await findConsentRowByToken(env, token);
   if (!rowObj) throw ValidationError('This link is not valid.');
   if (rowObj.status !== 'pending') throw ValidationError('Your response for this loan has already been recorded — it is locked.');
-  if (!isTruthyFlag(rowObj.otp_verified)) throw ValidationError('Please verify with the WhatsApp OTP first.');
 
-  // Audit 1.4: enforce a verify->respond window. verifyConsentOtp stamps
-  // `verifiedAt` in KV; if the OTP was verified too long ago, require a fresh
-  // OTP before the (legally significant) Accept/Decline is accepted. If the KV
-  // meta is unavailable we do NOT block (fail open) — the otp_verified flag on
-  // the row still gates this, so a KV outage can't lock a genuine user out of
-  // responding; see readOtpMeta.
+  // SECURITY: the ONLY thing that authorizes a response is a valid, unexpired
+  // verifyToken minted for THIS client when it verified the OTP (see
+  // verifyConsentOtp). We deliberately do NOT accept the persistent
+  // otp_verified=1 DB flag as proof — that flag stays set on the consent row, so
+  // relying on it let ANY later visitor to the link Accept/Decline WITHOUT ever
+  // entering an OTP. A stranger opening the link has no verifyToken, so they are
+  // forced to verify their own OTP.
   const respondMeta = await readOtpMeta(env, rowObj.consent_id);
-  if (respondMeta && respondMeta.verifiedAt && Date.now() - respondMeta.verifiedAt > OTP_RESPOND_WINDOW_MS) {
+  const supplied = (verifyToken || '').toString();
+  const stored = (respondMeta && respondMeta.verifyToken) || '';
+  const tokenOk = !!stored && !!supplied && timingSafeEqualHex(
+    Array.from(supplied).map(c => c.charCodeAt(0).toString(16).padStart(2, '0')).join(''),
+    Array.from(stored).map(c => c.charCodeAt(0).toString(16).padStart(2, '0')).join('')
+  );
+  if (!tokenOk) {
+    throw ValidationError('Please verify with the WhatsApp OTP first.');
+  }
+  // Audit 1.4: enforce the verify->respond window against THIS verification.
+  if (respondMeta.verifiedAt && Date.now() - respondMeta.verifiedAt > OTP_RESPOND_WINDOW_MS) {
     throw ValidationError('Your verification has expired. Please request and enter a new OTP, then submit your response.');
   }
 
