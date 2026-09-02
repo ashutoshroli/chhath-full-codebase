@@ -291,6 +291,8 @@ export const api = {
     token, decision,
     geoLat: extra.geo && extra.geo.lat, geoLng: extra.geo && extra.geo.lng, geoAccuracy: extra.geo && extra.geo.accuracy,
     photoBase64: extra.photoBase64, signatureBase64: extra.signatureBase64, declineRemarks: extra.declineRemarks,
+    // Session-bound proof that THIS client verified the OTP (see verifyConsentOtp).
+    verifyToken: extra.verifyToken,
   }, false),
 
   // Festival Dates (read: any logged-in user; write: Superadmin)

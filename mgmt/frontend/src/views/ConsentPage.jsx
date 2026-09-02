@@ -144,12 +144,27 @@ export default function ConsentPage() {
   const [error, setError] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [otp, setOtp] = useState('');
-  // Gates the Accept/Decline step. Set true either (a) after verifyConsentOtp
-  // succeeds in this session, or (b) on load when the DB already reports the
-  // consent as OTP-verified and still pending (so a page refresh after verifying
-  // does NOT re-prompt for the OTP — Issue 1). The server's otp_verified flag is
-  // authoritative and survives reloads; requesting a new OTP no longer clears it.
-  const [verifiedThisSession, setVerifiedThisSession] = useState(false);
+  // SECURITY: the Accept/Decline step is gated on a session-bound verifyToken that
+  // the server mints ONLY for the client that verified the OTP (see
+  // verifyConsentOtp / respondConsent in loans.js). We keep it in sessionStorage,
+  // keyed by this link's token, so:
+  //   * a page REFRESH in the same browser keeps it -> no re-prompt (Issue 1);
+  //   * a DIFFERENT browser / another person opening the link has NO token -> they
+  //     are forced to verify their own OTP (closes the hole where anyone could
+  //     Accept without an OTP just because someone verified earlier);
+  //   * it is scoped per link token, so an unrelated consent can't reuse it.
+  // We do NOT trust the server's persistent otp_verified flag for this.
+  const verifyStoreKey = `consent_vt_${token}`;
+  const [verifyToken, setVerifyToken] = useState(() => {
+    try { return sessionStorage.getItem(`consent_vt_${token}`) || ''; } catch (e) { return ''; }
+  });
+  const setVerified = (vt) => {
+    setVerifyToken(vt || '');
+    try {
+      if (vt) sessionStorage.setItem(verifyStoreKey, vt);
+      else sessionStorage.removeItem(verifyStoreKey);
+    } catch (e) { /* private mode / storage blocked — falls back to in-memory state */ }
+  };
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [finalStatus, setFinalStatus] = useState(null);
@@ -170,17 +185,16 @@ export default function ConsentPage() {
     api.getConsentByToken(token)
       .then(d => {
         setData(d);
-        if (d.status !== 'pending') setFinalStatus(d.status);
-        // BUGFIX (Issue 1 — refresh after verifying re-prompted for OTP): the
-        // Accept/Decline step is gated on `verifiedThisSession` (React state),
-        // which resets on every page reload. But the server keeps otp_verified=1
-        // in the DB across reloads, and (now that requestConsentOtp no longer
-        // wipes it) that flag is authoritative. So if the DB says the OTP is
-        // already verified for a still-pending consent, treat this freshly loaded
-        // session as verified too — no need to re-enter the OTP after a refresh.
-        // A brand-new OTP request in this session still sets verifiedThisSession
-        // back to false (see sendOtp), so the input reappears when appropriate.
-        else if (d.otpVerified) { setOtpSent(true); setVerifiedThisSession(true); }
+        if (d.status !== 'pending') {
+          setFinalStatus(d.status);
+        } else if (verifyToken) {
+          // This browser holds a verifyToken from an earlier OTP verification in
+          // THIS session (kept in sessionStorage), so a refresh lands straight on
+          // Accept/Decline without re-prompting (Issue 1). A visitor WITHOUT the
+          // token starts at the OTP step — we no longer trust the server's
+          // persistent otp_verified flag, which anyone could otherwise ride on.
+          setOtpSent(true);
+        }
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
@@ -194,14 +208,14 @@ export default function ConsentPage() {
     try {
       await api.requestConsentOtp(token);
       setOtpSent(true);
-      // sendOtp is only reachable while NOT yet verified (once verified, the UI
-      // shows Accept/Decline, not a send button), so clear any stale code and keep
-      // the OTP input visible for the freshly sent code. (Note: requesting a new
-      // OTP no longer revokes an existing verification on the server — see
-      // requestConsentOtp in loans.js — so a parallel request can't invalidate
-      // someone who already verified.)
+      // Requesting a fresh OTP means the code in hand is not yet verified, so drop
+      // any stale code and any prior verifyToken for this session — the new OTP
+      // must be verified to get a fresh token. (Requesting a new OTP does NOT
+      // revoke anyone else's verification on the server — see requestConsentOtp in
+      // loans.js — so a parallel request can't invalidate a user who already
+      // verified in their own browser.)
       setOtp('');
-      setVerifiedThisSession(false);
+      setVerified('');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -214,8 +228,11 @@ export default function ConsentPage() {
     setBusy(true);
     setError('');
     try {
-      await api.verifyConsentOtp(token, otp.trim());
-      setVerifiedThisSession(true);
+      const res = await api.verifyConsentOtp(token, otp.trim());
+      // Persist the session-bound proof so a refresh keeps us verified and
+      // respondConsent can present it. Without a token the server will reject the
+      // submit, which is what forces a fresh visitor to verify their own OTP.
+      setVerified((res && res.verifyToken) || '');
       load();
     } catch (err) {
       setError(err.message);
@@ -253,7 +270,7 @@ export default function ConsentPage() {
     setBusy(true);
     setError('');
     try {
-      const res = await api.respondConsent(token, 'accepted', { geo, photoBase64: photo, signatureBase64 });
+      const res = await api.respondConsent(token, 'accepted', { geo, photoBase64: photo, signatureBase64, verifyToken });
       setFinalStatus(res.status);
     } catch (err) {
       setError(err.message);
@@ -268,7 +285,7 @@ export default function ConsentPage() {
     setBusy(true);
     setError('');
     try {
-      const res = await api.respondConsent(token, 'declined', { declineRemarks: declineRemarks.trim() });
+      const res = await api.respondConsent(token, 'declined', { declineRemarks: declineRemarks.trim(), verifyToken });
       setFinalStatus(res.status);
     } catch (err) {
       setError(err.message);
@@ -331,7 +348,7 @@ export default function ConsentPage() {
               <button className="btn-submit" onClick={sendOtp} disabled={busy || !agreed}>
                 {busy ? 'Sending...' : 'Send OTP via WhatsApp'}
               </button>
-            ) : !verifiedThisSession ? (
+            ) : !verifyToken ? (
               <>
                 <div className="form-group">
                   <label>Enter OTP (sent via WhatsApp)</label>

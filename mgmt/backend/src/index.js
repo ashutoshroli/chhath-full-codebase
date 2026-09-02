@@ -355,7 +355,7 @@ export default {
       getConsentByToken: () => loans.getConsentByToken(env, req.token),
       requestConsentOtp: () => loans.requestConsentOtp(env, req.token),
       verifyConsentOtp: () => loans.verifyConsentOtp(env, req.token, req.otp),
-      respondConsent: () => loans.respondConsent(env, req.token, req.decision, req.deviceId, req.deviceInfo, req.clientIp, req.geoLat, req.geoLng, req.geoAccuracy, req.photoBase64, req.signatureBase64, req.declineRemarks),
+      respondConsent: () => loans.respondConsent(env, req.token, req.decision, req.deviceId, req.deviceInfo, req.clientIp, req.geoLat, req.geoLng, req.geoAccuracy, req.photoBase64, req.signatureBase64, req.declineRemarks, req.verifyToken),
       getLoanConsents: () => withAuth(env, req, (user) => loans.getLoanConsents(env, req.loanId, user)),
       resendConsent: () => withAuth(env, req, (user) => loans.resendConsent(env, req.consentId, user)),
       replaceGuarantor: () => withAuth(env, req, (user) => loans.replaceGuarantor(env, req.loanId, req.oldConsentId, req.newPersonId, user)),
