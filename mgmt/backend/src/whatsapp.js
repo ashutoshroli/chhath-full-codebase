@@ -3,6 +3,7 @@ import { requireSuperadmin, ValidationError } from './auth.js';
 import { withCC } from './settings.js';
 import { logErrorAt, logWarn } from './logger.js';
 import { waNumber, looksLikeAttemptedNumber } from './phone.js';
+import { isTruthyFlag } from './flags.js';
 
 const TEMPLATE_TABLE = { PERSON_MESSAGE_TEMPLATES: 'person_message_templates', GROUP_MESSAGE_TEMPLATES: 'group_message_templates' };
 const MESSAGE_TABLE = { person: { table: 'person_messages' }, group: { table: 'group_messages' } };
@@ -398,9 +399,14 @@ export function templatesForContribution(allTemplates, contributionType, docSubT
   return pool;
 }
 
-// Re-exported from the shared util (audit 6.1) so the many modules that import
-// `isTruthyFlag as waTruthyFlag` from whatsapp.js keep working unchanged.
-export { isTruthyFlag } from './flags.js';
+// NOTE: this must be a top-of-file `import` (see below), NOT `export { ... } from
+// './flags.js'`. A re-export does NOT create a local binding, so the many
+// internal callers in THIS module (pickRandomActive, resolveCollectionDocType,
+// triggerCollectionMessages) hit "ReferenceError: isTruthyFlag is not defined"
+// at runtime. `isTruthyFlag` is imported at the top and re-exported here so the
+// modules that do `import { isTruthyFlag as waTruthyFlag } from './whatsapp.js'`
+// keep working unchanged.
+export { isTruthyFlag };
 
 // Resolves the "from" (sender) WhatsApp number for a COLLECTION message: the
 // number of the STAFF member who saved the entry, so the recipient sees who it
