@@ -276,6 +276,11 @@ async function runOneJob(env, job) {
 
   // 2) WhatsApp — only for NEW entries (edits never queued messages, same as before).
   if (job.is_new_entry) {
+    // Ensure the acting login is known so the WhatsApp "from" (sender) resolves
+    // to whoever saved the entry. The queue stores the login name in the job's
+    // created_by column; the payload snapshot may not carry 'Created By' (the
+    // frontend builds it before the backend stamps that field), so backfill it.
+    if (!payload['Created By'] && job.created_by) payload['Created By'] = job.created_by;
     const summary = await triggerCollectionMessages(env, payload, docType || null, recordId, publicLink || '');
     if (summary && summary.groupMessagesSent === 0 && summary.personMessageSent === false) {
       await logWarn(env, 'collection-queue', 'runOneJob',
