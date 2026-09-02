@@ -35,6 +35,38 @@ const REVERSE_MAPS = {
   loan_consents: {},
 };
 
+// Returns the public `users` rows with `email`/`whatsapp` always dropped, and
+// `mobile` kept ONLY for people who are committee members in some year (the only
+// place the public site shows a mobile). Everyone else has their mobile stripped
+// before it ever leaves the Worker (audit 1.2 — data minimization).
+async function usersPublicSafe(env) {
+  // committee_members references its member by the same value the users row is
+  // keyed on (id_code, e.g. "USER0007") — mirror the frontend's
+  // getUser(r.ID || r.Name) lookup. Collect every committee member identifier.
+  const { results: committeeRows } = await env.DB_CORE
+    .prepare('SELECT name FROM committee_members')
+    .all()
+    .catch(() => ({ results: [] }));
+  const committeeIds = new Set(
+    (committeeRows || []).map(r => (r.name == null ? '' : r.name.toString().trim())).filter(Boolean)
+  );
+
+  const { results } = await env.DB_CORE.prepare('SELECT * FROM users ORDER BY id ASC').all();
+  const map = REVERSE_MAPS.users;
+  return results.map(r => {
+    const isCommittee = committeeIds.has((r.id_code == null ? '' : r.id_code.toString().trim()));
+    const out = {};
+    for (const [col, val] of Object.entries(r)) {
+      if (col === 'id') { out['__rowIndex'] = val; continue; }
+      if (col === 'email' || col === 'whatsapp') continue;      // never public
+      if (col === 'mobile' && !isCommittee) continue;           // only committee mobiles are public
+      const header = map[col] || col;
+      out[header] = val === null ? '' : val;
+    }
+    return out;
+  });
+}
+
 async function getAllPortalData(env) {
   return {
     // Public transparency portal only needs Name/Village/Father's Name/
@@ -42,7 +74,13 @@ async function getAllPortalData(env) {
     // members) — email and personal WhatsApp numbers are never rendered on
     // the public site, so they're dropped here rather than shipped to every
     // visitor's browser (data-minimization — see MIGRATION_NOTES.md flag).
-    users: await tableRows(env.DB_CORE, 'users', REVERSE_MAPS.users, ['email', 'whatsapp']),
+    // PII minimization (audit 1.2): the public site only renders a mobile number
+    // next to COMMITTEE members (via the users map — see Public/frontend
+    // renderCommittee), but this payload used to ship `mobile` for EVERY user to
+    // every anonymous visitor. We now drop `mobile` for everyone who is NOT a
+    // committee member (in any year), so a plain contributor's number never
+    // leaves the server while committee mobiles still render as before.
+    users: await usersPublicSafe(env),
     committee: await tableRows(env.DB_CORE, 'committee_members', REVERSE_MAPS.committee_members),
     collections: await tableRows(env.DB_COLLECTIONS, 'collections', REVERSE_MAPS.collections),
     expenses: await tableRows(env.DB_LOANS_EXPENSES, 'expenses', REVERSE_MAPS.expenses),
@@ -147,13 +185,45 @@ async function getActivePublicPopups(env) {
 // ever writes to — everything else stays strictly read-only.
 const LOG_DEDUP_WINDOW_MS = 5 * 60 * 1000;
 
-async function logPublicError(env, source, page, message, stack, context) {
+// Per-IP rate limit for the public logError endpoint (audit 1.3). This Worker
+// has no KV binding, so the limiter is enforced against error_log itself: at
+// most PUBLIC_LOG_MAX_PER_IP distinct rows may originate from one edge IP within
+// PUBLIC_LOG_WINDOW_MS. The de-dup below already collapses IDENTICAL messages,
+// but a loop generating UNIQUE messages could still flood the log and burn D1
+// writes; this closes that. The edge IP is stamped into `context` (JSON) so the
+// count is per-IP. Fails OPEN (allows the write) if the count query errors, so a
+// D1 hiccup never silently drops real errors.
+const PUBLIC_LOG_WINDOW_MS = 60 * 1000;
+const PUBLIC_LOG_MAX_PER_IP = 20;
+
+async function logPublicError(env, source, page, message, stack, context, clientIp) {
   try {
     if (!env.DB_LOGS) return { success: false };
     const clamp = (v, n) => (v === undefined || v === null ? '' : v.toString()).slice(0, n);
     const src = clamp(source || 'public', 100);
     const pg = clamp(page, 200);
     const msg = clamp(message, 1000);
+    const ip = (clientIp || '').toString().trim();
+
+    // Fold the edge IP into the stored context so the per-IP limiter can count it.
+    let ctxObj = {};
+    if (context) {
+      try { ctxObj = typeof context === 'string' ? JSON.parse(context) : context; }
+      catch (e) { ctxObj = { note: context.toString().slice(0, 200) }; }
+    }
+    if (ip) ctxObj.edgeIp = ip;
+    const ctx = clamp(JSON.stringify(ctxObj), 500);
+
+    // Per-IP cap (only when we actually know the IP).
+    if (ip) {
+      const windowStart = new Date(Date.now() - PUBLIC_LOG_WINDOW_MS).toISOString();
+      const cnt = await env.DB_LOGS.prepare(
+        "SELECT COUNT(*) AS n FROM error_log WHERE created_at >= ? AND context LIKE ?"
+      ).bind(windowStart, `%"edgeIp":"${ip}"%`).first().catch(() => null);
+      if (cnt && (parseInt(cnt.n) || 0) >= PUBLIC_LOG_MAX_PER_IP) {
+        return { success: false, rateLimited: true };
+      }
+    }
 
     // Same de-duplication as the mgmt logger: a public page reload loop must not
     // be able to flood the Superadmin's 300-row error view.
@@ -166,7 +236,7 @@ async function logPublicError(env, source, page, message, stack, context) {
     const id = 'ERR' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     await env.DB_LOGS.prepare(
       'INSERT INTO error_log (error_id, source, page, message, stack, context, created_at, reported) VALUES (?, ?, ?, ?, ?, ?, ?, 0)'
-    ).bind(id, src, pg, msg, clamp(stack, 2000), clamp(context, 500), new Date().toISOString()).run();
+    ).bind(id, src, pg, msg, clamp(stack, 2000), ctx, new Date().toISOString()).run();
     return { success: true, errorId: id };
   } catch (e) {
     console.error('[public logPublicError] failed:', e && e.message);
@@ -253,11 +323,12 @@ function clientHasCurrent(request, etag) {
 // lets an operator lock it down.
 function corsOriginFor(request, env) {
   const configured = (env && env.ALLOWED_ORIGINS ? env.ALLOWED_ORIGINS.toString() : '').trim();
-  if (!configured) return '*';
+  if (!configured) return '*'; // read-only public portal — wildcard is a fine default here
   const list = configured.split(',').map(s => s.trim()).filter(Boolean);
   if (list.includes('*')) return '*';
   const origin = (request.headers.get('Origin') || '').trim();
-  return origin && list.includes(origin) ? origin : list[0];
+  // Unknown origin -> null (header omitted) rather than echoing list[0] (audit 1.5).
+  return origin && list.includes(origin) ? origin : null;
 }
 
 export default {
@@ -265,8 +336,11 @@ export default {
     const url = new URL(request.url);
     const action = url.searchParams.get('action');
     const corsOrigin = corsOriginFor(request, env);
-    const cors = { 'Access-Control-Allow-Origin': corsOrigin, 'Content-Type': 'application/json' };
-    if (corsOrigin !== '*') cors['Vary'] = 'Origin';
+    const cors = { 'Content-Type': 'application/json' };
+    if (corsOrigin) {
+      cors['Access-Control-Allow-Origin'] = corsOrigin;
+      if (corsOrigin !== '*') cors['Vary'] = 'Origin';
+    }
 
     if (request.method === 'OPTIONS') {
       return new Response(null, {
@@ -280,10 +354,13 @@ export default {
     if (action === 'logError' && request.method === 'POST') {
       let body = {};
       try { body = await request.json(); } catch (e) { /* keep the empty object */ }
+      // Server-observed edge IP drives the per-IP rate limit (audit 1.3) — the
+      // client cannot forge it.
+      const edgeIp = request.headers.get('CF-Connecting-IP') || '';
       const res = await logPublicError(
-        env, 'public-frontend', body.page, body.message, body.stack, body.context
+        env, 'public-frontend', body.page, body.message, body.stack, body.context, edgeIp
       );
-      return new Response(JSON.stringify(res), { headers: cors });
+      return new Response(JSON.stringify(res), { headers: cors, status: res && res.rateLimited ? 429 : 200 });
     }
 
     // Every read path is wrapped now — previously a single D1 hiccup took the whole
@@ -377,8 +454,10 @@ export default {
           headers: { ...cors, ETag: etag, 'Cache-Control': 'no-cache' },
         });
       }
-      return new Response(JSON.stringify({ status: false, message: 'Invalid Request' }), { headers: cors });
+      return new Response(JSON.stringify({ status: false, message: 'Invalid Request' }), { headers: cors, status: 400 });
     } catch (err) {
+      // Server-originated error (not attacker-driven), so it is logged without an
+      // IP cap — a real backend failure must always be recorded.
       const logging = logPublicError(
         env, 'public-backend', action || 'fetch',
         (err && err.message) || String(err), (err && err.stack) || '',

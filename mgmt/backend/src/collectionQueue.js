@@ -47,10 +47,25 @@ function jobsDb(env) {
 // docType/filledBase64 may be '' when the collection has no auto-document
 // (e.g. a resell entry) — in that case the job still runs to queue WhatsApp.
 export async function enqueueCollectionJob(env, job, user) {
-  // Same gate the direct save enforced: staff role. (A finer per-sheet 'add'
-  // check already happened during saveRecord itself, which runs before this.)
+  // Same gate the direct save enforced: staff role.
   requireStaffRole(user);
   if (!job || typeof job !== 'object') throw new Error('Invalid job');
+
+  // SECURITY (audit 2.2): the comment used to claim the job was "already
+  // authorized at enqueue time", but the only check here was the staff role —
+  // the year-lock and year-access rules that saveRecord enforces were NOT
+  // re-checked, and runOneJob later drives a PDF + WhatsApp side effect with a
+  // forced-Superadmin system user. So a crafted enqueueCollectionJob could act
+  // on a LOCKED year, or a year the caller has no committee access to, using the
+  // full 'add' permission the queue processor assumes. Re-run the SAME year
+  // checks saveRecord does, against the REAL caller (not the system user), before
+  // the job is ever accepted.
+  const jobYear = (job.year != null && job.year !== '') ? job.year
+    : (job.payload && job.payload.Year) ? job.payload.Year : '';
+  if (jobYear) {
+    await requireYearUnlocked(env, jobYear);
+    await requireYearAccess(env, user, jobYear);
+  }
 
   const db = jobsDb(env);
   const jobId = genJobId();

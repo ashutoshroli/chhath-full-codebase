@@ -4,6 +4,7 @@ import { getOrCreateFolder, uploadDocxFile, getFileBytesBase64, copyFile, conver
 import { r2Available, putToR2, keyForYear } from './r2.js';
 import { logErrorAt } from './logger.js';
 import { consentPlaceholderFactory } from './consentPlaceholders.js';
+import { isTruthyFlag } from './flags.js';
 
 export const DOC_TYPES = ['receipt', 'certificate', 'samaan', 'consent_loaner', 'consent_guarantor', 'report_en', 'report_hi', 'report_both'];
 
@@ -188,8 +189,9 @@ async function recordGeneratedFile(env, docType, year, recordId, fileName, publi
          drive_path = excluded.drive_path,
          generated_at = excluded.generated_at`
     ).bind(docType, parseInt(year), recordId, fileName, publicLink, drivePath, new Date().toISOString()).run();
-
-    console.log('[recordGeneratedFile] Success:', { docType, year, recordId, fileName });
+    // (audit 6.3) Removed a per-generation success console.log — it fired on
+    // EVERY PDF and only added Worker-tail noise; the failure path below still
+    // logs through the structured logger.
   } catch (err) {
     // The old INSERT here omitted error_id AND reported, so the resulting row
     // showed "Ref: undefined" in the UI, gave React duplicate null keys, and
@@ -333,13 +335,7 @@ const parseAmt = (v) => parseFloat((v || '').toString().replace(/[^0-9.-]+/g, ''
 // Same fix as templates.js's formatAmt — guard on the parsed number, not raw
 // truthiness, so a literal "0" is treated as "no amount" too.
 const formatAmt = (v) => (parseAmt(v) > 0 ? new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(parseAmt(v)) : '');
-// Was case-sensitive and missed the 'True' form the sheet migration wrote.
-const isTruthyFlag = (v) => {
-  if (v === true || v === 1) return true;
-  if (v === false || v === 0 || v === null || v === undefined) return false;
-  const s = v.toString().trim().toLowerCase();
-  return s === 'true' || s === '1' || s === 'yes';
-};
+// isTruthyFlag comes from the shared flags.js util (audit 6.1) — see import above.
 
 // statusLabel used to be a TRIMMED local copy that silently dropped the
 // verification/decline remarks, so {GUARANTOR_1_STATUS} showed remarks on the

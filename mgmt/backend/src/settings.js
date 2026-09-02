@@ -38,17 +38,18 @@ export function dayNamesOf(dateStr) {
 
 // ---- Portal settings (core db) ----
 export async function getPortalSetting(env, key) {
-  const row = await env.DB_CORE.prepare('SELECT value FROM portal_settings WHERE key = ?').bind(key).first();
+  // `key` is a SQLite keyword — always quote it (audit 6.5), matching dataVersion.js.
+  const row = await env.DB_CORE.prepare('SELECT value FROM portal_settings WHERE "key" = ?').bind(key).first();
   return row ? row.value : '';
 }
 
 export async function setPortalSetting(env, key, value, user) {
   requireSuperadmin(user);
-  const existing = await env.DB_CORE.prepare('SELECT id FROM portal_settings WHERE key = ?').bind(key).first();
+  const existing = await env.DB_CORE.prepare('SELECT id FROM portal_settings WHERE "key" = ?').bind(key).first();
   if (existing) {
-    await env.DB_CORE.prepare('UPDATE portal_settings SET value = ? WHERE key = ?').bind(value, key).run();
+    await env.DB_CORE.prepare('UPDATE portal_settings SET value = ? WHERE "key" = ?').bind(value, key).run();
   } else {
-    await env.DB_CORE.prepare('INSERT INTO portal_settings (key, value) VALUES (?, ?)').bind(key, value).run();
+    await env.DB_CORE.prepare('INSERT INTO portal_settings ("key", value) VALUES (?, ?)').bind(key, value).run();
   }
   return { success: true };
 }

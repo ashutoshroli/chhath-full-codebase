@@ -283,12 +283,6 @@ export const api = {
   updateDropdownListItem: (rowIndex, englishValue, hindiLabel, active) => call('updateDropdownListItem', { rowIndex, englishValue, hindiLabel, active }),
   deleteDropdownListItem: (rowIndex) => call('deleteDropdownListItem', { rowIndex }),
 
-  // One-time column setup (Superadmin)
-  ensureColumns: () => call('ensureColumns'),
-
-  // Bulk-fill Hindi columns for pre-existing records (Superadmin)
-  bulkFillHindi: (sheetName) => call('bulkFillHindi', { sheetName }),
-
   // Loan Consent — PUBLIC (no login; used by the /consent/:token page)
   getConsentByToken: (token) => call('getConsentByToken', { token }, false),
   requestConsentOtp: (token) => call('requestConsentOtp', { token }, false),
