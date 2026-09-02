@@ -2,6 +2,14 @@ name = "chhath-mgmt-api"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
 
+# Cron Trigger (FREE on all Workers plans) — drives the Collection Queue.
+# Runs the scheduled() handler in src/index.js every minute; it processes any
+# `pending` collection_jobs rows (PDF generation + WhatsApp queueing) that a
+# save enqueued, so the save itself returns instantly. If this line is removed
+# the queue simply stops draining — nothing else breaks.
+[triggers]
+crons = ["* * * * *"]
+
 [vars]
 # ⚠️ MUST be replaced with the real frontend domain before deploying.
 # Every loan-consent WhatsApp link is built from this. It used to degrade

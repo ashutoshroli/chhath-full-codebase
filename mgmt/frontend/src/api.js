@@ -391,6 +391,12 @@ export const api = {
   exportBackup: () => call('exportBackup'),
   restoreBackup: (backup, confirm) => call('restoreBackup', { backup, confirm }),
 
+  // Collection Queue: enqueue a job right after a save (fast return); the Worker
+  // Cron Trigger does the PDF + WhatsApp in the background. getCollectionQueueStatus
+  // powers a small status panel visible to any staff role.
+  enqueueCollectionJob: (job) => call('enqueueCollectionJob', { job }),
+  getCollectionQueueStatus: () => call('getCollectionQueueStatus'),
+
   // Popup Management (Superadmin) + login-time fetch
   getPopups: () => call('getPopups'),
   getPopupWithSlides: (popupId) => call('getPopupWithSlides', { popupId }),
