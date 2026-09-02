@@ -144,13 +144,11 @@ export default function ConsentPage() {
   const [error, setError] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [otp, setOtp] = useState('');
-  // Verified DURING THIS page session (as opposed to data.otpVerified, which is the
-  // stale DB flag from the initial load). The Accept/Decline step only unlocks once
-  // the OTP has been verified in this session, so a re-opened link — where the DB
-  // still shows otp_verified=1 from a previous visit but the server will actually
-  // reject the submit (a new OTP request resets it to 0, and the audit-1.4 verify
-  // window may have elapsed) — always asks for a fresh OTP instead of skipping
-  // straight to submit and then failing with "verify with the WhatsApp OTP first."
+  // Gates the Accept/Decline step. Set true either (a) after verifyConsentOtp
+  // succeeds in this session, or (b) on load when the DB already reports the
+  // consent as OTP-verified and still pending (so a page refresh after verifying
+  // does NOT re-prompt for the OTP — Issue 1). The server's otp_verified flag is
+  // authoritative and survives reloads; requesting a new OTP no longer clears it.
   const [verifiedThisSession, setVerifiedThisSession] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -170,7 +168,20 @@ export default function ConsentPage() {
   const load = () => {
     setLoading(true);
     api.getConsentByToken(token)
-      .then(d => { setData(d); if (d.status !== 'pending') setFinalStatus(d.status); })
+      .then(d => {
+        setData(d);
+        if (d.status !== 'pending') setFinalStatus(d.status);
+        // BUGFIX (Issue 1 — refresh after verifying re-prompted for OTP): the
+        // Accept/Decline step is gated on `verifiedThisSession` (React state),
+        // which resets on every page reload. But the server keeps otp_verified=1
+        // in the DB across reloads, and (now that requestConsentOtp no longer
+        // wipes it) that flag is authoritative. So if the DB says the OTP is
+        // already verified for a still-pending consent, treat this freshly loaded
+        // session as verified too — no need to re-enter the OTP after a refresh.
+        // A brand-new OTP request in this session still sets verifiedThisSession
+        // back to false (see sendOtp), so the input reappears when appropriate.
+        else if (d.otpVerified) { setOtpSent(true); setVerifiedThisSession(true); }
+      })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
   };
@@ -183,11 +194,12 @@ export default function ConsentPage() {
     try {
       await api.requestConsentOtp(token);
       setOtpSent(true);
-      // BUGFIX: requestConsentOtp resets otp_verified=0 on the server (a fresh OTP
-      // must be re-verified). A newly requested OTP is NOT yet verified in this
-      // session, so ensure the OTP input is shown (never skipped) and clear any
-      // stale code left in the box. The Accept/Decline step is gated on
-      // `verifiedThisSession`, which stays false until this new OTP is verified.
+      // sendOtp is only reachable while NOT yet verified (once verified, the UI
+      // shows Accept/Decline, not a send button), so clear any stale code and keep
+      // the OTP input visible for the freshly sent code. (Note: requesting a new
+      // OTP no longer revokes an existing verification on the server — see
+      // requestConsentOtp in loans.js — so a parallel request can't invalidate
+      // someone who already verified.)
       setOtp('');
       setVerifiedThisSession(false);
     } catch (err) {
