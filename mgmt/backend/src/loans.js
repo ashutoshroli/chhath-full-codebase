@@ -433,10 +433,23 @@ export async function requestConsentOtp(env, token) {
 
   const otp = generateOtp();
   const issuedAt = Date.now();
-  await env.DB_LOANS_EXPENSES.prepare('UPDATE loan_consents SET otp = ?, otp_verified = 0 WHERE id = ?').bind(otp, rowObj.id).run();
+  // BUGFIX (Issue 2 — parallel OTP request invalidated an already-verified user):
+  // this used to also set `otp_verified = 0`. So if person A verified their OTP and
+  // then ANY new OTP was requested for the same consent (a second tab, a resend, or
+  // simply re-opening the link), A's verified state was wiped and A's submit failed
+  // with "Please verify with the WhatsApp OTP first." Issuing a fresh OTP must NOT
+  // revoke an existing verification. Security is unaffected: verifyConsentOtp still
+  // sets otp_verified=1 + a fresh verifiedAt, respondConsent still requires
+  // otp_verified=1 AND enforces the 20-min verify->respond window (audit 1.4), and
+  // the new OTP overwrites the `otp` column so the old code can't be reused. We only
+  // update the `otp` column here and leave otp_verified as-is.
+  await env.DB_LOANS_EXPENSES.prepare('UPDATE loan_consents SET otp = ? WHERE id = ?').bind(otp, rowObj.id).run();
   await writeOtpMeta(env, rowObj.consent_id, {
     issuedAt,
     attempts: 0,
+    // Preserve an existing verifiedAt so a prior verification keeps its window;
+    // verifying the new OTP will refresh it.
+    verifiedAt: (prev && prev.verifiedAt) || undefined,
     requests: recentRequests.concat(issuedAt),
   });
 
