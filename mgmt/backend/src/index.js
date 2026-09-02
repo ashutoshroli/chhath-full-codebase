@@ -1,4 +1,4 @@
-import { login, doLogout, withAuth, withApiKey, requireSuperadmin, requireAdminOrAbove, requireStaffRole, getLockedYearsSet, lockYear, unlockYear } from './auth.js';
+import { login, doLogout, withAuth, withApiKey, verifyToken, requireSuperadmin, requireAdminOrAbove, requireStaffRole, getLockedYearsSet, lockYear, unlockYear } from './auth.js';
 import { getSheetDataAsJSON, saveRecord, updateRecordByIdx, deleteRecordByIdx } from './crud.js';
 import { getYears, addYear, getHomeData, getLoansData, getExpensesData, getCommitteeData, getUserHistory, getYearContributors, getUserProfile } from './views.js';
 import { getLoginUsers, addLoginUser, updateLoginUser, deleteLoginUser, updateOwnProfile, changePassword, uploadFileToDrive } from './account.js';
@@ -14,7 +14,7 @@ import * as docx from './docxTemplates.js';
 import * as storage from './storage.js';
 import * as backup from './backup.js';
 import * as cq from './collectionQueue.js';
-import { bumpDataVersion } from './dataVersion.js';
+import { bumpDataVersion, getDataVersion } from './dataVersion.js';
 import { healthCheck } from './config.js';
 
 // Actions that only READ — after any OTHER successful action we bump the public
@@ -49,6 +49,72 @@ const READ_ONLY_ACTIONS = new Set([
   // OTP request/verify only touch consent-flow state, not public-portal data.
   'requestConsentOtp', 'verifyConsentOtp', 'verifyAnnouncementPin',
 ]);
+
+// ============ RESPONSE CACHE (Phase 2 scalability) ============
+//
+// Goal: let the mgmt API serve hundreds of req/sec without hammering D1, by
+// caching the responses of a SMALL, EXPLICIT set of read actions whose data is
+// SHARED (identical for every caller) and changes rarely.
+//
+// SAFETY — why this cannot leak one admin's data to another:
+//   * Only the actions in CACHEABLE_ACTIONS below are cached. Every one returns
+//     data that is the SAME for any caller (year aggregates, the users list, a
+//     given person's history/profile keyed by that person's id, config lists).
+//     Nothing session-specific, nothing role-filtered, no personal/Superadmin-only
+//     list is cached.
+//   * The cache is consulted ONLY AFTER withAuth has verified the session (see the
+//     dispatch below). Auth/permission is never served from cache — a logged-out
+//     or wrong-role caller never reaches the cache read.
+//   * The cache key includes the action, its distinguishing params, AND the global
+//     data-version counter. Any write bumps that counter (bumpDataVersion), so a
+//     data change instantly makes every old key unreachable — stale data is
+//     impossible. A short TTL is a second safety net.
+//   * If a cached action ever needed role-dependent output, its key MUST include
+//     the role. None currently do (that's why they're in the list), so role is not
+//     part of the key today.
+//
+// Each entry maps action -> a function that returns the cache-key param string
+// from the request (or '' when the action takes no distinguishing param). An
+// action NOT in this map is never cached.
+const CACHEABLE_ACTIONS = {
+  getYears: () => '',
+  getUsers: () => '',
+  getAllDropdownLists: () => '',
+  getDropdownList: (req) => `type=${req.type || ''}`,
+  getHome: (req) => `year=${req.year || ''}`,
+  getLoans: (req) => `year=${req.year || ''}`,
+  getExpenses: (req) => `year=${req.year || ''}`,
+  getCommittee: (req) => `year=${req.year || ''}`,
+  getYearContributors: (req) => `year=${req.year || ''}`,
+  getFestivalDates: (req) => `year=${req.year || ''}`,
+  getUserHistory: (req) => `userId=${req.userId || ''}`,
+  getUserProfile: (req) => `userId=${req.userId || ''}`,
+};
+const MGMT_CACHE_TTL_SECONDS = 300; // 5 min — a safety net; version bumps are the primary invalidation.
+
+// Reads a cached response for (action, param) at the current data-version, or null.
+// Fails OPEN (returns null -> caller hits D1) on any KV problem, so caching can
+// never take the API down or serve something impossible.
+async function mgmtCacheGet(env, action, param, version) {
+  try {
+    if (!env || !env.KV_SESSIONS) return null;
+    const raw = await env.KV_SESSIONS.get(`mgmtcache:${action}:${param}:v${version}`);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+
+// Stores a successful response. Best-effort (never throws). Only called for
+// results that are NOT an explicit {success:false}.
+async function mgmtCachePut(env, action, param, version, result) {
+  try {
+    if (!env || !env.KV_SESSIONS) return;
+    await env.KV_SESSIONS.put(
+      `mgmtcache:${action}:${param}:v${version}`,
+      JSON.stringify(result),
+      { expirationTtl: MGMT_CACHE_TTL_SECONDS }
+    );
+  } catch (e) { /* best effort */ }
+}
 
 // SECURITY (audit S5): actions reachable WITHOUT a session token (the public
 // consent + announcement pages, error reporting, and the external WhatsApp queue
@@ -134,10 +200,10 @@ function corsHeaders(request, env, extra) {
   return headers;
 }
 
-function jsonOut(obj, request, env, status) {
+function jsonOut(obj, request, env, status, extraHeaders) {
   return new Response(JSON.stringify(obj), {
     status: status || 200,
-    headers: corsHeaders(request, env, { 'Content-Type': 'application/json' }),
+    headers: corsHeaders(request, env, { 'Content-Type': 'application/json', ...(extraHeaders || {}) }),
   });
 }
 
@@ -598,7 +664,39 @@ export default {
     }
 
     try {
-      const result = await handlers[action]();
+      let result;
+
+      // ---- Phase 2 response cache (SHARED read actions only) ----
+      // SAFETY: auth is verified LIVE here first (verifyToken), before any cache
+      // read — so a cache hit can never bypass the session check. Only if the
+      // session is valid do we consult the version-keyed cache; on a miss we run
+      // the real handler (which verifies auth again via withAuth) and store the
+      // successful result. If verifyToken throws/returns null we fall through to
+      // the normal handler so it produces the exact same AuthError as before.
+      const cacheParamFn = CACHEABLE_ACTIONS[action];
+      let servedFromCacheable = false;
+      if (cacheParamFn) {
+        const authedUser = await verifyToken(env, req.token).catch(() => null);
+        if (authedUser) {
+          servedFromCacheable = true;
+          const param = cacheParamFn(req);
+          const version = await getDataVersion(env).catch(() => '0');
+          const cached = await mgmtCacheGet(env, action, param, version);
+          if (cached !== null) {
+            result = cached; // cache HIT — no D1 work
+          } else {
+            result = await handlers[action]();
+            // Only cache a real success (never an explicit {success:false}).
+            if (!(result && result.success === false)) {
+              ctx.waitUntil(mgmtCachePut(env, action, param, version, result));
+            }
+          }
+        }
+      }
+      if (!servedFromCacheable) {
+        result = await handlers[action]();
+      }
+
       // Bump the public data-version after any successful write so the Public
       // portal's ETag changes and browsers/CDN revalidate. Reads are skipped.
       // A handler that returned an explicit failure ({success:false}) made no
@@ -612,7 +710,10 @@ export default {
       // surface it as 400 so infra sees it as a client-correctable outcome, not
       // a 200 "success". Everything else is a real 200.
       const status = (result && result.success === false) ? 400 : 200;
-      return jsonOut(result, request, env, status);
+      // mgmt responses are per-caller/private — never let a browser/CDN cache them
+      // across users (our own server-side KV cache is the only cache, and it only
+      // holds shared read data).
+      return jsonOut(result, request, env, status, { 'Cache-Control': 'private, no-store' });
     } catch (err) {
       const status = err.authError ? 'authError' : (err.announceSessionExpired ? 'announceSessionExpired' : 'error');
 
