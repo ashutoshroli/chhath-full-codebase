@@ -2,7 +2,7 @@ import { getSheetDataAsJSON } from './crud.js';
 import { requireSuperadmin, ValidationError } from './auth.js';
 import { withCC } from './settings.js';
 import { logErrorAt, logWarn } from './logger.js';
-import { waNumber, waNumberOf, looksLikeAttemptedNumber } from './phone.js';
+import { waNumber, looksLikeAttemptedNumber } from './phone.js';
 
 const TEMPLATE_TABLE = { PERSON_MESSAGE_TEMPLATES: 'person_message_templates', GROUP_MESSAGE_TEMPLATES: 'group_message_templates' };
 const MESSAGE_TABLE = { person: { table: 'person_messages' }, group: { table: 'group_messages' } };
@@ -408,6 +408,43 @@ export function isTruthyFlag(v) {
   return false;
 }
 
+// Resolves the "from" (sender) WhatsApp number for a COLLECTION message: the
+// number of the STAFF member who saved the entry, so the recipient sees who it
+// came from. `createdBy` is the login name recorded on the collection
+// (payload['Created By'] / the queue job's created_by), e.g. "USER0026".
+//
+// A staff member edits their own Mobile/WhatsApp via the profile Settings modal,
+// which writes to the `users` table keyed by id_code (== the login name). So the
+// number lives on the USERS row whose ID equals `createdBy`; we use the already-
+// loaded `users` list to avoid an extra query. As a fallback (a login that has
+// no matching USERS row) we read login_users.mobile.
+//
+// waNumber() normalizes to `91XXXXXXXXXX` (and is a no-op if already prefixed),
+// so the returned "from" always carries the 91 country code. Returns '' when no
+// usable number is on file (Option A: no default/fallback sender number).
+export async function senderNumberForLogin(env, createdBy, users) {
+  const name = (createdBy || '').toString().trim();
+  if (!name) return '';
+
+  // Primary: the USERS row for this staff login (has both WhatsApp and Mobile).
+  const staffRow = (users || []).find(u => (u.ID || '').toString().trim() === name);
+  if (staffRow) {
+    const n = waNumber(staffRow.WhatsApp) || waNumber(staffRow.Mobile);
+    if (n) return n;
+  }
+
+  // Fallback: login_users.mobile (the base login record; no whatsapp column).
+  if (env && env.DB_CORE) {
+    const row = await env.DB_CORE
+      .prepare('SELECT mobile FROM login_users WHERE name = ?')
+      .bind(name)
+      .first()
+      .catch(() => null);
+    if (row) return waNumber(row.mobile) || '';
+  }
+  return '';
+}
+
 // ---- The two enqueue primitives ----
 //
 // queueGroupMessageDirect() is new: the group INSERT used to be copy-pasted
@@ -493,8 +530,12 @@ export async function triggerCollectionMessages(env, payload, docType, recordId,
         { contributorId: payload.Name, docType, recordId });
     }
 
-    const actingUser = users.find(u => u.ID === payload['Created By']);
-    const from = actingUser ? (waNumberOf(actingUser) || withCC(actingUser.WhatsApp || actingUser.Mobile || '')) : '';
+    // "from" = the number of the STAFF member who saved this entry (91-prefixed),
+    // resolved from their USERS row (id_code == login name) with a login_users
+    // fallback. The old inline lookup returned empty on the queue path because
+    // 'Created By' wasn't set on the stored payload (now backfilled in
+    // collectionQueue.runOneJob). Option A: if no number is on file, from stays ''.
+    const from = await senderNumberForLogin(env, payload['Created By'], users);
 
     const placeholderData = {
       Name: contributor ? contributor.Name : (payload.Name || ''),
