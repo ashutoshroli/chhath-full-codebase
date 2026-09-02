@@ -232,9 +232,15 @@ export default function Backup() {
           <div style={{ marginTop: 16, fontSize: '0.85rem' }}>
             <strong>Restore report:</strong>
             <div>Restored tables: {Object.keys(restoreReport.restoredTables || {}).length}</div>
+            {restoreReport.partialTables && Object.keys(restoreReport.partialTables).length > 0 && (
+              <div style={{ color: '#b45309', marginTop: 6 }}>
+                Kuch rows skip huin (baaki restore ho gayin) — ye aam taur par backup ke andar hi duplicate rows ki wajah se hota hai:
+                <ul>{Object.entries(restoreReport.partialTables).map(([t, msg]) => <li key={t}><code>{t}</code>: {msg}</li>)}</ul>
+              </div>
+            )}
             {restoreReport.errors && restoreReport.errors.length > 0 && (
-              <div style={{ color: 'var(--danger, #dc2626)' }}>
-                Errors:
+              <div style={{ color: 'var(--danger, #dc2626)', marginTop: 6 }}>
+                Errors (ye tables restore nahi ho paye):
                 <ul>{restoreReport.errors.map((e, i) => <li key={i}>{e}</li>)}</ul>
               </div>
             )}
