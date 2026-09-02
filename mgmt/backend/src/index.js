@@ -12,6 +12,7 @@ import * as loans from './loans.js';
 import * as tpl from './templates.js';
 import * as docx from './docxTemplates.js';
 import * as storage from './storage.js';
+import * as backup from './backup.js';
 import { bumpDataVersion } from './dataVersion.js';
 
 // Actions that only READ — after any OTHER successful action we bump the public
@@ -35,6 +36,7 @@ const READ_ONLY_ACTIONS = new Set([
   'getDocxTemplates', 'getDocxTemplate', 'getDocxTemplateForDoc', 'getDocxTemplatePublic',
   'getRecordsForDocType', 'getGeneratedFilesForYear', 'searchUsersByVillageAndName', 'getPersonDownloads',
   'getStorageOverview',
+  'exportBackup',
   'getPopups', 'getPopupWithSlides', 'getActivePopups', 'previewPublicPopups',
   'logError', 'reportErrorToWhatsApp', 'getErrorLog',
   'getLoanTemplates',
@@ -362,6 +364,13 @@ export default {
       // ---- Storage Management (Superadmin): R2 <-> Drive ----
       getStorageOverview: () => withAuth(env, req, (user) => storage.getStorageOverview(env, user)),
       moveYearToDrive: () => withAuth(env, req, (user) => storage.moveYearToDrive(env, req.year, user)),
+
+      // ---- Full Backup & Restore (Superadmin) ----
+      // exportBackup only READS every table; restoreBackup replaces table
+      // contents (DESTRUCTIVE) and is guarded by a typed confirmation + an
+      // automatic pre-restore safety snapshot inside backup.js.
+      exportBackup: () => withAuth(env, req, (user) => backup.exportBackup(env, user)),
+      restoreBackup: () => withAuth(env, req, (user) => backup.restoreBackup(env, user, req.backup, req.confirm)),
 
       // ---- Popup Management ----
       getPopups: () => withAuth(env, req, (user) => popups.getPopups(env, user)),
