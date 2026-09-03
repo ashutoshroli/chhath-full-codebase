@@ -9,6 +9,11 @@ import AnnouncePage from './views/AnnouncePage.jsx';
 import { reportClientError, isIgnorableClientError } from './api.js';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { reloadOnceForChunkError } from './chunkGuard.js';
+// Vercel Web Analytics — privacy-friendly, cookie-less visitor/pageview counts
+// in the Vercel dashboard. Independent of the GTM/GA4 tracking below; because it
+// uses a first-party path it is rarely blocked, so the counts are usually more
+// complete. It tracks React Router route changes automatically.
+import { Analytics } from '@vercel/analytics/react';
 import '../styles.css';
 
 // Catches pure frontend JS errors (not just failed API calls, which api.js's
@@ -68,6 +73,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
       <GtmRouteTracker />
+      <Analytics />
       {/* Top-level boundary: without one, a crash in ANY of these routes — including
           the two PUBLIC pages that ordinary members open from a WhatsApp link —
           left a blank white screen with no explanation and no recoverable state. */}
