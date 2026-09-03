@@ -55,7 +55,14 @@ export function ValidationError(message) {
 // Legacy bare-hex digests are still ACCEPTED at verify time (so nobody is locked
 // out) and transparently UPGRADED to the new format on the next successful login
 // or password change. See verifyPassword() / hashPassword() below.
-const PBKDF2_ITERATIONS = 210000; // OWASP-recommended floor for PBKDF2-SHA256
+// Cloudflare Workers' Web Crypto caps PBKDF2 at 100,000 iterations — anything
+// higher throws "iteration counts above 100000 are not supported", which broke
+// every password change / new PIN. 100000 is Cloudflare's max and still a solid
+// PBKDF2-SHA256 work factor. Because each hash stores its OWN iteration count in
+// the self-describing "pbkdf2$<iterations>$..." format, any existing hashes
+// (including old 210000 ones, if any were ever written) still verify correctly —
+// only newly GENERATED hashes use this value.
+const PBKDF2_ITERATIONS = 100000; // Cloudflare Workers PBKDF2 maximum
 const PBKDF2_KEYLEN_BYTES = 32;
 
 // A well-formed PBKDF2 hash (correct format + iteration count) that no real
