@@ -754,7 +754,7 @@ export default {
       }
 
       return new Response(
-        JSON.stringify({ status: false, message: 'Data load nahi ho paya. Thodi der baad koshish karein.' }),
+        JSON.stringify({ status: false, message: 'Unable to load data. Please try again in a little while.' }),
         { status: 500, headers: cors }
       );
     }
