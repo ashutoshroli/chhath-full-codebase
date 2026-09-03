@@ -102,7 +102,12 @@ const app = {
     // after `wrangler deploy` — this is the one genuine frontend code change in
     // the whole migration (Public/frontend has no build step / env vars, unlike
     // mgmt/frontend, so this can't be an env var — see FRONTEND_DIFF_NOTES.md).
-    const BASE_API_URL = "https://chhath-public-api.shaharpura.workers.dev/";
+    // Points at the CUSTOM DOMAIN (not the *.workers.dev URL) on purpose: Cloudflare
+    // Cache Rules only apply on the zone's custom domain, and they let the big
+    // version-keyed payloads (portalData/activePopups with ?v=) be served straight
+    // from the edge cache WITHOUT invoking the Worker — which keeps the daily
+    // Workers-request quota from being burned during a festival traffic spike.
+    const BASE_API_URL = "https://chhath-public-worker.shaharpura.com/";
     ERROR_LOG_URL = BASE_API_URL + "?action=logError";
 
     // Fetch the current data version FIRST (one tiny, always-fresh call), then
