@@ -308,6 +308,39 @@ async function edgeCached(request, ctx, build) {
   return res;
 }
 
+// Version-keyed edge cache for the FALLBACK path (no ?v= or a stale ?v=).
+//
+// The fast path (edgeCached) keys on the request URL, which carries the client's
+// ?v= — perfect when that version is current. But a request with NO version, or a
+// STALE version (every already-open browser/tab in the window right after a data
+// change), fell through to a fresh getAllPortalData() — 8 full table scans — on
+// EVERY request, with no cache. Under load that overwhelmed D1 (observed: 500s +
+// multi-second latency at 200 rps). This keys the payload on the CURRENT LIVE
+// version via a synthetic cache URL (independent of whatever ?v= the client sent),
+// so all fallback callers share one built copy per version instead of each
+// triggering their own 8 scans. Data is always current (key = live version), and
+// a version bump makes a new key so a stale body can never be served.
+//
+// Best-effort: if the Cache API is unavailable, build() just runs (unchanged).
+async function versionCached(ctx, cacheName, version, build) {
+  let cache;
+  try { cache = caches.default; } catch (e) { cache = null; }
+  if (!cache) return build();
+  // Synthetic, internal key — NOT the client's URL. Same-origin dummy host.
+  const key = new Request(`https://public-cache.internal/${cacheName}?v=${encodeURIComponent(version)}`);
+  const hit = await cache.match(key).catch(() => null);
+  if (hit) return hit;
+  const res = await build();
+  try {
+    if (res.status === 200) {
+      const toStore = res.clone();
+      if (ctx && ctx.waitUntil) ctx.waitUntil(cache.put(key, toStore));
+      else await cache.put(key, toStore);
+    }
+  } catch (e) { /* best effort */ }
+  return res;
+}
+
 // True when the client already holds this exact version (If-None-Match matches).
 function clientHasCurrent(request, etag) {
   const inm = request.headers.get('If-None-Match');
@@ -408,10 +441,8 @@ export default {
           });
         }
 
-        // FALLBACK PATH (no ?v=, or a stale ?v=): behave like before — ETag
-        // revalidation. This keeps old cached frontends and direct/no-version
-        // callers working, and covers the moment right after a version bump when
-        // a client still asks with the old v.
+        // FALLBACK PATH (no ?v=, or a stale ?v=): ETag revalidation as before, so
+        // old/no-version callers keep working and get a 304 when unchanged.
         const etag = etagFor('portalData', version);
         if (clientHasCurrent(request, etag)) {
           return new Response(null, {
@@ -419,9 +450,16 @@ export default {
             headers: { ...cors, ETag: etag, 'Cache-Control': 'no-cache' },
           });
         }
-        const data = await getAllPortalData(env);
-        return new Response(JSON.stringify(data), {
-          headers: { ...cors, ETag: etag, 'Cache-Control': 'no-cache' },
+        // When they DON'T already hold the current version we must build the
+        // payload — but cache that build on the CURRENT live version so a burst of
+        // stale/no-version requests (e.g. every open tab right after a data change)
+        // doesn't each run 8 full table scans and overwhelm D1. A short max-age
+        // makes it edge-cacheable; the ETag is preserved for revalidation.
+        return versionCached(ctx, 'portalData', version, async () => {
+          const data = await getAllPortalData(env);
+          return new Response(JSON.stringify(data), {
+            headers: { ...cors, ETag: etag, 'Cache-Control': 'public, max-age=30' },
+          });
         });
       }
 
@@ -449,9 +487,13 @@ export default {
             headers: { ...cors, ETag: etag, 'Cache-Control': 'no-cache' },
           });
         }
-        const data = await getActivePublicPopups(env);
-        return new Response(JSON.stringify(data), {
-          headers: { ...cors, ETag: etag, 'Cache-Control': 'no-cache' },
+        // Same fallback hardening as portalData: cache the build on the current
+        // live version so stale/no-version bursts don't each rebuild.
+        return versionCached(ctx, 'activePopups', version, async () => {
+          const data = await getActivePublicPopups(env);
+          return new Response(JSON.stringify(data), {
+            headers: { ...cors, ETag: etag, 'Cache-Control': 'public, max-age=30' },
+          });
         });
       }
       return new Response(JSON.stringify({ status: false, message: 'Invalid Request' }), { headers: cors, status: 400 });
