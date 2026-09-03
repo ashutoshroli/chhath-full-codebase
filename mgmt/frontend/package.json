@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "node build-seo.mjs",
+    "inject-seo": "node build-seo.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },

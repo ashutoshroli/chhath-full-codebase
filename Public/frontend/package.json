@@ -2,8 +2,8 @@
   "name": "chhath-public-frontend",
   "version": "1.0.0",
   "private": true,
-  "description": "Public Chhath Puja transparency portal (static site + build-time SEO injection).",
+  "description": "Public Chhath Puja transparency portal (plain static site). SEO tags are hardcoded in index.html; build.mjs is an OPTIONAL tool to inject the Superadmin-managed SEO settings and is NOT run automatically on deploy.",
   "scripts": {
-    "build": "node build.mjs"
+    "inject-seo": "node build.mjs"
   }
 }
