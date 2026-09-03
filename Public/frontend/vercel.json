@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npm run build",
+  "installCommand": "echo 'no dependencies to install'",
+  "buildCommand": "node build.mjs",
   "outputDirectory": "."
 }
