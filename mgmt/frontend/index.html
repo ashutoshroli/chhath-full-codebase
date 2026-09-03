@@ -5,20 +5,41 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Chhath Puja — Management Portal</title>
 
-  <!-- Google Tag Manager — replace GTM-M2JP98W5 with your real container ID.
-       GA4 and Microsoft Clarity are configured as tags INSIDE this GTM
-       container (GA4 Configuration tag + a Custom HTML/Clarity template tag)
-       — nothing else needs to change in this codebase to add/update/remove
-       either of them going forward. -->
-  <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
-  new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
-  j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
-  'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
-  })(window,document,'script','dataLayer','GTM-M2JP98W5');</script>
-  <!-- End Google Tag Manager -->
+  <!-- PERFORMANCE: pre-connect to the font origins so the TLS/DNS handshake is
+       already done by the time the CSS below is fetched (shaves LCP). -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-  <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+  <!-- Fonts loaded NON-render-blocking: `media=print` + onload swap means the
+       browser does NOT block first paint waiting for these stylesheets (they used
+       to be plain render-blocking <link>s, a big chunk of the 3.5s LCP). Once
+       loaded they apply normally. `display=swap` keeps text visible with a
+       fallback font meanwhile (also reduces layout shift / CLS). A <noscript>
+       fallback keeps fonts working with JS disabled. -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round&display=swap" media="print" onload="this.media='all'">
+  <noscript>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round">
+  </noscript>
+
+  <!-- Google Tag Manager — replace GTM-M2JP98W5 with your real container ID.
+       GA4 and Microsoft Clarity are configured as tags INSIDE this GTM container.
+       PERFORMANCE: loaded on window `load` (after first paint) so analytics never
+       delays the LCP. The gtm.js script itself was already async; deferring the
+       bootstrap to `load` keeps it fully off the critical rendering path while
+       still capturing every pageview via the dataLayer trackers in the app. -->
+  <script>
+  window.dataLayer = window.dataLayer || [];
+  window.addEventListener('load', function () {
+    (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer','GTM-M2JP98W5');
+  });
+  </script>
+  <!-- End Google Tag Manager -->
 </head>
 <body>
   <!-- Google Tag Manager (noscript) -->

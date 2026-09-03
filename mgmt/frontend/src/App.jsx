@@ -3,39 +3,44 @@ import { api, getSession, clearSession } from './api.js';
 import { useViewData } from './useViewData.js';
 import { isSuperadmin } from './permissions.js';
 import Login from './components/Login.jsx';
+// PERFORMANCE (LCP): only the FIRST screen a logged-in user sees (Home) and the
+// small always-mounted UI (Login, ProfileMenu, SettingsModal, Modal, ErrorBoundary,
+// LoginPopups) are imported eagerly. Every OTHER tab/view is lazy-loaded, so the
+// initial JS bundle shrinks dramatically — the browser no longer downloads +
+// parses 19 screens' worth of code (and their heavy deps like jsPDF, docxtemplater,
+// PizZip) just to render Home. Each view's chunk is fetched on the first click of
+// its tab (fast, behind a Suspense spinner). All lazy views render inside a single
+// <Suspense> below, so behaviour is identical — just deferred.
 import Home from './views/Home.jsx';
-import Expenses from './views/Expenses.jsx';
-import Loans from './views/Loans.jsx';
-import Users from './views/Users.jsx';
-import Committee from './views/Committee.jsx';
-import LoginManagement from './views/LoginManagement.jsx';
-import LockYears from './views/LockYears.jsx';
-import StorageManagement from './views/StorageManagement.jsx';
-import WhatsApp from './views/WhatsApp.jsx';
-import ListManagement from './views/ListManagement.jsx';
-import ConsentTemplates from './views/ConsentTemplates.jsx';
-import ConsentReview from './views/ConsentReview.jsx';
-import ReceiptTemplates from './views/ReceiptTemplates.jsx';
-import CertificateTemplates from './views/CertificateTemplates.jsx';
-import SamaanTemplates from './views/SamaanTemplates.jsx';
-import ErrorLog from './views/ErrorLog.jsx';
-import QueueMonitor from './views/QueueMonitor.jsx';
-// docxtemplater+pizzip (used to fill .docx templates) are lazy — only Superadmin
-// on these tabs (or someone downloading a Receipt/Certificate/Consent PDF) needs them.
+const Expenses = lazy(() => import('./views/Expenses.jsx'));
+const Loans = lazy(() => import('./views/Loans.jsx'));
+const Users = lazy(() => import('./views/Users.jsx'));
+const Committee = lazy(() => import('./views/Committee.jsx'));
+const LoginManagement = lazy(() => import('./views/LoginManagement.jsx'));
+const LockYears = lazy(() => import('./views/LockYears.jsx'));
+const StorageManagement = lazy(() => import('./views/StorageManagement.jsx'));
+const WhatsApp = lazy(() => import('./views/WhatsApp.jsx'));
+const ListManagement = lazy(() => import('./views/ListManagement.jsx'));
+const ConsentTemplates = lazy(() => import('./views/ConsentTemplates.jsx'));
+const ConsentReview = lazy(() => import('./views/ConsentReview.jsx'));
+const ReceiptTemplates = lazy(() => import('./views/ReceiptTemplates.jsx'));
+const CertificateTemplates = lazy(() => import('./views/CertificateTemplates.jsx'));
+const SamaanTemplates = lazy(() => import('./views/SamaanTemplates.jsx'));
+const ErrorLog = lazy(() => import('./views/ErrorLog.jsx'));
+const QueueMonitor = lazy(() => import('./views/QueueMonitor.jsx'));
+const PopupManagement = lazy(() => import('./views/PopupManagement.jsx'));
+const AnnouncementPortal = lazy(() => import('./views/AnnouncementPortal.jsx'));
+// These were already lazy (heavy deps: docxtemplater / pizzip / jsPDF).
 const DocxTemplates = lazy(() => import('./views/DocxTemplates.jsx'));
 const BulkGeneratePdfs = lazy(() => import('./views/BulkGeneratePdfs.jsx'));
 const DownloadCenter = lazy(() => import('./views/DownloadCenter.jsx'));
-// Lazy-loaded — pulls in jsPDF (heavy), only needed by Superadmin on this one tab.
 const PdfExport = lazy(() => import('./views/PdfExport.jsx'));
+const Backup = lazy(() => import('./views/Backup.jsx'));
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import ProfileMenu from './components/ProfileMenu.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
 import Modal from './components/Modal.jsx';
 import LoginPopups from './components/LoginPopups.jsx';
-import PopupManagement from './views/PopupManagement.jsx';
-import AnnouncementPortal from './views/AnnouncementPortal.jsx';
-// Lazy — pulls in PizZip only when the Superadmin actually opens Backup/Restore.
-const Backup = lazy(() => import('./views/Backup.jsx'));
 
 const BASE_TABS = [
   { id: 'home', label: 'Home', icon: 'home' },
@@ -217,6 +222,12 @@ export default function App() {
             Keyed on `tab` so navigating away resets the boundary rather than
             leaving it permanently stuck in its error state. */}
         <ErrorBoundary key={tab} name={`tab:${tab}`}>
+        {/* All views except Home are lazy-loaded now, so the whole tab block is
+            wrapped in ONE Suspense (a lazy component rendered without a Suspense
+            ancestor would throw). The spinner only shows for the brief moment a
+            tab's chunk is fetched the first time; after that it's cached. Home is
+            eager, so the first screen never shows this fallback. */}
+        <Suspense fallback={<div className="inline-spinner">Loading...</div>}>
         {tab === 'home' && <Home year={year} users={usersView.data} onUserCreated={usersView.refresh} role={user.role} editable={editable} />}
         {tab === 'expenses' && <Expenses year={year} role={user.role} editable={editable} />}
         {tab === 'loans' && <Loans year={year} users={usersView.data} committee={committeeAllView.data} role={user.role} editable={editable} />}
@@ -224,11 +235,7 @@ export default function App() {
         {tab === 'committee' && <Committee year={year} users={usersView.data} role={user.role} editable={editable} />}
         {tab === 'lock' && canAccessTab('lock') && <LockYears years={years} lockedYears={lockedYearsSet} onChange={lockedYearsView.refresh} onYearAdded={refreshYears} />}
         {tab === 'storage' && canAccessTab('storage') && <StorageManagement />}
-        {tab === 'backup' && canAccessTab('backup') && (
-          <Suspense fallback={<div className="inline-spinner">Loading...</div>}>
-            <Backup />
-          </Suspense>
-        )}
+        {tab === 'backup' && canAccessTab('backup') && <Backup />}
         {tab === 'whatsapp' && canAccessTab('whatsapp') && <WhatsApp />}
         {tab === 'lists' && canAccessTab('lists') && <ListManagement />}
         {tab === 'consenttemplates' && canAccessTab('consenttemplates') && <ConsentTemplates />}
@@ -239,28 +246,13 @@ export default function App() {
         {tab === 'errorlog' && canAccessTab('errorlog') && <ErrorLog />}
         {tab === 'queuemonitor' && canAccessTab('queuemonitor') && <QueueMonitor />}
         {tab === 'loginmgmt' && canAccessTab('loginmgmt') && <LoginManagement users={usersView.data} role={user.role} />}
-        {tab === 'docxtemplates' && canAccessTab('docxtemplates') && (
-          <Suspense fallback={<div className="inline-spinner">Loading...</div>}>
-            <DocxTemplates />
-          </Suspense>
-        )}
-        {tab === 'bulkgenerate' && canAccessTab('bulkgenerate') && (
-          <Suspense fallback={<div className="inline-spinner">Loading...</div>}>
-            <BulkGeneratePdfs />
-          </Suspense>
-        )}
-        {tab === 'downloadcenter' && canAccessTab('downloadcenter') && (
-          <Suspense fallback={<div className="inline-spinner">Loading...</div>}>
-            <DownloadCenter role={user.role} />
-          </Suspense>
-        )}
+        {tab === 'docxtemplates' && canAccessTab('docxtemplates') && <DocxTemplates />}
+        {tab === 'bulkgenerate' && canAccessTab('bulkgenerate') && <BulkGeneratePdfs />}
+        {tab === 'downloadcenter' && canAccessTab('downloadcenter') && <DownloadCenter role={user.role} />}
         {tab === 'popupmgmt' && canAccessTab('popupmgmt') && <PopupManagement />}
         {tab === 'announcementportal' && canAccessTab('announcementportal') && <AnnouncementPortal years={years} />}
-        {tab === 'pdfexport' && canAccessTab('pdfexport') && (
-          <Suspense fallback={<div className="inline-spinner">Loading...</div>}>
-            <PdfExport />
-          </Suspense>
-        )}
+        {tab === 'pdfexport' && canAccessTab('pdfexport') && <PdfExport />}
+        </Suspense>
         </ErrorBoundary>
       </main>
 
