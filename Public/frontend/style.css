@@ -80,11 +80,13 @@ body { background-color: var(--bg-offwhite); color: var(--text-main); padding-bo
   border: none; border-radius: 50%; width: 30px; height: 30px; font-size: 1.2rem;
   line-height: 1; cursor: pointer; z-index: 2;
 }
-/* aspect-ratio reserves vertical space BEFORE the image loads, so the popup
-   card (and anything below it) doesn't jump when the image finally arrives —
-   removes an image-driven layout shift (CLS). object-fit keeps it undistorted;
-   min-height is a fallback for very old browsers without aspect-ratio support. */
-.popup-slide-img { width: 100%; display: block; border-radius: 14px 14px 0 0; aspect-ratio: 4 / 3; object-fit: cover; background: #f3f4f6; min-height: 120px; }
+/* Show the FULL popup image at its natural proportions — do NOT crop it.
+   A fixed aspect-ratio + object-fit:cover was cutting off tall/portrait
+   posters (only the middle strip showed). `height:auto` lets the image size
+   itself to whatever it actually is, so the whole poster is visible. The card
+   already scrolls (max-height:85vh + overflow-y:auto) if the image is very
+   tall. `background` shows a neutral placeholder while it loads. */
+.popup-slide-img { width: 100%; height: auto; display: block; border-radius: 14px 14px 0 0; background: #f3f4f6; }
 .popup-slide-text { padding: 16px; font-size: 0.9rem; color: var(--text-main, #333); overflow-wrap: anywhere; }
 .popup-slide-link {
   display: inline-block; margin: 0 16px 16px; padding: 8px 16px; border-radius: 8px;
