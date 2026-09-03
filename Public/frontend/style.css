@@ -18,7 +18,10 @@ body { background-color: var(--bg-offwhite); color: var(--text-main); padding-bo
 
 .page-view { display: none; max-width: 1000px; margin: 90px auto 0; padding: 0 15px; animation: fade 0.3s; }
 .active-view { display: block; }
-@keyframes fade { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+/* opacity-only fade — the old fade also did translateY(10px)->0 on every view
+   render, a position change that shows up as layout shift (CLS). Fading opacity
+   alone gives the same feel without moving anything. */
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 
 /* overflow-wrap:anywhere — a long unbreakable token (a name, a detail, a
    document label, a URL) can no longer stretch the card past the viewport and
@@ -77,7 +80,11 @@ body { background-color: var(--bg-offwhite); color: var(--text-main); padding-bo
   border: none; border-radius: 50%; width: 30px; height: 30px; font-size: 1.2rem;
   line-height: 1; cursor: pointer; z-index: 2;
 }
-.popup-slide-img { width: 100%; display: block; border-radius: 14px 14px 0 0; }
+/* aspect-ratio reserves vertical space BEFORE the image loads, so the popup
+   card (and anything below it) doesn't jump when the image finally arrives —
+   removes an image-driven layout shift (CLS). object-fit keeps it undistorted;
+   min-height is a fallback for very old browsers without aspect-ratio support. */
+.popup-slide-img { width: 100%; display: block; border-radius: 14px 14px 0 0; aspect-ratio: 4 / 3; object-fit: cover; background: #f3f4f6; min-height: 120px; }
 .popup-slide-text { padding: 16px; font-size: 0.9rem; color: var(--text-main, #333); overflow-wrap: anywhere; }
 .popup-slide-link {
   display: inline-block; margin: 0 16px 16px; padding: 8px 16px; border-radius: 8px;

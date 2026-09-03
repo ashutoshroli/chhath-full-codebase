@@ -5,20 +5,39 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Chhath Puja Transparency Portal</title>
 
-  <!-- Google Tag Manager — replace GTM-XXXXXXX with your real container ID.
-       Same container/ID as mgmt/frontend is fine — GA4 + Clarity are both
-       configured as tags inside GTM, not in this file. -->
-  <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
-  new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
-  j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
-  'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
-  })(window,document,'script','dataLayer','GTM-N6BF7NP7');</script>
-  <!-- End Google Tag Manager -->
+  <!-- PERFORMANCE: pre-connect to the font origins (faster font fetch -> better LCP). -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-  <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
-  
+  <!-- Fonts loaded NON-render-blocking (media=print + onload swap), with a
+       <noscript> fallback. This removes the render-blocking font fetch from the
+       critical path (helps LCP). `display=swap` on BOTH stylesheets keeps text/
+       icons visible with a fallback while the web font loads AND reduces the
+       layout shift (CLS) that happened when the icon font swapped in late — the
+       Material Icons link previously had no display=swap. -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round&display=swap" media="print" onload="this.media='all'">
+  <noscript>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round">
+  </noscript>
+
   <link rel="stylesheet" href="style.css">
+
+  <!-- Google Tag Manager — GA4 + Clarity are configured as tags inside GTM.
+       PERFORMANCE: boots on window 'load' (after first paint) so analytics never
+       delays LCP; pageviews are still captured via the dataLayer pushes in script.js. -->
+  <script>
+  window.dataLayer = window.dataLayer || [];
+  window.addEventListener('load', function () {
+    (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer','GTM-N6BF7NP7');
+  });
+  </script>
+  <!-- End Google Tag Manager -->
 </head>
 <body>
   <!-- Google Tag Manager (noscript) -->
