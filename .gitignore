@@ -6,3 +6,18 @@ dist/
 build/
 .wrangler/
 mgmt/db/backups/
+
+
+# SECURITY: real-data DB migration dumps (contain user PII — password hashes,
+# emails, mobile numbers, IP addresses). These must NEVER be committed (the repo
+# is/was public and GitGuardian flagged them). The db/schema/ files (structure
+# only, no data) stay in the repo; only these data dumps are ignored. Keep them
+# locally to run migrations, but do not push them.
+mgmt/db/migration/collections.sql
+mgmt/db/migration/core.sql
+mgmt/db/migration/file_index.sql
+mgmt/db/migration/loans_expenses.sql
+mgmt/db/migration/logs.sql
+mgmt/db/migration/misc.sql
+mgmt/db/migration/templates.sql
+mgmt/db/migration/whatsapp_index.sql
