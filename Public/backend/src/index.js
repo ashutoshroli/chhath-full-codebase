@@ -67,6 +67,66 @@ async function usersPublicSafe(env) {
   });
 }
 
+// ============ ABUSE / QUOTA PROTECTION (hardening A + C) ============
+//
+// This is a PUBLIC, unauthenticated portal on the D1 FREE tier, whose daily
+// row-read quota is SHARED with the mgmt worker (same databases). A flood of
+// public requests can therefore exhaust that quota and take the WHOLE portal —
+// mgmt included — offline (observed during load testing). Two lightweight guards,
+// both backed by the reused KV namespace (keys prefixed "pub:"):
+//
+//   A) per-IP rate limit — a single IP can't hammer the Worker.
+//   C) daily D1 read budget — once the day's estimated D1 reads approach the free
+//      limit, the portal serves ONLY from cache and stops issuing new D1 reads,
+//      so admins (mgmt) keep working instead of the quota being burned to zero.
+//
+// Both FAIL OPEN on any KV error (never take the site down themselves), and both
+// are no-ops if KV isn't bound (older deploy) — the edge cache from the version
+// design still does most of the protection.
+
+const PUB_RL_WINDOW_SECONDS = 60;
+const PUB_RL_MAX = 60; // per IP per minute — generous for a real viewer, capping floods
+// Estimated D1 rows read per full portal build (8 table scans, sizes vary). We
+// budget on the free tier's 5,000,000/day, leaving headroom for mgmt admins.
+const D1_DAILY_BUDGET = 4000000;
+const D1_ROWS_PER_BUILD = 2000; // conservative over-estimate per getAllPortalData build
+
+async function pubRateLimited(env, ip, action) {
+  try {
+    if (!env || !env.KV_SESSIONS || !ip) return false;
+    const bucket = Math.floor(Date.now() / (PUB_RL_WINDOW_SECONDS * 1000));
+    const key = `pub:rl:${action}:${ip}:${bucket}`;
+    const cur = parseInt((await env.KV_SESSIONS.get(key)) || '0', 10) || 0;
+    if (cur >= PUB_RL_MAX) return true;
+    await env.KV_SESSIONS.put(key, String(cur + 1), { expirationTtl: PUB_RL_WINDOW_SECONDS + 5 });
+    return false;
+  } catch (e) { return false; } // fail open
+}
+
+// True when today's estimated D1 reads have crossed the safety budget — callers
+// should then serve from cache only and NOT build fresh from D1.
+async function d1BudgetExceeded(env) {
+  try {
+    if (!env || !env.KV_SESSIONS) return false;
+    const day = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC, matches D1 reset)
+    const used = parseInt((await env.KV_SESSIONS.get(`pub:d1reads:${day}`)) || '0', 10) || 0;
+    return used >= D1_DAILY_BUDGET;
+  } catch (e) { return false; } // fail open
+}
+
+// Records that a fresh D1 build just happened (adds the per-build estimate to
+// today's counter). Best-effort; TTL ~2 days so the daily key self-expires.
+async function d1BudgetAdd(env, ctx) {
+  try {
+    if (!env || !env.KV_SESSIONS) return;
+    const day = new Date().toISOString().slice(0, 10);
+    const key = `pub:d1reads:${day}`;
+    const used = parseInt((await env.KV_SESSIONS.get(key)) || '0', 10) || 0;
+    const put = env.KV_SESSIONS.put(key, String(used + D1_ROWS_PER_BUILD), { expirationTtl: 172800 });
+    if (ctx && ctx.waitUntil) ctx.waitUntil(put); else await put;
+  } catch (e) { /* best effort */ }
+}
+
 async function getAllPortalData(env) {
   return {
     // Public transparency portal only needs Name/Village/Father's Name/
@@ -341,6 +401,33 @@ async function versionCached(ctx, cacheName, version, build) {
   return res;
 }
 
+// Reads (does NOT build) the version-keyed cache for a payload — used by the D1
+// budget guard: when the daily D1 budget is spent we still want to serve a cached
+// copy if one exists, without touching D1. Returns a Response or null. Uses the
+// SAME key scheme as versionCached().
+async function serveVersionCacheOnly(request, ctx, cacheName, version, cors, etag) {
+  try {
+    let cache;
+    try { cache = caches.default; } catch (e) { cache = null; }
+    if (!cache) return null;
+    // Try BOTH cache keys a payload could live under:
+    //   1) the fast-path edgeCached key = the client's own request URL (carries ?v=)
+    //   2) the fallback versionCached key = synthetic internal URL on the live version
+    const candidates = [
+      request, // fast-path key (request URL)
+      new Request(`https://public-cache.internal/${cacheName}?v=${encodeURIComponent(version)}`),
+    ];
+    for (const key of candidates) {
+      const hit = await cache.match(key).catch(() => null);
+      if (hit) {
+        const body = await hit.text();
+        return new Response(body, { headers: { ...cors, ETag: etag, 'Cache-Control': 'public, max-age=30' } });
+      }
+    }
+    return null;
+  } catch (e) { return null; }
+}
+
 // True when the client already holds this exact version (If-None-Match matches).
 function clientHasCurrent(request, etag) {
   const inm = request.headers.get('If-None-Match');
@@ -379,6 +466,18 @@ export default {
       return new Response(null, {
         headers: { ...cors, 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' },
       });
+    }
+
+    // Hardening A: per-IP rate limit (public, unauthenticated). A real viewer
+    // makes a handful of requests per page load; a flood script makes hundreds.
+    // Capping per IP narrows how fast anyone can burn the shared D1 daily quota.
+    // Fails open, so it can never take the portal down on its own.
+    const edgeIp = request.headers.get('CF-Connecting-IP') || '';
+    if (edgeIp && await pubRateLimited(env, edgeIp, action || 'root')) {
+      return new Response(
+        JSON.stringify({ status: false, message: 'Too many requests. Please try again in a little while.' }),
+        { status: 429, headers: { ...cors, 'Cache-Control': 'no-store' } }
+      );
     }
 
     // The public frontend POSTs its own JS errors here (window.onerror /
@@ -421,6 +520,20 @@ export default {
         const version = await getDataVersion(env);
         const requestedV = (url.searchParams.get('v') || '').trim();
 
+        // Hardening C: if today's D1 read budget is spent, do NOT build fresh from
+        // D1. Serve the cached copy for this version if we have one; otherwise ask
+        // the caller to retry shortly. This protects the shared D1 quota so mgmt
+        // admins keep working even under a public flood. (A genuine data change
+        // still gets served once the next day resets, or from an existing cache.)
+        if (await d1BudgetExceeded(env)) {
+          const cachedOnly = await serveVersionCacheOnly(request, ctx, 'portalData', version, cors, etagFor('portalData', version));
+          if (cachedOnly) return cachedOnly;
+          return new Response(
+            JSON.stringify({ status: false, message: 'The portal is busy right now. Please try again in a little while.' }),
+            { status: 503, headers: { ...cors, 'Cache-Control': 'no-store' } }
+          );
+        }
+
         // FAST PATH: the client asked for a specific version (?v=) and it still
         // matches the live version -> return the payload with a long IMMUTABLE
         // cache so Cloudflare's edge caches it and serves every future request
@@ -430,6 +543,7 @@ export default {
         if (requestedV && requestedV === version) {
           return edgeCached(request, ctx, async () => {
             const data = await getAllPortalData(env);
+            await d1BudgetAdd(env, ctx); // count this fresh D1 build toward today's budget
             return new Response(JSON.stringify(data), {
               headers: {
                 ...cors,
@@ -457,6 +571,7 @@ export default {
         // makes it edge-cacheable; the ETag is preserved for revalidation.
         return versionCached(ctx, 'portalData', version, async () => {
           const data = await getAllPortalData(env);
+          await d1BudgetAdd(env, ctx); // count this fresh D1 build toward today's budget
           return new Response(JSON.stringify(data), {
             headers: { ...cors, ETag: etag, 'Cache-Control': 'public, max-age=30' },
           });
@@ -467,9 +582,18 @@ export default {
         const version = await getDataVersion(env);
         const requestedV = (url.searchParams.get('v') || '').trim();
 
+        // Hardening C: same budget guard as portalData.
+        if (await d1BudgetExceeded(env)) {
+          const cachedOnly = await serveVersionCacheOnly(request, ctx, 'activePopups', version, cors, etagFor('activePopups', version));
+          if (cachedOnly) return cachedOnly;
+          // Popups are non-critical; an empty list is a safe, silent fallback.
+          return new Response(JSON.stringify([]), { headers: { ...cors, 'Cache-Control': 'no-store' } });
+        }
+
         if (requestedV && requestedV === version) {
           return edgeCached(request, ctx, async () => {
             const data = await getActivePublicPopups(env);
+            await d1BudgetAdd(env, ctx);
             return new Response(JSON.stringify(data), {
               headers: {
                 ...cors,
@@ -491,6 +615,7 @@ export default {
         // live version so stale/no-version bursts don't each rebuild.
         return versionCached(ctx, 'activePopups', version, async () => {
           const data = await getActivePublicPopups(env);
+          await d1BudgetAdd(env, ctx);
           return new Response(JSON.stringify(data), {
             headers: { ...cors, ETag: etag, 'Cache-Control': 'public, max-age=30' },
           });

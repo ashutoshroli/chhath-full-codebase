@@ -134,7 +134,12 @@ const RATE_LIMITED_ACTIONS = new Set([
 // RATE_LIMIT_WINDOW_SECONDS. Best-effort: any KV error means "not limited" so a
 // KV outage can never take the whole API offline (fail open).
 const RATE_LIMIT_WINDOW_SECONDS = 60;
-const RATE_LIMIT_MAX = 40;
+// Tightened 40 -> 20 per IP per minute (hardening A). These are UNAUTHENTICATED /
+// public actions (login, OTP, consent, error reporting); no real human hits any
+// of them 20+ times a minute, but a flood script does — capping this narrows the
+// window in which a single IP can burn D1's free-tier daily row quota (which, on
+// the shared account, would take the whole portal — mgmt included — offline).
+const RATE_LIMIT_MAX = 20;
 async function isRateLimited(env, ip, action) {
   if (!env || !env.KV_SESSIONS) {
     // Audit 4.3: make the fail-open condition VISIBLE. Without a KV binding the
