@@ -246,5 +246,14 @@
   </div>
 
   <script src="script.js"></script>
+
+  <!-- Vercel Web Analytics (privacy-friendly, cookie-less visitor/pageview
+       counts in the Vercel dashboard). This is the plain-HTML integration: the
+       inline stub queues events until the script served from this deployment's
+       /_vercel/insights/ path loads. Independent of GTM/GA4 above; ad-blockers
+       that block Google leave this first-party path alone, so the counts are
+       usually more complete. Loaded with `defer` so it never blocks rendering. -->
+  <script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
+  <script defer src="/_vercel/insights/script.js"></script>
 </body>
 </html>

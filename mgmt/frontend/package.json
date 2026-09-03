@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@vercel/analytics": "^1.6.1",
     "docxtemplater": "^3.69.3",
     "docxtemplater-image-module-free": "^1.1.1",
     "dompurify": "^3.4.13",
