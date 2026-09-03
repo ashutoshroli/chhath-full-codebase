@@ -182,6 +182,11 @@ const app = {
         app.refreshData();
         app.renderDownloadVillages();
         app.checkRecordVerification();
+        // Restore the section from the URL hash on load, so a REFRESH keeps the
+        // user on the section they were viewing instead of snapping to Home.
+        // Skipped when a QR ?record= is present (that opens the 'verify' view via
+        // checkRecordVerification above and must win).
+        app.restoreViewFromHash();
 
         document.getElementById('loader').style.display = 'none';
       })
@@ -266,11 +271,30 @@ const app = {
     document.getElementById('popup-overlay').style.display = 'none';
   },
 
+  // On load, if the URL hash names a valid section (e.g. "#loans"), open it — but
+  // NOT when a QR ?record= is present (that already opened the 'verify' view).
+  // An unknown/empty hash leaves the default Home view as-is.
+  restoreViewFromHash: () => {
+    if (new URLSearchParams(window.location.search).get('record')) return; // verify view wins
+    const id = (window.location.hash || '').replace(/^#/, '').trim();
+    const allowed = ['home', 'expenses', 'loans', 'committee', 'downloads'];
+    if (id && allowed.includes(id)) app.nav(id);
+  },
+
   nav: (viewId) => {
+    const target = document.getElementById('view-' + viewId);
+    if (!target) return; // unknown view id — do nothing (guards a bad hash)
     document.querySelectorAll('.page-view').forEach(e => e.classList.remove('active-view'));
-    document.getElementById('view-' + viewId).classList.add('active-view');
+    target.classList.add('active-view');
     document.querySelectorAll('.nav-btn').forEach(e => e.classList.remove('active'));
     document.querySelectorAll(`.nav-btn[data-target="${viewId}"]`).forEach(e => e.classList.add('active'));
+    // Remember the current section in the URL hash so a REFRESH (or a shared
+    // link) stays on this section instead of snapping back to Home. Not written
+    // for the special 'verify' view (that is driven by ?record= in the query, not
+    // a user-navigable tab).
+    if (viewId !== 'verify') {
+      try { history.replaceState(null, '', '#' + viewId); } catch (e) { /* ignore */ }
+    }
     window.scrollTo(0,0);
     // Same reasoning as mgmt/frontend's App.jsx tracker — this site swaps
     // sections via JS, no real URL change, so GTM's default trigger only ever
