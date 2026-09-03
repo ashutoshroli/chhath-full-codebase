@@ -100,11 +100,41 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [checkedSession, setCheckedSession] = useState(false);
   const [freshLogin, setFreshLogin] = useState(false);
-  const [tab, setTab] = useState('home');
+  // Initialise the tab from the URL hash (e.g. "#loans") so a REFRESH stays on the
+  // section the user was viewing instead of snapping back to Home. Any string is
+  // accepted here; if it turns out the role can't access it, the render + the
+  // guard effect below fall back to 'home'. Empty/no hash -> 'home'.
+  const [tab, setTab] = useState(() => {
+    try {
+      const h = (window.location.hash || '').replace(/^#/, '').trim();
+      return h || 'home';
+    } catch (e) { return 'home'; }
+  });
   const [year, setYear] = useState('All');
   const [yearInitialized, setYearInitialized] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdminMenu, setShowAdminMenu] = useState(false);
+
+  // Keep the URL hash in sync with the current tab so a refresh restores it (see
+  // the initial state above). replaceState (not pushState) so it doesn't spam the
+  // browser's back history on every tab click.
+  useEffect(() => {
+    try { window.history.replaceState(null, '', '#' + tab); } catch (e) { /* ignore */ }
+  }, [tab]);
+
+  // Guard: once the user (role) is known, if the tab restored from the hash isn't
+  // valid for this role, fall back to Home — so a stale/foreign hash (e.g. an
+  // Admin refreshing on a Superadmin-only "#errorlog") can never leave a blank
+  // screen. BASE_TABS are available to every role; tool tabs depend on the role.
+  useEffect(() => {
+    if (!user) return;
+    const groups = TAB_GROUPS_BY_ROLE[user.role] || [];
+    const allowed = new Set([...BASE_TABS.map(t => t.id), ...groups.flatMap(g => g.tabs).map(t => t.id)]);
+    if (!allowed.has(tab)) setTab('home');
+    // Only needs to run when the user (role) becomes known; tab changes are
+    // already validated at click time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   // Tab switching inside the authenticated portal is internal React state, not
   // a URL route change (see the single "*" route in main.jsx) — so GTM's
