@@ -409,6 +409,13 @@ export const api = {
   savePopupSlides: (popupId, slides) => call('savePopupSlides', { popupId, slides }),
   uploadPopupImage: (base64, fileName, mimeType) => call('uploadPopupImage', { base64, fileName, mimeType }),
   getActivePopups: () => call('getActivePopups'),
+
+  // SEO & social link preview (Superadmin). `saveSeoSettings` takes the full
+  // settings object; `triggerRebuild` target is 'public' | 'mgmt' | 'both'.
+  getSeoSettings: () => call('getSeoSettings'),
+  saveSeoSettings: (payload) => call('saveSeoSettings', { payload }),
+  uploadSeoImage: (base64, fileName) => call('uploadSeoImage', { base64, fileName }),
+  triggerRebuild: (target) => call('triggerRebuild', { target }),
   // Shows exactly what the PUBLIC portal will render (a 'Public'-only popup is
   // invisible to getActivePopups, which filters by the caller's own role).
   previewPublicPopups: () => call('previewPublicPopups'),
