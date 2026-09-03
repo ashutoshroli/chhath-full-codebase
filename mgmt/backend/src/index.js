@@ -455,8 +455,11 @@ export default {
       uploadSeoImage: () => withAuth(env, req, (user) => seo.uploadSeoImage(env, req.base64, req.fileName, user)),
       triggerRebuild: () => withAuth(env, req, (user) => seo.triggerRebuild(env, req.target, user)),
       publicGetSeo: async () => {
+        // `portal` selects which portal's preview fields to return ('public' |
+        // 'mgmt'); defaults to public. Never exposes deploy-hook URLs.
         const all = await seo.readAllSeo(env);
-        return { status: true, seo: all.public };
+        const which = req.portal === 'mgmt' ? all.mgmt : all.public;
+        return { status: true, seo: which };
       },
 
       // ---- Consent Page Templates ----
