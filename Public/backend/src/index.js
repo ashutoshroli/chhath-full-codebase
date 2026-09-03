@@ -127,6 +127,50 @@ async function d1BudgetAdd(env, ctx) {
   } catch (e) { /* best effort */ }
 }
 
+// ---- Last-known-good snapshot (Option 1) ----
+//
+// A single long-lived copy of the portalData payload in KV, so that if D1 is
+// completely unavailable (daily row limit exhausted, or an error mid-build) AND
+// nothing is in the edge cache, we can still serve REAL (if slightly old) data
+// with a `stale:true` flag instead of a 503. This is the last line of defence
+// AFTER the edge cache + budget guard.
+//
+// KV WRITE DISCIPLINE: KV free tier allows ~1000 writes/day, so we do NOT write a
+// snapshot on every request. We write ONLY when the data VERSION has changed
+// since the last snapshot (i.e. roughly once per real data change) — the stored
+// meta records which version the snapshot is for. That is a handful of writes a
+// day, well within limits.
+const SNAPSHOT_KEY = 'pub:snapshot:portalData';
+const SNAPSHOT_META_KEY = 'pub:snapshot:portalData:version';
+
+async function maybeSaveSnapshot(env, ctx, version, dataObj) {
+  try {
+    if (!env || !env.KV_SESSIONS) return;
+    const lastVer = await env.KV_SESSIONS.get(SNAPSHOT_META_KEY);
+    if (lastVer === String(version)) return; // snapshot already current for this version — no write
+    const writes = Promise.all([
+      env.KV_SESSIONS.put(SNAPSHOT_KEY, JSON.stringify(dataObj), { expirationTtl: 86400 }),
+      env.KV_SESSIONS.put(SNAPSHOT_META_KEY, String(version), { expirationTtl: 86400 }),
+    ]);
+    if (ctx && ctx.waitUntil) ctx.waitUntil(writes); else await writes;
+  } catch (e) { /* best effort — snapshotting must never affect the response */ }
+}
+
+// Returns a Response built from the last-known-good snapshot (marked stale), or
+// null if no snapshot exists. Never touches D1.
+async function serveSnapshot(env, cors) {
+  try {
+    if (!env || !env.KV_SESSIONS) return null;
+    const raw = await env.KV_SESSIONS.get(SNAPSHOT_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    return new Response(JSON.stringify({ ...data, stale: true, staleReason: 'Live data source is temporarily unavailable; showing the most recent saved copy.' }), {
+      // no-store: this is a degraded copy, don't let it get cached as if fresh.
+      headers: { ...cors, 'Cache-Control': 'no-store' },
+    });
+  } catch (e) { return null; }
+}
+
 async function getAllPortalData(env) {
   return {
     // Public transparency portal only needs Name/Village/Father's Name/
@@ -528,54 +572,72 @@ export default {
         if (await d1BudgetExceeded(env)) {
           const cachedOnly = await serveVersionCacheOnly(request, ctx, 'portalData', version, cors, etagFor('portalData', version));
           if (cachedOnly) return cachedOnly;
+          // No edge cache for this version -> serve the last-known-good snapshot
+          // (real data, marked stale) instead of failing, so the public site keeps
+          // showing something even with D1 out of quota.
+          const snap = await serveSnapshot(env, cors);
+          if (snap) return snap;
           return new Response(
             JSON.stringify({ status: false, message: 'The portal is busy right now. Please try again in a little while.' }),
             { status: 503, headers: { ...cors, 'Cache-Control': 'no-store' } }
           );
         }
 
-        // FAST PATH: the client asked for a specific version (?v=) and it still
-        // matches the live version -> return the payload with a long IMMUTABLE
-        // cache so Cloudflare's edge caches it and serves every future request
-        // for this exact URL without ever hitting the Worker again. When the data
-        // changes, the version bumps, the URL changes (?v=<new>), and that fresh
-        // URL is a cache MISS -> one Worker fetch, then cached again.
-        if (requestedV && requestedV === version) {
-          return edgeCached(request, ctx, async () => {
+        // Any fresh D1 build below is wrapped so that if D1 fails mid-build (e.g.
+        // the daily row limit is hit right here), we DETERMINISTICALLY fall back to
+        // the last-known-good snapshot (stale) instead of a 500 — regardless of how
+        // the promise rejection would otherwise propagate.
+        try {
+          // FAST PATH: the client asked for a specific version (?v=) and it still
+          // matches the live version -> return the payload with a long IMMUTABLE
+          // cache so Cloudflare's edge caches it and serves every future request
+          // for this exact URL without ever hitting the Worker again.
+          if (requestedV && requestedV === version) {
+            return await edgeCached(request, ctx, async () => {
+              const data = await getAllPortalData(env);
+              await d1BudgetAdd(env, ctx); // count this fresh D1 build toward today's budget
+              await maybeSaveSnapshot(env, ctx, version, data); // last-known-good (only writes on version change)
+              return new Response(JSON.stringify(data), {
+                headers: {
+                  ...cors,
+                  ETag: etagFor('portalData', version),
+                  // 1 year + immutable: safe because the URL is version-specific.
+                  'Cache-Control': 'public, max-age=31536000, immutable',
+                },
+              });
+            });
+          }
+
+          // FALLBACK PATH (no ?v=, or a stale ?v=): ETag revalidation as before, so
+          // old/no-version callers keep working and get a 304 when unchanged.
+          const etag = etagFor('portalData', version);
+          if (clientHasCurrent(request, etag)) {
+            return new Response(null, {
+              status: 304,
+              headers: { ...cors, ETag: etag, 'Cache-Control': 'no-cache' },
+            });
+          }
+          // Cache the build on the CURRENT live version so a burst of stale/no-version
+          // requests doesn't each run 8 full table scans and overwhelm D1.
+          return await versionCached(ctx, 'portalData', version, async () => {
             const data = await getAllPortalData(env);
-            await d1BudgetAdd(env, ctx); // count this fresh D1 build toward today's budget
+            await d1BudgetAdd(env, ctx);
+            await maybeSaveSnapshot(env, ctx, version, data);
             return new Response(JSON.stringify(data), {
-              headers: {
-                ...cors,
-                ETag: etagFor('portalData', version),
-                // 1 year + immutable: safe because the URL is version-specific.
-                'Cache-Control': 'public, max-age=31536000, immutable',
-              },
+              headers: { ...cors, ETag: etag, 'Cache-Control': 'public, max-age=30' },
             });
           });
+        } catch (buildErr) {
+          // D1 build failed (likely quota exhausted). Serve the last-known-good
+          // snapshot if we have one; otherwise re-throw to the outer handler.
+          const snap = await serveSnapshot(env, cors);
+          if (snap) {
+            ctx.waitUntil(logPublicError(env, 'public-backend', 'portalData:snapshot-fallback',
+              (buildErr && buildErr.message) || String(buildErr), '', JSON.stringify({ served: 'stale-snapshot' })));
+            return snap;
+          }
+          throw buildErr;
         }
-
-        // FALLBACK PATH (no ?v=, or a stale ?v=): ETag revalidation as before, so
-        // old/no-version callers keep working and get a 304 when unchanged.
-        const etag = etagFor('portalData', version);
-        if (clientHasCurrent(request, etag)) {
-          return new Response(null, {
-            status: 304,
-            headers: { ...cors, ETag: etag, 'Cache-Control': 'no-cache' },
-          });
-        }
-        // When they DON'T already hold the current version we must build the
-        // payload — but cache that build on the CURRENT live version so a burst of
-        // stale/no-version requests (e.g. every open tab right after a data change)
-        // doesn't each run 8 full table scans and overwhelm D1. A short max-age
-        // makes it edge-cacheable; the ETag is preserved for revalidation.
-        return versionCached(ctx, 'portalData', version, async () => {
-          const data = await getAllPortalData(env);
-          await d1BudgetAdd(env, ctx); // count this fresh D1 build toward today's budget
-          return new Response(JSON.stringify(data), {
-            headers: { ...cors, ETag: etag, 'Cache-Control': 'public, max-age=30' },
-          });
-        });
       }
 
       if (action === 'activePopups') {
@@ -632,6 +694,17 @@ export default {
       );
       if (ctx && ctx.waitUntil) ctx.waitUntil(logging); else await logging;
       console.error('[public-worker]', action, err && err.message);
+
+      // Last-resort fallback for portalData: if D1 is out of quota (or otherwise
+      // failed) mid-build and we have a last-known-good snapshot, serve that
+      // (marked stale) instead of a hard failure, so the public site still shows
+      // real data. Only for portalData (the snapshot we keep). Other actions fail
+      // as before.
+      if (action === 'portalData') {
+        const snap = await serveSnapshot(env, cors);
+        if (snap) return snap;
+      }
+
       return new Response(
         JSON.stringify({ status: false, message: 'Data load nahi ho paya. Thodi der baad koshish karein.' }),
         { status: 500, headers: cors }
