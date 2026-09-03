@@ -1,0 +1,9 @@
+{
+  "name": "chhath-public-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Public Chhath Puja transparency portal (static site + build-time SEO injection).",
+  "scripts": {
+    "build": "node build.mjs"
+  }
+}

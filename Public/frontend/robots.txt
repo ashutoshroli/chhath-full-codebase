@@ -1,0 +1,5 @@
+# Public transparency portal — allow full crawling.
+User-agent: *
+Allow: /
+
+Sitemap: https://chhath.shaharpura.com/sitemap.xml
