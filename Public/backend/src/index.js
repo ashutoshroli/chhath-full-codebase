@@ -374,6 +374,39 @@ async function getDataVersion(env) {
   }
 }
 
+// Reads the four public SEO/link-preview fields the Superadmin manages in the
+// management portal (stored in the SAME portal_settings table this Worker
+// already reads for the data version). Returns empty strings on any miss/error;
+// build.mjs then falls back to the hardcoded HTML defaults, so an empty result
+// is always safe.
+const PUBLIC_SEO_KEYS = {
+  title: 'seo_public_title',
+  description: 'seo_public_description',
+  keywords: 'seo_public_keywords',
+  image: 'seo_public_image',
+};
+
+async function getPublicSeoSettings(env) {
+  const out = { title: '', description: '', keywords: '', image: '' };
+  try {
+    if (!env || !env.DB_CORE) return out;
+    const keys = Object.values(PUBLIC_SEO_KEYS);
+    const placeholders = keys.map(() => '?').join(', ');
+    const { results } = await env.DB_CORE
+      .prepare(`SELECT "key", value FROM portal_settings WHERE "key" IN (${placeholders})`)
+      .bind(...keys)
+      .all();
+    const byKey = {};
+    for (const r of results || []) byKey[r.key] = r.value;
+    for (const [field, key] of Object.entries(PUBLIC_SEO_KEYS)) {
+      out[field] = byKey[key] != null ? byKey[key].toString() : '';
+    }
+    return out;
+  } catch (e) {
+    return out;
+  }
+}
+
 // A weak ETag scoped per action (portalData vs activePopups) so the two payloads
 // never collide on the same version string.
 function etagFor(action, version) {
@@ -556,6 +589,21 @@ export default {
       if (action === 'dataVersion') {
         const version = await getDataVersion(env);
         return new Response(JSON.stringify({ v: version }), {
+          headers: { ...cors, 'Cache-Control': 'no-cache' },
+        });
+      }
+
+      // ---- publicGetSeo: link-preview / SEO settings for the build step ----
+      //
+      // The public frontend's build.mjs calls this at DEPLOY time to bake the
+      // Superadmin-managed title/description/keywords/image into index.html.
+      // It reads only the four public presentation fields from portal_settings
+      // (a handful of tiny single-row reads) and NEVER exposes the deploy-hook
+      // URLs. Not called by browsers on a normal page load, so a short cache is
+      // fine; a rebuild picks up fresh values immediately regardless.
+      if (action === 'publicGetSeo') {
+        const seo = await getPublicSeoSettings(env);
+        return new Response(JSON.stringify({ status: true, seo }), {
           headers: { ...cors, 'Cache-Control': 'no-cache' },
         });
       }

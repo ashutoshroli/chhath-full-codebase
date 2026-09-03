@@ -4,6 +4,7 @@ import { getYears, addYear, getHomeData, getLoansData, getExpensesData, getCommi
 import { getLoginUsers, addLoginUser, updateLoginUser, deleteLoginUser, updateOwnProfile, changePassword, uploadFileToDrive } from './account.js';
 import { getDropdownList, getAllDropdownLists, addDropdownListItem, updateDropdownListItem, deleteDropdownListItem } from './dropdownLists.js';
 import { getFestivalDates, saveFestivalDates, getPortalSetting, setPortalSetting, getConsentPageTemplate, updateConsentPageTemplate } from './settings.js';
+import * as seo from './seo.js';
 import * as wa from './whatsapp.js';
 import { logError, reportErrorToWhatsApp, getErrorLog } from './errorLog.js';
 import * as popups from './popups.js';
@@ -46,6 +47,7 @@ const READ_ONLY_ACTIONS = new Set([
   'getPendingMessages', 'getStuckMessages',
   'whatsappDiagnostic',
   'getAnnouncementLinks', 'getCustomAnnouncements', 'getAnnouncementQueue',
+  'publicGetSeo',
   // OTP request/verify only touch consent-flow state, not public-portal data.
   'requestConsentOtp', 'verifyConsentOtp', 'verifyAnnouncementPin',
 ]);
@@ -128,6 +130,7 @@ const RATE_LIMITED_ACTIONS = new Set([
   'getConsentByToken', 'requestConsentOtp', 'verifyConsentOtp', 'respondConsent',
   'getDocxTemplatePublic', 'convertDocxToPdfPublic',
   'verifyAnnouncementPin', 'getAnnouncementQueue', 'markAnnounced', 'reannounceAll',
+  'publicGetSeo',
 ]);
 
 // Fixed-window per-IP+action counter in KV. RATE_LIMIT_MAX requests per
@@ -441,6 +444,23 @@ export default {
       // ---- Portal Settings ----
       getPortalSetting: () => withAuth(env, req, async (user) => { requireSuperadmin(user); return { value: await getPortalSetting(env, req.key) }; }),
       setPortalSetting: () => withAuth(env, req, (user) => setPortalSetting(env, req.key, req.value, user)),
+
+      // ---- SEO / social link preview (Superadmin) ----
+      // publicGetSeo is intentionally unauthenticated: the frontends' build step
+      // fetches it at deploy time to bake the tags into index.html. It returns
+      // only the presentation fields (title/description/keywords/image) and never
+      // the deploy-hook URLs.
+      getSeoSettings: () => withAuth(env, req, (user) => seo.getSeoSettings(env, user)),
+      saveSeoSettings: () => withAuth(env, req, (user) => seo.saveSeoSettings(env, req.payload, user)),
+      uploadSeoImage: () => withAuth(env, req, (user) => seo.uploadSeoImage(env, req.base64, req.fileName, user)),
+      triggerRebuild: () => withAuth(env, req, (user) => seo.triggerRebuild(env, req.target, user)),
+      publicGetSeo: async () => {
+        // `portal` selects which portal's preview fields to return ('public' |
+        // 'mgmt'); defaults to public. Never exposes deploy-hook URLs.
+        const all = await seo.readAllSeo(env);
+        const which = req.portal === 'mgmt' ? all.mgmt : all.public;
+        return { status: true, seo: which };
+      },
 
       // ---- Consent Page Templates ----
       getConsentPageTemplate: () => withAuth(env, req, (user) => { requireSuperadmin(user); return getConsentPageTemplate(env, req.type); }),

@@ -78,6 +78,12 @@ export function keyForPopup(fileName) {
   return `popups/${Date.now()}_${safeName(fileName, 'popup.jpg')}`;
 }
 
+// SEO / social link-preview image key (no year — a single site-wide preview
+// image, never moved to Drive by the "Move year" feature).
+export function keyForSeo(fileName) {
+  return `seo/${Date.now()}_${safeName(fileName, 'preview.jpg')}`;
+}
+
 // The year prefix used by the move feature, e.g. "2026/".
 export function yearPrefix(year) {
   const y = parseInt(year);
