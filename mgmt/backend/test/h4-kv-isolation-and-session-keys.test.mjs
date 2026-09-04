@@ -123,6 +123,31 @@ test('H-4: the two Workers no longer share a KV namespace id', () => {
   }
 });
 
+// This one exists because the test above filters ids to /^[0-9a-f]{32}$/ — which
+// means a PLACEHOLDER id is silently skipped and the "no shared namespace" check
+// passes vacuously. The public Worker's KV id genuinely was
+// REPLACE_WITH_NEW_NAMESPACE_ID until the operator created the namespace, so this
+// is not hypothetical: without this assertion, a wrangler.toml that cannot deploy
+// looks exactly like one that is correctly split.
+test('H-4: every KV / D1 id is a real id, never a placeholder', () => {
+  for (const [label, rel] of [['mgmt', '../wrangler.toml'], ['public', '../../../Public/backend/wrangler.toml']]) {
+    // Drop comment lines, so documented example values are not read as bindings.
+    const live = readToml(rel).split('\n').filter(l => !l.trimStart().startsWith('#')).join('\n');
+    const ids = [...live.matchAll(/^\s*(id|database_id)\s*=\s*"([^"]*)"/gm)]
+      .map(m => ({ key: m[1], value: m[2] }));
+
+    assert.ok(ids.length > 0, `${label}/wrangler.toml declares at least one binding id`);
+    for (const { key, value } of ids) {
+      const isKvId = /^[0-9a-f]{32}$/.test(value);              // KV: 32 hex chars
+      const isD1Id = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(value); // D1: a UUID
+      assert.ok(isKvId || isD1Id,
+        `${label}/wrangler.toml: ${key} = "${value}" is not a real Cloudflare id. `
+        + 'A placeholder must never be committed — `wrangler deploy` fails on it, and it '
+        + 'makes the namespace-isolation test above pass without checking anything.');
+    }
+  }
+});
+
 test('H-4: the public Worker binds KV_PUBLIC and no longer binds KV_SESSIONS', () => {
   const pub = readToml('../../../Public/backend/wrangler.toml');
   // Only look at real binding declarations, not prose in the comments.
