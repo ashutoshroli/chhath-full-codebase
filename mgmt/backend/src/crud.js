@@ -265,6 +265,15 @@ export async function updateRecordByIdx(env, sheetName, rowIndex, payload, user)
   assertGenericSheetAllowed(sheetName); // audit C-1 — must be the FIRST check
   requireRole(user, 'edit', sheetName);
 
+  // Guard against a rowIndex that cannot match any real row: 0, negative, or
+  // non-numeric. D1 auto-increment ids start at 1. Without this check, a
+  // rowIndex of 0 silently matches nothing (UPDATE … WHERE id = 0 changes 0
+  // rows) and returns {success:true}, making the caller believe an edit happened.
+  const ri = parseInt(rowIndex);
+  if (!Number.isInteger(ri) || ri <= 0) {
+    throw ValidationError('A valid row index is required to update a record.');
+  }
+
   const { db, table } = resolveSheet(sheetName);
   const d1 = dbFor(env, db);
 
@@ -319,6 +328,13 @@ export async function updateRecordByIdx(env, sheetName, rowIndex, payload, user)
   // generate produce a fresh, correct document.
   if (table === 'collections') {
     await purgeGeneratedFilesForCollection(env, payload.Year, rowIndex);
+    // A background collection_job already claimed for this record still holds the
+    // PRE-EDIT document bytes (filled_base64) and would call recordGeneratedFile()
+    // right AFTER we purged the index — re-indexing the stale PDF with the old
+    // amount/name. Park any pending/processing job for this row so the corrected
+    // document is the one that gets generated on the next save. Non-fatal: the
+    // record IS updated regardless.
+    await supersedeCollectionJobsForRow(env, rowIndex);
   }
   return { success: true, indexInvalidated: table === 'collections' };
 }
@@ -361,8 +377,34 @@ export async function deleteRecordByIdx(env, sheetName, rowIndex, user) {
   // record that no longer exists. Drop the index rows for this record.
   if (table === 'collections') {
     await purgeGeneratedFilesForCollection(env, row.year, rowIndex);
+    // Same race as on edit: a pending/processing job for this row would re-index
+    // a PDF for a record that no longer exists. Park it.
+    await supersedeCollectionJobsForRow(env, rowIndex);
   }
   return { success: true };
+}
+
+// Parks any pending or in-flight collection_job for a given collection row so it
+// cannot re-index a stale (pre-edit) or orphaned (post-delete) PDF after the
+// record has changed. See the callers in updateRecordByIdx / deleteRecordByIdx.
+//
+// Non-fatal by contract: the record change has already been committed when this
+// runs, so a failure here must never surface as a failed edit/delete — it is
+// logged and swallowed. The queue processor also caps attempts, so a missed park
+// degrades to a stale index row, not a crash.
+async function supersedeCollectionJobsForRow(env, rowIndex) {
+  if (!env.DB_MISC) return;
+  const ri = parseInt(rowIndex);
+  if (!Number.isInteger(ri) || ri <= 0) return;
+  try {
+    await env.DB_MISC.prepare(
+      `UPDATE collection_jobs
+          SET status = 'failed', last_error = 'superseded by an edit or delete of the collection', finished_at = ?
+        WHERE row_index = ? AND status IN ('pending', 'processing')`
+    ).bind(new Date().toISOString(), ri).run();
+  } catch (err) {
+    await logErrorAt(env, 'backend-crud', 'supersedeCollectionJobsForRow', err, { rowIndex: ri });
+  }
 }
 
 // A COLLECTIONS row can back a receipt, a certificate OR a samaan document, and
