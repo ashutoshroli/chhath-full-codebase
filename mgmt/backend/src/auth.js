@@ -234,8 +234,32 @@ export async function verifyToken(env, token) {
   if (!token) return null;
   const cached = await env.KV_SESSIONS.get('session:' + token);
   if (!cached) return null;
-  const s = JSON.parse(cached);
-  if (Date.now() >= s.expiresAt) return null;
+  let s;
+  try { s = JSON.parse(cached); } catch (e) { return null; } // malformed session -> treat as invalid
+  if (!s || Date.now() >= s.expiresAt) return null;
+
+  // SECURITY (session revocation): the role was snapshotted into KV at login and,
+  // with "remember me", the session lives up to 30 days. Without this check, a
+  // Superadmin demoted to Subadmin — or a user whose login was DELETED — kept
+  // their old rights until the session expired. Re-validate against the live
+  // login_users row on every authenticated request:
+  //   - login row gone   -> session is dead (deleted/renamed user)
+  //   - role changed      -> use the CURRENT role, not the stale snapshot
+  // This is one indexed single-row read (idx_login_users_name). It FAILS SAFE:
+  // on any DB error we fall back to the cached session so a transient D1 blip
+  // can't log every admin out mid-session.
+  try {
+    const row = await env.DB_CORE
+      .prepare('SELECT role FROM login_users WHERE name = ? LIMIT 1')
+      .bind(s.name).first();
+    if (!row) return null;                 // login deleted -> revoke
+    if (row.role && row.role !== s.role) {
+      return { ...s, role: row.role };     // role changed -> enforce current role
+    }
+  } catch (e) {
+    // Fall through with the cached session (fail-safe, availability over the
+    // rare stale-role window during a DB outage).
+  }
   return s;
 }
 
