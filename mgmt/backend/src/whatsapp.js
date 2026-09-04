@@ -181,6 +181,11 @@ function normalizeQueueRow(row) {
   };
 }
 
+// audit M-22: how many ids may go into one `id IN (...)` claim statement. 50 is
+// also the free-plan subrequest cap for an entire request, so it is a natural
+// ceiling for any batched statement in this codebase.
+const CLAIM_CHUNK = 50;
+
 export async function getPendingMessages(env, limit) {
   const pageSize = Math.min(Math.max(parseInt(limit) || PENDING_PAGE_SIZE, 1), 500);
   const staleCutoff = new Date(Date.now() - CLAIM_STALE_MS).toISOString();
@@ -215,11 +220,29 @@ export async function getPendingMessages(env, limit) {
     // claim verifiable so a concurrent poll can't double-serve the same rows.
     const ids = rows.map(r => r.id);
     const claimToken = `${nowIso}#${crypto.randomUUID()}`;
-    const placeholders = ids.map(() => '?').join(', ');
-    await env.DB_WHATSAPP_INDEX.prepare(
-      `UPDATE ${table} SET status = 'sending', claimed_at = ?, attempts = COALESCE(attempts, 0) + 1
-        WHERE status IN ('pending', 'resending') AND id IN (${placeholders})`
-    ).bind(claimToken, ...ids).run();
+
+    // audit M-22: the claim was ONE statement with up to 500 bound placeholders,
+    // because getPendingMessages() allows limit=500. D1 is unreliable with
+    // parameter lists that long, and a failure here does not merely skip a poll —
+    // it leaves rows in 'sending' until the stale-claim sweep above releases them,
+    // so those messages sit undelivered for minutes.
+    //
+    // (The report also said the re-read below carries another 500 placeholders.
+    // It does not — it matches on the single shared claimToken. Only the claim
+    // needed chunking.)
+    //
+    // Chunked at 50, which is also the free-plan subrequest cap for the whole
+    // request. Each chunk is still ONE set-based UPDATE (not the per-row loop this
+    // replaced), and the claimToken is shared across chunks so the re-read below
+    // still recovers exactly the rows this poll claimed.
+    for (let i = 0; i < ids.length; i += CLAIM_CHUNK) {
+      const group = ids.slice(i, i + CLAIM_CHUNK);
+      const placeholders = group.map(() => '?').join(', ');
+      await env.DB_WHATSAPP_INDEX.prepare(
+        `UPDATE ${table} SET status = 'sending', claimed_at = ?, attempts = COALESCE(attempts, 0) + 1
+          WHERE status IN ('pending', 'resending') AND id IN (${placeholders})`
+      ).bind(claimToken, ...group).run();
+    }
 
     // Re-read exactly the rows THIS poll claimed (claimed_at === our token).
     // Anything a concurrent poll grabbed first won't carry our token, so it's

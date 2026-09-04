@@ -1,4 +1,5 @@
-import { getSheetDataAsJSON, filterByYear } from './crud.js';
+import { getSheetDataByColumn } from './crud.js';
+import { userByIdCode } from './lookups.js';
 import { requireSuperadmin, requireYearAccess, requireStaffRole, ValidationError } from './auth.js';
 
 const RECEIPT_TEMPLATE_SAMPLE = `## नवयुवक छठ पूजा समिति / NAVYUVAK CHHATH PUJA SAMITI
@@ -182,16 +183,26 @@ const parseAmt = (v) => parseFloat((v || '').toString().replace(/[^0-9.-]+/g, ''
 // a genuinely blank value, so {{#IF AMOUNT}} in the templates hides correctly.
 const formatAmt = (v) => (parseAmt(v) > 0 ? new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(parseAmt(v)) : '');
 
+// audit M-18 — this read EVERY collection row of the year (and, when `year` was
+// 'All', every collection row ever recorded) plus EVERY member row, in order to
+// resolve ONE contribution by its primary key. It runs each time an operator opens
+// a receipt from the Home screen.
+//
+// `id` is the INTEGER PRIMARY KEY, so fetching the single row is a rowid lookup, and
+// the contributor is one indexed id_code lookup. The year check that used to happen
+// implicitly through filterByYear is now explicit — and is a real check rather than
+// a side effect of the scan.
 async function resolveEntry(env, rowIndex, year) {
-  const collections = filterByYear(await getSheetDataAsJSON(env, 'COLLECTIONS'), year);
-  const entry = collections.find(c => parseInt(c.__rowIndex) === parseInt(rowIndex));
+  const entry = (await getSheetDataByColumn(env, 'COLLECTIONS', 'id', parseInt(rowIndex) || 0))[0];
   if (!entry) throw ValidationError('Collection entry not found.');
-  const users = await getSheetDataAsJSON(env, 'USERS');
+  if (year && year !== 'All' && parseInt(entry.Year) !== parseInt(year)) {
+    throw ValidationError('Collection entry not found for this year.');
+  }
   // Collections.Name actually stores the contributor's User ID (see Home.jsx's
   // contributor picker), not their display name — so this must match on ID, not
   // Name. Matching on Name here (as the original Code.js did) always returns {},
   // silently blanking Designation/Father's Name/Village/Mobile on every receipt.
-  const u = users.find(x => (x.ID || '').toString().trim() === (entry.Name || '').toString().trim()) || {};
+  const u = (await userByIdCode(env, entry.Name)) || {};
   return { entry, u };
 }
 

@@ -1,4 +1,5 @@
-import { getSheetDataAsJSON } from './crud.js';
+import { getSheetDataAsJSON, getSheetDataByYear } from './crud.js';
+import { usersByIdCodes } from './lookups.js';
 import { requireAdminOrAbove, ValidationError, hashPassword, verifyPassword } from './auth.js';
 // Audit 6.1: use the shared flag parser. This file's local copy did NOT trim or
 // accept 'yes'/0/false the way every other module did — exactly the divergence
@@ -196,13 +197,39 @@ export async function getAnnouncementQueue(env, announceToken, statusFilter, typ
   return buildAnnouncementQueue(env, session.year, statusFilter, typeFilter);
 }
 
+// audit M-15 — this used to scan USERS, COLLECTIONS and CUSTOM_ANNOUNCEMENTS in
+// FULL and filter in JS, and it runs on every PIN verify AND on the 15-second poll
+// from AnnouncePage.jsx. During a live announcement that is three full-table reads
+// every fifteen seconds, for hours, against the 5,000,000-rows/day D1 budget — from
+// a page that is by design open on several phones at once.
+//
+// Now: the two year-scoped tables are read with `WHERE year = ?` (index-served),
+// and USERS is fetched by the exact contributor ids present in that year rather
+// than in full (the same batched-lookup approach as H-11).
 async function buildAnnouncementQueue(env, year, statusFilter, typeFilter) {
-  const users = await getSheetDataAsJSON(env, 'USERS');
-  const userMap = {};
-  users.forEach(u => { userMap[(u.ID || '').toString().trim()] = u; });
+  const y = parseInt(year);
 
-  const collectionsForYear = (await getSheetDataAsJSON(env, 'COLLECTIONS')).filter(r => parseInt(r.Year) === parseInt(year));
-  const customForYear = (await getSheetDataAsJSON(env, 'CUSTOM_ANNOUNCEMENTS')).filter(r => parseInt(r.Year) === parseInt(year));
+  const [collectionsForYear, customForYear] = await Promise.all([
+    getSheetDataByYear(env, 'COLLECTIONS', y),
+    // CUSTOM_ANNOUNCEMENTS is not in crud.js's TABLES_WITH_YEAR set, so
+    // getSheetDataByYear would silently fall back to a full scan. Query it directly
+    // — idx_custom_announcements_year has existed since the original schema.
+    (async () => {
+      const { results } = await env.DB_MISC
+        .prepare('SELECT * FROM custom_announcements WHERE year = ? ORDER BY id ASC').bind(y).all();
+      return (results || []).map(r => ({
+        ID: r.id_code, Year: r.year, TextHindi: r.texthindi, TextEnglish: r.textenglish,
+        Priority: r.priority, Announced: r.announced, AnnouncedCount: r.announcedcount,
+        CreatedAt: r.createdat, Order: r.order, __rowIndex: r.id,
+      }));
+    })(),
+  ]);
+
+  // Only the contributors this year's rows actually reference. A resell row has no
+  // contributor, so it contributes no id.
+  const userMap = await usersByIdCodes(env, collectionsForYear
+    .filter(r => collectionAnnounceCategory(r) !== 'Resell')
+    .map(r => (r.Name || '').toString().trim()));
 
   const collectionItems = collectionsForYear.map((row, idx) => {
     const category = collectionAnnounceCategory(row);
@@ -360,11 +387,16 @@ export async function addCustomAnnouncement(env, year, textHindi, textEnglish, p
   if (!year) throw ValidationError('Year is required');
   if (!(textHindi || '').toString().trim() && !(textEnglish || '').toString().trim()) throw ValidationError('At least one of Hindi or English text is required');
 
-  const collectionsForYear = (await getSheetDataAsJSON(env, 'COLLECTIONS')).filter(r => parseInt(r.Year) === parseInt(year));
+  // audit M-16: this read EVERY collection row of the year and used only
+  // `.length`, to place the new item at the end of the queue. COUNT(*) is answered
+  // from the year index without materialising a single row.
+  const countRow = await env.DB_COLLECTIONS
+    .prepare('SELECT COUNT(*) AS n FROM collections WHERE year = ?').bind(parseInt(year)).first();
+  const order = countRow ? (Number(countRow.n) || 0) : 0;
   const id = generateCustomAnnouncementId();
   await env.DB_MISC.prepare(
     'INSERT INTO custom_announcements (id_code, year, texthindi, textenglish, priority, announced, announcedcount, createdat, "order") VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)'
-  ).bind(id, year, textHindi || '', textEnglish || '', priority ? 1 : 0, new Date().toISOString(), collectionsForYear.length).run();
+  ).bind(id, year, textHindi || '', textEnglish || '', priority ? 1 : 0, new Date().toISOString(), order).run();
   return { success: true, id };
 }
 

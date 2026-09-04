@@ -157,7 +157,27 @@ const D1_ROWS_PER_BUILD = 60000; // conservative over-estimate per full build (~
 //      counter still climbs at the real rate and a sustained flood is caught,
 //      while KV WRITES drop ~20x — keeping us comfortably inside the daily
 //      write budget. A genuine flood from one IP still trips PUB_RL_MAX.
-const RL_SAMPLE = 20;
+//
+// audit M-12 — REVISITED after H-4 split the namespaces.
+//
+// The paragraph above is written for a namespace SHARED with the mgmt Worker, which
+// is no longer the case: the public Worker now owns PUBLIC_CACHE outright (#75), so
+// its ~1000 writes/day are not competing with mgmt sessions and the Drive token.
+// That buys room to count more accurately, so the sample is tightened 20 -> 5:
+// four times the accounting precision, still a 5x write reduction versus counting
+// every request.
+//
+// The report suggested RL_SAMPLE = 1 for `logError`. I did NOT do that, because it
+// makes things worse, not better: at sample 1 every request that reaches the
+// limiter costs a KV write, and PUB_RL_MAX is 60 per IP per minute, so ONE
+// attacker can spend 86,400 writes a day — ~86x the entire daily budget. The
+// limiter fails OPEN when KV runs dry, so sample 1 converts a request flood into a
+// quota exhaustion that DISABLES the limiter and the D1 budget guard together.
+// Sampling is the thing protecting the budget, not a compromise of it.
+//
+// The `logError` action is instead made cheap where it was actually expensive: its
+// per-IP counter is now an indexed D1 COUNT rather than a LIKE scan (M-13).
+const RL_SAMPLE = 5;
 
 async function pubRateLimited(env, ip, action) {
   try {
@@ -191,6 +211,26 @@ async function d1BudgetExceeded(env) {
 
 // Records that a fresh D1 build just happened (adds the per-build estimate to
 // today's counter). Best-effort; TTL ~2 days so the daily key self-expires.
+// audit M-23 — yes, this is a read-modify-write, and no, it cannot be made atomic
+// here. Workers KV has no atomic increment; the primitives that do (Durable Objects,
+// D1 with a transaction) are either paid-plan features or defeat the purpose of
+// keeping the D1 budget guard off D1.
+//
+// So the guard is deliberately biased to UNDER-serve rather than over-spend, which
+// is the safe direction for a budget:
+//
+//   * D1_ROWS_PER_BUILD is a conservative OVER-estimate (60,000 for a build whose
+//     real cost varies), so the counter climbs faster than actual usage.
+//   * D1_DAILY_BUDGET is 4,000,000 against a real free-tier limit of 5,000,000,
+//     leaving 1,000,000 rows of headroom for mgmt admins.
+//   * It is only called on a cache MISS that performed a full build, so concurrent
+//     callers are rare by construction — the version-keyed edge cache absorbs
+//     essentially all repeat traffic before it reaches the Worker.
+//
+// The residual failure is real and worth stating plainly: N builds racing between
+// the read and the write are counted once, not N times. With the over-estimate and
+// the 1,000,000-row headroom above, losing a few counts costs far less than the
+// margin already built in. Documented rather than silently accepted.
 async function d1BudgetAdd(env, ctx) {
   try {
     const kv = pubKv(env);
@@ -444,11 +484,27 @@ async function logPublicError(env, source, page, message, stack, context, client
     const ctx = clamp(JSON.stringify(ctxObj), 500);
 
     // Per-IP cap (only when we actually know the IP).
+    //
+    // audit M-13: this used to count with
+    //     WHERE created_at >= ? AND context LIKE '%"edgeIp":"1.2.3.4"%'
+    // A leading-wildcard LIKE can never use an index, so every public JS error cost
+    // a partial scan of error_log — on an ANONYMOUS endpoint that also INSERTs. The
+    // limiter meant to make abuse cheap was the expensive part, and it degraded as
+    // the table grew, i.e. exactly when a flood is under way.
+    //
+    // `client_ip` is a real indexed column (migration 2026-09-05/09). Falls back to
+    // the old LIKE if that migration has not been applied yet, so this deploys in
+    // either order — but the fallback is a scan, so apply the migration.
     if (ip) {
       const windowStart = new Date(Date.now() - PUBLIC_LOG_WINDOW_MS).toISOString();
-      const cnt = await env.DB_LOGS.prepare(
-        "SELECT COUNT(*) AS n FROM error_log WHERE created_at >= ? AND context LIKE ?"
-      ).bind(windowStart, `%"edgeIp":"${ip}"%`).first().catch(() => null);
+      let cnt = await env.DB_LOGS.prepare(
+        'SELECT COUNT(*) AS n FROM error_log WHERE client_ip = ? AND created_at >= ?'
+      ).bind(ip, windowStart).first().catch(() => undefined);
+      if (cnt === undefined) {
+        cnt = await env.DB_LOGS.prepare(
+          "SELECT COUNT(*) AS n FROM error_log WHERE created_at >= ? AND context LIKE ?"
+        ).bind(windowStart, `%"edgeIp":"${ip}"%`).first().catch(() => null);
+      }
       if (cnt && (parseInt(cnt.n) || 0) >= PUBLIC_LOG_MAX_PER_IP) {
         return { success: false, rateLimited: true };
       }
@@ -470,8 +526,17 @@ async function logPublicError(env, source, page, message, stack, context, client
     // as isTruthyFlag / parseStoredDate above).
     const id = 'ERR' + randomHexId(8);
     await env.DB_LOGS.prepare(
-      'INSERT INTO error_log (error_id, source, page, message, stack, context, created_at, reported) VALUES (?, ?, ?, ?, ?, ?, ?, 0)'
-    ).bind(id, src, pg, msg, clamp(stack, 2000), ctx, new Date().toISOString()).run();
+      'INSERT INTO error_log (error_id, source, page, message, stack, context, created_at, reported, client_ip) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)'
+    ).bind(id, src, pg, msg, clamp(stack, 2000), ctx, new Date().toISOString(), ip || '').run()
+      // audit M-13: if migration 2026-09-05/09 has not been applied yet the
+      // client_ip column does not exist. Retry without it rather than losing the
+      // error report, so the Worker and the migration can deploy in either order.
+      .catch(async (err) => {
+        if (!/client_ip/i.test((err && err.message) || '')) throw err;
+        return env.DB_LOGS.prepare(
+          'INSERT INTO error_log (error_id, source, page, message, stack, context, created_at, reported) VALUES (?, ?, ?, ?, ?, ?, ?, 0)'
+        ).bind(id, src, pg, msg, clamp(stack, 2000), ctx, new Date().toISOString()).run();
+      });
     return { success: true, errorId: id };
   } catch (e) {
     console.error('[public logPublicError] failed:', e && e.message);

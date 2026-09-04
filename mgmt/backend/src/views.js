@@ -5,10 +5,48 @@ import { usersByIdCodes, loansByLoanIds, loansForBorrowers } from './lookups.js'
 
 const parseAmt = (v) => parseFloat((v || '').toString().replace(/[^0-9.-]+/g, '')) || 0;
 
+// audit M-19 — this used to do FIVE full table scans, shipping every row of
+// COLLECTIONS, LOANS, COMMITEE MEMBERS, EXPENSES and MANUAL YEARS into the isolate
+// only to read one column off each and throw the rest away. On the year the
+// committee actually uses this is tens of thousands of rows read to produce a list
+// of about six integers, and it runs on every cache miss and after every write
+// (each one bumps the data version and invalidates the cached copy).
+//
+// `SELECT DISTINCT year` is answered from the year index added in migration
+// 2026-09-05/01..02 without touching the rows at all, and the five run
+// concurrently instead of in series.
+//
+// Kept as five statements rather than one UNION because the tables live in three
+// different D1 databases, which cannot be joined.
+const YEAR_SOURCES = [
+  ['DB_COLLECTIONS', 'collections'],
+  ['DB_LOANS_EXPENSES', 'loans'],
+  ['DB_CORE', 'committee_members'],
+  ['DB_LOANS_EXPENSES', 'expenses'],
+  ['DB_CORE', 'manual_years'],
+];
+
 export async function getYears(env) {
-  let years = new Set();
-  for (const sheetName of ['COLLECTIONS', 'LOANS', 'COMMITEE MEMBERS', 'EXPENSES', 'MANUAL YEARS']) {
-    (await getSheetDataAsJSON(env, sheetName)).forEach(r => { if (r.Year) years.add(parseInt(r.Year)); });
+  const results = await Promise.all(YEAR_SOURCES.map(async ([binding, table]) => {
+    const db = env[binding];
+    if (!db) return [];
+    try {
+      const { results: rows } = await db
+        .prepare(`SELECT DISTINCT year FROM ${table} WHERE year IS NOT NULL`).all();
+      return rows || [];
+    } catch (e) {
+      // A table missing on this deployment must not blank the whole year picker —
+      // which is the navigation for the entire portal.
+      return [];
+    }
+  }));
+
+  const years = new Set();
+  for (const rows of results) {
+    for (const r of rows) {
+      const y = parseInt(r.year);
+      if (y) years.add(y);
+    }
   }
   return Array.from(years).sort((a, b) => b - a);
 }

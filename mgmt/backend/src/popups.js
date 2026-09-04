@@ -261,6 +261,27 @@ export async function uploadPopupImage(env, base64, fileName, mimeType, user) {
   return Object.assign({}, res, { imageUrl: res.directUrl, mimeType: sniffed, bytes: bytes.length });
 }
 
+// audit M-20: fetch only the slides belonging to the popups being returned, in
+// bounded IN() groups. `popup_slides.popup_id` is indexed. Chunked at 50 because a
+// single statement with hundreds of placeholders is fragile on D1 (see M-22), and
+// because 50 subrequests is the free-plan cap for the whole request.
+const SLIDE_ID_CHUNK = 50;
+
+async function slidesForPopups(env, popupIds) {
+  const ids = [...new Set((popupIds || []).map(v => (v == null ? '' : v).toString().trim()).filter(Boolean))];
+  if (!ids.length) return [];
+  const out = [];
+  for (let i = 0; i < ids.length; i += SLIDE_ID_CHUNK) {
+    const group = ids.slice(i, i + SLIDE_ID_CHUNK);
+    const placeholders = group.map(() => '?').join(', ');
+    const { results } = await env.DB_MISC.prepare(
+      `SELECT * FROM popup_slides WHERE popup_id IN (${placeholders}) ORDER BY slide_order ASC`
+    ).bind(...group).all();
+    for (const r of results || []) out.push(r);
+  }
+  return out;
+}
+
 // Shared window/role evaluation so mgmt and the public portal can never drift.
 export function popupIsLiveNow(p, now) {
   if (!isTruthyFlag(p.active)) return false;
@@ -286,7 +307,15 @@ export async function getActivePopups(env, user) {
     return true;
   });
   if (!popups.length) return [];
-  const { results: allSlides } = await env.DB_MISC.prepare('SELECT * FROM popup_slides ORDER BY slide_order ASC').all();
+  // audit M-20 (partly): the popup row filter stays in JS on purpose — see the
+  // comment above; pushing `WHERE active = '1'` down would re-break every row the
+  // sheet migration wrote as 'True', which is the exact bug that comment records,
+  // and `popups` holds a handful of rows so the scan costs nothing.
+  //
+  // The SLIDES query is different: it read EVERY slide of EVERY popup even when one
+  // popup is live, and slides carry image URLs, so it is the row-heavy half. Scope
+  // it to the popups actually being returned — popup_id is indexed.
+  const allSlides = await slidesForPopups(env, popups.map(p => p.popup_id));
   return popups
     .map(p => ({
       popup_id: p.popup_id,
@@ -308,7 +337,7 @@ export async function previewPublicPopups(env, user) {
     const rolesList = (p.roles || '').split(',').map(r => r.trim()).filter(Boolean);
     return rolesList.includes('Public');
   });
-  const { results: allSlides } = await env.DB_MISC.prepare('SELECT * FROM popup_slides ORDER BY slide_order ASC').all();
+  const allSlides = await slidesForPopups(env, popups.map(p => p.popup_id)); // audit M-20
   const withSlides = eligible.map(p => ({
     popup_id: p.popup_id,
     title: p.title,
