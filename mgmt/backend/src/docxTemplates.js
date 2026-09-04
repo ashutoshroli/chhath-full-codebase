@@ -26,10 +26,42 @@ export async function getDocxTemplates(env, docType) {
 // Returns the row plus the raw .docx bytes as base64 (browser fills it client-side
 // with docxtemplater — same reason Code.js reads server-side rather than handing
 // back a Drive URL: Drive's download URL doesn't send CORS headers).
+// audit P-4: the template BYTES were re-downloaded from Google Drive on every single
+// call — every receipt, every consent-page load, every record in a bulk run. Each
+// download is a Drive API round-trip, so it costs a SUBREQUEST (the free plan allows
+// 50 per invocation), it costs latency on the critical path of a save, and it burns
+// Drive API quota for data that changes only when a Superadmin uploads a new template.
+//
+// The bytes are now cached in KV, keyed on `drive_file_id` + `updated_at`. That key
+// is the important part:
+//   * an upload writes a new drive_file_id AND a new updated_at, so a new template is
+//     picked up IMMEDIATELY — there is no staleness window and nothing to invalidate;
+//   * the key is otherwise stable, so a template is written to KV about once per TTL
+//     period rather than once per read. KV allows only ~1000 writes/day (the tightest
+//     limit in the system), and with ~8 doc types x a few years that is a handful of
+//     writes a week. Read quota is 100,000/day, which this comfortably fits.
+// A .docx is capped at 10 MB (audit H-6), so its base64 stays well under KV's 25 MB
+// value limit. Every KV interaction is best-effort: any failure falls straight back
+// to the Drive download, so caching can never break document generation.
+const DOCX_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
+
 export async function getDocxTemplate(env, docType, year) {
   const row = await env.DB_TEMPLATES.prepare('SELECT * FROM docx_templates WHERE doc_type = ? AND year = ?').bind(docType, parseInt(year)).first();
   if (!row) return null;
-  const base64 = await getFileBytesBase64(env, row.drive_file_id);
+
+  const cacheKey = `docxtpl:${row.drive_file_id}:${row.updated_at || ''}`;
+  let base64 = null;
+  if (env.KV_SESSIONS) {
+    base64 = await env.KV_SESSIONS.get(cacheKey).catch(() => null);
+  }
+  if (!base64) {
+    base64 = await getFileBytesBase64(env, row.drive_file_id);
+    if (env.KV_SESSIONS && base64) {
+      // Fire-and-forget: a cache write must never delay or fail the response.
+      await env.KV_SESSIONS.put(cacheKey, base64, { expirationTtl: DOCX_CACHE_TTL_SECONDS }).catch(() => {});
+    }
+  }
+
   return Object.assign({}, row, { base64, downloadUrl: `https://drive.google.com/uc?export=download&id=${row.drive_file_id}` });
 }
 
