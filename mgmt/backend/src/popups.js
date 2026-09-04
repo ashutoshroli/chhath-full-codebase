@@ -4,6 +4,7 @@ import { base64ToBytes, sniffImageMime } from './base64.js';
 import { r2Available, putToR2, keyForPopup, isR2Url, keyFromR2Url, deleteFromR2 } from './r2.js';
 import { logWarn, logErrorAt } from './logger.js';
 import { isTruthyFlag } from './flags.js';
+import { randomId } from './random.js';
 
 // isTruthyFlag comes from the shared flags.js util (audit 6.1). `popups.active`
 // and the other flag columns are TEXT, so a bound 1 is stored as '1' and the
@@ -90,7 +91,7 @@ export async function savePopup(env, popupId, title, roles, active, startAt, end
     return { success: true, popup_id: popupId };
   }
 
-  const id = 'POP' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const id = randomId('POP');
   await env.DB_MISC.prepare(
     'INSERT INTO popups (popup_id, title, roles, active, start_at, end_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   ).bind(id, title.toString().trim(), rolesStr, activeStr, startAt || '', endAt || '', now, now).run();
@@ -164,7 +165,7 @@ export async function savePopupSlides(env, popupId, slides, user) {
   const list = (slides || []);
   const stmts = [env.DB_MISC.prepare('DELETE FROM popup_slides WHERE popup_id = ?').bind(popupId)];
   list.forEach((s, i) => {
-    const id = 'SLD' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) + i;
+    const id = randomId('SLD');
     stmts.push(env.DB_MISC.prepare(
       'INSERT INTO popup_slides (slide_id, popup_id, slide_order, image_url, text, link_url, link_text) VALUES (?, ?, ?, ?, ?, ?, ?)'
     ).bind(id, popupId, i + 1, s.imageUrl || '', s.text || '', s.linkUrl || '', s.linkText || ''));

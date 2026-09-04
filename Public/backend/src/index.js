@@ -345,6 +345,17 @@ async function getActivePublicPopups(env) {
 // ever writes to — everything else stays strictly read-only.
 const LOG_DEDUP_WINDOW_MS = 5 * 60 * 1000;
 
+// Cryptographically secure hex id. Must stay identical in behaviour to
+// mgmt/backend/src/random.js randomHex() — the two Workers are separate
+// deployments with no shared source tree, so this is a deliberate copy.
+function randomHexId(bytes = 8) {
+  const buf = new Uint8Array(bytes);
+  crypto.getRandomValues(buf);
+  let out = '';
+  for (let i = 0; i < buf.length; i++) out += buf[i].toString(16).padStart(2, '0');
+  return out;
+}
+
 // Per-IP rate limit for the public logError endpoint (audit 1.3). This Worker
 // has no KV binding, so the limiter is enforced against error_log itself: at
 // most PUBLIC_LOG_MAX_PER_IP distinct rows may originate from one edge IP within
@@ -393,7 +404,13 @@ async function logPublicError(env, source, page, message, stack, context, client
     ).bind(src, pg, msg, since).first().catch(() => null);
     if (dupe && dupe.error_id) return { success: true, errorId: dupe.error_id, deduped: true };
 
-    const id = 'ERR' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    // SECURITY (audit C-4): `Date.now() + Math.random()` collided whenever two
+    // errors were logged in the same millisecond, and error_id has a UNIQUE index
+    // (migration 2026-09-01/04-logs.sql) — so a collision made the INSERT throw and
+    // the error vanish. This Worker is a separate deployment and cannot import the
+    // mgmt Worker's random.js, so it keeps its own copy on purpose (same convention
+    // as isTruthyFlag / parseStoredDate above).
+    const id = 'ERR' + randomHexId(8);
     await env.DB_LOGS.prepare(
       'INSERT INTO error_log (error_id, source, page, message, stack, context, created_at, reported) VALUES (?, ?, ?, ?, ?, ?, ?, 0)'
     ).bind(id, src, pg, msg, clamp(stack, 2000), ctx, new Date().toISOString()).run();

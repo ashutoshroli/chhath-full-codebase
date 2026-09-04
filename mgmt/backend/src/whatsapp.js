@@ -4,6 +4,7 @@ import { withCC } from './settings.js';
 import { logErrorAt, logWarn } from './logger.js';
 import { waNumber, looksLikeAttemptedNumber } from './phone.js';
 import { isTruthyFlag } from './flags.js';
+import { randomId } from './random.js';
 
 const TEMPLATE_TABLE = { PERSON_MESSAGE_TEMPLATES: 'person_message_templates', GROUP_MESSAGE_TEMPLATES: 'group_message_templates' };
 const MESSAGE_TABLE = { person: { table: 'person_messages' }, group: { table: 'group_messages' } };
@@ -40,7 +41,7 @@ export async function addTemplate(env, sheetName, text, messageType, contributio
   if (!text || !text.toString().trim()) throw new Error('Template text required');
   const table = TEMPLATE_TABLE[sheetName];
   if (!table) throw new Error('Invalid template table');
-  const id = 'TPL' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const id = randomId('TPL');
   // doc_sub_type / file_doc_type now exist on BOTH template tables (they were
   // missing on group_message_templates, so every Add/Update Group Template
   // returned D1_ERROR "no column named doc_sub_type"). See
@@ -85,7 +86,7 @@ export async function deleteTemplate(env, sheetName, rowIndex, user) {
 export async function addWhatsappGroup(env, groupName, groupid, user) {
   requireSuperadmin(user);
   if (!groupName || !groupid) throw new Error('Group name and Group ID required');
-  const id = 'GRP' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const id = randomId('GRP');
   await env.DB_WHATSAPP_INDEX.prepare(
     "INSERT INTO whatsapp_groups (group_id, group_name, groupid, active, created_at) VALUES (?, ?, ?, '1', ?)"
   ).bind(id, groupName.toString().trim(), groupid.toString().trim(), new Date().toISOString()).run();

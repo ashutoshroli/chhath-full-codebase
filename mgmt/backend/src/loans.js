@@ -10,11 +10,14 @@ import { base64ToBytes } from './base64.js';
 import { logErrorAt, logWarn } from './logger.js';
 import { waNumberOf, looksLikeAttemptedNumber } from './phone.js';
 import { buildConsentPlaceholders } from './consentPlaceholders.js';
+import { randomId, randomToken, randomOtp } from './random.js';
 
-function generateLoanId() { return 'LN' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
-function generateConsentId() { return 'CN' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
-function generateConsentToken() { return crypto.randomUUID().replace(/-/g, '') + Math.random().toString(36).slice(2, 8); }
-function generateOtp() { return String(Math.floor(100000 + Math.random() * 900000)); }
+// SECURITY (audit C-4): all four of these were built from Math.random(), which is
+// not a CSPRNG — see random.js for why that made the consent OTP predictable.
+const generateLoanId = () => randomId('LN');
+const generateConsentId = () => randomId('CN');
+const generateConsentToken = () => randomToken();
+const generateOtp = () => randomOtp();
 function parseAmt(v) { return parseFloat((v || '').toString().replace(/[^0-9.-]+/g, '')) || 0; }
 const isTruthyFlag = waTruthyFlag;
 
@@ -525,7 +528,9 @@ export async function verifyConsentOtp(env, token, otp) {
   // in respondConsent. A different browser/person has no such token, so they must
   // verify their own OTP. The token is stored in KV with the same 20-min window as
   // the verify->respond limit (audit 1.4).
-  const verifyToken = crypto.randomUUID().replace(/-/g, '') + Math.random().toString(36).slice(2, 8);
+  // SECURITY (audit C-4): this is a bearer credential — it is the ONLY thing that
+  // authorizes respondConsent() — so it must come from a CSPRNG, not Math.random().
+  const verifyToken = randomToken();
   const verifiedAt = Date.now();
   // Burn the OTP so the same code can't be reused, and record the verify token.
   await writeOtpMeta(env, rowObj.consent_id, Object.assign({}, meta, { attempts: 0, verifiedAt, verifyToken }));
@@ -1004,7 +1009,7 @@ export async function getLoanTemplates(env, type) {
 export async function addLoanTemplate(env, type, text, messageType, fileLink, user) {
   requireSuperadmin(user);
   if (!text || !text.toString().trim()) throw new Error('Template text required');
-  const id = 'LTPL' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const id = randomId('LTPL');
   await env.DB_LOANS_EXPENSES.prepare(
     'INSERT INTO loan_message_templates (template_id, type, text, active, created_at, message_type, file_link) VALUES (?, ?, ?, 1, ?, ?, ?)'
   ).bind(id, type, text.toString().trim(), new Date().toISOString(), messageType || 'normal', fileLink || '').run();
