@@ -176,27 +176,89 @@ export async function saveRecord(env, sheetName, payload, user) {
   const d1 = dbFor(env, db);
   const normalized = sheetName.toString().trim().toUpperCase();
 
+  // ---- audit H-9: allocate the sequential id INSIDE the INSERT ----
+  //
+  // Both USERS (`id_code` = 'USER####') and COLLECTIONS (`sl_no`, per year) used
+  // to be allocated read-then-write:
+  //
+  //     const last = await ...SELECT MAX(...)      <-- statement 1
+  //     payload.ID = 'USER' + (max + 1)
+  //     await ...INSERT...                          <-- statement 2
+  //
+  // D1 has no interactive transaction spanning two awaits, so two saves that
+  // interleave between statement 1 and statement 2 BOTH read the same MAX and
+  // BOTH insert the same id. The window is a whole network round trip wide, and
+  // the app makes it easy to hit: Home's Save and the Users screen's Save are the
+  // two most-used buttons, and two data-entry volunteers working the same year
+  // during a collection drive collide routinely. Nothing detected it — there was
+  // no unique constraint — so the result was two members sharing one USER####
+  // (which silently merges their profiles, receipts and loan consents, because
+  // every lookup in the portal joins on id_code) or two collections sharing one
+  // Sl. No. (duplicate receipt numbers).
+  //
+  // The fix makes allocation and insertion ONE statement. A single SQL statement
+  // is atomic in SQLite/D1, so the MAX is read and the row is written without any
+  // window for a second writer.
+  //
+  // Statement count is UNCHANGED (the removed MAX read pays for the read-back
+  // below), so there is no free-tier cost.
+  let generated = null; // { col, expr, binds, resultKey }
   if (normalized === 'USERS') {
-    const last = await d1.prepare("SELECT id_code FROM users WHERE id_code LIKE 'USER%' ORDER BY CAST(SUBSTR(id_code,5) AS INTEGER) DESC LIMIT 1").first();
-    let maxId = 0;
-    if (last && last.id_code) maxId = parseInt(last.id_code.replace('USER', '')) || 0;
-    payload.ID = 'USER' + String(maxId + 1).padStart(4, '0');
+    delete payload.ID; // never trust/keep a client-supplied ID — as before
+    generated = {
+      col: 'id_code',
+      // printf('USER%04d', n) is exactly String(n).padStart(4, '0') with the
+      // prefix, including past 9999 (-> 'USER10000'), matching the old JS.
+      expr: "(SELECT printf('USER%04d', COALESCE(MAX(CAST(SUBSTR(id_code, 5) AS INTEGER)), 0) + 1) "
+        + "FROM users WHERE id_code LIKE 'USER%')",
+      binds: [],
+      resultKey: 'id',
+    };
   }
   if (normalized === 'COLLECTIONS') {
-    const row = await d1.prepare('SELECT MAX(sl_no) as maxSl FROM collections WHERE year = ?').bind(payload.Year).first();
-    payload['Sl. No.'] = (row && row.maxSl ? row.maxSl : 0) + 1;
+    delete payload['Sl. No.'];
+    generated = {
+      col: 'sl_no',
+      expr: '(SELECT COALESCE(MAX(sl_no), 0) + 1 FROM collections WHERE year = ?)',
+      binds: [payload.Year],
+      resultKey: 'slNo',
+    };
   }
 
   payload['Created By'] = user ? user.name : payload['Created By'];
   const cols = toColumnPayload(table, payload);
   const keys = Object.keys(cols);
-  const placeholders = keys.map(() => '?').join(', ');
+  const valueSql = keys.map(() => '?');
+  const binds = keys.map(k => cols[k]);
+  if (generated) {
+    keys.push(generated.col);
+    valueSql.push(generated.expr);
+    binds.push(...generated.binds);
+  }
+
   const result = await d1.prepare(
-    `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${placeholders})`
-  ).bind(...keys.map(k => cols[k])).run();
+    `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${valueSql.join(', ')})`
+  ).bind(...binds).run();
 
   const rowIndex = result.meta.last_row_id;
-  return { success: true, id: payload.ID || null, rowIndex };
+
+  // Read back the value the database assigned. RETURNING would save this hop, but
+  // it is used nowhere else in this Worker, so it stays unverified against real
+  // D1 — and `meta.last_row_id` is already relied on above. This costs the same
+  // one statement the deleted MAX() lookup used to.
+  const out = { success: true, id: null, rowIndex };
+  if (generated) {
+    const back = await d1.prepare(`SELECT ${generated.col} FROM ${table} WHERE id = ?`)
+      .bind(rowIndex).first();
+    const value = back ? back[generated.col] : null;
+    out[generated.resultKey] = value;
+    // QuickAddUser reads `res.id` to preselect the member it just created, and
+    // index.js's activity-log summary reports the allocated Sl. No. Put the value
+    // back on the payload so summarizePayload() still sees it.
+    if (generated.col === 'id_code') payload.ID = value;
+    if (generated.col === 'sl_no') payload['Sl. No.'] = value;
+  }
+  return out;
 }
 
 export async function updateRecordByIdx(env, sheetName, rowIndex, payload, user) {

@@ -1,0 +1,66 @@
+-- ============================================================================
+-- audit H-9 — defence in depth for `users.id_code` (the USER#### series)
+-- Database: chhath_core
+--
+-- The real fix is in code (mgmt/backend/src/crud.js saveRecord): `id_code` is now
+-- allocated INSIDE the INSERT, so read-then-write can no longer hand the same
+-- value to two concurrent saves. This file adds the constraint that would have
+-- MADE that bug visible instead of silent.
+--
+--   PART 1 (applied here) — a plain index. Safe on any data. It also turns the
+--                           allocation subquery's MAX() into an index lookup.
+--   PART 2 (NOT applied)  — the UNIQUE variant, with the query that tells you
+--                           whether it is safe to run.
+--
+-- Why PART 2 is not applied automatically: CREATE UNIQUE INDEX FAILS OUTRIGHT if
+-- the table already holds a duplicate, and duplicates are exactly what the
+-- pre-fix race produced. A migration that can fail halfway is not something to
+-- run blind three weeks before launch.
+--
+-- Idempotent. Apply with:
+--   wrangler d1 execute chhath_core --remote --file=./07-core-id-uniqueness.sql
+-- ============================================================================
+
+-- ---------------------------------------------------------------- PART 1
+CREATE INDEX IF NOT EXISTS idx_users_id_code_seq ON users (id_code);
+
+
+-- ============================================================================
+-- PART 2 — DO NOT RUN UNTIL THE DETECTION QUERY RETURNS ZERO ROWS
+-- ============================================================================
+--
+-- Step 1 — find members sharing one USER#### id:
+--
+--   SELECT id_code, COUNT(*) AS copies, GROUP_CONCAT(id) AS row_ids
+--     FROM users
+--    WHERE id_code IS NOT NULL AND id_code <> ''
+--    GROUP BY id_code
+--   HAVING COUNT(*) > 1
+--    ORDER BY copies DESC;
+--
+-- Step 2 — if it returns rows, repair them before Step 3. Do NOT delete: both
+-- rows are real members a volunteer entered. A duplicated id_code needs care,
+-- because receipts, loan consents and generated_files rows may already point at
+-- it — decide which member keeps the original id, reassign the other to the next
+-- free value, then update the rows that reference it:
+--
+--   UPDATE users
+--      SET id_code = (SELECT printf('USER%04d',
+--                            COALESCE(MAX(CAST(SUBSTR(id_code, 5) AS INTEGER)), 0) + 1)
+--                       FROM users WHERE id_code LIKE 'USER%')
+--    WHERE id = <the row_id you decided to move>;
+--
+-- Step 3 — once the detection query returns zero rows:
+--
+--   CREATE UNIQUE INDEX IF NOT EXISTS uq_users_id_code
+--     ON users (id_code) WHERE id_code IS NOT NULL AND id_code <> '';
+--
+-- It is a PARTIAL index: the WHERE clause exempts legacy rows carrying a
+-- NULL/blank id, so the constraint applies to new writes without needing a
+-- backfill of historical data first.
+--
+-- After Step 3, a regression in the allocation code stops being silent: the
+-- INSERT fails and the operator retries, instead of two people quietly sharing
+-- one identity (which merges their profiles, receipts and loan consents, because
+-- every lookup in the portal joins on id_code).
+-- ============================================================================

@@ -1,0 +1,54 @@
+-- ============================================================================
+-- audit H-9 — defence in depth for `collections.sl_no` (per-year receipt number)
+-- Database: chhath_collections
+--
+-- Companion to 07-core-id-uniqueness.sql; see that file's header for why PART 2
+-- is not applied automatically. The real fix is in code
+-- (mgmt/backend/src/crud.js saveRecord): `sl_no` is now allocated INSIDE the
+-- INSERT, so two concurrent saves can no longer be handed the same number.
+--
+-- Idempotent. Apply with:
+--   wrangler d1 execute chhath_collections --remote --file=./08-collections-sl-no-uniqueness.sql
+-- ============================================================================
+
+-- ---------------------------------------------------------------- PART 1
+-- Composite on (year, sl_no): matches the allocation subquery's
+-- `MAX(sl_no) ... WHERE year = ?` exactly, so it becomes an index lookup rather
+-- than a scan of every contribution ever recorded.
+CREATE INDEX IF NOT EXISTS idx_collections_year_sl_no ON collections (year, sl_no);
+
+
+-- ============================================================================
+-- PART 2 — DO NOT RUN UNTIL THE DETECTION QUERY RETURNS ZERO ROWS
+-- ============================================================================
+--
+-- Step 1 — find contributions sharing one Sl. No. within a year:
+--
+--   SELECT year, sl_no, COUNT(*) AS copies, GROUP_CONCAT(id) AS row_ids
+--     FROM collections
+--    WHERE sl_no IS NOT NULL
+--    GROUP BY year, sl_no
+--   HAVING COUNT(*) > 1
+--    ORDER BY year DESC, copies DESC;
+--
+-- Step 2 — if it returns rows, re-number the newer one (the higher `id`) to the
+-- next free value for its year. Do NOT delete: both rows are real contributions.
+--
+--   UPDATE collections
+--      SET sl_no = (SELECT COALESCE(MAX(sl_no), 0) + 1
+--                     FROM collections c2
+--                    WHERE c2.year = collections.year)
+--    WHERE id = <the higher row_id from the detection query>;
+--
+-- Note: a duplicate here means two donors were given the SAME receipt number, so
+-- also check whether a receipt/certificate PDF was already generated for the row
+-- you re-number (generated_files in chhath_file_index) and regenerate it.
+--
+-- Step 3 — once the detection query returns zero rows:
+--
+--   CREATE UNIQUE INDEX IF NOT EXISTS uq_collections_year_sl_no
+--     ON collections (year, sl_no) WHERE sl_no IS NOT NULL;
+--
+-- PARTIAL, so rows with a NULL sl_no (imported/legacy) are exempt and no
+-- backfill is required first.
+-- ============================================================================

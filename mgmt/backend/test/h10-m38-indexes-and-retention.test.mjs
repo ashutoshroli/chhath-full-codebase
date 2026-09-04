@@ -26,6 +26,9 @@ const SCHEMA_FOR_MIGRATION = {
   '04-logs-indexes.sql': 'logs.sql',
   '05-whatsapp-indexes.sql': 'whatsapp_index.sql',
   '06-audit-indexes.sql': 'audit.sql',
+  // audit H-9 — one file per database, same as the six above.
+  '07-core-id-uniqueness.sql': 'core.sql',
+  '08-collections-sl-no-uniqueness.sql': 'collections.sql',
 };
 
 const DAY = 86400000;
