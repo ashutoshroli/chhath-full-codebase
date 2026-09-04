@@ -484,6 +484,62 @@ export async function revokeAllOtherSessions(env, user, currentHash) {
   return { success: true };
 }
 
+// audit H-15 — kill every session belonging to `name`, optionally sparing one.
+//
+// Why this exists: changing a password did NOTHING to existing sessions. Sessions
+// live in KV for 8 hours, or THIRTY DAYS with "remember me", and are validated
+// only against the KV blob (the password hash is never re-checked). So the whole
+// point of changing a password — "someone else has my credentials, cut them off"
+// — did not happen: the attacker's session kept working for up to a month, and
+// the user had no way to tell. Same for a Superadmin resetting a compromised
+// account's password.
+//
+// Two mechanisms, deliberately both:
+//
+//   1. `user_sessions.revoked_at`. verifyToken() already rejects a session whose
+//      row is revoked, so this covers legacy entries still keyed by the raw token
+//      (see LEGACY_SESSION_KEY_SUNSET), whose KV key we cannot reconstruct from a
+//      hash. It takes effect on that device's next request.
+//   2. Deleting the KV entry, which since the H-4 re-keying is exactly
+//      `session:<token_hash>` — so the stored hash IS the key. This makes the
+//      revocation immediate and independent of DB_AUDIT being reachable.
+//
+// Free tier: KV DELETEs count against the ~1000 writes/day budget, but this runs
+// only on a password change — a handful per month, at most a few sessions each.
+//
+// Best-effort and fail-safe by contract: a password change must never fail
+// because the audit store had a bad moment. Returns how many were revoked so the
+// caller can tell the user, and -1 when it could not be determined.
+export async function revokeSessionsFor(env, name, { exceptHash = null } = {}) {
+  const who = (name || '').toString().trim();
+  if (!who || !env || !env.DB_AUDIT) return -1;
+  try {
+    const { results } = await env.DB_AUDIT.prepare(
+      'SELECT token_hash FROM user_sessions WHERE name = ? AND revoked_at IS NULL'
+    ).bind(who).all();
+
+    const hashes = (results || [])
+      .map(r => r.token_hash)
+      .filter(h => h && h !== exceptHash);
+    if (!hashes.length) return 0;
+
+    await env.DB_AUDIT.prepare(
+      'UPDATE user_sessions SET revoked_at = ? WHERE name = ? AND revoked_at IS NULL AND token_hash != ?'
+    ).bind(new Date().toISOString(), who, exceptHash || '').run();
+
+    if (env.KV_SESSIONS) {
+      // Sequential, not Promise.all: this is bounded by how many devices one
+      // person is signed in on, and it keeps the subrequest burst small.
+      for (const h of hashes) {
+        await env.KV_SESSIONS.delete(sessionKeyByHash(h)).catch(() => {});
+      }
+    }
+    return hashes.length;
+  } catch (e) {
+    return -1;
+  }
+}
+
 // ---- Superadmin: view / force-logout ANY user's sessions ----
 
 export async function getUserSessions(env, targetName, user) {

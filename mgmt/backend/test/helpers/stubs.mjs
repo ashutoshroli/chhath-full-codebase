@@ -98,6 +98,7 @@ export function makeD1(schemaSql = '') {
 export function makeKV() {
   const store = new Map(); // key -> { value, expiresAt (0 = never) }
   let writes = 0;
+  let deletes = 0;
   return {
     async get(key) {
       const e = store.get(key);
@@ -112,14 +113,20 @@ export function makeKV() {
         expiresAt: opts.expirationTtl ? Date.now() + opts.expirationTtl * 1000 : 0,
       });
     },
-    async delete(key) { store.delete(key); },
+    async delete(key) { deletes++; store.delete(key); },
     async list({ prefix = '', cursor } = {}) {
       const keys = [...store.keys()].filter(k => k.startsWith(prefix)).map(name => ({ name }));
       return { keys, list_complete: true, cursor: null };
     },
     // Test-only.
     _store: store,
-    _writes: () => writes,
+    _writes: () => writes,     // put() only
+    _deletes: () => deletes,
+    // FIDELITY: Cloudflare bills a DELETE as a write operation, against the same
+    // 1,000/day free-tier budget as put(). `_writes` is kept as put-only so tests
+    // about caching stay readable; assert on `_writeOps()` when what matters is
+    // the quota.
+    _writeOps: () => writes + deletes,
   };
 }
 

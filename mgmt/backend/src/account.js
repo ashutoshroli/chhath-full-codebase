@@ -1,5 +1,5 @@
 import { getSheetDataAsJSON } from './crud.js';
-import { requireAdminOrAbove, requireSuperadmin, PermissionError, ValidationError, hashPassword, verifyPassword, InternalError } from './auth.js';
+import { requireAdminOrAbove, requireSuperadmin, PermissionError, ValidationError, hashPassword, verifyPassword, InternalError, revokeSessionsFor } from './auth.js';
 import { base64ToBytes, MAX_GENERIC_UPLOAD_BYTES } from './base64.js';
 
 const ROLE_PERMISSIONS_KEYS = ['Superadmin', 'Admin', 'Subadmin'];
@@ -81,6 +81,7 @@ export async function updateLoginUser(env, rowIndex, password, roleVal, mobile, 
   const conflict = await findLoginConflict(env, mobileTrim, emailTrim, currentName);
   if (conflict) throw ValidationError(conflict);
 
+  let sessionsRevoked = 0;
   if (password) {
     if (password.toString().trim().length < MIN_PASSWORD_LENGTH) {
       throw ValidationError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
@@ -89,19 +90,44 @@ export async function updateLoginUser(env, rowIndex, password, roleVal, mobile, 
     await env.DB_CORE.prepare(
       'UPDATE login_users SET role = ?, mobile = ?, email = ?, password = ?, updated_at = ? WHERE id = ?'
     ).bind(roleVal, mobileTrim, emailTrim, hashed, new Date().toISOString(), rowIndex).run();
+
+    // audit H-15: a Superadmin resetting someone's password is usually doing it
+    // BECAUSE that account may be compromised. Leaving the account's existing
+    // sessions alive (up to 30 days with "remember me") defeats the reset
+    // entirely. Sparing `user.th` means: if the Superadmin is resetting their OWN
+    // login here, they stay signed in; for anyone else's login their own hash
+    // matches nothing, so every session of the target is revoked. One rule,
+    // correct in both cases.
+    sessionsRevoked = await revokeSessionsFor(env, currentName, { exceptHash: user.th });
   } else {
     await env.DB_CORE.prepare(
       'UPDATE login_users SET role = ?, mobile = ?, email = ?, updated_at = ? WHERE id = ?'
     ).bind(roleVal, mobileTrim, emailTrim, new Date().toISOString(), rowIndex).run();
+    // NOTE: a ROLE change deliberately does not revoke anything — verifyToken
+    // re-reads `role` from login_users on every request and enforces the current
+    // value, so a demotion takes effect immediately without signing anyone out.
   }
-  return { success: true };
+  return { success: true, sessionsRevoked };
 }
 
 export async function deleteLoginUser(env, rowIndex, user) {
   requireSuperadmin(user);
   if (!rowIndex) throw ValidationError('rowIndex required');
+
+  // audit H-15: read the name BEFORE deleting so the account's live sessions can
+  // be revoked. verifyToken() does already reject a session whose login_users row
+  // has vanished — but that check sits inside a try/catch that intentionally
+  // falls through to the cached session on a DB error (availability over a stale
+  // role window). Revoking explicitly means a deleted login is signed out even
+  // during a core-DB wobble, and immediately rather than on its next request.
+  const row = await env.DB_CORE.prepare('SELECT name FROM login_users WHERE id = ?').bind(rowIndex).first();
+
   await env.DB_CORE.prepare('DELETE FROM login_users WHERE id = ?').bind(rowIndex).run();
-  return { success: true };
+
+  const sessionsRevoked = row && row.name
+    ? await revokeSessionsFor(env, row.name) // no exception: the login is gone
+    : 0;
+  return { success: true, sessionsRevoked };
 }
 
 export async function updateOwnProfile(env, payload, user) {
@@ -141,7 +167,25 @@ export async function changePassword(env, currentPassword, newPassword, user) {
   const newHashed = await hashPassword(newPassword.toString().trim());
   await env.DB_CORE.prepare('UPDATE login_users SET password = ?, updated_at = ? WHERE id = ?')
     .bind(newHashed, new Date().toISOString(), row.id).run();
-  return { success: true };
+
+  // audit H-15: sign every OTHER device out. A session is validated against its
+  // KV blob and never re-checks the password hash, so before this the old
+  // password's sessions stayed alive for their full 8 hours — or THIRTY DAYS with
+  // "remember me" — after the change. Anyone who had the old credentials kept
+  // access, which is precisely what changing a password is meant to stop.
+  //
+  // The caller's own session is spared (`exceptHash: user.th`) so changing your
+  // password does not immediately log you out of the screen you are on.
+  // Best-effort: a failure here must not undo a completed password change.
+  const revoked = await revokeSessionsFor(env, user.name, { exceptHash: user.th });
+
+  return {
+    success: true,
+    otherSessionsRevoked: revoked, // -1 when it could not be determined
+    message: revoked > 0
+      ? `Password changed. ${revoked} other signed-in device${revoked === 1 ? '' : 's'} ${revoked === 1 ? 'was' : 'were'} signed out.`
+      : 'Password changed.',
+  };
 }
 
 // ============ FILE UPLOAD (Drive REST API) ============
