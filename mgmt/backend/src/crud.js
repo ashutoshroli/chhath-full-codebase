@@ -1,5 +1,5 @@
 import { resolveSheet, toColumnPayload, fromColumnRow } from './tableRegistry.js';
-import { requireRole, requireYearUnlocked, requireYearAccess, PermissionError } from './auth.js';
+import { requireRole, requireYearUnlocked, requireYearAccess, PermissionError, ValidationError, InternalError } from './auth.js';
 import { logErrorAt } from './logger.js';
 import { isTruthyFlag } from './flags.js';
 
@@ -16,7 +16,7 @@ const DB_BINDINGS = {
 
 export function dbFor(env, dbName) {
   const binding = DB_BINDINGS[dbName];
-  if (!binding || !env[binding]) throw new Error(`No D1 binding for db "${dbName}" (expected env.${binding})`);
+  if (!binding || !env[binding]) throw InternalError(`No D1 binding for db "${dbName}" (expected env.${binding})`);
   return env[binding];
 }
 
@@ -144,22 +144,22 @@ function validatePayload(sheetName, payload) {
     if (normalized === 'COLLECTIONS' && f === 'Amount' && (payload['Contribution Type'] || '1').toString() !== '1') continue;
     if (normalized === 'COLLECTIONS' && f === 'Name' && isResell) continue;
     if (payload[f] === undefined || payload[f] === null || payload[f].toString().trim() === '') {
-      throw new Error(`Missing required field: ${f}`);
+      throw ValidationError(`Missing required field: ${f}`);
     }
   }
   if (normalized === 'COLLECTIONS' && isResell && !(payload.Detail || '').toString().trim()) {
-    throw new Error('The name of the resold item is required');
+    throw ValidationError('The name of the resold item is required');
   }
   if (normalized === 'COLLECTIONS' && !isResell && (payload['Contribution Type'] || '1').toString() !== '1' && !(payload.Detail || '').toString().trim()) {
-    throw new Error('Detail is required for this Contribution Type');
+    throw ValidationError('Detail is required for this Contribution Type');
   }
   if (payload.Amount !== undefined && payload.Amount !== '' && isNaN(parseFloat(payload.Amount))) {
-    throw new Error('Amount must be a number');
+    throw ValidationError('Amount must be a number');
   }
   ['Mobile', 'WhatsApp'].forEach(f => {
     if (payload[f] !== undefined && payload[f] !== null && payload[f].toString().trim() !== '') {
       if (!/^\d{10}$/.test(payload[f].toString().trim())) {
-        throw new Error(f + ' must be 10 digits');
+        throw ValidationError(f + ' must be 10 digits');
       }
     }
   });
@@ -224,9 +224,12 @@ export async function updateRecordByIdx(env, sheetName, rowIndex, payload, user)
       stored = await d1.prepare(`SELECT year FROM ${table} WHERE id = ?`).bind(rowIndex).first();
     } catch (err) {
       await logErrorAt(env, 'backend-crud', 'updateRecordByIdx:yearLookup', err, { sheetName, table, rowIndex });
-      throw new Error('Could not verify the record\'s year before updating — the update was stopped for safety. Please try again.');
+      throw InternalError(
+        `updateRecordByIdx: year lookup on ${table} failed: ${err && err.message || err}`,
+        'The update was stopped because the record\'s year could not be checked. Nothing was changed — please try again.'
+      );
     }
-    if (!stored) throw new Error('Record not found (or it has already been deleted).');
+    if (!stored) throw ValidationError('Record not found (or it has already been deleted).');
 
     if (stored.year) {
       await requireYearUnlocked(env, stored.year);
@@ -277,9 +280,12 @@ export async function deleteRecordByIdx(env, sheetName, rowIndex, user) {
     row = await d1.prepare(`SELECT year FROM ${table} WHERE id = ?`).bind(rowIndex).first();
   } catch (err) {
     await logErrorAt(env, 'backend-crud', 'deleteRecordByIdx:yearLookup', err, { sheetName, table, rowIndex });
-    throw new Error('Could not verify the record\'s year before deletion — the delete was stopped for safety. Please try again.');
+    throw InternalError(
+      `deleteRecordByIdx: year lookup on ${table} failed: ${err && err.message || err}`,
+      'The delete was stopped because the record\'s year could not be checked. Nothing was deleted — please try again.'
+    );
   }
-  if (!row) throw new Error('Record not found (or it has already been deleted).');
+  if (!row) throw ValidationError('Record not found (or it has already been deleted).');
 
   if (row.year) {
     await requireYearUnlocked(env, row.year);

@@ -1,5 +1,5 @@
 import { getSheetDataAsJSON, saveRecord } from './crud.js';
-import { requireRole, requireYearUnlocked, requireYearAccess, requireSuperadmin, requireAdminOrAbove, requireStaffRole, ValidationError, timingSafeEqualHex } from './auth.js';
+import { requireRole, requireYearUnlocked, requireYearAccess, requireSuperadmin, requireAdminOrAbove, requireStaffRole, ValidationError, timingSafeEqualHex, InternalError } from './auth.js';
 import { toColumnPayload } from './tableRegistry.js';
 import { otpConsentSenderNumber } from './settings.js';
 import { getConsentPageTemplate } from './settings.js';
@@ -67,9 +67,11 @@ function consentLinkBuilder(env) {
   const base = (env.CONSENT_BASE_URL || '').toString().trim().replace(/\/+$/, '');
   const isPlaceholder = !base || /YOUR-FRONTEND-DOMAIN|example\.com/i.test(base);
   if (isPlaceholder) {
-    throw new Error(
+    throw InternalError(
       'CONSENT_BASE_URL is not configured on the server (it is still the placeholder value). ' +
-      'The consent link cannot be sent — set the real frontend domain in wrangler.toml / Worker vars.'
+      'The consent link cannot be sent — set the real frontend domain in wrangler.toml / Worker vars.',
+      'Consent links are not configured on the server, so no invitation was sent. ' +
+      'Please ask the Superadmin to set the portal address before sending consents.'
     );
   }
   return (token) => `${base}/consent/${token}`;
@@ -122,15 +124,15 @@ export async function saveLoanTransaction(env, loanPayload, guarantorPayloads, u
   requireRole(user, 'add', 'LOANS');
   if (loanPayload.Year) await requireYearUnlocked(env, loanPayload.Year);
   if (loanPayload.Year) await requireYearAccess(env, user, loanPayload.Year);
-  if (!loanPayload.Name || !loanPayload.Amount) throw new Error('Missing required field: Name/Amount');
-  if (!guarantorPayloads || guarantorPayloads.length !== 3) throw new Error('Exactly 3 guarantors required');
+  if (!loanPayload.Name || !loanPayload.Amount) throw ValidationError('Missing required field: Name/Amount');
+  if (!guarantorPayloads || guarantorPayloads.length !== 3) throw ValidationError('Exactly 3 guarantors required');
 
   const ids = [loanPayload.Name, ...guarantorPayloads.map(g => g.Guarantor)];
-  if (new Set(ids).size !== ids.length) throw new Error('Receiver and Guarantors must all be different');
+  if (new Set(ids).size !== ids.length) throw ValidationError('Receiver and Guarantors must all be different');
 
   const committee = (await getSheetDataAsJSON(env, 'COMMITEE MEMBERS')).map(c => c.Name);
   guarantorPayloads.forEach(g => {
-    if (committee.includes(g.Guarantor)) throw new Error('Rule Violation: A Committee Member cannot be a Guarantor');
+    if (committee.includes(g.Guarantor)) throw ValidationError('Rule Violation: A Committee Member cannot be a Guarantor');
   });
 
   loanPayload['Created By'] = user.name;
@@ -434,7 +436,7 @@ export async function requestConsentOtp(env, token) {
   // audit M-14: one indexed lookup instead of a full users scan.
   const person = await userByIdCode(env, rowObj.person_id);
   const wa = waNumberOf(person || {});
-  if (!wa) throw new Error('Your WhatsApp number is not registered in the portal. Please contact the Superadmin.');
+  if (!wa) throw ValidationError('Your WhatsApp number is not registered in the portal. Please contact the Superadmin.');
 
   // requestConsentOtp is unauthenticated by design (the token IS the credential),
   // but previously anyone holding a link could enqueue UNLIMITED OTP messages to
@@ -443,7 +445,7 @@ export async function requestConsentOtp(env, token) {
   const hourAgo = Date.now() - 3600000;
   const recentRequests = ((prev && prev.requests) || []).filter(t => t > hourAgo);
   if (recentRequests.length >= OTP_MAX_REQUESTS_PER_HOUR) {
-    throw new Error(`An OTP can only be sent ${OTP_MAX_REQUESTS_PER_HOUR} times per hour. Please try again after a while.`);
+    throw ValidationError(`An OTP can only be sent ${OTP_MAX_REQUESTS_PER_HOUR} times per hour. Please try again after a while.`);
   }
 
   const otp = generateOtp();
@@ -478,7 +480,7 @@ export async function requestConsentOtp(env, token) {
     await logWarn(env, 'whatsapp-loans', 'requestConsentOtp',
       `OTP message could NOT be queued for consent ${rowObj.consent_id} (number rejected).`,
       { consentId: rowObj.consent_id, personId: rowObj.person_id });
-    throw new Error('The OTP could not be sent — your registered number is not valid. Please contact the Superadmin.');
+    throw ValidationError('The OTP could not be sent — your registered number is not valid. Please contact the Superadmin.');
   }
   return { success: true, expiresInMinutes: Math.round(OTP_TTL_MS / 60000) };
 }
@@ -516,7 +518,7 @@ export async function verifyConsentOtp(env, token, otp) {
   if (!timingSafeEqualHex(toHexStr(supplied), toHexStr(expected))) {
     await writeOtpMeta(env, rowObj.consent_id, Object.assign({}, meta, { attempts: attempts + 1 }));
     const left = OTP_MAX_VERIFY_ATTEMPTS - (attempts + 1);
-    throw new Error(`The OTP is incorrect.${left > 0 ? ` ${left} attempt(s) remaining.` : ' Please request a new OTP.'}`);
+    throw ValidationError(`The OTP is incorrect.${left > 0 ? ` ${left} attempt(s) remaining.` : ' Please request a new OTP.'}`);
   }
 
   // SECURITY (audit C-3): actually BURN the code in the database, not just in KV.
@@ -545,7 +547,7 @@ export async function verifyConsentOtp(env, token, otp) {
 }
 
 export async function respondConsent(env, token, decision, deviceId, deviceInfo, clientIp, geoLat, geoLng, geoAccuracy, photoBase64, signatureBase64, declineRemarks, verifyToken) {
-  if (decision !== 'accepted' && decision !== 'declined') throw new Error('Invalid decision');
+  if (decision !== 'accepted' && decision !== 'declined') throw ValidationError('Invalid decision');
   const rowObj = await findConsentRowByToken(env, token);
   if (!rowObj) throw ValidationError('This link is not valid.');
   if (rowObj.status !== 'pending') throw ValidationError('Your response for this loan has already been recorded — it is locked.');
@@ -580,11 +582,11 @@ export async function respondConsent(env, token, decision, deviceId, deviceInfo,
         "SELECT status FROM loan_consents WHERE loan_id = ? AND role = 'guarantor' AND status != 'replaced'"
       ).bind(rowObj.loan_id).all();
       const allAccepted = guarantorConsents.length > 0 && guarantorConsents.every(c => c.status === 'accepted');
-      if (!allAccepted) throw new Error('Final Acceptance is not available yet — all three guarantors must Accept first.');
+      if (!allAccepted) throw ValidationError('Final Acceptance is not available yet — all three guarantors must Accept first.');
     }
-    if (!geoLat || !geoLng) throw new Error('Location permission is required in order to Accept.');
-    if (!photoBase64) throw new Error('Capturing a photo is required in order to Accept.');
-    if (!signatureBase64) throw new Error('Uploading a signature is required in order to Accept.');
+    if (!geoLat || !geoLng) throw ValidationError('Location permission is required in order to Accept.');
+    if (!photoBase64) throw ValidationError('Capturing a photo is required in order to Accept.');
+    if (!signatureBase64) throw ValidationError('Uploading a signature is required in order to Accept.');
     try {
       // Derive the loan's year so the files land under the right R2 year prefix
       // (used by the Superadmin "Move <year> to Drive" feature). If the loan
@@ -601,10 +603,14 @@ export async function respondConsent(env, token, decision, deviceId, deviceInfo,
       await logErrorAt(env, 'backend-loans', 'respondConsent:driveUpload', err, {
         consentId: rowObj.consent_id, personId: rowObj.person_id, role: rowObj.role,
       });
-      throw new Error('Photo/Signature upload failed: ' + err.message);
+      throw InternalError(
+        'respondConsent: photo/signature upload failed: ' + (err && err.message || err),
+        'Your photo and signature could not be uploaded, so nothing was recorded. '
+        + 'Please check your connection and submit again.'
+      );
     }
   } else {
-    if (!declineRemarks || !declineRemarks.toString().trim()) throw new Error('Remarks are required in order to Decline.');
+    if (!declineRemarks || !declineRemarks.toString().trim()) throw ValidationError('Remarks are required in order to Decline.');
   }
 
   const now = new Date().toISOString();
@@ -789,7 +795,7 @@ export async function getConsentsForReview(env, user) {
 
 export async function setConsentVerification(env, consentId, status, remarks, user) {
   requireAdminOrAbove(user);
-  if (status !== 'verified' && status !== 'rejected') throw new Error('Invalid verification status');
+  if (status !== 'verified' && status !== 'rejected') throw ValidationError('Invalid verification status');
   const result = await env.DB_LOANS_EXPENSES.prepare(
     'UPDATE loan_consents SET verification_status = ?, verification_remarks = ?, verified_by = ?, verified_at = ? WHERE consent_id = ?'
   ).bind(status, remarks || '', user.name, new Date().toISOString(), consentId).run();
@@ -838,9 +844,9 @@ export async function resendConsent(env, consentId, user) {
   requireSuperadmin(user);
   const rowObj = await env.DB_LOANS_EXPENSES.prepare('SELECT * FROM loan_consents WHERE consent_id = ?').bind(consentId).first();
   if (!rowObj) throw ValidationError('Consent record not found.');
-  if (rowObj.status === 'accepted') throw new Error('This has already been accepted — no resend is needed.');
+  if (rowObj.status === 'accepted') throw ValidationError('This has already been accepted — no resend is needed.');
   const sendCount = parseInt(rowObj.send_count) || 0;
-  if (sendCount >= 5) throw new Error('This guarantor/loaner has already been sent the invitation 5 times. Please replace the guarantor now.');
+  if (sendCount >= 5) throw ValidationError('This guarantor/loaner has already been sent the invitation 5 times. Please replace the guarantor now.');
 
   const newToken = generateConsentToken();
   await env.DB_LOANS_EXPENSES.prepare(
@@ -859,12 +865,12 @@ export async function resendConsent(env, consentId, user) {
   const tpls = await loanTemplateContext(env);
   const tpl = tpls.pick(tplType);
 
-  if (!tpl) throw new Error(`There is no active "${tplType}" template — add one in the WhatsApp templates first.`);
+  if (!tpl) throw ValidationError(`There is no active "${tplType}" template — add one in the WhatsApp templates first.`);
   if (!wa) {
     await logWarn(env, 'whatsapp-loans', 'resendConsent',
       `Cannot resend consent ${consentId}: ${rowObj.person_id} has no valid WhatsApp/Mobile number.`,
       { consentId, personId: rowObj.person_id });
-    throw new Error('This person does not have a valid WhatsApp/Mobile number registered — please correct the number in USERS first.');
+    throw ValidationError('This person does not have a valid WhatsApp/Mobile number registered — please correct the number in USERS first.');
   }
 
   const data2 = Object.assign(notificationData(loan, loanerU, person, rowObj.role, guarantorUsers), {
@@ -880,8 +886,8 @@ export async function replaceGuarantor(env, loanId, oldConsentId, newPersonId, u
   requireSuperadmin(user);
   const oldRow = await env.DB_LOANS_EXPENSES.prepare('SELECT * FROM loan_consents WHERE consent_id = ?').bind(oldConsentId).first();
   if (!oldRow) throw ValidationError('Consent record not found.');
-  if (oldRow.role !== 'guarantor') throw new Error('Only a guarantor can be replaced.');
-  if (oldRow.status === 'accepted') throw new Error('This guarantor has already accepted — they cannot be replaced.');
+  if (oldRow.role !== 'guarantor') throw ValidationError('Only a guarantor can be replaced.');
+  if (oldRow.status === 'accepted') throw ValidationError('This guarantor has already accepted — they cannot be replaced.');
 
   const loan = await loanByLoanId(env, loanId);
   if (!loan) throw ValidationError('Loan not found.');
@@ -890,9 +896,9 @@ export async function replaceGuarantor(env, loanId, oldConsentId, newPersonId, u
     "SELECT person_id FROM loan_consents WHERE loan_id = ? AND status != 'replaced' AND consent_id != ?"
   ).bind(loanId, oldConsentId).all();
   const activeParticipants = activeRows.map(c => c.person_id);
-  if (activeParticipants.includes(newPersonId)) throw new Error('This person is already part of this loan.');
+  if (activeParticipants.includes(newPersonId)) throw ValidationError('This person is already part of this loan.');
   const committee = (await getSheetDataAsJSON(env, 'COMMITEE MEMBERS')).map(c => c.Name);
-  if (committee.includes(newPersonId)) throw new Error('Rule Violation: A Committee Member cannot become a guarantor.');
+  if (committee.includes(newPersonId)) throw ValidationError('Rule Violation: A Committee Member cannot become a guarantor.');
 
   await env.DB_LOANS_EXPENSES.prepare("UPDATE loan_consents SET status = 'replaced' WHERE consent_id = ?").bind(oldConsentId).run();
 
@@ -954,11 +960,11 @@ export async function markLoanDisbursed(env, loanId, cashAmount, onlineAmount, u
   requireSuperadmin(user);
   const cash = parseFloat(cashAmount) || 0;
   const online = parseFloat(onlineAmount) || 0;
-  if (cash <= 0 && online <= 0) throw new Error('Enter at least one amount, either Cash or Online.');
+  if (cash <= 0 && online <= 0) throw ValidationError('Enter at least one amount, either Cash or Online.');
 
   const loanRow = await env.DB_LOANS_EXPENSES.prepare('SELECT * FROM loans WHERE loan_id = ?').bind(loanId).first();
   if (!loanRow) throw ValidationError('Loan not found.');
-  if (loanRow.loan_status !== 'Approved') throw new Error('The loan is not Approved yet — all consents must be accepted first.');
+  if (loanRow.loan_status !== 'Approved') throw ValidationError('The loan is not Approved yet — all consents must be accepted first.');
 
   await env.DB_LOANS_EXPENSES.prepare(
     "UPDATE loans SET loan_status = 'Disbursed', cash_amount = ?, online_amount = ? WHERE loan_id = ?"
@@ -1011,7 +1017,7 @@ export async function getLoanTemplates(env, type) {
 
 export async function addLoanTemplate(env, type, text, messageType, fileLink, user) {
   requireSuperadmin(user);
-  if (!text || !text.toString().trim()) throw new Error('Template text required');
+  if (!text || !text.toString().trim()) throw ValidationError('Template text required');
   const id = randomId('LTPL');
   await env.DB_LOANS_EXPENSES.prepare(
     'INSERT INTO loan_message_templates (template_id, type, text, active, created_at, message_type, file_link) VALUES (?, ?, ?, 1, ?, ?, ?)'
@@ -1021,7 +1027,7 @@ export async function addLoanTemplate(env, type, text, messageType, fileLink, us
 
 export async function updateLoanTemplate(env, rowIndex, text, active, messageType, fileLink, user) {
   requireSuperadmin(user);
-  if (!rowIndex) throw new Error('rowIndex required');
+  if (!rowIndex) throw ValidationError('rowIndex required');
   const sets = []; const vals = [];
   if (text !== undefined) { sets.push('text = ?'); vals.push(text); }
   if (active !== undefined) { sets.push('active = ?'); vals.push(active ? 1 : 0); }
@@ -1035,7 +1041,7 @@ export async function updateLoanTemplate(env, rowIndex, text, active, messageTyp
 
 export async function deleteLoanTemplate(env, rowIndex, user) {
   requireSuperadmin(user);
-  if (!rowIndex) throw new Error('rowIndex required');
+  if (!rowIndex) throw ValidationError('rowIndex required');
   await env.DB_LOANS_EXPENSES.prepare('DELETE FROM loan_message_templates WHERE id = ?').bind(rowIndex).run();
   return { success: true };
 }

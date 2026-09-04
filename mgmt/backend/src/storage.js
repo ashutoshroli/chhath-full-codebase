@@ -14,7 +14,7 @@
 // so they're skipped).
 
 import { getSheetDataAsJSON } from './crud.js';
-import { requireSuperadmin } from './auth.js';
+import { requireSuperadmin, ValidationError, InternalError } from './auth.js';
 import { r2Available, isR2Url, keyFromR2Url, getFromR2, deleteFromR2, yearPrefix, listR2ByPrefix } from './r2.js';
 import { getOrCreateFolder, setAnyoneReader } from './drive.js';
 import { getDriveAccessToken } from './account.js';
@@ -25,7 +25,7 @@ import { logErrorAt } from './logger.js';
 async function uploadBytesToDrive(env, buffer, fileName, mimeType, year) {
   const token = await getDriveAccessToken(env);
   const rootId = env.DRIVE_ROOT_FOLDER_ID;
-  if (!rootId) throw new Error('DRIVE_ROOT_FOLDER_ID not configured on server');
+  if (!rootId) throw InternalError('DRIVE_ROOT_FOLDER_ID not configured on server');
   const archId = await getOrCreateFolder(env, rootId, 'Archived Files');
   const yearId = await getOrCreateFolder(env, archId, String(year));
 
@@ -42,7 +42,7 @@ async function uploadBytesToDrive(env, buffer, fileName, mimeType, year) {
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
     body,
   });
-  if (!res.ok) throw new Error('Drive upload failed: ' + await res.text());
+  if (!res.ok) throw InternalError('Drive upload failed: ' + await res.text());
   const { id } = await res.json();
   await setAnyoneReader(env, id);
   // Images use the lh3 direct URL (renders in <img>); PDFs use the uc download URL.
@@ -98,9 +98,14 @@ export async function getStorageOverview(env, user) {
 // ---- Move a whole year's R2 files to Drive ----
 export async function moveYearToDrive(env, year, user) {
   requireSuperadmin(user);
-  if (!r2Available(env)) throw new Error('R2 storage is not configured on the server.');
+  if (!r2Available(env)) {
+    throw InternalError(
+      'moveYearToDrive: R2 binding (env.R2) is not configured on this deployment.',
+      'File storage is not set up on the server, so no files were moved. Please contact the Superadmin.'
+    );
+  }
   const y = parseInt(year);
-  if (!y) throw new Error('Valid year required');
+  if (!y) throw ValidationError('Valid year required');
 
   let moved = 0, failed = 0, skipped = 0;
   const errors = [];

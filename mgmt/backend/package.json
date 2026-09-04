@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "node --test --test-reporter=spec test/*.test.mjs"
+    "test": "node --test --test-reporter=spec test/*.test.mjs",
+    "lint:errors": "! grep -rn --include=*.js -E \"^[^/*]*throw new Error\\(\" src/ || (echo '^^ audit H-3: use ValidationError(msg) for a user-facing message (400, not logged) or InternalError(msg[, userMsg]) for a server fault (500, logged).' && false)"
   },
+  "comment:lint:errors": "Guards audit H-3. A bare `throw new Error(...)` is untyped, so index.js treats it as an unexpected server fault: HTTP 500, message replaced by 'Something went wrong on the server', and a row in error_log. That was right for ~30 of the throws and wrong for ~75 of them. The leading `[^/*]*` skips lines that are comments quoting the old code.",
   "devDependencies": {
     "wrangler": "^4.20.0"
   }

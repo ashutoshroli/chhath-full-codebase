@@ -1,5 +1,5 @@
 import { getSheetDataAsJSON, filterByYear } from './crud.js';
-import { requireSuperadmin, requireYearAccess } from './auth.js';
+import { requireSuperadmin, requireYearAccess, ValidationError } from './auth.js';
 
 const RECEIPT_TEMPLATE_SAMPLE = `## नवयुवक छठ पूजा समिति / NAVYUVAK CHHATH PUJA SAMITI
 ### Donation Receipt / दान रसीद
@@ -128,7 +128,7 @@ export async function getTemplate(env, kind, year) {
 
 export async function saveTemplate(env, kind, year, text, pageSize, user) {
   requireSuperadmin(user);
-  if (!year) throw new Error('Year required');
+  if (!year) throw ValidationError('Year required');
   const { table } = ENGINES[kind];
   const now = new Date().toISOString();
   const existing = await env.DB_TEMPLATES.prepare(`SELECT id FROM ${table} WHERE year = ?`).bind(parseInt(year)).first();
@@ -144,12 +144,12 @@ export async function saveTemplate(env, kind, year, text, pageSize, user) {
 
 export async function copyTemplate(env, kind, fromYear, toYear, user) {
   requireSuperadmin(user);
-  if (!toYear) throw new Error('Target year required');
+  if (!toYear) throw ValidationError('Target year required');
   const { table } = ENGINES[kind];
   const conflict = await env.DB_TEMPLATES.prepare(`SELECT id FROM ${table} WHERE year = ?`).bind(parseInt(toYear)).first();
-  if (conflict) throw new Error(`A template already exists for ${toYear}.`);
+  if (conflict) throw ValidationError(`A template already exists for ${toYear}.`);
   const source = await env.DB_TEMPLATES.prepare(`SELECT * FROM ${table} WHERE year = ?`).bind(parseInt(fromYear)).first();
-  if (!source) throw new Error('Source template not found.');
+  if (!source) throw ValidationError('Source template not found.');
   return saveTemplate(env, kind, toYear, source.template_text, source.page_size, user);
 }
 
@@ -157,7 +157,7 @@ export async function deleteTemplate(env, kind, year, user) {
   requireSuperadmin(user);
   const { table } = ENGINES[kind];
   const result = await env.DB_TEMPLATES.prepare(`DELETE FROM ${table} WHERE year = ?`).bind(parseInt(year)).run();
-  if (!result.meta.changes) throw new Error('Template not found.');
+  if (!result.meta.changes) throw ValidationError('Template not found.');
   return { success: true };
 }
 
@@ -185,7 +185,7 @@ const formatAmt = (v) => (parseAmt(v) > 0 ? new Intl.NumberFormat('en-IN', { max
 async function resolveEntry(env, rowIndex, year) {
   const collections = filterByYear(await getSheetDataAsJSON(env, 'COLLECTIONS'), year);
   const entry = collections.find(c => parseInt(c.__rowIndex) === parseInt(rowIndex));
-  if (!entry) throw new Error('Collection entry not found.');
+  if (!entry) throw ValidationError('Collection entry not found.');
   const users = await getSheetDataAsJSON(env, 'USERS');
   // Collections.Name actually stores the contributor's User ID (see Home.jsx's
   // contributor picker), not their display name — so this must match on ID, not

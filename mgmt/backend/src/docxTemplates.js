@@ -1,5 +1,5 @@
 import { getSheetDataAsJSON, getSheetDataByColumn, filterByYear } from './crud.js';
-import { requireSuperadmin, requireYearAccess, requireStaffRole, PermissionError, ValidationError } from './auth.js';
+import { requireSuperadmin, requireYearAccess, requireStaffRole, PermissionError, ValidationError, InternalError } from './auth.js';
 import { getOrCreateFolder, uploadDocxFile, getFileBytesBase64, copyFile, convertDocxBytesToPdf, convertDocxBytesToPdfRaw } from './drive.js';
 import { r2Available, putToR2, keyForYear } from './r2.js';
 import { logErrorAt } from './logger.js';
@@ -161,7 +161,7 @@ export async function uploadDocxTemplate(env, docType, year, base64, fileName, u
   if (!DOC_TYPES.includes(docType)) throw ValidationError('Invalid doc type');
   if (!year) throw ValidationError('Year required');
   base64 = assertValidDocxBase64(base64);
-  if (!env.DRIVE_ROOT_FOLDER_ID) throw new Error('DRIVE_ROOT_FOLDER_ID not configured on server');
+  if (!env.DRIVE_ROOT_FOLDER_ID) throw InternalError('DRIVE_ROOT_FOLDER_ID not configured on server');
 
   const folderId = await getOrCreateFolder(env, env.DRIVE_ROOT_FOLDER_ID, 'DOCX Templates');
   const file = await uploadDocxFile(env, base64, fileName || `${docType}-${year}.docx`, folderId);
@@ -182,7 +182,7 @@ export async function uploadDocxTemplate(env, docType, year, base64, fileName, u
 
 export async function copyDocxTemplate(env, docType, fromYear, toYear, user) {
   requireSuperadmin(user);
-  if (!toYear) throw new Error('Target year required');
+  if (!toYear) throw ValidationError('Target year required');
   const conflict = await env.DB_TEMPLATES.prepare('SELECT id FROM docx_templates WHERE doc_type = ? AND year = ?').bind(docType, parseInt(toYear)).first();
   if (conflict) throw ValidationError(`A template already exists for ${toYear}.`);
   const source = await env.DB_TEMPLATES.prepare('SELECT * FROM docx_templates WHERE doc_type = ? AND year = ?').bind(docType, parseInt(fromYear)).first();
@@ -216,7 +216,7 @@ async function recordGeneratedFile(env, docType, year, recordId, fileName, publi
   try {
     if (!recordId || !fileName || !publicLink) {
       console.error('[recordGeneratedFile] Missing required fields:', { docType, year, recordId, fileName, publicLink });
-      throw new Error('Missing required fields for recording generated file');
+      throw ValidationError('Missing required fields for recording generated file');
     }
 
     // UPSERT instead of a bare INSERT. Backed by the new
@@ -246,7 +246,7 @@ async function recordGeneratedFile(env, docType, year, recordId, fileName, publi
     await logErrorAt(env, 'backend-docxTemplates', 'recordGeneratedFile', err, {
       docType, year, recordId, fileName, publicLink, drivePath,
     });
-    throw new Error(`Failed to record generated file in database: ${err.message}`);
+    throw InternalError(`Failed to record generated file in database: ${err.message}`);
   }
 }
 
@@ -329,7 +329,7 @@ export async function convertDocxToPdf(env, docType, year, recordId, base64, fil
   }
   assertRecordIdMatches(docType, year, recordId);
   base64 = assertValidDocxBase64(base64);
-  if (!env.DRIVE_ROOT_FOLDER_ID) throw new Error('DRIVE_ROOT_FOLDER_ID not configured on server');
+  if (!env.DRIVE_ROOT_FOLDER_ID) throw InternalError('DRIVE_ROOT_FOLDER_ID not configured on server');
 
   const force = !!(opts && opts.force);
 
@@ -504,7 +504,7 @@ export async function searchUsersByVillageAndName(env, village, query, user) {
   // Had no role check at all beyond a valid session, yet it returns names +
   // mobile numbers for a whole village.
   requireStaffRole(user);
-  if (!village) throw new Error('Village required');
+  if (!village) throw ValidationError('Village required');
   const q = (query || '').toString().trim().toLowerCase();
   return (await getSheetDataAsJSON(env, 'USERS'))
     .filter(u => (u.Village || '').toString().trim() === village.toString().trim())
@@ -518,7 +518,7 @@ export async function searchUsersByVillageAndName(env, village, query, user) {
 
 export async function getPersonDownloads(env, userId, user) {
   requireStaffRole(user);
-  if (!userId) throw new Error('User ID required');
+  if (!userId) throw ValidationError('User ID required');
   const id = userId.toString().trim();
 
   // audit H-11 / M-14: this read the WHOLE users table and the WHOLE collections

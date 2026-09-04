@@ -1,5 +1,5 @@
 import { getSheetDataAsJSON } from './crud.js';
-import { requireAdminOrAbove, requireSuperadmin, PermissionError, ValidationError, hashPassword, verifyPassword } from './auth.js';
+import { requireAdminOrAbove, requireSuperadmin, PermissionError, ValidationError, hashPassword, verifyPassword, InternalError } from './auth.js';
 import { base64ToBytes, MAX_GENERIC_UPLOAD_BYTES } from './base64.js';
 
 const ROLE_PERMISSIONS_KEYS = ['Superadmin', 'Admin', 'Subadmin'];
@@ -160,7 +160,7 @@ export async function changePassword(env, currentPassword, newPassword, user) {
 // makePublic:false so those objects stay private to the Drive account.
 export async function uploadFileToDrive(env, base64Data, fileName, mimeType, opts) {
   const makePublic = !opts || opts.makePublic !== false;
-  if (!env.DRIVE_FOLDER_ID) throw new Error('DRIVE_FOLDER_ID not configured on server');
+  if (!env.DRIVE_FOLDER_ID) throw InternalError('DRIVE_FOLDER_ID not configured on server');
   const accessToken = await getDriveAccessToken(env);
   const boundary = 'chhathmgmt' + crypto.randomUUID();
   const metadata = { name: fileName, parents: [env.DRIVE_FOLDER_ID] };
@@ -183,7 +183,7 @@ export async function uploadFileToDrive(env, base64Data, fileName, mimeType, opt
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
     body,
   });
-  if (!uploadRes.ok) throw new Error('Drive upload failed: ' + await uploadRes.text());
+  if (!uploadRes.ok) throw InternalError('Drive upload failed: ' + await uploadRes.text());
   const { id } = await uploadRes.json();
 
   // Only grant public read when explicitly allowed (popup images). Sensitive
@@ -233,7 +233,7 @@ export async function getDriveAccessToken(env) {
     : null;
   if (cached) return cached;
   if (!env.DRIVE_OAUTH_CLIENT_ID || !env.DRIVE_OAUTH_CLIENT_SECRET || !env.DRIVE_OAUTH_REFRESH_TOKEN) {
-    throw new Error('DRIVE_OAUTH_CLIENT_ID / DRIVE_OAUTH_CLIENT_SECRET / DRIVE_OAUTH_REFRESH_TOKEN not configured');
+    throw InternalError('DRIVE_OAUTH_CLIENT_ID / DRIVE_OAUTH_CLIENT_SECRET / DRIVE_OAUTH_REFRESH_TOKEN not configured');
   }
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -245,7 +245,7 @@ export async function getDriveAccessToken(env) {
       grant_type: 'refresh_token',
     }).toString(),
   });
-  if (!res.ok) throw new Error('Drive OAuth token refresh failed: ' + await res.text());
+  if (!res.ok) throw InternalError('Drive OAuth token refresh failed: ' + await res.text());
   const { access_token, expires_in } = await res.json();
   // Best-effort, for the same reason as the read above: failing to CACHE a token
   // must never fail the operation that needs the token.
