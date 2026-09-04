@@ -7,6 +7,7 @@ import { getFestivalDates, saveFestivalDates, getPortalSetting, setPortalSetting
 import * as seo from './seo.js';
 import * as wa from './whatsapp.js';
 import { logError, reportErrorToWhatsApp, getErrorLog } from './errorLog.js';
+import { logActivity, getActivityLog } from './logger.js';
 import * as popups from './popups.js';
 import * as announce from './announcements.js';
 import * as loans from './loans.js';
@@ -43,6 +44,7 @@ const READ_ONLY_ACTIONS = new Set([
   'getCollectionQueueStatus', 'getQueueJobsForSuperadmin',
   'getPopups', 'getPopupWithSlides', 'getActivePopups', 'previewPublicPopups',
   'logError', 'reportErrorToWhatsApp', 'getErrorLog',
+  'getActivityLog', 'getLoginAttempts', 'getLockedAccounts', 'getMySessions', 'getUserSessions',
   'getLoanTemplates',
   'getPendingMessages', 'getStuckMessages',
   'whatsappDiagnostic',
@@ -247,6 +249,24 @@ function httpStatusForError(err) {
 // spoofable. We keep the client's self-reported IP only as a labelled hint
 // (`clientIpReported`) and record the server-observed Cloudflare edge IP
 // (`clientIp`, from CF-Connecting-IP) as the authoritative value.
+// Compact, human-readable summary of a CRUD action for the activity log — a few
+// meaningful fields (Year/Name/Amount/etc.) rather than the whole payload.
+function summarizePayload(sheet, payload, extra) {
+  try {
+    const p = payload || {};
+    const pick = ['Year', 'Name', 'Amount', 'Sl. No.', 'Category', 'Discription', 'Loan ID', 'Payment Mode'];
+    const parts = [];
+    for (const k of pick) {
+      if (p[k] !== undefined && p[k] !== null && p[k].toString().trim() !== '') {
+        parts.push(`${k}=${p[k].toString().slice(0, 40)}`);
+      }
+    }
+    if (extra && extra.id) parts.push(`id=${extra.id}`);
+    if (extra && extra.rowIndex != null) parts.push(`row#${extra.rowIndex}`);
+    return `${sheet || ''}: ${parts.join(', ')}`.slice(0, 900);
+  } catch (e) { return (sheet || '').toString(); }
+}
+
 function buildLogContext(req) {
   const extra = {
     deviceId: req.deviceId || '',
@@ -377,6 +397,7 @@ export default {
       revokeUserSession: () => withAuth(env, req, (user) => revokeUserSession(env, req.targetName, req.sessionId, user)),
       // ---- Superadmin: login/activity audit + locked accounts + unlock ----
       getLoginAttempts: () => withAuth(env, req, (user) => getLoginAttempts(env, { name: req.name2, failedOnly: req.failedOnly, successOnly: req.successOnly, limit: req.limit }, user)),
+      getActivityLog: () => withAuth(env, req, (user) => { requireSuperadmin(user); return getActivityLog(env, { name: req.name2, limit: req.limit }); }),
       getLockedAccounts: () => withAuth(env, req, (user) => getLockedAccounts(env, user)),
       revokeLock: () => withAuth(env, req, (user) => revokeLock(env, req.lockKey, req.targetName, req.ip, user)),
       revokeAllLocks: () => withAuth(env, req, (user) => revokeAllLocks(env, user)),
@@ -402,10 +423,27 @@ export default {
       updateLoginUser: () => withAuth(env, req, (user) => updateLoginUser(env, req.rowIndex, req.password, req.role, req.mobile, req.email, user)),
       deleteLoginUser: () => withAuth(env, req, (user) => deleteLoginUser(env, req.rowIndex, user)),
 
-      saveRecord: () => withAuth(env, req, (user) => saveRecord(env, req.sheet, req.payload, user)),
+      // saveRecord/updateRecord/deleteRecord now also write an activity_log row
+      // (best-effort, non-blocking) so the Superadmin audit page shows WHO did
+      // WHAT and WHEN. `details` is a compact summary: sheet + a few key fields
+      // (never the whole payload, to keep the log readable and avoid storing
+      // more than needed). logActivity never throws, so it can't affect the save.
+      saveRecord: () => withAuth(env, req, async (user) => {
+        const res = await saveRecord(env, req.sheet, req.payload, user);
+        ctx.waitUntil(logActivity(env, { name: user.name, action: 'add ' + (req.sheet || ''), details: summarizePayload(req.sheet, req.payload, res), deviceInfo: req.deviceInfo, ip: req.serverIp, deviceId: req.deviceId }));
+        return res;
+      }),
       queueCollectionMessages: () => withAuth(env, req, (user) => wa.queueCollectionMessages(env, req.payload, req.rowIndex, req.fileLink, user)),
-      updateRecord: () => withAuth(env, req, (user) => updateRecordByIdx(env, req.sheet, req.rowIndex, req.payload, user)),
-      deleteRecord: () => withAuth(env, req, (user) => deleteRecordByIdx(env, req.sheet, req.rowIndex, user)),
+      updateRecord: () => withAuth(env, req, async (user) => {
+        const res = await updateRecordByIdx(env, req.sheet, req.rowIndex, req.payload, user);
+        ctx.waitUntil(logActivity(env, { name: user.name, action: 'edit ' + (req.sheet || ''), details: summarizePayload(req.sheet, req.payload, { rowIndex: req.rowIndex }), deviceInfo: req.deviceInfo, ip: req.serverIp, deviceId: req.deviceId }));
+        return res;
+      }),
+      deleteRecord: () => withAuth(env, req, async (user) => {
+        const res = await deleteRecordByIdx(env, req.sheet, req.rowIndex, user);
+        ctx.waitUntil(logActivity(env, { name: user.name, action: 'delete ' + (req.sheet || ''), details: `row #${req.rowIndex}`, deviceInfo: req.deviceInfo, ip: req.serverIp, deviceId: req.deviceId }));
+        return res;
+      }),
 
       // ---- Loans (full consent/OTP/guarantor flow ported — see loans.js) ----
       saveLoan: () => withAuth(env, req, (user) => loans.saveLoanTransaction(env, req.loan, req.guarantors, user)),

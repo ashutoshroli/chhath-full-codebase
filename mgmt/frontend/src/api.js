@@ -241,8 +241,9 @@ export const api = {
   // Superadmin: view / force-logout any user's sessions
   getUserSessions: (targetName) => call('getUserSessions', { targetName }),
   revokeUserSession: (targetName, sessionId) => call('revokeUserSession', { targetName, sessionId }),
-  // Superadmin: login audit + locked accounts + unlock
+  // Superadmin: login audit + activity trail + locked accounts + unlock
   getLoginAttempts: (opts) => call('getLoginAttempts', opts || {}),
+  getActivityLog: (opts) => call('getActivityLog', opts || {}),
   getLockedAccounts: () => call('getLockedAccounts'),
   revokeLock: (lockKey, targetName, ip) => call('revokeLock', { lockKey, targetName, ip }),
   revokeAllLocks: () => call('revokeAllLocks'),

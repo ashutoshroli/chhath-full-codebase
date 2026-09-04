@@ -28,6 +28,11 @@ window.addEventListener('error', (e) => {
   // A stale bundle after a deploy is not a defect — self-heal instead of logging.
   if (reloadOnceForChunkError(e.error || e.message)) return;
   if (isIgnorableClientError(e.message)) return;
+  // Vercel Web Analytics (/_vercel/insights/script.js) 404s to an HTML page
+  // until Analytics is enabled in the Vercel dashboard, which surfaces as
+  // "Unexpected token '<'". It's a third-party, non-app script and must not
+  // spam our error log — skip any error originating from that path.
+  if ((e.filename || '').includes('/_vercel/insights/')) return;
   // A cross-origin bundle reports every error as a bare "Script error." with no
   // stack (the migrated data has five such useless rows). index.html now sets
   // crossorigin on the module script so real messages come through; if we still

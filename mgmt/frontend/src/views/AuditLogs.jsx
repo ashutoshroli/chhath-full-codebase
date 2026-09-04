@@ -39,7 +39,7 @@ export default function AuditLogs() {
       </p>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-        {[['logins', 'Login Attempts'], ['locked', 'Locked Accounts'], ['sessions', 'User Sessions']].map(([id, label]) => (
+        {[['logins', 'Login Attempts'], ['activity', 'Activity Trail'], ['locked', 'Locked Accounts'], ['sessions', 'User Sessions']].map(([id, label]) => (
           <button key={id} type="button" onClick={() => setTab(id)}
             className={tab === id ? 'btn-submit' : 'btn-outline'}
             style={{ width: 'auto', padding: '8px 14px', fontSize: '0.85rem' }}>
@@ -49,8 +49,54 @@ export default function AuditLogs() {
       </div>
 
       {tab === 'logins' && <LoginAttempts />}
+      {tab === 'activity' && <ActivityTrail />}
       {tab === 'locked' && <LockedAccounts />}
       {tab === 'sessions' && <UserSessions />}
+    </div>
+  );
+}
+
+// ---- Activity trail: what users added / edited / deleted ----
+function ActivityTrail() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [name, setName] = useState('');
+
+  const load = () => {
+    setLoading(true);
+    setError('');
+    api.getActivityLog({ name2: name.trim() || undefined, limit: 300 })
+      .then(d => setRows(d.activity || []))
+      .catch(err => { setError(err.message); reportClientError('AuditLogs', 'getActivityLog failed', err); })
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="Filter by user id (optional)"
+          onKeyDown={e => e.key === 'Enter' && load()}
+          style={{ padding: 8, borderRadius: 6, border: '1px solid #ddd', fontSize: '0.85rem', flex: '1 1 200px' }} />
+        <button type="button" className="btn-outline" style={{ padding: '8px 12px', fontSize: '0.85rem' }} onClick={load}>Search</button>
+      </div>
+      {error && <div className="error-banner" style={{ marginBottom: 10 }}>{error}</div>}
+      {loading && <div className="inline-spinner">Loading...</div>}
+      {!loading && rows.length === 0 && !error && (
+        <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No activity recorded yet.</div>
+      )}
+      {!loading && rows.map(r => (
+        <div key={r.id} style={{ border: '1px solid var(--border, #e2e2e2)', borderRadius: 8, padding: '8px 12px', marginBottom: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>{r.name}</span>
+            <span style={{ fontSize: '0.8rem', color: 'var(--primary-saffron)' }}>{r.action}</span>
+          </div>
+          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', overflowWrap: 'anywhere' }}>
+            {r.details || ''}{r.details ? ' · ' : ''}IP {r.ip_client_reported || '—'} · {timeAgo(r.timestamp)}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
