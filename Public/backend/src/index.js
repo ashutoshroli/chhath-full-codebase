@@ -194,9 +194,16 @@ async function maybeSaveSnapshot(env, ctx, version, dataObj) {
     if (!env || !env.KV_SESSIONS) return;
     const lastVer = await env.KV_SESSIONS.get(SNAPSHOT_META_KEY);
     if (lastVer === String(version)) return; // snapshot already current for this version — no write
+    // TTL was 24h: if the data didn't change for a day (a quiet, non-festival
+    // period) the last-known-good snapshot EXPIRED, so a later D1 outage would
+    // hit a 503/500 instead of serving stale-but-real data — exactly when the
+    // fallback is needed. 30 days keeps the safety net alive through any quiet
+    // stretch; it's rewritten (and its TTL refreshed) whenever data changes, and
+    // it's only ONE write per real data change, so KV write budget is unaffected.
+    const SNAPSHOT_TTL = 2592000; // 30 days
     const writes = Promise.all([
-      env.KV_SESSIONS.put(SNAPSHOT_KEY, JSON.stringify(dataObj), { expirationTtl: 86400 }),
-      env.KV_SESSIONS.put(SNAPSHOT_META_KEY, String(version), { expirationTtl: 86400 }),
+      env.KV_SESSIONS.put(SNAPSHOT_KEY, JSON.stringify(dataObj), { expirationTtl: SNAPSHOT_TTL }),
+      env.KV_SESSIONS.put(SNAPSHOT_META_KEY, String(version), { expirationTtl: SNAPSHOT_TTL }),
     ]);
     if (ctx && ctx.waitUntil) ctx.waitUntil(writes); else await writes;
   } catch (e) { /* best effort — snapshotting must never affect the response */ }
