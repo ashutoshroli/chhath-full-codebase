@@ -465,7 +465,23 @@ export default {
 
       // ---- Loans (full consent/OTP/guarantor flow ported — see loans.js) ----
       saveLoan: () => withAuth(env, req, (user) => loans.saveLoanTransaction(env, req.loan, req.guarantors, user)),
-      deleteLoan: () => withAuth(env, req, (user) => loans.deleteLoanTransaction(env, req.rowIndex, req.year, req.loanerId, user, req.loanId)),
+      // audit H-8: deleting a loan was the only destructive action in the portal
+      // that wrote NOTHING to the activity log — every saveRecord/updateRecord/
+      // deleteRecord above logs, this did not. It is also the most consequential
+      // one: it removes the loan, its three guarantor rows and (now) every
+      // consent record, signatures and photos included. Record who did it and
+      // exactly how much went with it.
+      deleteLoan: () => withAuth(env, req, async (user) => {
+        const res = await loans.deleteLoanTransaction(env, req.rowIndex, req.year, req.loanerId, user, req.loanId);
+        ctx.waitUntil(logActivity(env, {
+          name: user.name,
+          action: 'delete LOANS',
+          details: `row #${req.rowIndex}, Loan ID=${res.loanId || '(none)'}, `
+            + `guarantors removed=${res.removedGuarantors}, consents revoked=${res.removedConsents}`,
+          deviceInfo: req.deviceInfo, ip: req.serverIp, deviceId: req.deviceId,
+        }));
+        return res;
+      }),
 
       // SECURITY: this handler had NO role check — any authenticated user
       // (including a Subadmin) could push arbitrary bytes to the committee's
