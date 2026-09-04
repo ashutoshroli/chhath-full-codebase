@@ -96,3 +96,54 @@ function safeJson(obj) {
     return '[unserializable context]';
   }
 }
+
+
+// ============ ACTIVITY LOG ============
+//
+// Records WHAT a logged-in user did (add / edit / delete a record), so the
+// Superadmin audit page can show a real activity trail. The activity_log table
+// existed (migrated from the old Google Sheet) but NOTHING was writing to it —
+// so no action taken in the Worker era was ever recorded. This closes that gap.
+//
+// Real schema (mgmt/db/schema/logs.sql):
+//   id, timestamp, name, action, details, device_info, ip_client_reported, device_id
+//
+// Best-effort and NEVER throws: an activity-log failure must never break or
+// roll back the action the user just performed successfully.
+const ACTIVITY_INSERT_SQL =
+  'INSERT INTO activity_log (timestamp, name, action, details, device_info, ip_client_reported, device_id) VALUES (?, ?, ?, ?, ?, ?, ?)';
+
+export async function logActivity(env, { name, action, details, deviceInfo, ip, deviceId }) {
+  try {
+    if (!env || !env.DB_LOGS) return { success: false };
+    await env.DB_LOGS.prepare(ACTIVITY_INSERT_SQL).bind(
+      new Date().toISOString(),
+      clamp(name || 'unknown', 100),
+      clamp(action, 100),
+      clamp(details, 1000),
+      clamp(deviceInfo, 300),
+      clamp(ip, 60),
+      clamp(deviceId, 80)
+    ).run();
+    return { success: true };
+  } catch (e) {
+    console.error('[logActivity] failed:', e && e.message);
+    return { success: false };
+  }
+}
+
+// Superadmin: recent activity for the audit page. Optional name filter + capped limit.
+export async function getActivityLog(env, opts) {
+  if (!env || !env.DB_LOGS) return { activity: [] };
+  const o = opts || {};
+  const limit = Math.min(Math.max(parseInt(o.limit) || 200, 1), 1000);
+  const where = [];
+  const args = [];
+  if (o.name) { where.push('name = ?'); args.push(o.name.toString().trim()); }
+  const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const { results } = await env.DB_LOGS.prepare(
+    `SELECT id, timestamp, name, action, details, device_info, ip_client_reported
+       FROM activity_log ${clause} ORDER BY id DESC LIMIT ?`
+  ).bind(...args, limit).all();
+  return { activity: results || [] };
+}
