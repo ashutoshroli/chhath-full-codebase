@@ -558,7 +558,37 @@ export default {
       getDocxTemplatePublic: () => docx.getDocxTemplatePublic(env, req.docType, req.year, req.token),
       // `mode` replaces the old `isAutoGenerate` boolean — see docxTemplates.js.
       // An unrecognised mode falls back to the most restrictive (Superadmin).
-      convertDocxToPdf: () => withAuth(env, req, (user) => docx.convertDocxToPdf(env, req.docType, req.year, req.recordId, req.base64, req.fileName, user, req.mode, { force: !!req.force })),
+      // SECURITY (audit C-2): `mode` used to come straight from the request body,
+      // and inside convertDocxToPdf it is the ONLY thing that selects the
+      // authorization branch ('bulk' -> requireSuperadmin, anything else ->
+      // requireStaffRole). A Subadmin could therefore send mode:'auto' together
+      // with force:true and a recordId belonging to somebody else's consent, and
+      // overwrite the indexed PDF that the public portal serves as a "Verified
+      // Record".
+      //
+      // The privilege level is now bound to the ENDPOINT, not to a payload field,
+      // so the client can no longer choose which check it faces:
+      //   convertDocxToPdf      -> staff; one record from the caller's own screen
+      //                            (Receipt modal, Home's auto-PDF fallback).
+      //                            Never a consent document, never force.
+      //   convertDocxToPdfBulk  -> Superadmin; mass generation / regeneration
+      //                            (Generate PDFs, Download Center, PDF Export).
+      // Both server-internal callers keep their own modes: the collection queue
+      // passes 'auto' and the token-gated public consent path passes 'public'.
+      convertDocxToPdf: () => withAuth(env, req, (user) => {
+        requireStaffRole(user);
+        return docx.convertDocxToPdf(
+          env, req.docType, req.year, req.recordId, req.base64, req.fileName,
+          user, 'single', { force: false }
+        );
+      }),
+      convertDocxToPdfBulk: () => withAuth(env, req, (user) => {
+        requireSuperadmin(user);
+        return docx.convertDocxToPdf(
+          env, req.docType, req.year, req.recordId, req.base64, req.fileName,
+          user, 'bulk', { force: !!req.force }
+        );
+      }),
       // PUBLIC (Consent page). Was unauthenticated AND trusted the client's
       // docType/year/recordId, so anyone could write arbitrary rows into
       // generated_files that the public portal renders as "Verified Record".

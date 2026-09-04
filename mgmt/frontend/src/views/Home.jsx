@@ -178,7 +178,7 @@ export default function Home({ year, users, onUserCreated, role, editable }) {
         if (docType && savedRowIndex && filled.filledBase64) {
           try {
             const res = await api.convertDocxToPdf(docType, genYear,
-              `${docType}-${genYear}-${savedRowIndex}`, filled.filledBase64, filled.fileName, 'auto');
+              `${docType}-${genYear}-${savedRowIndex}`, filled.filledBase64, filled.fileName);
             fileLink = (res && res.publicLink) || '';
           } catch (e2) { warnings.push('PDF generation failed: ' + e2.message); }
         }

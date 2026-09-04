@@ -380,7 +380,16 @@ export const api = {
   //   'single' — one row's own document from the Receipt modal     (staff)
   //   'bulk'   — Bulk Generate PDFs / Download Center / Reports    (Superadmin)
   // Omitting it falls back to 'bulk' (most restrictive) on the server.
-  convertDocxToPdf: (docType, year, recordId, base64, fileName, mode, force) => call('convertDocxToPdf', { docType, year, recordId, base64, fileName, mode, force }),
+  // SECURITY (audit C-2): the privilege level is now decided by WHICH endpoint is
+  // called, not by a `mode` field in the body — a client-chosen `mode` was the only
+  // thing selecting between requireStaffRole and requireSuperadmin on the server.
+  //   convertDocxToPdf     — staff; ONE record from the caller's own screen
+  //                          (Receipt modal, Home's auto-PDF fallback). Never a
+  //                          consent document, and `force` is never honoured.
+  //   convertDocxToPdfBulk — Superadmin; mass generation / regeneration
+  //                          (Generate PDFs, Download Center, PDF Export).
+  convertDocxToPdf: (docType, year, recordId, base64, fileName) => call('convertDocxToPdf', { docType, year, recordId, base64, fileName }),
+  convertDocxToPdfBulk: (docType, year, recordId, base64, fileName, force) => call('convertDocxToPdfBulk', { docType, year, recordId, base64, fileName, force }),
   // Everything except the bytes is derived server-side from the verified consent
   // token, so docType/year/recordId are no longer client-controlled.
   convertDocxToPdfPublic: (base64, token) => call('convertDocxToPdfPublic', { base64, token }, false),

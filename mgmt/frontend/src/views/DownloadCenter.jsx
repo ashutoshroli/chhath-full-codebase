@@ -49,7 +49,7 @@ function DownloadItem({ item, onGenerated, canGenerate }) {
       }
 
       const fileName = `${item.fileNameHint}.docx`;
-      const res = await api.convertDocxToPdf(item.docType, item.year, item.recordId, filledBase64, fileName, 'bulk');
+      const res = await api.convertDocxToPdfBulk(item.docType, item.year, item.recordId, filledBase64, fileName);
 
       // indexFailed was returned by the backend and ignored here, so the file
       // looked generated while the public portal would show "Not Available".

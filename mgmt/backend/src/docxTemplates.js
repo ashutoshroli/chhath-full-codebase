@@ -240,6 +240,31 @@ export async function getGeneratedFilesForYear(env, year, user, docType) {
 //       'public' Consent page                      -> consent TOKEN verified by the caller
 const CONVERT_MODES = ['auto', 'single', 'bulk', 'public'];
 
+// A consent PDF is a legal document (it carries the acceptance status, the
+// verification state, the geolocation and the signature of a named person), and
+// the public portal renders whatever `generated_files` points at as a "✅ Verified
+// Record". So it may only ever be produced by:
+//   'public' — the token-gated consent page, where docType/year/recordId are all
+//              DERIVED from the verified consent row (convertDocxToPdfPublic), or
+//   'bulk'   — a deliberate Superadmin run.
+// It must never be reachable from an ordinary staff-level, client-chosen call.
+const CONSENT_DOC_TYPES = new Set(['consent_loaner', 'consent_guarantor']);
+
+// `recordId` is the primary key of the public file index, and callers pass it
+// explicitly. It MUST describe the document actually being written, otherwise a
+// caller allowed to generate (say) their own receipt could point the write at
+// someone else's consent row. The scheme is `<docType>-<year>-<ref>` everywhere
+// (see getRecordsForDocType / getPersonDownloads / resolveConsentContext).
+function assertRecordIdMatches(docType, year, recordId) {
+  if (!recordId) return;
+  const expectedPrefix = `${docType}-${parseInt(year)}-`;
+  if (!recordId.toString().startsWith(expectedPrefix)) {
+    throw ValidationError(
+      `This document could not be filed (its reference "${recordId}" does not match ${docType} ${year}). Please reload the page and try again.`
+    );
+  }
+}
+
 export async function convertDocxToPdf(env, docType, year, recordId, base64, fileName, user, mode, opts) {
   const m = CONVERT_MODES.includes(mode) ? mode : 'bulk'; // unknown -> most restrictive
   if (m === 'public') {
@@ -251,6 +276,14 @@ export async function convertDocxToPdf(env, docType, year, recordId, base64, fil
   }
 
   if (!DOC_TYPES.includes(docType)) throw ValidationError('Invalid doc type');
+
+  // SECURITY (audit C-2), defence in depth behind the per-endpoint gate in
+  // index.js: even if a future caller passes a staff-level mode, it cannot be used
+  // to write a consent document or to file a document under a foreign record id.
+  if (CONSENT_DOC_TYPES.has(docType) && m !== 'public' && m !== 'bulk') {
+    throw PermissionError('Consent documents cannot be generated from this screen.');
+  }
+  assertRecordIdMatches(docType, year, recordId);
   base64 = assertValidDocxBase64(base64);
   if (!env.DRIVE_ROOT_FOLDER_ID) throw new Error('DRIVE_ROOT_FOLDER_ID not configured on server');
 

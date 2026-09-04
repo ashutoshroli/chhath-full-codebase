@@ -185,7 +185,7 @@ export default function PdfExport() {
       // One stable row per (docType, year), regenerated on purpose via force.
       const recordId = `${docType}-${year}`;
       const fileName = `Chhath-Puja-Report-${year}${mode !== 'en' ? '-' + mode : ''}.docx`;
-      const res = await api.convertDocxToPdf(docType, year, recordId, filledBase64, fileName, 'bulk', true);
+      const res = await api.convertDocxToPdfBulk(docType, year, recordId, filledBase64, fileName, true);
 
       if (res && res.indexFailed) {
         setWarning(res.error || 'The report PDF was generated but not indexed.');
