@@ -1,4 +1,4 @@
-import { login, doLogout, withAuth, withApiKey, verifyToken, requireSuperadmin, requireAdminOrAbove, requireStaffRole, getLockedYearsSet, lockYear, unlockYear } from './auth.js';
+import { login, doLogout, withAuth, withApiKey, verifyToken, requireSuperadmin, requireAdminOrAbove, requireStaffRole, getLockedYearsSet, lockYear, unlockYear, getMySessions, revokeSession, revokeAllOtherSessions, getUserSessions, revokeUserSession } from './auth.js';
 import { getSheetDataAsJSON, saveRecord, updateRecordByIdx, deleteRecordByIdx } from './crud.js';
 import { getYears, addYear, getHomeData, getLoansData, getExpensesData, getCommitteeData, getUserHistory, getYearContributors, getUserProfile } from './views.js';
 import { getLoginUsers, addLoginUser, updateLoginUser, deleteLoginUser, updateOwnProfile, changePassword, uploadFileToDrive } from './account.js';
@@ -353,7 +353,7 @@ export default {
         // Pass the server-observed edge IP so the lockout is keyed on
         // identifier + IP (audit 1.1) — an attacker can no longer lock out a
         // real user by guessing against their username.
-        const res = await login(env, req.name, req.password, req.rememberMe, req.serverIp);
+        const res = await login(env, req.name, req.password, req.rememberMe, req.serverIp, req.deviceInfo);
         // Only the LOCKOUT is logged, not every wrong password. Logging each
         // failed attempt flooded the log while telling nobody anything; the
         // lockout is the actual security signal worth a Superadmin's attention.
@@ -367,6 +367,14 @@ export default {
         return res;
       },
       logout: () => withAuth(env, req, (user) => doLogout(env, req.token)),
+
+      // ---- Active sessions / devices (every role: own devices) ----
+      getMySessions: () => withAuth(env, req, (user) => getMySessions(env, user, user.th)),
+      revokeSession: () => withAuth(env, req, (user) => revokeSession(env, user, req.sessionId, user.th)),
+      revokeAllOtherSessions: () => withAuth(env, req, (user) => revokeAllOtherSessions(env, user, user.th)),
+      // ---- Superadmin: view / force-logout ANY user's sessions ----
+      getUserSessions: () => withAuth(env, req, (user) => getUserSessions(env, req.targetName, user)),
+      revokeUserSession: () => withAuth(env, req, (user) => revokeUserSession(env, req.targetName, req.sessionId, user)),
       getYears: () => withAuth(env, req, () => getYears(env)),
       getUsers: () => withAuth(env, req, () => getSheetDataAsJSON(env, 'USERS')),
       getCommittee: () => withAuth(env, req, () => getCommitteeData(env, req.year)),

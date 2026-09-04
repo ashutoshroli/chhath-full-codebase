@@ -106,6 +106,18 @@ async function legacySha256(pw, salt) {
   return toHex(digest);
 }
 
+// SHA-256 hex of an arbitrary string. Used to store only the HASH of a session
+// token in the audit DB (user_sessions.token_hash) — so that DB never holds a
+// value that could be replayed to hijack a live session.
+async function sha256Hex(str) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return toHex(digest);
+}
+
+// last_seen is refreshed at most once per this window, to avoid a D1 write on
+// every single authenticated request.
+const SESSION_LASTSEEN_THROTTLE_MS = 5 * 60 * 1000; // 5 min
+
 async function pbkdf2Hash(pw, saltBytes, iterations) {
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey('raw', enc.encode(pw), 'PBKDF2', false, ['deriveBits']);
@@ -165,7 +177,7 @@ async function findLoginRowByIdentifier(env, identifier) {
   return row || null;
 }
 
-export async function login(env, name, password, rememberMe, clientIp) {
+export async function login(env, name, password, rememberMe, clientIp, deviceInfo) {
   if (!name || !password) return { success: false, message: 'Name and password required' };
   name = name.toString().trim();
 
@@ -215,18 +227,43 @@ export async function login(env, name, password, rememberMe, clientIp) {
   const token = crypto.randomUUID();
   const ttl = rememberMe ? SESSION_LONG_MS : SESSION_SHORT_MS;
   const expiresAt = Date.now() + ttl;
+  const tokenHash = await sha256Hex(token);
 
+  // The KV session also carries its own token hash so verifyToken can look the
+  // session up in the audit DB (for remote-logout revocation + last-seen)
+  // without ever needing the raw token again.
   await env.KV_SESSIONS.put(
     'session:' + token,
-    JSON.stringify({ name: actualName, role: user.role, expiresAt }),
+    JSON.stringify({ name: actualName, role: user.role, expiresAt, th: tokenHash }),
     { expirationTtl: Math.floor(ttl / 1000) }
   );
+
+  // Record the session in the audit DB (device/IP/times) so the user — and a
+  // Superadmin — can see active devices and remotely log any of them out.
+  // Best-effort: a failure here must NEVER block a valid login.
+  try {
+    if (env.DB_AUDIT) {
+      const now = new Date().toISOString();
+      await env.DB_AUDIT.prepare(
+        `INSERT INTO user_sessions (token_hash, name, role, ip, device_info, created_at, last_seen_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(tokenHash, actualName, user.role, ip || '', (deviceInfo || '').toString().slice(0, 400), now, now, expiresAt).run();
+    }
+  } catch (e) { /* non-fatal: login still succeeds even if audit write fails */ }
 
   return { success: true, token, name: actualName, role: user.role, expiresAt };
 }
 
 export async function doLogout(env, token) {
   await env.KV_SESSIONS.delete('session:' + token);
+  // Mark the audit row revoked (kept for history) — best-effort.
+  try {
+    if (env.DB_AUDIT && token) {
+      const th = await sha256Hex(token);
+      await env.DB_AUDIT.prepare('UPDATE user_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL')
+        .bind(new Date().toISOString(), th).run();
+    }
+  } catch (e) { /* non-fatal */ }
   return { success: true };
 }
 
@@ -260,7 +297,110 @@ export async function verifyToken(env, token) {
     // Fall through with the cached session (fail-safe, availability over the
     // rare stale-role window during a DB outage).
   }
+
+  // REMOTE LOGOUT: a user (or a Superadmin) can revoke a session from another
+  // device. Since we only store the token HASH, we can't delete that other
+  // device's KV entry directly — instead the revoke sets user_sessions.revoked_at
+  // and this check rejects the session on its next request (its KV entry then
+  // expires naturally). Also refresh last_seen, throttled. Best-effort / fail
+  // safe: an audit-DB error never logs a valid user out.
+  try {
+    if (env.DB_AUDIT) {
+      const th = s.th || (await sha256Hex(token));
+      const row = await env.DB_AUDIT
+        .prepare('SELECT revoked_at, last_seen_at FROM user_sessions WHERE token_hash = ? LIMIT 1')
+        .bind(th).first();
+      if (row && row.revoked_at) return null; // remotely logged out
+      // Throttled last-seen update (only if we have a row and it's stale).
+      if (row) {
+        const last = row.last_seen_at ? Date.parse(row.last_seen_at) : 0;
+        if (!last || (Date.now() - last) > SESSION_LASTSEEN_THROTTLE_MS) {
+          await env.DB_AUDIT.prepare('UPDATE user_sessions SET last_seen_at = ? WHERE token_hash = ?')
+            .bind(new Date().toISOString(), th).run();
+        }
+      }
+    }
+  } catch (e) { /* audit read/write is best-effort; never block a valid session */ }
+
   return s;
+}
+
+// ---- Active sessions / devices (audit DB) ----
+
+// Maps a DB row to the shape the UI shows. `isCurrent` marks the caller's own
+// session so the UI can label it and disable "log out this device" for it.
+function sessionOut(row, currentHash) {
+  return {
+    id: row.id,
+    name: row.name,
+    role: row.role,
+    ip: row.ip || '',
+    device: row.device_info || '',
+    createdAt: row.created_at,
+    lastSeenAt: row.last_seen_at || row.created_at,
+    isCurrent: currentHash != null && row.token_hash === currentHash,
+  };
+}
+
+// The caller's own active (non-revoked, non-expired) sessions.
+export async function getMySessions(env, user, currentHash) {
+  if (!env.DB_AUDIT) return { sessions: [] };
+  const now = Date.now();
+  const { results } = await env.DB_AUDIT.prepare(
+    `SELECT * FROM user_sessions WHERE name = ? AND revoked_at IS NULL AND expires_at > ?
+      ORDER BY last_seen_at DESC`
+  ).bind(user.name, now).all();
+  return { sessions: (results || []).map(r => sessionOut(r, currentHash)) };
+}
+
+// Revoke ONE of the caller's own sessions by row id (can't revoke someone
+// else's — the WHERE name = ? binds it to the caller).
+export async function revokeSession(env, user, sessionId, currentHash) {
+  if (!env.DB_AUDIT) throw ValidationError('Audit store not configured.');
+  const row = await env.DB_AUDIT.prepare('SELECT token_hash FROM user_sessions WHERE id = ? AND name = ? LIMIT 1')
+    .bind(sessionId, user.name).first();
+  if (!row) throw ValidationError('Session not found.');
+  await env.DB_AUDIT.prepare('UPDATE user_sessions SET revoked_at = ? WHERE id = ? AND name = ?')
+    .bind(new Date().toISOString(), sessionId, user.name).run();
+  return { success: true, wasCurrent: currentHash != null && row.token_hash === currentHash };
+}
+
+// Revoke every OTHER session of the caller (keep the current device signed in).
+export async function revokeAllOtherSessions(env, user, currentHash) {
+  if (!env.DB_AUDIT) throw ValidationError('Audit store not configured.');
+  await env.DB_AUDIT.prepare(
+    'UPDATE user_sessions SET revoked_at = ? WHERE name = ? AND revoked_at IS NULL AND token_hash != ?'
+  ).bind(new Date().toISOString(), user.name, currentHash || '').run();
+  return { success: true };
+}
+
+// ---- Superadmin: view / force-logout ANY user's sessions ----
+
+export async function getUserSessions(env, targetName, user) {
+  requireSuperadmin(user);
+  if (!env.DB_AUDIT) return { sessions: [] };
+  const now = Date.now();
+  const { results } = await env.DB_AUDIT.prepare(
+    `SELECT * FROM user_sessions WHERE name = ? AND revoked_at IS NULL AND expires_at > ?
+      ORDER BY last_seen_at DESC`
+  ).bind((targetName || '').toString().trim(), now).all();
+  return { sessions: (results || []).map(r => sessionOut(r, null)) };
+}
+
+// Force-logout: revoke one session (by id) OR every active session of a user.
+export async function revokeUserSession(env, targetName, sessionId, user) {
+  requireSuperadmin(user);
+  if (!env.DB_AUDIT) throw ValidationError('Audit store not configured.');
+  const name = (targetName || '').toString().trim();
+  const now = new Date().toISOString();
+  if (sessionId) {
+    await env.DB_AUDIT.prepare('UPDATE user_sessions SET revoked_at = ? WHERE id = ? AND name = ?')
+      .bind(now, sessionId, name).run();
+  } else {
+    await env.DB_AUDIT.prepare('UPDATE user_sessions SET revoked_at = ? WHERE name = ? AND revoked_at IS NULL')
+      .bind(now, name).run();
+  }
+  return { success: true };
 }
 
 export async function withAuth(env, req, fn) {
