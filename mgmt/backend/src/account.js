@@ -1,6 +1,6 @@
 import { getSheetDataAsJSON } from './crud.js';
 import { requireAdminOrAbove, requireSuperadmin, PermissionError, ValidationError, hashPassword, verifyPassword } from './auth.js';
-import { base64ToBytes } from './base64.js';
+import { base64ToBytes, MAX_GENERIC_UPLOAD_BYTES } from './base64.js';
 
 const ROLE_PERMISSIONS_KEYS = ['Superadmin', 'Admin', 'Subadmin'];
 
@@ -168,7 +168,8 @@ export async function uploadFileToDrive(env, base64Data, fileName, mimeType, opt
   // callback is 15-23x slower than an indexed loop (552ms vs 24ms CPU for an 8 MB photo).
   // This helper also strips the data-URL prefix/whitespace; otherwise atob throws a
   // raw TypeError (4 rows in the log).
-  const bytes = base64ToBytes(base64Data, { label: fileName || 'File' });
+  // audit H-6: the generic upload path had no size limit at all.
+  const bytes = base64ToBytes(base64Data, { label: fileName || 'File', maxBytes: MAX_GENERIC_UPLOAD_BYTES });
 
   const body = new Blob([
     `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`,

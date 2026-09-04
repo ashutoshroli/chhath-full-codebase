@@ -14,11 +14,12 @@
 
 import { requireSuperadmin, ValidationError } from './auth.js';
 import { getPortalSetting, setPortalSetting } from './settings.js';
-import { base64ToBytes, sniffImageMime } from './base64.js';
+import { base64ToBytes, sniffImageMime, MAX_IMAGE_UPLOAD_BYTES } from './base64.js';
 import { r2Available, putToR2, keyForSeo } from './r2.js';
 import { uploadFileToDrive } from './account.js';
 
-const MAX_SEO_IMAGE_BYTES = 8 * 1024 * 1024;
+// audit H-6: sourced from base64.js so every upload limit lives in one place.
+const MAX_SEO_IMAGE_BYTES = MAX_IMAGE_UPLOAD_BYTES;
 
 // portal_settings keys owned by this module. Grouped by portal.
 const SEO_KEYS = {
