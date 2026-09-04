@@ -7,13 +7,22 @@
 // Frontend change needed: Public/frontend just points its fetch at this
 // Worker's URL with ?action=portalData, same as before.
 
-async function tableRows(db, table, columnMap, dropColumns) {
+// `dropColumns` = denylist (drop these, keep the rest). `pickColumns` = allowlist
+// (keep ONLY these source columns, drop everything else) — used for tables that
+// hold sensitive PII where the safe default is to expose nothing unless it's on
+// the list. If `pickColumns` is provided it takes precedence over `dropColumns`.
+async function tableRows(db, table, columnMap, dropColumns, pickColumns) {
   const { results } = await db.prepare(`SELECT * FROM ${table} ORDER BY id ASC`).all();
+  const allow = pickColumns ? new Set(pickColumns) : null;
   return results.map(r => {
     const out = {};
     for (const [col, val] of Object.entries(r)) {
       if (col === 'id') { out['__rowIndex'] = val; continue; }
-      if (dropColumns && dropColumns.includes(col)) continue; // never expose columns the public site doesn't need
+      if (allow) {
+        if (!allow.has(col)) continue;                         // allowlist: drop anything not explicitly public
+      } else if (dropColumns && dropColumns.includes(col)) {
+        continue;                                              // denylist: drop columns the public site doesn't need
+      }
       const header = (columnMap && columnMap[col]) || col;
       out[header] = val === null ? '' : val;
     }
@@ -29,11 +38,21 @@ const REVERSE_MAPS = {
   committee_members: { year: 'Year', name: 'Name', created_by: 'Created By', view_role: 'View Role', view_role_hindi: 'View Role (Hindi)', whatsapp: 'WhatsApp' },
   collections: { year: 'Year', sl_no: 'Sl. No.', name: 'Name', amount: 'Amount', created_by: 'Created By', payment_mode: 'Payment Mode', date: 'Date', contribution_type: 'Contribution Type', detail: 'Detail', certificate_or_receipt: 'Certificate Or Receipt', utr: 'UTR', is_resell: 'Is Resell', announced: 'Announced', announced_count: 'AnnouncedCount' },
   expenses: { year: 'Year', discription: 'Discription', amount: 'Amount', created_by: 'Created By', category: 'Category', discription_hindi: 'Discription (Hindi)' },
-  loans: { year: 'Year', name: 'Name', amount: 'Amount', intrest_rate: 'Intrest Rate', tenure: 'Tenure', signature: 'Signature', loan_documents: 'Loan Documents', created_by: 'Created By', status: 'Status', loan_id: 'Loan ID', loan_status: 'Loan Status', final_repayment_date: 'Final Repayment Date' },
-  loan_guarantors: { year: 'Year', loaner: 'Loaner', guarantor: 'Guarantor', guarantor_signature: 'Guarantor Signature', created_by: 'Created By', loan_id: 'Loan ID' },
+  loans: { year: 'Year', name: 'Name', amount: 'Amount', intrest_rate: 'Intrest Rate', tenure: 'Tenure', created_by: 'Created By', status: 'Status', loan_id: 'Loan ID', loan_status: 'Loan Status', final_repayment_date: 'Final Repayment Date' },
+  loan_guarantors: { year: 'Year', loaner: 'Loaner', guarantor: 'Guarantor', created_by: 'Created By', loan_id: 'Loan ID' },
   generated_files: {}, // headers already close to snake_case originals; see file_index/schema.sql if you need exact source names
-  loan_consents: {},
+  // SECURITY (data minimization): loan_consents holds highly sensitive PII —
+  // consent token, OTP, IP address, GPS geo, device/user-agent, and photo/
+  // signature URLs. The public portal only needs enough to link a person to
+  // their generated consent PDF, so we ship ONLY these columns (allowlist below
+  // in getAllPortalData) and map their headers. Everything else never leaves the
+  // Worker.
+  loan_consents: { loan_id: 'loan_id', role: 'role', status: 'status', person_id: 'person_id', consent_id: 'consent_id' },
 };
+
+// The ONLY loan_consents columns the public portal is allowed to see. Matches
+// exactly what Public/frontend/script.js's buildPersonDownloads() reads.
+const LOAN_CONSENTS_PUBLIC_COLS = ['loan_id', 'role', 'status', 'person_id', 'consent_id'];
 
 // Returns the public `users` rows with `email`/`whatsapp` always dropped, and
 // `mobile` kept ONLY for people who are committee members in some year (the only
@@ -188,14 +207,17 @@ async function getAllPortalData(env) {
     committee: await tableRows(env.DB_CORE, 'committee_members', REVERSE_MAPS.committee_members),
     collections: await tableRows(env.DB_COLLECTIONS, 'collections', REVERSE_MAPS.collections),
     expenses: await tableRows(env.DB_LOANS_EXPENSES, 'expenses', REVERSE_MAPS.expenses),
-    loans: await tableRows(env.DB_LOANS_EXPENSES, 'loans', REVERSE_MAPS.loans),
-    guarantors: await tableRows(env.DB_LOANS_EXPENSES, 'loan_guarantors', REVERSE_MAPS.loan_guarantors),
+    // SECURITY: drop `signature` + `loan_documents` (personal signature image +
+    // document links) — the public site never renders them.
+    loans: await tableRows(env.DB_LOANS_EXPENSES, 'loans', REVERSE_MAPS.loans, ['signature', 'loan_documents']),
+    // SECURITY: drop `guarantor_signature` (personal signature image URL).
+    guarantors: await tableRows(env.DB_LOANS_EXPENSES, 'loan_guarantors', REVERSE_MAPS.loan_guarantors, ['guarantor_signature']),
     // `drive_path` is an INTERNAL Drive location ("Generated PDFs/Consents-Loaner/
     // 2026/Consent-CN...pdf") that the public site never renders — it was being
     // shipped to every anonymous visitor for no reason. The portal only needs
     // doc_type/year/record_id (to match a record) and public_link (to download).
     generatedFiles: await tableRows(env.DB_FILE_INDEX, 'generated_files', REVERSE_MAPS.generated_files, ['drive_path']),
-    loanConsents: await tableRows(env.DB_LOANS_EXPENSES, 'loan_consents', REVERSE_MAPS.loan_consents),
+    loanConsents: await tableRows(env.DB_LOANS_EXPENSES, 'loan_consents', REVERSE_MAPS.loan_consents, null, LOAN_CONSENTS_PUBLIC_COLS),
   };
 }
 
