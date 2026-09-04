@@ -29,7 +29,16 @@ const SCHEMA_FOR_MIGRATION = {
   // audit H-9 — one file per database, same as the six above.
   '07-core-id-uniqueness.sql': 'core.sql',
   '08-collections-sl-no-uniqueness.sql': 'collections.sql',
+  // audit M-13 — the one migration in this folder that is NOT index-only: it adds a
+  // column and backfills it. Listed in SCHEMA_ONLY_MIGRATIONS below so the
+  // index-only invariants do not apply to it, and asserted separately instead.
+  '09-error-log-client-ip.sql': 'logs.sql',
 };
+
+// Migrations that legitimately do more than CREATE INDEX. Keep this list as short
+// as possible: everything on it opts out of the "cannot drop, delete, update or
+// alter" guarantee that makes the rest safe to run unattended.
+const SCHEMA_ONLY_MIGRATIONS = new Set(['09-error-log-client-ip.sql']);
 
 const DAY = 86400000;
 const isoAgo = (d) => new Date(Date.now() - d * DAY).toISOString();
@@ -46,7 +55,12 @@ test('H-10: every migration applies against the real schema, and is IDEMPOTENT',
     // already contains it, so nothing extra is needed here.
     const sql = readFileSync(new URL(file, MIGRATION_DIR), 'utf8');
     db.exec(sql);            // first run
-    db.exec(sql);            // second run must be a no-op, not an error
+    // SQLite has no `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, so a migration that
+    // adds a column cannot be fully re-runnable. Its own test asserts that the
+    // ONLY thing failing on a second run is the duplicate column.
+    if (!SCHEMA_ONLY_MIGRATIONS.has(file)) {
+      db.exec(sql);          // second run must be a no-op, not an error
+    }
     db.close();
   }
 });
@@ -93,8 +107,9 @@ test('H-10: the error_log de-dup query (runs on EVERY log write) is index-backed
   db.close();
 });
 
-test('H-10: no migration drops anything or mutates a row', () => {
+test('H-10: no INDEX-ONLY migration drops anything or mutates a row', () => {
   for (const file of migrationFiles()) {
+    if (SCHEMA_ONLY_MIGRATIONS.has(file)) continue; // asserted explicitly below
     const sql = readFileSync(new URL(file, MIGRATION_DIR), 'utf8')
       .replace(/--.*$/gm, '');   // strip comments; several discuss DELETE/UPDATE
     assert.ok(!/\bDROP\b/i.test(sql), `${file} must not DROP anything`);
@@ -251,4 +266,27 @@ test('M-38: the sweep runs once an hour, not on all 1440 cron ticks', () => {
   // Worst-case daily write cost must stay well inside D1's 100,000/day.
   const statements = 8;
   assert.ok(24 * statements * 200 < 100000, 'worst-case sweep writes must fit the budget');
+});
+
+// The escape hatch above must not become a blanket exemption: a migration that opts
+// out of the index-only guarantees still has to be safe, so state exactly what each
+// one is allowed to do.
+test('H-10: the schema-changing migrations are still narrowly scoped', () => {
+  for (const file of SCHEMA_ONLY_MIGRATIONS) {
+    const sql = readFileSync(new URL(file, MIGRATION_DIR), 'utf8').replace(/--.*$/gm, '');
+    assert.ok(!/\bDROP\b/i.test(sql), `${file} must still not DROP anything`);
+    assert.ok(!/\bDELETE\b/i.test(sql), `${file} must still not DELETE rows`);
+    for (const m of sql.matchAll(/CREATE\s+(UNIQUE\s+)?INDEX\s+(IF NOT EXISTS\s+)?/gi)) {
+      assert.ok(m[2], `${file} has a CREATE INDEX without IF NOT EXISTS`);
+    }
+    // ALTER is permitted, but only to ADD a column — never to rename or drop one.
+    for (const m of sql.matchAll(/ALTER\s+TABLE\s+\w+\s+(\w+)/gi)) {
+      assert.match(m[1], /^ADD$/i, `${file}: only ALTER TABLE ... ADD COLUMN is allowed, saw "${m[1]}"`);
+    }
+    // UPDATE is permitted, but must be a bounded backfill of the new column only.
+    for (const m of sql.matchAll(/UPDATE\s+(\w+)\s+SET\s+(\w+)/gi)) {
+      assert.equal(m[2], 'client_ip', `${file}: the backfill may only write the new column, saw "${m[2]}"`);
+      assert.match(sql.slice(sql.indexOf(m[0])), /WHERE/i, `${file}: an UPDATE must be bounded by a WHERE`);
+    }
+  }
 });

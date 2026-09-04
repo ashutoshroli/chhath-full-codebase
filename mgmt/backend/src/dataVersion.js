@@ -1,3 +1,4 @@
+import { logWarn } from './logger.js';
 // ============ PUBLIC DATA VERSION ============
 //
 // The Public transparency portal should serve its (large) dataset from the
@@ -52,6 +53,24 @@ export async function bumpDataVersion(env) {
     } catch (e) {
       // ON CONFLICT needs a UNIQUE index on "key"; if it's missing the statement
       // throws. Fall back to a best-effort read-modify-write.
+      //
+      // audit M-21: this fallback used to be COMPLETELY SILENT, which made the
+      // worst outcome in this file undiagnosable. The fallback is a lossy
+      // read-modify-write: two concurrent bumps read the same value and one
+      // increment is lost, so the data version does NOT change even though the
+      // data did — and the public portal then serves a STALE payload under a
+      // MATCHING ETag, which no amount of cache-busting on the client can fix.
+      //
+      // The trigger is simply "migration 2026-09-01/08 was never applied", and
+      // there was nothing anywhere to say so. Warn once per occurrence
+      // (best-effort, never throws) so it is visible in the Error Log.
+      await logWarn(env, 'backend', 'bumpDataVersion',
+        'portal_settings has no UNIQUE index on "key", so the atomic UPSERT failed and a '
+        + 'racy read-modify-write was used. Concurrent writes can LOSE a version bump, which '
+        + 'makes the public portal serve stale data under a matching ETag. '
+        + 'Apply migration mgmt/db/migration/2026-09-01/08-public-data-version.sql.',
+        { error: (e && e.message) || String(e) }
+      ).catch(() => {});
     }
 
     const row = await env.DB_CORE.prepare('SELECT id, value FROM portal_settings WHERE "key" = ?')

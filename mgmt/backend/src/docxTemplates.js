@@ -1,4 +1,4 @@
-import { getSheetDataAsJSON, getSheetDataByColumn, filterByYear } from './crud.js';
+import { getSheetDataAsJSON, getSheetDataByColumn, getSheetDataByYear } from './crud.js';
 import { requireSuperadmin, requireYearAccess, requireStaffRole, PermissionError, ValidationError, InternalError } from './auth.js';
 import { getOrCreateFolder, uploadDocxFile, getFileBytesBase64, copyFile, convertDocxBytesToPdf, convertDocxBytesToPdfRaw } from './drive.js';
 import { r2Available, putToR2, keyForYear } from './r2.js';
@@ -428,17 +428,20 @@ export async function getRecordsForDocType(env, docType, year, user) {
   // generate action has always been Superadmin-only (see C-2). Gate it to match.
   requireSuperadmin(user);
   await requireYearAccess(env, user, year);
-  const users = await getSheetDataAsJSON(env, 'USERS');
-  const userMap = {};
-  users.forEach(u => { userMap[u.ID] = u; });
-  const nameOf = (id) => (userMap[id] && userMap[id].Name) || id;
 
+  // audit M-17 — the Phase-1 index work reached views.js but never got applied
+  // here. This function used `getSheetDataAsJSON` + `filterByYear`, i.e. read every
+  // collection row and every loan row EVER RECORDED and then discarded all but one
+  // year, plus a third full scan of USERS. `getSheetDataByYear` pushes the year into
+  // an indexed `WHERE`, and USERS is now fetched only for the ids each branch
+  // actually references (the H-11 batched-lookup approach) rather than in full.
   if (docType === 'receipt' || docType === 'certificate') {
     const wantCert = docType === 'certificate';
-    const collections = filterByYear(await getSheetDataAsJSON(env, 'COLLECTIONS'), year)
+    const collections = (await getSheetDataByYear(env, 'COLLECTIONS', year))
       .filter(c => !isTruthyFlag(c['Is Resell']))
       .filter(c => c['Contribution Type'] !== '2')
       .filter(c => (wantCert ? c['Certificate Or Receipt'] === 'Certificate' : c['Certificate Or Receipt'] !== 'Certificate'));
+    const userMap = await usersByIdCodes(env, collections.map(c => c.Name));
     return collections.map(entry => {
       const u = userMap[entry.Name] || {};
       const recordId = `${docType}-${year}-${entry.__rowIndex}`;
@@ -456,9 +459,10 @@ export async function getRecordsForDocType(env, docType, year, user) {
   }
 
   if (docType === 'samaan') {
-    const collections = filterByYear(await getSheetDataAsJSON(env, 'COLLECTIONS'), year)
+    const collections = (await getSheetDataByYear(env, 'COLLECTIONS', year))
       .filter(c => !isTruthyFlag(c['Is Resell']))
       .filter(c => c['Contribution Type'] === '2');
+    const userMap = await usersByIdCodes(env, collections.map(c => c.Name));
     return collections.map(entry => {
       const u = userMap[entry.Name] || {};
       const recordId = `samaan-${year}-${entry.__rowIndex}`;
@@ -483,8 +487,13 @@ export async function getRecordsForDocType(env, docType, year, user) {
   // from the Consent page and a PDF with blank dates/day-names/counts from Bulk
   // Generate — no error, no log. Now both paths call the same builder.
   const wantLoaner = docType === 'consent_loaner';
-  const loans = (await getSheetDataAsJSON(env, 'LOANS')).filter(l => parseInt(l.Year) === parseInt(year));
-  const { results: allConsents } = await env.DB_LOANS_EXPENSES.prepare("SELECT * FROM loan_consents WHERE status != 'replaced'").all();
+  const loans = await getSheetDataByYear(env, 'LOANS', year);
+  // Was an unbounded `SELECT * FROM loan_consents WHERE status != 'replaced'` —
+  // every consent of every year, to use the handful belonging to THIS year's loans.
+  const allConsents = await consentsForLoanIds(env, loans.map(l => l['Loan ID']));
+  // Names for the loaner + guarantors of these loans only.
+  const userMap = await usersByIdCodes(env, allConsents.map(c => c.person_id));
+  const nameOf = (id) => (userMap[(id == null ? '' : id).toString().trim()] || {}).Name || id;
 
   const out = [];
   for (const loan of loans) {
@@ -513,8 +522,9 @@ export async function searchUsersByVillageAndName(env, village, query, user) {
   requireStaffRole(user);
   if (!village) throw ValidationError('Village required');
   const q = (query || '').toString().trim().toLowerCase();
-  return (await getSheetDataAsJSON(env, 'USERS'))
-    .filter(u => (u.Village || '').toString().trim() === village.toString().trim())
+  // schema/core.sql already indexes `village`, so push the equality down instead of
+  // reading every member row in the committee to keep the ones from one village.
+  return (await getSheetDataByColumn(env, 'USERS', 'village', village.toString().trim()))
     .filter(u => {
       if (!q) return true;
       return (u.Name || '').toString().toLowerCase().includes(q) || (u.Mobile || '').toString().toLowerCase().includes(q) || (u.ID || '').toString().toLowerCase().includes(q);
