@@ -103,6 +103,33 @@ async function usersPublicSafe(env) {
 // are no-ops if KV isn't bound (older deploy) — the edge cache from the version
 // design still does most of the protection.
 
+// ============ KV BINDING (audit H-4) ============
+//
+// SECURITY: this Worker used to be bound to the SAME KV namespace as the mgmt API
+// (identical namespace id in both wrangler.toml files). That namespace holds:
+//     session:<...>        live mgmt sessions (name + role)
+//     drive_access_token   a live Google Drive OAuth access token
+//     mgmtcache:*          cached member PII (getUserProfile / getUsers)
+//     loginfail:*, consentotp:*   lockout counters and OTP verification proofs
+//
+// This is a PUBLIC, unauthenticated, internet-facing Worker. The only thing keeping
+// it away from those keys was a comment and the fact that today's code happens to
+// touch only `pub:*` prefixes — one bug, one dependency, or one future feature away
+// from full session theft and a leaked Drive credential. The two Workers also
+// competed for the SAME ~1000/day KV write budget, which this file already
+// documents as a real outage cause.
+//
+// The public Worker now has its OWN namespace, bound as KV_PUBLIC.
+//
+// MIGRATION SAFETY: it falls back to the old KV_SESSIONS binding when KV_PUBLIC is
+// not present, so this code can be deployed BEFORE the new namespace exists and
+// keeps working either way. Once wrangler.toml is switched over, remove the
+// fallback. Nothing here writes anything but `pub:*` keys, so the fallback period
+// is no worse than today.
+function pubKv(env) {
+  return (env && env.KV_PUBLIC) || (env && env.KV_SESSIONS) || null;
+}
+
 const PUB_RL_WINDOW_SECONDS = 60;
 const PUB_RL_MAX = 60; // per IP per minute — generous for a real viewer, capping floods
 // Estimated D1 rows read per full portal build (8 table scans, sizes vary). We
@@ -134,16 +161,17 @@ const RL_SAMPLE = 20;
 
 async function pubRateLimited(env, ip, action) {
   try {
-    if (!env || !env.KV_SESSIONS || !ip) return false;
+    const kv = pubKv(env);
+    if (!kv || !ip) return false;
     const bucket = Math.floor(Date.now() / (PUB_RL_WINDOW_SECONDS * 1000));
     const key = `pub:rl:${action}:${ip}:${bucket}`;
-    const cur = parseInt((await env.KV_SESSIONS.get(key)) || '0', 10) || 0;
+    const cur = parseInt((await kv.get(key)) || '0', 10) || 0;
     if (cur >= PUB_RL_MAX) return true;
     // Sampled write: on average one write per RL_SAMPLE requests, each adding
     // RL_SAMPLE to the counter, so the expected value tracks the true count
     // without a write on every hit.
     if (Math.random() < 1 / RL_SAMPLE) {
-      await env.KV_SESSIONS.put(key, String(cur + RL_SAMPLE), { expirationTtl: PUB_RL_WINDOW_SECONDS + 5 });
+      await kv.put(key, String(cur + RL_SAMPLE), { expirationTtl: PUB_RL_WINDOW_SECONDS + 5 });
     }
     return false;
   } catch (e) { return false; } // fail open
@@ -153,9 +181,10 @@ async function pubRateLimited(env, ip, action) {
 // should then serve from cache only and NOT build fresh from D1.
 async function d1BudgetExceeded(env) {
   try {
-    if (!env || !env.KV_SESSIONS) return false;
+    const kv = pubKv(env);
+    if (!kv) return false;
     const day = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC, matches D1 reset)
-    const used = parseInt((await env.KV_SESSIONS.get(`pub:d1reads:${day}`)) || '0', 10) || 0;
+    const used = parseInt((await kv.get(`pub:d1reads:${day}`)) || '0', 10) || 0;
     return used >= D1_DAILY_BUDGET;
   } catch (e) { return false; } // fail open
 }
@@ -164,11 +193,12 @@ async function d1BudgetExceeded(env) {
 // today's counter). Best-effort; TTL ~2 days so the daily key self-expires.
 async function d1BudgetAdd(env, ctx) {
   try {
-    if (!env || !env.KV_SESSIONS) return;
+    const kv = pubKv(env);
+    if (!kv) return;
     const day = new Date().toISOString().slice(0, 10);
     const key = `pub:d1reads:${day}`;
-    const used = parseInt((await env.KV_SESSIONS.get(key)) || '0', 10) || 0;
-    const put = env.KV_SESSIONS.put(key, String(used + D1_ROWS_PER_BUILD), { expirationTtl: 172800 });
+    const used = parseInt((await kv.get(key)) || '0', 10) || 0;
+    const put = kv.put(key, String(used + D1_ROWS_PER_BUILD), { expirationTtl: 172800 });
     if (ctx && ctx.waitUntil) ctx.waitUntil(put); else await put;
   } catch (e) { /* best effort */ }
 }
@@ -191,8 +221,9 @@ const SNAPSHOT_META_KEY = 'pub:snapshot:portalData:version';
 
 async function maybeSaveSnapshot(env, ctx, version, dataObj) {
   try {
-    if (!env || !env.KV_SESSIONS) return;
-    const lastVer = await env.KV_SESSIONS.get(SNAPSHOT_META_KEY);
+    const kv = pubKv(env);
+    if (!kv) return;
+    const lastVer = await kv.get(SNAPSHOT_META_KEY);
     if (lastVer === String(version)) return; // snapshot already current for this version — no write
     // TTL was 24h: if the data didn't change for a day (a quiet, non-festival
     // period) the last-known-good snapshot EXPIRED, so a later D1 outage would
@@ -201,9 +232,35 @@ async function maybeSaveSnapshot(env, ctx, version, dataObj) {
     // stretch; it's rewritten (and its TTL refreshed) whenever data changes, and
     // it's only ONE write per real data change, so KV write budget is unaffected.
     const SNAPSHOT_TTL = 2592000; // 30 days
+
+    // SIZE GUARD (audit H-5). A KV value is hard-capped at 25 MB. This snapshot is
+    // the whole portalData payload — 8 unbounded table scans, which this file itself
+    // estimates at ~60,000 rows — so at the projected 32k-member scale it can cross
+    // that cap. The put() then fails, and because the whole function is wrapped in a
+    // bare `catch {}` the failure was SILENT: the last-known-good fallback would
+    // simply stop existing, and nobody would find out until D1 was already down and
+    // the portal returned 503 instead of stale-but-real data.
+    //
+    // Refuse early, and say so loudly in the error log, so the operator learns while
+    // the portal is still healthy rather than during an outage.
+    const body = JSON.stringify(dataObj);
+    const SNAPSHOT_MAX_BYTES = 20 * 1024 * 1024; // 25 MB hard limit, with headroom
+    if (body.length > SNAPSHOT_MAX_BYTES) {
+      await logPublicError(
+        env, 'public-backend', 'maybeSaveSnapshot',
+        `Snapshot NOT saved: the portalData payload is ${(body.length / 1048576).toFixed(1)} MB, ` +
+        `over the ${SNAPSHOT_MAX_BYTES / 1048576} MB guard (KV's hard limit is 25 MB). ` +
+        'The last-known-good fallback is therefore UNAVAILABLE — if D1 goes down or hits its ' +
+        'daily row limit, the public portal will fail instead of serving a stale copy. ' +
+        'Fix by paginating the public payload (audit H-5).',
+        '', JSON.stringify({ bytes: body.length, version }), ''
+      );
+      return;
+    }
+
     const writes = Promise.all([
-      env.KV_SESSIONS.put(SNAPSHOT_KEY, JSON.stringify(dataObj), { expirationTtl: SNAPSHOT_TTL }),
-      env.KV_SESSIONS.put(SNAPSHOT_META_KEY, String(version), { expirationTtl: SNAPSHOT_TTL }),
+      kv.put(SNAPSHOT_KEY, body, { expirationTtl: SNAPSHOT_TTL }),
+      kv.put(SNAPSHOT_META_KEY, String(version), { expirationTtl: SNAPSHOT_TTL }),
     ]);
     if (ctx && ctx.waitUntil) ctx.waitUntil(writes); else await writes;
   } catch (e) { /* best effort — snapshotting must never affect the response */ }
@@ -213,8 +270,9 @@ async function maybeSaveSnapshot(env, ctx, version, dataObj) {
 // null if no snapshot exists. Never touches D1.
 async function serveSnapshot(env, cors) {
   try {
-    if (!env || !env.KV_SESSIONS) return null;
-    const raw = await env.KV_SESSIONS.get(SNAPSHOT_KEY);
+    const kv = pubKv(env);
+    if (!kv) return null;
+    const raw = await kv.get(SNAPSHOT_KEY);
     if (!raw) return null;
     const data = JSON.parse(raw);
     return new Response(JSON.stringify({ ...data, stale: true, staleReason: 'Live data source is temporarily unavailable; showing the most recent saved copy.' }), {
