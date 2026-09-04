@@ -44,7 +44,7 @@ compatibility_date = "2025-01-01"
 # that rebuilds itself on first use.
 [[kv_namespaces]]
 binding = "KV_PUBLIC"
-id = "REPLACE_WITH_NEW_NAMESPACE_ID"
+id = "dce0bc8851694b7883030edd6643859e"
 
 [[d1_databases]]
 binding = "DB_CORE"
