@@ -13,7 +13,7 @@
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeD1, makeKV, schemaFor } from './helpers/stubs.mjs';
-import { createVisibilityPoller } from '../../frontend/src/usePolling.js';
+import { createVisibilityPoller } from '../../frontend/src/visibilityPoller.js';
 
 // ------------------------------------------------------------------------ P-4
 
