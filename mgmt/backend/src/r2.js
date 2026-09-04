@@ -54,7 +54,20 @@ export function keyFromR2Url(env, url) {
 
 // Sanitize a filename into a safe key segment.
 function safeName(name, fallback) {
-  const s = (name || '').toString().trim().replace(/[^\w.\-]+/g, '_').replace(/^_+|_+$/g, '');
+  // The old pattern `[^\w.\-]+` treats `\w` as ASCII-only ([A-Za-z0-9_]), so a
+  // Devanagari filename (e.g. a member's Hindi name) had EVERY character stripped
+  // and collapsed to the fallback ('file'), making distinct uploads share one
+  // key. Use a Unicode-aware class so Hindi and other scripts are preserved:
+  //   \p{L} letters, \p{N} digits, and crucially \p{M} combining MARKS — Indic
+  //   scripts write vowels as combining marks (e.g. the "े" in "रमेश"), so without
+  //   \p{M} the name is mangled rather than dropped. Path separators, whitespace
+  //   and control characters are still replaced with '_', which is what keeps the
+  //   R2 key layout (year/subdir/name) intact — a "/" can never survive, so path
+  //   traversal is impossible regardless of dots. `/u` enables the property
+  //   escapes. Leading/trailing separators are trimmed.
+  const s = (name || '').toString().trim()
+    .replace(/[^\p{L}\p{M}\p{N}.\-]+/gu, '_')
+    .replace(/^_+|_+$/g, '');
   return s || fallback;
 }
 
