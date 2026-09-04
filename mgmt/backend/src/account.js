@@ -138,6 +138,23 @@ export async function updateOwnProfile(env, payload, user) {
       if (!/^\d{10}$/.test(payload[f].toString().trim())) throw ValidationError(f + ' must be 10 digits');
     }
   });
+  // audit M-8: Mobile and WhatsApp were validated; Email was written completely
+  // raw, so a member's stored address could be any string at all. It is the
+  // address receipts and certificates carry, and the placeholder builders read it
+  // straight out of this column, so a typo silently produces a wrong document.
+  // Uses the same regex addLoginUser applies, and allows clearing the field.
+  //
+  // NOTE: my audit report also claimed a duplicate here could hijack email login.
+  // That is WRONG and the claim is withdrawn — login resolves the identifier
+  // against `login_users` (auth.js:249), while this function writes the `users`
+  // table. They are different tables; there is no auth impact. Uniqueness is a
+  // data-quality question, so it is deliberately not enforced here (two family
+  // members legitimately sharing one email address is normal in this committee).
+  if (payload.Email !== undefined && payload.Email !== null && payload.Email.toString().trim() !== '') {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.Email.toString().trim())) {
+      throw ValidationError('A valid Email is required.');
+    }
+  }
   const sets = [];
   const vals = [];
   ALLOWED.forEach(f => {

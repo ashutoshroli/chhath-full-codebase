@@ -420,6 +420,13 @@ const formatAmt = (v) => (parseAmt(v) > 0 ? new Intl.NumberFormat('en-IN', { max
 // consentPlaceholders.js — one implementation for both paths.
 
 export async function getRecordsForDocType(env, docType, year, user) {
+  // audit M-2: this gated on year access ONLY, with no role check, and returns a
+  // placeholder map for EVERY record of the year — MOBILE included, for every
+  // contributor. So any Subadmin who sat on that year's committee could pull the
+  // whole year's contact list in one call. It is the input to bulk generation,
+  // which App.jsx exposes on the Superadmin-only "Bulk Generate" tab and whose
+  // generate action has always been Superadmin-only (see C-2). Gate it to match.
+  requireSuperadmin(user);
   await requireYearAccess(env, user, year);
   const users = await getSheetDataAsJSON(env, 'USERS');
   const userMap = {};

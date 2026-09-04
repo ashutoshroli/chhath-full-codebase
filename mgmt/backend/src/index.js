@@ -560,20 +560,26 @@ export default {
       // The docx->pdf leg needs your real Drive service-account credential
       // (DRIVE_SA_EMAIL/DRIVE_SA_PRIVATE_KEY/DRIVE_ROOT_FOLDER_ID) to actually
       // test — see account.js's getDriveAccessToken() ----
-      getReceiptTemplates: () => withAuth(env, req, () => tpl.getTemplates(env, 'receipt')),
-      getReceiptTemplate: () => withAuth(env, req, () => tpl.getTemplate(env, 'receipt', req.year)),
+      // audit M-1: these six had NO role argument — `withAuth(env, req, () => ...)`
+      // — so any authenticated caller could read every year's receipt, certificate
+      // and material-receipt template text. All six are used ONLY by the three
+      // *Templates.jsx screens, which App.jsx exposes to Superadmin alone (the
+      // Admin and Subadmin tab groups do not contain them), and their save/copy/
+      // delete siblings already call requireSuperadmin. Match them.
+      getReceiptTemplates: () => withAuth(env, req, (user) => { requireSuperadmin(user); return tpl.getTemplates(env, 'receipt'); }),
+      getReceiptTemplate: () => withAuth(env, req, (user) => { requireSuperadmin(user); return tpl.getTemplate(env, 'receipt', req.year); }),
       saveReceiptTemplate: () => withAuth(env, req, (user) => tpl.saveTemplate(env, 'receipt', req.year, req.text, req.pageSize, user)),
       copyReceiptTemplate: () => withAuth(env, req, (user) => tpl.copyTemplate(env, 'receipt', req.fromYear, req.toYear, user)),
       deleteReceiptTemplate: () => withAuth(env, req, (user) => tpl.deleteTemplate(env, 'receipt', req.year, user)),
       getReceiptData: () => withAuth(env, req, (user) => tpl.getReceiptData(env, req.rowIndex, req.year, user)),
-      getCertificateTemplates: () => withAuth(env, req, () => tpl.getTemplates(env, 'certificate')),
-      getCertificateTemplate: () => withAuth(env, req, () => tpl.getTemplate(env, 'certificate', req.year)),
+      getCertificateTemplates: () => withAuth(env, req, (user) => { requireSuperadmin(user); return tpl.getTemplates(env, 'certificate'); }),
+      getCertificateTemplate: () => withAuth(env, req, (user) => { requireSuperadmin(user); return tpl.getTemplate(env, 'certificate', req.year); }),
       saveCertificateTemplate: () => withAuth(env, req, (user) => tpl.saveTemplate(env, 'certificate', req.year, req.text, req.pageSize, user)),
       copyCertificateTemplate: () => withAuth(env, req, (user) => tpl.copyTemplate(env, 'certificate', req.fromYear, req.toYear, user)),
       deleteCertificateTemplate: () => withAuth(env, req, (user) => tpl.deleteTemplate(env, 'certificate', req.year, user)),
       getCertificateData: () => withAuth(env, req, (user) => tpl.getCertificateData(env, req.rowIndex, req.year, user)),
-      getSamaanTemplates: () => withAuth(env, req, () => tpl.getTemplates(env, 'samaan')),
-      getSamaanTemplate: () => withAuth(env, req, () => tpl.getTemplate(env, 'samaan', req.year)),
+      getSamaanTemplates: () => withAuth(env, req, (user) => { requireSuperadmin(user); return tpl.getTemplates(env, 'samaan'); }),
+      getSamaanTemplate: () => withAuth(env, req, (user) => { requireSuperadmin(user); return tpl.getTemplate(env, 'samaan', req.year); }),
       saveSamaanTemplate: () => withAuth(env, req, (user) => tpl.saveTemplate(env, 'samaan', req.year, req.text, req.pageSize, user)),
       copySamaanTemplate: () => withAuth(env, req, (user) => tpl.copyTemplate(env, 'samaan', req.fromYear, req.toYear, user)),
       deleteSamaanTemplate: () => withAuth(env, req, (user) => tpl.deleteTemplate(env, 'samaan', req.year, user)),
@@ -698,7 +704,7 @@ export default {
       deleteLoanTemplate: () => withAuth(env, req, (user) => loans.deleteLoanTemplate(env, req.rowIndex, user)),
 
       // ---- WhatsApp: Queue polling (apiKey-based, external automation script) ----
-      getPendingMessages: () => withApiKey(env, req, () => wa.getPendingMessages(env, req.limit)),
+      getPendingMessages: () => withApiKey(env, req, () => wa.getPendingMessages(env, req.limit)), // withApiKey is async (M-6); the router awaits every handler
       // Surfaces messages that were queued but never reached sent/failed, so a
       // dead external sender or a rotated API key is VISIBLE instead of silently
       // piling up 'pending' rows nobody looks at.

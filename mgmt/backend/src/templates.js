@@ -1,5 +1,5 @@
 import { getSheetDataAsJSON, filterByYear } from './crud.js';
-import { requireSuperadmin, requireYearAccess, ValidationError } from './auth.js';
+import { requireSuperadmin, requireYearAccess, requireStaffRole, ValidationError } from './auth.js';
 
 const RECEIPT_TEMPLATE_SAMPLE = `## नवयुवक छठ पूजा समिति / NAVYUVAK CHHATH PUJA SAMITI
 ### Donation Receipt / दान रसीद
@@ -196,6 +196,12 @@ async function resolveEntry(env, rowIndex, year) {
 }
 
 export async function getReceiptData(env, rowIndex, year, user) {
+  // audit M-3: gated on year access only, with no role check. Unlike M-1/M-2 these
+  // three ARE legitimately staff-facing — Home.jsx's receipt modal calls them for
+  // every role — so the correct gate is requireStaffRole, not Superadmin. It is a
+  // no-op for the three real roles and closes the legacy free-text-role hole (same
+  // reasoning as H-1).
+  requireStaffRole(user);
   await requireYearAccess(env, user, year);
   const { entry, u } = await resolveEntry(env, rowIndex, year);
   const template = await getTemplate(env, 'receipt', year);
@@ -213,6 +219,7 @@ export async function getReceiptData(env, rowIndex, year, user) {
 }
 
 export async function getCertificateData(env, rowIndex, year, user) {
+  requireStaffRole(user);
   await requireYearAccess(env, user, year);
   const { entry, u } = await resolveEntry(env, rowIndex, year);
   const template = await getTemplate(env, 'certificate', year);
@@ -230,6 +237,7 @@ export async function getCertificateData(env, rowIndex, year, user) {
 }
 
 export async function getSamaanData(env, rowIndex, year, user) {
+  requireStaffRole(user);
   await requireYearAccess(env, user, year);
   const { entry, u } = await resolveEntry(env, rowIndex, year);
   const template = await getTemplate(env, 'samaan', year);

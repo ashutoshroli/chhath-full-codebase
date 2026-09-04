@@ -657,15 +657,25 @@ export async function withAuth(env, req, fn) {
   return fn(user);
 }
 
-export function withApiKey(env, req, fn) {
-  // Constant-time compare so the queue API key can't be recovered one character
-  // at a time via response-timing differences.
-  if (!req.apiKey || !env.WHATSAPP_QUEUE_API_KEY || !timingSafeEqualHex(
-    Array.from(req.apiKey.toString()).map(c => c.charCodeAt(0).toString(16).padStart(2, '0')).join(''),
-    Array.from(env.WHATSAPP_QUEUE_API_KEY.toString()).map(c => c.charCodeAt(0).toString(16).padStart(2, '0')).join('')
-  )) {
-    throw PermissionError('Invalid API key');
-  }
+// audit M-6 — the comparison was constant-time in WHERE the strings differ, but
+// not in their LENGTH.
+//
+// The old code hex-encoded both sides and handed them to timingSafeEqualHex,
+// which loops `Math.max(x.length, y.length)` times. That hides the position of
+// the first mismatch, which is the important part — but the loop count itself
+// still scales with the length of the supplied key, so an attacker who can time
+// the endpoint learns how long WHATSAPP_QUEUE_API_KEY is before starting to guess
+// its content.
+//
+// Hashing both sides first makes the compared values a fixed 64 hex characters
+// whatever the input, so the loop count carries no information at all.
+export async function withApiKey(env, req, fn) {
+  if (!req.apiKey || !env.WHATSAPP_QUEUE_API_KEY) throw PermissionError('Invalid API key');
+  const [supplied, expected] = await Promise.all([
+    sha256Hex(req.apiKey.toString()),
+    sha256Hex(env.WHATSAPP_QUEUE_API_KEY.toString()),
+  ]);
+  if (!timingSafeEqualHex(supplied, expected)) throw PermissionError('Invalid API key');
   return fn();
 }
 
