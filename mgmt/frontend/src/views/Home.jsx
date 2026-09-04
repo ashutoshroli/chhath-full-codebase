@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, lazy, Suspense } from 'react';
+import { useState, useMemo, useEffect, useDeferredValue, lazy, Suspense } from 'react';
 import { api, fmt, reportClientError } from '../api.js';
 import { safeImport } from '../chunkGuard.js';
 import { useViewData } from '../useViewData.js';
@@ -13,6 +13,7 @@ import QueueStatus from '../components/QueueStatus.jsx';
 const ReceiptModal = lazy(() => import('../components/ReceiptModal.jsx'));
 import { canAddView } from '../permissions.js';
 import { useDropdownList } from '../useDropdownList.js';
+import { isTruthyFlag } from '../flags.js';
 
 // Decides which doc-type (if any) should auto-generate silently right after
 // Save/Edit. Cash -> receipt, Material -> samaan, Service+Receipt -> receipt,
@@ -69,16 +70,28 @@ export default function Home({ year, users, onUserCreated, role, editable }) {
     api.getUserHistory(form.Name).then(setHistory).catch(() => setHistory(null)).finally(() => setHistoryLoading(false));
   }, [form.Name]);
 
-  const filtered = (data?.collections || []).filter(r => {
-    const q = search.toLowerCase();
-    // A resell row has no contributor — it's searchable by its item name (Detail),
-    // not by "Unknown User" (which is what matching on userMap used to fall back to).
-    const isResellRow = r['Is Resell'] === true || r['Is Resell'] === 'TRUE'
-      || (typeof r['Is Resell'] === 'string' && r['Is Resell'].trim().toLowerCase() === 'true');
-    if (isResellRow) return (r.Detail || '').toLowerCase().includes(q);
-    const u = userMap[r.Name] || { Name: 'Unknown User' };
-    return (u.Name || '').toLowerCase().includes(q);
-  });
+  // audit P-1: this filter ran on EVERY render (including every keystroke) over the
+  // whole collection list, and the result was rendered unvirtualised. It is now
+  // memoised, and the search term is deferred so typing stays responsive while a
+  // large list re-filters. `isTruthyFlag` replaces the inline three-way comparison so
+  // a row stored as '1' rather than 'TRUE' is recognised too (audit M-32).
+  const deferredSearch = useDeferredValue(search);
+  const filtered = useMemo(() => {
+    const q = deferredSearch.toLowerCase();
+    return (data?.collections || []).filter(r => {
+      // A resell row has no contributor — it's searchable by its item name (Detail),
+      // not by "Unknown User" (which is what matching on userMap used to fall back to).
+      if (isTruthyFlag(r['Is Resell'])) return (r.Detail || '').toLowerCase().includes(q);
+      const u = userMap[r.Name] || { Name: 'Unknown User' };
+      return (u.Name || '').toLowerCase().includes(q);
+    });
+  }, [data, deferredSearch, userMap]);
+
+  // Rendering thousands of rows locks up a mid-range Android phone, so cap what is
+  // put in the DOM and say so. The full set is still searchable — narrowing the
+  // search is what reveals a row beyond the cap.
+  const RENDER_CAP = 300;
+  const visible = filtered.slice(0, RENDER_CAP);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -299,6 +312,10 @@ export default function Home({ year, users, onUserCreated, role, editable }) {
 
   if (loading) return <div className="inline-spinner">Loading budget...</div>;
   if (error) return <div className="error-banner">{error}</div>;
+  // audit M-26: `data?.collections` was guarded above but `data.pastRet` below was
+  // not, so a null response (which api.js explicitly passes through) white-screened
+  // the whole tab.
+  if (!data) return <div className="inline-spinner">Loading budget...</div>;
 
   return (
     <>
@@ -338,13 +355,24 @@ export default function Home({ year, users, onUserCreated, role, editable }) {
 
       <h3 style={{ marginBottom: 15 }}>Collections (Contribution)</h3>
       <input placeholder="Search Contribution Data..." style={{ marginBottom: 15 }} value={search} onChange={e => setSearch(e.target.value)} />
+
+      {/* audit P-2: with "All Years" selected the server now returns only the most
+          recent rows (the budget totals above are still computed over EVERY row, in
+          SQL, so they remain exact). Say so plainly rather than letting the list look
+          complete when it is not. */}
+      {data.hasMore && (
+        <div style={{ background: '#EFF6FF', color: '#1E40AF', borderRadius: 8, padding: '8px 12px', fontSize: '0.85rem', marginBottom: 12 }}>
+          Showing the {data.shownRows} most recent of {data.totalRows} contributions.
+          The totals above cover all of them. Select a specific year to see its complete list.
+        </div>
+      )}
       <div className="glass-card">
         {filtered.length === 0 && <div style={{ textAlign: 'center', padding: 20 }}>No records found.</div>}
-        {filtered.map((r, i) => {
+        {visible.map((r) => {
           const isResellRow = r['Is Resell'] === 'TRUE' || r['Is Resell'] === true;
           const u = isResellRow ? null : (userMap[r.Name] || { Name: 'Unknown User', Village: '-' });
           return (
-            <div className="data-row" key={i}>
+            <div className="data-row" key={r.__rowIndex}>
               <div>
                 {isResellRow ? (
                   <strong style={{ display: 'block' }}>
@@ -385,6 +413,11 @@ export default function Home({ year, users, onUserCreated, role, editable }) {
             </div>
           );
         })}
+        {filtered.length > RENDER_CAP && (
+          <div style={{ textAlign: 'center', padding: 14, color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+            Showing {RENDER_CAP} of {filtered.length} matching rows — refine the search to narrow the list.
+          </div>
+        )}
       </div>
 
       {editable && canAddView(role, 'home') && (

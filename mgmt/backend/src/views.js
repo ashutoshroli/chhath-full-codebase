@@ -1,4 +1,5 @@
 import { getSheetDataAsJSON, getSheetDataByYear, getSheetDataByColumn, filterByYear } from './crud.js';
+import { fromColumnRow } from './tableRegistry.js';
 import { requireSuperadmin } from './auth.js';
 import { usersByIdCodes, loansByLoanIds, loansForBorrowers } from './lookups.js';
 
@@ -25,35 +26,86 @@ export async function addYear(env, year, user) {
   return { success: true };
 }
 
+// audit P-2: the Home screen's budget figures were computed by shipping EVERY
+// collection row and EVERY expense row into the isolate and summing them in JS. With
+// year = 'All' that is the entire financial history of the committee, on the very
+// first screen every user sees after login — a large D1 read, a large JSON payload
+// over a village mobile connection, and then a large render (see the row cap in
+// Home.jsx).
+//
+// The totals are now computed by D1 with SUM(), which is what a database is for:
+//   * exact — no rounding difference, since these are the same REAL values;
+//   * O(1) payload — the numbers no longer depend on how many rows exist;
+//   * index-friendly — for a specific year it is a covered range scan.
+//
+// The ROW LIST is treated differently by scope, deliberately:
+//   * a SPECIFIC year returns every row, unchanged. That is where data entry and
+//     lookup actually happen, a single year's rows are naturally bounded, and the
+//     existing client-side search must keep working over the complete set.
+//   * 'All' (the lifetime overview) returns only the most recent
+//     ALL_YEARS_ROW_LIMIT rows plus `hasMore` + `totalRows`, so the UI can say so
+//     plainly. The TOTALS stay exact regardless, because they come from SUM().
+// This keeps every per-year workflow byte-identical while removing the unbounded
+// case, which is the one that actually threatens the free tier.
+const ALL_YEARS_ROW_LIMIT = 1000;
+
 export async function getHomeData(env, year) {
   const isAll = !year || year === 'All';
-  // Phase 1: when a specific year is requested, scope the reads with WHERE year=?
-  // (indexed) instead of scanning the whole table and filtering in JS. For 'All'
-  // we still read everything (that view genuinely needs every row). Output is
-  // identical either way — getSheetDataByYear returns the same shape as
-  // filterByYear(getSheetDataAsJSON(...)).
-  const collections = await getSheetDataByYear(env, 'COLLECTIONS', year);
-  const expenses = await getSheetDataByYear(env, 'EXPENSES', year);
-  if (isAll) collections.sort((a, b) => parseInt(b.Year) - parseInt(a.Year));
+  const y = isAll ? null : parseInt(year);
 
-  const totCol = collections.reduce((s, c) => s + parseAmt(c.Amount), 0);
-  const totExp = expenses.reduce((s, e) => s + parseAmt(e.Amount), 0);
+  // --- Totals, computed in SQL ---
+  // COALESCE so an empty year yields 0 rather than NULL. The loan formula is the
+  // same one the old JS loop used: principal + principal * (rate/100) * tenure,
+  // summed over the PREVIOUS year's loans (whose repayment lands in this year).
+  const [colAgg, expAgg, loanAgg] = await Promise.all([
+    env.DB_COLLECTIONS.prepare(
+      isAll
+        ? 'SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS n FROM collections'
+        : 'SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS n FROM collections WHERE year = ?'
+    ).bind(...(isAll ? [] : [y])).first(),
+    env.DB_LOANS_EXPENSES.prepare(
+      isAll
+        ? 'SELECT COALESCE(SUM(amount), 0) AS total FROM expenses'
+        : 'SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE year = ?'
+    ).bind(...(isAll ? [] : [y])).first(),
+    env.DB_LOANS_EXPENSES.prepare(
+      isAll
+        ? `SELECT COALESCE(SUM(COALESCE(amount,0) + COALESCE(amount,0) * (COALESCE(intrest_rate,0) / 100.0) * COALESCE(tenure,0)), 0) AS total FROM loans`
+        : `SELECT COALESCE(SUM(COALESCE(amount,0) + COALESCE(amount,0) * (COALESCE(intrest_rate,0) / 100.0) * COALESCE(tenure,0)), 0) AS total FROM loans WHERE year = ?`
+    ).bind(...(isAll ? [] : [y - 1])).first(),
+  ]);
 
-  // prevLoans = loans of the PREVIOUS year (year-1) whose repayment lands this
-  // year. Scope directly to year-1 (indexed) instead of loading all loans; for
-  // 'All' we still need every loan.
-  const prevLoans = isAll
-    ? await getSheetDataAsJSON(env, 'LOANS')
-    : await getSheetDataByYear(env, 'LOANS', parseInt(year) - 1);
-  let pastRet = 0;
-  prevLoans.forEach(l => {
-    const principal = parseAmt(l.Amount);
-    const rate = parseAmt(l['Intrest Rate'] || l['Interest Rate']);
-    const tenure = parseAmt(l.Tenure);
-    pastRet += principal + (principal * (rate / 100) * tenure);
-  });
+  const totCol = Number(colAgg && colAgg.total) || 0;
+  const totExp = Number(expAgg && expAgg.total) || 0;
+  const pastRet = Number(loanAgg && loanAgg.total) || 0;
+  const totalRows = Number(colAgg && colAgg.n) || 0;
 
-  return { collections, totCol, totExp, pastRet, totBudget: totCol + pastRet, surplus: (totCol + pastRet) - totExp };
+  // --- The row list ---
+  let collections;
+  let hasMore = false;
+  if (isAll) {
+    const { results } = await env.DB_COLLECTIONS.prepare(
+      'SELECT * FROM collections ORDER BY year DESC, id DESC LIMIT ?'
+    ).bind(ALL_YEARS_ROW_LIMIT + 1).all();
+    const rows = results || [];
+    hasMore = rows.length > ALL_YEARS_ROW_LIMIT;
+    collections = rows.slice(0, ALL_YEARS_ROW_LIMIT).map(r => fromColumnRow('collections', r));
+  } else {
+    // Unchanged for a specific year: every row, same shape, same order as before.
+    collections = await getSheetDataByYear(env, 'COLLECTIONS', year);
+  }
+
+  return {
+    collections,
+    totCol, totExp, pastRet,
+    totBudget: totCol + pastRet,
+    surplus: (totCol + pastRet) - totExp,
+    // New, additive fields — an older cached frontend simply ignores them.
+    totalRows,
+    shownRows: collections.length,
+    hasMore,
+    rowLimit: isAll ? ALL_YEARS_ROW_LIMIT : null,
+  };
 }
 
 export async function getLoansData(env, year) {
