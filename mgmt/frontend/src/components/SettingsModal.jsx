@@ -101,8 +101,11 @@ export default function SettingsModal({ open, onClose, userId }) {
     if (pwForm.next !== pwForm.confirm) return alert('New password does not match');
     setPwSaving(true);
     try {
-      await api.changePassword(pwForm.current, pwForm.next);
-      alert('Password changed successfully.');
+      const res = await api.changePassword(pwForm.current, pwForm.next);
+      // audit H-15: other devices are now signed out by the change. Say so, so the
+      // person knows the action actually cut off whoever had the old password —
+      // the whole reason for changing it.
+      alert((res && res.message) || 'Password changed successfully.');
       setPwForm({ current: '', next: '', confirm: '' });
     } catch (err) {
       alert(err.message);
