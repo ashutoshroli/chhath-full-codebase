@@ -7,7 +7,7 @@ import { getFestivalDates, saveFestivalDates, getPortalSetting, setPortalSetting
 import * as seo from './seo.js';
 import * as wa from './whatsapp.js';
 import { logError, reportErrorToWhatsApp, getErrorLog } from './errorLog.js';
-import { logActivity, getActivityLog } from './logger.js';
+import { logActivity, getActivityLog, logWarn } from './logger.js';
 import * as popups from './popups.js';
 import * as announce from './announcements.js';
 import * as loans from './loans.js';
@@ -18,6 +18,7 @@ import * as backup from './backup.js';
 import * as cq from './collectionQueue.js';
 import { bumpDataVersion, getDataVersion } from './dataVersion.js';
 import { healthCheck } from './config.js';
+import { runRetentionSweep, shouldSweepNow } from './retention.js';
 
 // Actions that only READ — after any OTHER successful action we bump the public
 // data-version counter so the Public portal's ETag changes and cached copies are
@@ -893,5 +894,28 @@ export default {
         logError(env, 'backend', 'scheduled:collectionQueue', err && err.message || String(err), err && err.stack || '', '')
       )
     );
+
+    // ---- Data retention sweep (audit M-38) ----
+    // Nothing in this portal ever deleted anything, so collection_jobs.filled_base64
+    // (a complete filled .docx per COLLECTION save) accumulated forever in D1 — the
+    // fastest route to the 5 GB free-tier storage limit, and pure dead weight once
+    // the PDF exists. activity_log, login_attempts, user_sessions and the WhatsApp
+    // message history grew without bound too.
+    //
+    // The cron fires every minute, but a DELETE counts against D1's 100,000
+    // rows-written-per-day limit, so the sweep runs on ONE minute of each hour and
+    // every statement is individually bounded. It never throws — see retention.js.
+    if (shouldSweepNow()) {
+      ctx.waitUntil(
+        runRetentionSweep(env).then((report) => {
+          const touched = Object.keys(report).length;
+          if (!touched) return; // the steady state — stay silent
+          return logWarn(env, 'backend', 'scheduled:retention',
+            `Retention sweep removed old data: ${JSON.stringify(report)}`, report);
+        }).catch((err) =>
+          logError(env, 'backend', 'scheduled:retention', err && err.message || String(err), err && err.stack || '', '')
+        )
+      );
+    }
   },
 };
