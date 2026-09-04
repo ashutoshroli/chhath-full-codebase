@@ -402,13 +402,22 @@ export default {
       revokeLock: () => withAuth(env, req, (user) => revokeLock(env, req.lockKey, req.targetName, req.ip, user)),
       revokeAllLocks: () => withAuth(env, req, (user) => revokeAllLocks(env, user)),
       getYears: () => withAuth(env, req, () => getYears(env)),
-      getUsers: () => withAuth(env, req, () => getSheetDataAsJSON(env, 'USERS')),
+      // SECURITY (audit H-1, scoped): these three returned member PII and full
+      // financial history to ANY caller holding a valid session, with no role check
+      // whatsoever. Broad read access for the three staff roles is intentional in
+      // this portal — a Subadmin genuinely needs the member list to record a
+      // collection, and the Users tab edits Mobile/Email/WhatsApp — so the fix is
+      // NOT to narrow the payload (that would break Users.jsx). It is to require an
+      // actual staff role, which closes the gap where a legacy or mistyped free-text
+      // role (e.g. an old 'Treasurer' login) gets full read access while
+      // ROLE_PERMISSIONS grants it no write permission at all.
+      getUsers: () => withAuth(env, req, (user) => { requireStaffRole(user); return getSheetDataAsJSON(env, 'USERS'); }),
       getCommittee: () => withAuth(env, req, () => getCommitteeData(env, req.year)),
       getHome: () => withAuth(env, req, () => getHomeData(env, req.year)),
       getExpenses: () => withAuth(env, req, () => getExpensesData(env, req.year)),
       getLoans: () => withAuth(env, req, () => getLoansData(env, req.year)),
-      getUserHistory: () => withAuth(env, req, () => getUserHistory(env, req.userId)),
-      getUserProfile: () => withAuth(env, req, () => getUserProfile(env, req.userId)),
+      getUserHistory: () => withAuth(env, req, (user) => { requireStaffRole(user); return getUserHistory(env, req.userId); }),
+      getUserProfile: () => withAuth(env, req, (user) => { requireStaffRole(user); return getUserProfile(env, req.userId); }),
       getYearContributors: () => withAuth(env, req, () => getYearContributors(env, req.year)),
       getLockedYears: () => withAuth(env, req, async () => Array.from(await getLockedYearsSet(env))),
       lockYear: () => withAuth(env, req, (user) => lockYear(env, req.year, user)),
@@ -788,6 +797,17 @@ export default {
       if (cacheParamFn) {
         const authedUser = await verifyToken(env, req.token).catch(() => null);
         if (authedUser) {
+          // SECURITY (audit H-1): a cache HIT returns WITHOUT invoking the handler,
+          // so any role check that lives inside the handler is bypassed on a hit.
+          // Every action in CACHEABLE_ACTIONS is a staff-level read, so the same
+          // gate the handlers apply must also be applied here, BEFORE the cache is
+          // consulted — otherwise adding a role check to a cached action would be
+          // silently ineffective for as long as a cached copy exists.
+          //
+          // This is also why no per-role or per-user action may ever be added to
+          // CACHEABLE_ACTIONS without putting the role into the cache key: the key
+          // is (action, param, data-version) and carries no authorization dimension.
+          requireStaffRole(authedUser);
           servedFromCacheable = true;
           const param = cacheParamFn(req);
           const version = await getDataVersion(env).catch(() => '0');

@@ -1,8 +1,7 @@
-import { getSheetDataAsJSON } from './crud.js';
 import { requireSuperadmin } from './auth.js';
 import { queuePersonMessageDirect } from './whatsapp.js';
 import { logError, logErrorAt, logWarn } from './logger.js';
-import { waNumberOf } from './phone.js';
+import { waNumber } from './phone.js';
 import { isTruthyFlag } from './flags.js';
 
 // The actual INSERT now lives in logger.js so that whatsapp.js / docxTemplates.js /
@@ -42,6 +41,69 @@ async function withinReportRateLimit(env) {
   }
 }
 
+// ============ WHO GETS THE ERROR REPORT (audit H-2) ============
+//
+// THE BUG: this used to be
+//     (await getSheetDataAsJSON(env, 'COMMITEE MEMBERS')).filter(m => m.Role === 'Superadmin')
+// but `committee_members` HAS NO `role` COLUMN. Its columns are
+//     year, name, created_by, view_role, view_role_hindi, whatsapp
+// (mgmt/db/schema/core.sql), and fromColumnRow() surfaces `view_role` as
+// 'View Role'. So `m.Role` was ALWAYS undefined, the filter ALWAYS produced an
+// empty array, and every single call ended at
+//     throw new Error('No Superadmin WhatsApp/Mobile number is registered in USERS.')
+//
+// Consequence: "Report this to Superadmin" — the only escalation path from the
+// PUBLIC, no-login Consent and Announce pages, and from the Receipt modal — has
+// never delivered a message. Not once. It failed identically whether or not a
+// Superadmin's number was on file, which is why the error text sent everyone
+// looking in the wrong place.
+//
+// Also fixed here, because it is the same query: this endpoint is UNAUTHENTICATED,
+// and it used to read the ENTIRE users table plus the ENTIRE committee table into
+// memory (32k+ rows) just to find a handful of numbers. That is a large slice of
+// the shared D1 daily row-read budget, reachable by anyone. We now select only the
+// Superadmin names (a tiny indexed read) and then fetch just those users by
+// id_code with a single IN (...) query.
+//
+// Returns a de-duplicated array of canonical 91XXXXXXXXXX numbers.
+async function superadminWhatsappNumbers(env) {
+  if (!env.DB_CORE) return [];
+
+  // 1) Committee members tagged Superadmin for any year. TRIM+LOWER so a stray
+  //    'superadmin ' or 'SuperAdmin' still counts (the column is free text).
+  const { results: committee } = await env.DB_CORE.prepare(
+    "SELECT DISTINCT name FROM committee_members WHERE LOWER(TRIM(view_role)) = 'superadmin'"
+  ).all().catch(() => ({ results: [] }));
+  let names = (committee || []).map(r => (r.name == null ? '' : r.name.toString().trim())).filter(Boolean);
+
+  // 2) Fallback: the actual Superadmin LOGINS. Without this, a committee list that
+  //    simply never used the word "Superadmin" in View Role leaves error escalation
+  //    with no recipient at all — the failure mode we just fixed. A login row is
+  //    the authoritative definition of who a Superadmin is.
+  if (!names.length) {
+    const { results: logins } = await env.DB_CORE.prepare(
+      "SELECT name FROM login_users WHERE role = 'Superadmin'"
+    ).all().catch(() => ({ results: [] }));
+    names = (logins || []).map(r => (r.name == null ? '' : r.name.toString().trim())).filter(Boolean);
+  }
+  if (!names.length) return [];
+
+  // 3) Their numbers, in ONE indexed lookup instead of a full-table scan.
+  const placeholders = names.map(() => '?').join(', ');
+  const { results: rows } = await env.DB_CORE.prepare(
+    `SELECT id_code, mobile, whatsapp FROM users WHERE id_code IN (${placeholders})`
+  ).bind(...names).all().catch(() => ({ results: [] }));
+
+  // waNumber() normalises to 91XXXXXXXXXX and rejects anything that is not a real
+  // 10-digit Indian mobile, including the REAL-affinity artefacts these columns
+  // produce ("9876543210.0", "9.87654321e9").
+  return [...new Set(
+    (rows || [])
+      .map(r => waNumber(r.whatsapp) || waNumber(r.mobile))
+      .filter(Boolean)
+  )];
+}
+
 export async function reportErrorToWhatsApp(env, errorId) {
   if (!errorId) throw new Error('errorId required');
 
@@ -53,18 +115,7 @@ export async function reportErrorToWhatsApp(env, errorId) {
     throw new Error('Too many error reports have been sent. Please try again after a while.');
   }
 
-  const users = await getSheetDataAsJSON(env, 'USERS');
-  const userMap = {};
-  users.forEach(u => { userMap[u.ID] = u; });
-  const superadminMembers = (await getSheetDataAsJSON(env, 'COMMITEE MEMBERS')).filter(m => m.Role === 'Superadmin');
-
-  // Normalize + de-duplicate through phone.js so we never queue a bare 10-digit
-  // number (which the external sender can't dial) or a REAL-affinity artefact.
-  const numbers = [...new Set(
-    superadminMembers
-      .map(m => waNumberOf(userMap[m.Name]))
-      .filter(Boolean)
-  )];
+  const numbers = await superadminWhatsappNumbers(env);
   if (numbers.length === 0) {
     throw new Error('No Superadmin WhatsApp/Mobile number is registered in USERS.');
   }
