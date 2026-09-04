@@ -1,5 +1,5 @@
 const API_URL = import.meta.env.VITE_API_URL;
-import { getDeviceId, getDeviceInfo, getClientIp } from './device.js';
+import { getDeviceId, getDeviceInfo } from './device.js';
 
 const TOKEN_KEY = 'cpm_token';
 const EXPIRY_KEY = 'cpm_token_expiry';
@@ -131,7 +131,10 @@ function fireAndForgetLogError(source, message, stack, context) {
 }
 
 async function call(action, params = {}, requireAuth = true) {
-  const body = { action, ...params, deviceId: getDeviceId(), deviceInfo: getDeviceInfo(), clientIp: await getClientIp() };
+  // audit H-13: no `clientIp` is sent any more. It was fetched from a third-party
+  // service (api.ipify.org), delayed the first request of every page load, and was
+  // discarded server-side in favour of the unspoofable CF-Connecting-IP.
+  const body = { action, ...params, deviceId: getDeviceId(), deviceInfo: getDeviceInfo() };
   if (requireAuth) {
     const session = getSession();
     if (!session) {

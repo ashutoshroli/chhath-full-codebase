@@ -271,8 +271,16 @@ function buildLogContext(req) {
   const extra = {
     deviceId: req.deviceId || '',
     deviceInfo: (req.deviceInfo || '').toString().slice(0, 200),
+    // The server-observed Cloudflare edge IP — the only value a client cannot forge.
     clientIp: req.serverIp || '',
-    clientIpReported: req.clientIp || '',
+    // audit H-13: `clientIpReported` used to carry the browser's own idea of its
+    // public IP, fetched from api.ipify.org. That lookup has been removed (it leaked
+    // every admin's IP to a third party, delayed the first request of each page
+    // load, and was discarded server-side anyway). The field is still emitted, but
+    // only when a legacy cached bundle actually sends one — note it read
+    // `req.clientIp`, which line ~190 had ALREADY overwritten with the edge IP, so
+    // the two were always identical and the label was misleading.
+    ...(req.clientIpReported ? { clientIpReported: req.clientIpReported.toString().slice(0, 60) } : {}),
   };
   const supplied = req.context;
   if (!supplied) return JSON.stringify(extra);
