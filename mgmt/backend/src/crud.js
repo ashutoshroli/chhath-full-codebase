@@ -1,5 +1,5 @@
 import { resolveSheet, toColumnPayload, fromColumnRow } from './tableRegistry.js';
-import { requireRole, requireYearUnlocked, requireYearAccess } from './auth.js';
+import { requireRole, requireYearUnlocked, requireYearAccess, PermissionError } from './auth.js';
 import { logErrorAt } from './logger.js';
 import { isTruthyFlag } from './flags.js';
 
@@ -18,6 +18,52 @@ export function dbFor(env, dbName) {
   const binding = DB_BINDINGS[dbName];
   if (!binding || !env[binding]) throw new Error(`No D1 binding for db "${dbName}" (expected env.${binding})`);
   return env[binding];
+}
+
+// ============ GENERIC-CRUD SHEET WHITELIST (audit C-1) ============
+//
+// SECURITY: the `sheet` parameter of the generic saveRecord / updateRecord /
+// deleteRecord router actions is CLIENT-SUPPLIED, and resolveSheet() happily
+// resolves every entry in TABLE_REGISTRY — including `login` (login_users),
+// `loan_consents`, `generated_files`, `activity log`, `error_log` and
+// `portal_settings`.
+//
+// requireRole() only scoped the sheet name for the 'add' action, and an Admin
+// holds 'edit'. So an Admin could send
+//     { action:'updateRecord', sheet:'LOGIN', rowIndex:<own row>,
+//       payload:{ Role:'Superadmin' } }
+// and escalate to Superadmin (verifyToken re-reads the live role, so it took
+// effect on the very next request). The same primitive also allowed:
+//   * sheet:'loan_consents' -> flip a consent to 'accepted' / 'verified' with no
+//     OTP, photo, signature or geolocation — forging a legally binding document;
+//   * sheet:'generated_files' -> repoint a public_link the public portal renders
+//     as a "Verified Record";
+//   * sheet:'activity log' -> edit the audit trail meant to prove who did what.
+// None of those tables carry a `year` column either, so even the year-lock and
+// year-access checks were skipped, and validatePayload() has no required fields
+// for them.
+//
+// Every one of those tables has its own dedicated, individually-gated handler
+// (updateLoginUser, setConsentVerification, convertDocxToPdf, ...). The generic
+// endpoint therefore only needs the six ordinary data sheets the UI actually
+// posts to — verified against the frontend, which passes exactly USERS,
+// COLLECTIONS, EXPENSES, 'COMMITEE MEMBERS' and LOANS ('LOAN GUARANTOR' is
+// written by saveLoanTransaction, not through this path, but is kept here so the
+// six real data sheets stay symmetric).
+const GENERIC_CRUD_SHEETS = new Set([
+  'USERS', 'COLLECTIONS', 'EXPENSES', 'COMMITEE MEMBERS', 'LOANS', 'LOAN GUARANTOR',
+]);
+
+// Throws PermissionError unless `sheetName` is one of the six ordinary data
+// sheets. Returns the normalised (upper-case, trimmed) name.
+export function assertGenericSheetAllowed(sheetName) {
+  const normalized = (sheetName || '').toString().trim().toUpperCase();
+  if (!GENERIC_CRUD_SHEETS.has(normalized)) {
+    throw PermissionError(
+      `"${sheetName}" cannot be changed from this screen. Please use its own dedicated screen instead.`
+    );
+  }
+  return normalized;
 }
 
 // D1 tables (resolved names) that carry a `year` column and are therefore
@@ -120,6 +166,7 @@ function validatePayload(sheetName, payload) {
 }
 
 export async function saveRecord(env, sheetName, payload, user) {
+  assertGenericSheetAllowed(sheetName); // audit C-1 — must be the FIRST check
   requireRole(user, 'add', sheetName);
   if (payload.Year) await requireYearUnlocked(env, payload.Year);
   if (payload.Year) await requireYearAccess(env, user, payload.Year);
@@ -153,6 +200,7 @@ export async function saveRecord(env, sheetName, payload, user) {
 }
 
 export async function updateRecordByIdx(env, sheetName, rowIndex, payload, user) {
+  assertGenericSheetAllowed(sheetName); // audit C-1 — must be the FIRST check
   requireRole(user, 'edit', sheetName);
 
   const { db, table } = resolveSheet(sheetName);
@@ -211,7 +259,10 @@ export async function updateRecordByIdx(env, sheetName, rowIndex, payload, user)
 }
 
 export async function deleteRecordByIdx(env, sheetName, rowIndex, user) {
-  requireRole(user, 'delete');
+  assertGenericSheetAllowed(sheetName); // audit C-1 — must be the FIRST check
+  // The sheet name was previously NOT passed here, so no per-sheet policy could
+  // ever apply to a delete.
+  requireRole(user, 'delete', sheetName);
   const { db, table } = resolveSheet(sheetName);
   const d1 = dbFor(env, db);
 

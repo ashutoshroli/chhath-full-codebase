@@ -1,9 +1,12 @@
 {
   "name": "chhath-mgmt-api",
   "private": true,
+  "type": "module",
+  "comment:type": "The Worker source has always been ESM (src/index.js uses `export default`), which is how wrangler builds it. Declaring it here changes nothing about the deploy — it just lets Node itself parse the same files, so the test suite can import the real source instead of a copy.",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "test": "node --test --test-reporter=spec test/*.test.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.20.0"
