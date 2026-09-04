@@ -45,7 +45,10 @@ export default function AnnouncementPortal({ years }) {
     setError('');
     try {
       const res = await api.generateAnnouncementLink(year, pin.trim(), neverExpires ? null : new Date(expiresAt).toISOString());
-      setGeneratedLink({ url: `${baseUrl}/announce/${res.token}`, pin: res.pin });
+      // audit H-17: use the PIN typed here rather than the one the server used to
+      // echo back. Identical on screen; the live PIN no longer makes a second trip
+      // over the wire for no reason.
+      setGeneratedLink({ url: `${baseUrl}/announce/${res.token}`, pin: pin.trim() });
       setPin('');
       refreshLinks();
     } catch (err) {
