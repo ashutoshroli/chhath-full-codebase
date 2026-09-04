@@ -89,7 +89,29 @@ const PUB_RL_MAX = 60; // per IP per minute — generous for a real viewer, capp
 // Estimated D1 rows read per full portal build (8 table scans, sizes vary). We
 // budget on the free tier's 5,000,000/day, leaving headroom for mgmt admins.
 const D1_DAILY_BUDGET = 4000000;
-const D1_ROWS_PER_BUILD = 2000; // conservative over-estimate per getAllPortalData build
+// A full getAllPortalData build does ~8 unbounded table scans. At 32k members
+// the users + collections scans ALONE are tens of thousands of rows, so the old
+// flat 2000 estimate wildly UNDER-counted and the budget guard would let far
+// more than 5M real reads through before tripping. Estimate conservatively high
+// (better to serve from cache slightly early than to blow the shared D1 quota).
+const D1_ROWS_PER_BUILD = 60000; // conservative over-estimate per full build (~32k users + collections + others)
+
+// KV WRITE DISCIPLINE (audit): this limiter used to do a KV PUT on EVERY allowed
+// request. KV free tier is ~1000 writes/day and is SHARED with the mgmt worker,
+// so at festival scale (tens of thousands of requests) it blew the KV write
+// quota in minutes — after which this limiter AND the D1 budget counter (both
+// KV-backed) started failing, and they fail OPEN, disabling the very protection
+// meant to shield the shared D1 quota. Two mitigations:
+//   1. Most repeat traffic never reaches the Worker at all — the version-keyed
+//      edge cache serves it (see edgeCached/versionCached). So the limiter only
+//      sees cache-miss/first-touch requests.
+//   2. Counting is now SAMPLED: we still READ the counter every time (reads are
+//      cheap and have a far higher free quota), but only WRITE ~1 in
+//      RL_SAMPLE requests, incrementing by the sample size. Statistically the
+//      counter still climbs at the real rate and a sustained flood is caught,
+//      while KV WRITES drop ~20x — keeping us comfortably inside the daily
+//      write budget. A genuine flood from one IP still trips PUB_RL_MAX.
+const RL_SAMPLE = 20;
 
 async function pubRateLimited(env, ip, action) {
   try {
@@ -98,7 +120,12 @@ async function pubRateLimited(env, ip, action) {
     const key = `pub:rl:${action}:${ip}:${bucket}`;
     const cur = parseInt((await env.KV_SESSIONS.get(key)) || '0', 10) || 0;
     if (cur >= PUB_RL_MAX) return true;
-    await env.KV_SESSIONS.put(key, String(cur + 1), { expirationTtl: PUB_RL_WINDOW_SECONDS + 5 });
+    // Sampled write: on average one write per RL_SAMPLE requests, each adding
+    // RL_SAMPLE to the counter, so the expected value tracks the true count
+    // without a write on every hit.
+    if (Math.random() < 1 / RL_SAMPLE) {
+      await env.KV_SESSIONS.put(key, String(cur + RL_SAMPLE), { expirationTtl: PUB_RL_WINDOW_SECONDS + 5 });
+    }
     return false;
   } catch (e) { return false; } // fail open
 }
