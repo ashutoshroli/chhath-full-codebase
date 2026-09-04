@@ -1,6 +1,6 @@
 import { requireAdminOrAbove, ValidationError } from './auth.js';
 import { uploadFileToDrive, getDriveAccessToken } from './account.js';
-import { base64ToBytes, sniffImageMime } from './base64.js';
+import { base64ToBytes, sniffImageMime, MAX_IMAGE_UPLOAD_BYTES } from './base64.js';
 import { r2Available, putToR2, keyForPopup, isR2Url, keyFromR2Url, deleteFromR2 } from './r2.js';
 import { logWarn, logErrorAt } from './logger.js';
 import { isTruthyFlag } from './flags.js';
@@ -183,7 +183,8 @@ export async function savePopupSlides(env, popupId, slides, user) {
 //
 // 8 MB — the frontend already downscales via canvas and sends ~200-400 KB, so this
 // is only a safety net (for an old client, or one where the canvas decode failed).
-const MAX_POPUP_IMAGE_BYTES = 8 * 1024 * 1024;
+// audit H-6: now sourced from base64.js so every upload limit lives in one place.
+const MAX_POPUP_IMAGE_BYTES = MAX_IMAGE_UPLOAD_BYTES;
 
 export async function uploadPopupImage(env, base64, fileName, mimeType, user) {
   requireAdminOrAbove(user);

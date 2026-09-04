@@ -18,6 +18,27 @@ import { ValidationError } from './auth.js';
 
 const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
 
+// ============ UPLOAD SIZE LIMITS (audit H-6) ============
+//
+// base64ToBytes() has always SUPPORTED a maxBytes option, but only two of its eight
+// call sites used it (popup images and the SEO preview image). Every other path —
+// including respondConsent, which is a PUBLIC, no-login endpoint — decoded whatever
+// it was handed.
+//
+// A Worker has 128 MB of memory and a ~10 ms CPU budget on the free plan, and
+// decoding is O(n) in the payload. A single anonymous request carrying a 60 MB
+// base64 photo therefore takes the isolate down; a stream of them is a trivial
+// denial of service against the whole portal, mgmt included.
+//
+// These are the single source of truth. They are generous relative to what the
+// clients actually send (the consent page downscales through a canvas to ~200-400 KB
+// and already refuses a signature file over 1 MB client-side), so they only ever
+// catch an old client, a failed canvas decode, or a deliberate abuse attempt.
+export const MAX_CONSENT_IMAGE_BYTES = 6 * 1024 * 1024;   // consent photo / signature
+export const MAX_IMAGE_UPLOAD_BYTES = 8 * 1024 * 1024;    // popup + SEO images (unchanged value)
+export const MAX_DOCX_BYTES = 10 * 1024 * 1024;           // a .docx template with a letterhead image
+export const MAX_GENERIC_UPLOAD_BYTES = 8 * 1024 * 1024;  // the generic uploadFile action
+
 /** Returns clean base64 with the data-URL prefix and whitespace removed. */
 export function cleanBase64(input, label = 'File') {
   if (input === undefined || input === null || input === '') {

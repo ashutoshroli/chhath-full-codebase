@@ -5,6 +5,7 @@ import { r2Available, putToR2, keyForYear } from './r2.js';
 import { logErrorAt } from './logger.js';
 import { consentPlaceholderFactory } from './consentPlaceholders.js';
 import { isTruthyFlag } from './flags.js';
+import { base64ByteLength, MAX_DOCX_BYTES } from './base64.js';
 
 export const DOC_TYPES = ['receipt', 'certificate', 'samaan', 'consent_loaner', 'consent_guarantor', 'report_en', 'report_hi', 'report_both'];
 
@@ -107,6 +108,16 @@ function assertValidDocxBase64(base64) {
     throw ValidationError(
       'This does not appear to be a .docx file. In Word, use "Save As" and choose the "Word Document (.docx)" format — ' +
       'an older .doc, a .pdf, or an image will not work.'
+    );
+  }
+  // audit H-6: this validator gates BOTH template uploads and every filled document
+  // sent for conversion, but it only ever checked the FORMAT. Check the size too,
+  // cheaply, without decoding.
+  const size = base64ByteLength(b64);
+  if (size > MAX_DOCX_BYTES) {
+    throw ValidationError(
+      `This document is too large (${(size / 1048576).toFixed(1)} MB). The maximum is ${MAX_DOCX_BYTES / 1048576} MB — ` +
+      'please compress or remove any large images in the template.'
     );
   }
   return b64;

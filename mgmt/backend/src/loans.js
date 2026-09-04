@@ -6,7 +6,7 @@ import { getConsentPageTemplate } from './settings.js';
 import { pickRandomActive, renderTemplateChecked, queuePersonMessageDirect, queueGroupMessageDirect, isTruthyFlag as waTruthyFlag } from './whatsapp.js';
 import { uploadFileToDrive } from './account.js';
 import { r2Available, putToR2, keyForYear } from './r2.js';
-import { base64ToBytes } from './base64.js';
+import { base64ToBytes, MAX_CONSENT_IMAGE_BYTES } from './base64.js';
 import { logErrorAt, logWarn } from './logger.js';
 import { waNumberOf, looksLikeAttemptedNumber } from './phone.js';
 import { buildConsentPlaceholders } from './consentPlaceholders.js';
@@ -26,8 +26,14 @@ const isTruthyFlag = waTruthyFlag;
 // bucket exists. `year` groups the object so the Superadmin "Move <year> to
 // Drive" feature can find it later; returns the public URL to store.
 async function uploadConsentFile(env, base64, fileName, year) {
+  // audit H-6: respondConsent is PUBLIC and unauthenticated, so an uncapped decode
+  // here is a one-request denial of service against a 128 MB isolate. Decode ONCE,
+  // before the storage branch, so the cap applies on the Drive fallback path too
+  // (that branch re-encodes through uploadFileToDrive, whose own generic 8 MB limit
+  // is looser than the consent-specific one).
+  const bytes = base64ToBytes(base64, { label: fileName || 'File', maxBytes: MAX_CONSENT_IMAGE_BYTES });
+
   if (r2Available(env)) {
-    const bytes = base64ToBytes(base64, { label: fileName || 'File' });
     const key = keyForYear(year, 'consent', fileName);
     return putToR2(env, key, bytes, 'image/jpeg');
   }
