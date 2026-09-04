@@ -1,5 +1,5 @@
 import { getSheetDataAsJSON } from './crud.js';
-import { requireAdminOrAbove, requireSuperadmin, PermissionError, hashPassword, verifyPassword } from './auth.js';
+import { requireAdminOrAbove, requireSuperadmin, PermissionError, ValidationError, hashPassword, verifyPassword } from './auth.js';
 import { base64ToBytes } from './base64.js';
 
 const ROLE_PERMISSIONS_KEYS = ['Superadmin', 'Admin', 'Subadmin'];
@@ -45,20 +45,20 @@ export async function addLoginUser(env, userId, password, roleVal, mobile, email
   if (user.role === 'Admin' && roleVal !== 'Subadmin') {
     throw PermissionError('You can only add Subadmin logins.');
   }
-  if (!userId || !password || !roleVal) throw new Error('User, Password and Role are required.');
+  if (!userId || !password || !roleVal) throw ValidationError('User, Password and Role are required.');
   if (password.toString().trim().length < MIN_PASSWORD_LENGTH) {
-    throw new Error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+    throw ValidationError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
   }
-  if (!ROLE_PERMISSIONS_KEYS.includes(roleVal)) throw new Error('Invalid role.');
+  if (!ROLE_PERMISSIONS_KEYS.includes(roleVal)) throw ValidationError('Invalid role.');
   const mobileTrim = (mobile || '').toString().trim();
   const emailTrim = (email || '').toString().trim();
-  if (!/^\d{10}$/.test(mobileTrim)) throw new Error('Mobile number must be 10 digits.');
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) throw new Error('A valid Email is required.');
+  if (!/^\d{10}$/.test(mobileTrim)) throw ValidationError('Mobile number must be 10 digits.');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) throw ValidationError('A valid Email is required.');
 
   const existing = await env.DB_CORE.prepare('SELECT id FROM login_users WHERE name = ?').bind(userId.toString().trim()).first();
-  if (existing) throw new Error('A login for this user already exists — please edit it instead.');
+  if (existing) throw ValidationError('A login for this user already exists — please edit it instead.');
   const conflict = await findLoginConflict(env, mobileTrim, emailTrim, null);
-  if (conflict) throw new Error(conflict);
+  if (conflict) throw ValidationError(conflict);
 
   const hashed = await hashPassword(password.toString(), env.PASSWORD_SALT);
   await env.DB_CORE.prepare(
@@ -69,21 +69,21 @@ export async function addLoginUser(env, userId, password, roleVal, mobile, email
 
 export async function updateLoginUser(env, rowIndex, password, roleVal, mobile, email, user) {
   requireSuperadmin(user);
-  if (!rowIndex) throw new Error('rowIndex required');
-  if (!roleVal || !ROLE_PERMISSIONS_KEYS.includes(roleVal)) throw new Error('Invalid role.');
+  if (!rowIndex) throw ValidationError('rowIndex required');
+  if (!roleVal || !ROLE_PERMISSIONS_KEYS.includes(roleVal)) throw ValidationError('Invalid role.');
   const mobileTrim = (mobile || '').toString().trim();
   const emailTrim = (email || '').toString().trim();
-  if (!/^\d{10}$/.test(mobileTrim)) throw new Error('Mobile number must be 10 digits.');
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) throw new Error('A valid Email is required.');
+  if (!/^\d{10}$/.test(mobileTrim)) throw ValidationError('Mobile number must be 10 digits.');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) throw ValidationError('A valid Email is required.');
 
   const current = await env.DB_CORE.prepare('SELECT name FROM login_users WHERE id = ?').bind(rowIndex).first();
   const currentName = current ? current.name.trim() : null;
   const conflict = await findLoginConflict(env, mobileTrim, emailTrim, currentName);
-  if (conflict) throw new Error(conflict);
+  if (conflict) throw ValidationError(conflict);
 
   if (password) {
     if (password.toString().trim().length < MIN_PASSWORD_LENGTH) {
-      throw new Error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+      throw ValidationError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
     }
     const hashed = await hashPassword(password.toString(), env.PASSWORD_SALT);
     await env.DB_CORE.prepare(
@@ -99,7 +99,7 @@ export async function updateLoginUser(env, rowIndex, password, roleVal, mobile, 
 
 export async function deleteLoginUser(env, rowIndex, user) {
   requireSuperadmin(user);
-  if (!rowIndex) throw new Error('rowIndex required');
+  if (!rowIndex) throw ValidationError('rowIndex required');
   await env.DB_CORE.prepare('DELETE FROM login_users WHERE id = ?').bind(rowIndex).run();
   return { success: true };
 }
@@ -109,7 +109,7 @@ export async function updateOwnProfile(env, payload, user) {
   const COL_OF = { Mobile: 'mobile', Email: 'email', WhatsApp: 'whatsapp' };
   ['Mobile', 'WhatsApp'].forEach(f => {
     if (payload[f] !== undefined && payload[f] !== null && payload[f].toString().trim() !== '') {
-      if (!/^\d{10}$/.test(payload[f].toString().trim())) throw new Error(f + ' must be 10 digits');
+      if (!/^\d{10}$/.test(payload[f].toString().trim())) throw ValidationError(f + ' must be 10 digits');
     }
   });
   const sets = [];
@@ -124,18 +124,18 @@ export async function updateOwnProfile(env, payload, user) {
 }
 
 export async function changePassword(env, currentPassword, newPassword, user) {
-  if (!currentPassword || !newPassword) throw new Error('Current and new password required');
+  if (!currentPassword || !newPassword) throw ValidationError('Current and new password required');
   if (newPassword.toString().trim().length < MIN_PASSWORD_LENGTH) {
-    throw new Error(`New password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+    throw ValidationError(`New password must be at least ${MIN_PASSWORD_LENGTH} characters`);
   }
 
   const row = await env.DB_CORE.prepare('SELECT id, password FROM login_users WHERE name = ?').bind(user.name).first();
-  if (!row) throw new Error('Login record not found');
+  if (!row) throw ValidationError('Login record not found');
 
   // verifyPassword accepts both the legacy bare-SHA-256 hash and the new PBKDF2
   // format, and does a constant-time comparison.
   const { ok } = await verifyPassword(env, currentPassword.toString().trim(), row.password);
-  if (!ok) throw new Error('Current password is incorrect');
+  if (!ok) throw ValidationError('Current password is incorrect');
 
   // The new password is always written in the new PBKDF2 format.
   const newHashed = await hashPassword(newPassword.toString().trim());

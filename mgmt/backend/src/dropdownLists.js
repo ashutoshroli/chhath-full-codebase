@@ -1,4 +1,4 @@
-import { requireSuperadmin } from './auth.js';
+import { requireSuperadmin, ValidationError } from './auth.js';
 
 const DROPDOWN_LIST_TYPES = ['Category', 'Payment Mode', 'Loan Status', 'Village'];
 
@@ -23,13 +23,13 @@ export async function getAllDropdownLists(env) {
 
 export async function addDropdownListItem(env, type, englishValue, hindiLabel, user) {
   requireSuperadmin(user);
-  if (!DROPDOWN_LIST_TYPES.includes(type)) throw new Error('Invalid list type');
-  if (!englishValue || !englishValue.toString().trim()) throw new Error('English value required');
+  if (!DROPDOWN_LIST_TYPES.includes(type)) throw ValidationError('Invalid list type');
+  if (!englishValue || !englishValue.toString().trim()) throw ValidationError('English value required');
   const existing = await env.DB_CORE.prepare(
     'SELECT english_value, sort_order FROM dropdown_lists WHERE list_type = ?'
   ).bind(type).all();
   if (existing.results.some(r => r.english_value.toLowerCase() === englishValue.toString().trim().toLowerCase())) {
-    throw new Error('Ye value already list mein hai');
+    throw ValidationError('This value is already in the list.');
   }
   const maxOrder = existing.results.reduce((m, r) => Math.max(m, parseInt(r.sort_order) || 0), 0);
   await env.DB_CORE.prepare(
@@ -40,7 +40,7 @@ export async function addDropdownListItem(env, type, englishValue, hindiLabel, u
 
 export async function updateDropdownListItem(env, rowIndex, englishValue, hindiLabel, active, user) {
   requireSuperadmin(user);
-  if (!rowIndex) throw new Error('rowIndex required');
+  if (!rowIndex) throw ValidationError('rowIndex required');
   const sets = [];
   const vals = [];
   if (englishValue !== undefined) { sets.push('english_value = ?'); vals.push(englishValue.toString().trim()); }
@@ -54,7 +54,7 @@ export async function updateDropdownListItem(env, rowIndex, englishValue, hindiL
 
 export async function deleteDropdownListItem(env, rowIndex, user) {
   requireSuperadmin(user);
-  if (!rowIndex) throw new Error('rowIndex required');
+  if (!rowIndex) throw ValidationError('rowIndex required');
   await env.DB_CORE.prepare('DELETE FROM dropdown_lists WHERE id = ?').bind(rowIndex).run();
   return { success: true };
 }
