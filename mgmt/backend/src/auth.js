@@ -118,6 +118,30 @@ async function sha256Hex(str) {
 // every single authenticated request.
 const SESSION_LASTSEEN_THROTTLE_MS = 5 * 60 * 1000; // 5 min
 
+// Records one login attempt (success OR failure) in the audit DB. Best-effort:
+// a failure here must NEVER affect the login result. The password is never
+// touched; only the identifier that was typed is stored. Attempt volume is
+// naturally bounded per IP by the lockout counter + index.js's per-IP rate
+// limit, so this can't be used to flood the table.
+async function recordLoginAttempt(env, { identifier, name, success, reason, ip, deviceInfo, locked }) {
+  try {
+    if (!env.DB_AUDIT) return;
+    await env.DB_AUDIT.prepare(
+      `INSERT INTO login_attempts (identifier, name, success, reason, ip, device_info, locked, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      (identifier || '').toString().slice(0, 120),
+      name || null,
+      success ? 1 : 0,
+      reason || '',
+      (ip || '').toString(),
+      (deviceInfo || '').toString().slice(0, 400),
+      locked ? 1 : 0,
+      new Date().toISOString()
+    ).run();
+  } catch (e) { /* non-fatal */ }
+}
+
 async function pbkdf2Hash(pw, saltBytes, iterations) {
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey('raw', enc.encode(pw), 'PBKDF2', false, ['deriveBits']);
@@ -196,6 +220,7 @@ export async function login(env, name, password, rememberMe, clientIp, deviceInf
   if (fails >= MAX_LOGIN_ATTEMPTS) {
     // `lockedOut` lets index.js log ONLY the lockout instead of every wrong
     // password (see isExpectedError there).
+    await recordLoginAttempt(env, { identifier: name, name: null, success: false, reason: 'locked_out', ip, deviceInfo, locked: 1 });
     return { success: false, lockedOut: true, message: 'Too many attempts. Try again in a few minutes.' };
   }
 
@@ -207,7 +232,15 @@ export async function login(env, name, password, rememberMe, clientIp, deviceInf
   const { ok, needsUpgrade } = await verifyPassword(env, password.toString().trim(), storedHash);
 
   if (!user || !ok) {
-    await env.KV_SESSIONS.put(lockKey, String(fails + 1), { expirationTtl: LOGIN_LOCKOUT_SECONDS });
+    const newFails = fails + 1;
+    await env.KV_SESSIONS.put(lockKey, String(newFails), { expirationTtl: LOGIN_LOCKOUT_SECONDS });
+    // `unknown_user` vs `bad_password` is for the Superadmin audit view only —
+    // the message returned to the client stays generic (no user enumeration).
+    await recordLoginAttempt(env, {
+      identifier: name, name: user ? user.name.trim() : null,
+      success: false, reason: user ? 'bad_password' : 'unknown_user',
+      ip, deviceInfo, locked: newFails >= MAX_LOGIN_ATTEMPTS ? 1 : 0,
+    });
     return { success: false, message: 'Invalid Username/Mobile/Email or Password' };
   }
   await env.KV_SESSIONS.delete(lockKey);
@@ -250,6 +283,8 @@ export async function login(env, name, password, rememberMe, clientIp, deviceInf
       ).bind(tokenHash, actualName, user.role, ip || '', (deviceInfo || '').toString().slice(0, 400), now, now, expiresAt).run();
     }
   } catch (e) { /* non-fatal: login still succeeds even if audit write fails */ }
+
+  await recordLoginAttempt(env, { identifier: name, name: actualName, success: true, reason: 'ok', ip, deviceInfo, locked: 0 });
 
   return { success: true, token, name: actualName, role: user.role, expiresAt };
 }
@@ -385,6 +420,88 @@ export async function getUserSessions(env, targetName, user) {
       ORDER BY last_seen_at DESC`
   ).bind((targetName || '').toString().trim(), now).all();
   return { sessions: (results || []).map(r => sessionOut(r, null)) };
+}
+
+// Superadmin: recent login attempts for the audit page. Optional filters:
+// name (login id), successOnly/failedOnly, limit (capped).
+export async function getLoginAttempts(env, opts, user) {
+  requireSuperadmin(user);
+  if (!env.DB_AUDIT) return { attempts: [] };
+  const o = opts || {};
+  const limit = Math.min(Math.max(parseInt(o.limit) || 200, 1), 1000);
+  const where = [];
+  const args = [];
+  if (o.name) { where.push('name = ?'); args.push(o.name.toString().trim()); }
+  if (o.failedOnly) where.push('success = 0');
+  else if (o.successOnly) where.push('success = 1');
+  const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const { results } = await env.DB_AUDIT.prepare(
+    `SELECT id, identifier, name, success, reason, ip, device_info, locked, created_at
+       FROM login_attempts ${clause} ORDER BY id DESC LIMIT ?`
+  ).bind(...args, limit).all();
+  return { attempts: results || [] };
+}
+
+// ---- Superadmin: locked accounts + unlock ----
+
+// Lists the accounts/IPs currently locked out. Lockout state lives in KV as
+// `loginfail:<name>[:<ip>]` counters; an account is LOCKED when its counter has
+// reached MAX_LOGIN_ATTEMPTS. We list that prefix and return only the locked
+// ones, parsing name + ip out of the key.
+export async function getLockedAccounts(env, user) {
+  requireSuperadmin(user);
+  if (!env.KV_SESSIONS || !env.KV_SESSIONS.list) return { locked: [] };
+  const out = [];
+  let cursor;
+  do {
+    const res = await env.KV_SESSIONS.list({ prefix: 'loginfail:', cursor });
+    for (const k of res.keys || []) {
+      const count = parseInt((await env.KV_SESSIONS.get(k.name)) || '0', 10) || 0;
+      if (count >= MAX_LOGIN_ATTEMPTS) {
+        // key = loginfail:<name>[:<ip>]  — name may itself contain no ':'.
+        const rest = k.name.slice('loginfail:'.length);
+        const lastColon = rest.lastIndexOf(':');
+        // Heuristic: if the tail looks like an IP, split it off; else it's name-only.
+        let name = rest, ip = '';
+        if (lastColon > 0) {
+          const tail = rest.slice(lastColon + 1);
+          if (/^[0-9a-fA-F:.]+$/.test(tail)) { name = rest.slice(0, lastColon); ip = tail; }
+        }
+        out.push({ key: k.name, name, ip, attempts: count });
+      }
+    }
+    cursor = res.list_complete ? null : res.cursor;
+  } while (cursor);
+  return { locked: out };
+}
+
+// Unlock ONE locked account/IP by deleting its KV counter (immediate — no 15-min
+// wait). `key` is the exact KV key from getLockedAccounts; if not supplied it is
+// rebuilt from name (+ optional ip).
+export async function revokeLock(env, key, name, ip, user) {
+  requireSuperadmin(user);
+  let k = (key || '').toString().trim();
+  if (!k) {
+    const nm = (name || '').toString().trim();
+    if (!nm) throw ValidationError('An account name or lock key is required.');
+    k = ip ? `loginfail:${nm}:${ip}` : `loginfail:${nm}`;
+  }
+  if (!k.startsWith('loginfail:')) throw ValidationError('Invalid lock key.');
+  await env.KV_SESSIONS.delete(k);
+  return { success: true };
+}
+
+// Emergency: clear ALL lockout counters.
+export async function revokeAllLocks(env, user) {
+  requireSuperadmin(user);
+  if (!env.KV_SESSIONS || !env.KV_SESSIONS.list) return { success: true, cleared: 0 };
+  let cursor, cleared = 0;
+  do {
+    const res = await env.KV_SESSIONS.list({ prefix: 'loginfail:', cursor });
+    for (const k of res.keys || []) { await env.KV_SESSIONS.delete(k.name); cleared++; }
+    cursor = res.list_complete ? null : res.cursor;
+  } while (cursor);
+  return { success: true, cleared };
 }
 
 // Force-logout: revoke one session (by id) OR every active session of a user.
