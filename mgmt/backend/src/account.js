@@ -216,8 +216,13 @@ export async function uploadFileToDrive(env, base64Data, fileName, mimeType, opt
 
 // OAuth refresh-token -> access token exchange (Drive scope, personal Gmail account).
 // Cached in KV for ~55min (tokens are valid 60min) so we're not hitting Google on every call.
+// Namespaced like every other key in this store (rl:, mgmtcache:, loginfail:,
+// consentotp:, session:) so the contents are self-describing. The previous bare
+// 'drive_access_token' key simply expires on its own within the hour.
+const DRIVE_TOKEN_KEY = 'drive:access_token';
+
 export async function getDriveAccessToken(env) {
-  const cached = await env.KV_SESSIONS.get('drive_access_token');
+  const cached = await env.KV_SESSIONS.get(DRIVE_TOKEN_KEY);
   if (cached) return cached;
   if (!env.DRIVE_OAUTH_CLIENT_ID || !env.DRIVE_OAUTH_CLIENT_SECRET || !env.DRIVE_OAUTH_REFRESH_TOKEN) {
     throw new Error('DRIVE_OAUTH_CLIENT_ID / DRIVE_OAUTH_CLIENT_SECRET / DRIVE_OAUTH_REFRESH_TOKEN not configured');
@@ -234,7 +239,7 @@ export async function getDriveAccessToken(env) {
   });
   if (!res.ok) throw new Error('Drive OAuth token refresh failed: ' + await res.text());
   const { access_token, expires_in } = await res.json();
-  await env.KV_SESSIONS.put('drive_access_token', access_token, { expirationTtl: Math.max(60, expires_in - 300) });
+  await env.KV_SESSIONS.put(DRIVE_TOKEN_KEY, access_token, { expirationTtl: Math.max(60, expires_in - 300) });
   return access_token;
 }
 

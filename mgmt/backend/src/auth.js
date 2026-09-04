@@ -114,6 +114,29 @@ async function sha256Hex(str) {
   return toHex(digest);
 }
 
+// ---- Session KV keys (audit H-4) ----
+//
+// SECURITY: sessions used to be stored at `session:<RAW TOKEN>`, i.e. the KV
+// namespace held the very value a client presents to authenticate. Anyone who could
+// list or dump that namespace held directly replayable sessions — and until this
+// change the PUBLIC, unauthenticated Worker was bound to the same namespace.
+//
+// The audit DB deliberately stores only a SHA-256 hash (user_sessions.token_hash)
+// for exactly this reason; KV now matches it. The raw token exists only in transit
+// and in the client's own storage.
+//
+// MIGRATION: verifyToken() and doLogout() also check the OLD raw-token key, so
+// every session that is live at deploy time keeps working. Those legacy keys expire
+// on their own (8 hours, or 30 days with "remember me"), after which the fallback is
+// dead code and can be deleted — see LEGACY_SESSION_KEY_SUNSET below. We do NOT
+// rewrite legacy entries to the new key on read: that would cost a KV write per
+// request, and the free tier allows only ~1000 writes a day.
+const sessionKeyByHash = (tokenHash) => 'session:' + tokenHash;
+const legacySessionKeyByToken = (token) => 'session:' + token;
+// Delete the legacy fallback in verifyToken()/doLogout() any time after
+// 30 days past deployment (the longest possible "remember me" TTL).
+const LEGACY_SESSION_KEY_SUNSET = '30 days after the deploy that introduced hashed session keys';
+
 // last_seen is refreshed at most once per this window, to avoid a D1 write on
 // every single authenticated request.
 const SESSION_LASTSEEN_THROTTLE_MS = 5 * 60 * 1000; // 5 min
@@ -266,7 +289,7 @@ export async function login(env, name, password, rememberMe, clientIp, deviceInf
   // session up in the audit DB (for remote-logout revocation + last-seen)
   // without ever needing the raw token again.
   await env.KV_SESSIONS.put(
-    'session:' + token,
+    sessionKeyByHash(tokenHash),
     JSON.stringify({ name: actualName, role: user.role, expiresAt, th: tokenHash }),
     { expirationTtl: Math.floor(ttl / 1000) }
   );
@@ -290,7 +313,11 @@ export async function login(env, name, password, rememberMe, clientIp, deviceInf
 }
 
 export async function doLogout(env, token) {
-  await env.KV_SESSIONS.delete('session:' + token);
+  // Delete BOTH the hashed key and the legacy raw-token key, so a session created
+  // before this change still logs out properly (see LEGACY_SESSION_KEY_SUNSET).
+  const logoutHash = await sha256Hex(token || '');
+  await env.KV_SESSIONS.delete(sessionKeyByHash(logoutHash));
+  await env.KV_SESSIONS.delete(legacySessionKeyByToken(token));
   // Mark the audit row revoked (kept for history) — best-effort.
   try {
     if (env.DB_AUDIT && token) {
@@ -304,11 +331,32 @@ export async function doLogout(env, token) {
 
 export async function verifyToken(env, token) {
   if (!token) return null;
-  const cached = await env.KV_SESSIONS.get('session:' + token);
+  // Hashed key first (the normal path — one KV read). A session created before this
+  // change still resolves via the legacy raw-token key, costing one extra read until
+  // it expires; see LEGACY_SESSION_KEY_SUNSET.
+  const tokenHash = await sha256Hex(token);
+  let cached = await env.KV_SESSIONS.get(sessionKeyByHash(tokenHash));
+  let viaLegacyKey = false;
+  if (!cached) {
+    cached = await env.KV_SESSIONS.get(legacySessionKeyByToken(token));
+    viaLegacyKey = !!cached;
+  }
   if (!cached) return null;
   let s;
   try { s = JSON.parse(cached); } catch (e) { return null; } // malformed session -> treat as invalid
   if (!s || Date.now() >= s.expiresAt) return null;
+
+  // SECURITY: the legacy lookup is `get('session:' + <whatever was presented>)`, and
+  // the NEW key is `'session:' + sha256(token)`. So presenting a token's HASH as the
+  // token would land on the new key and authenticate — and that hash is not secret:
+  // it is stored in user_sessions.token_hash, the audit DB whose whole design goal is
+  // to hold nothing replayable. That would have handed the attack back.
+  //
+  // Bind the key to its contents: a session reached through the legacy key must
+  // carry `th === sha256(presented token)`, which is true only when the presented
+  // value really is the raw token. `th` has been written on every session since the
+  // audit DB was introduced, so requiring it here logs nobody out.
+  if (viaLegacyKey && s.th !== tokenHash) return null;
 
   // SECURITY (session revocation): the role was snapshotted into KV at login and,
   // with "remember me", the session lives up to 30 days. Without this check, a

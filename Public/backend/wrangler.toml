@@ -14,16 +14,37 @@ compatibility_date = "2025-01-01"
 # a separate read-only permission mode yet. If Cloudflare ships read-only D1
 # tokens before you deploy this, use one here for defense in depth.
 
-# KV — reused from the mgmt worker (same namespace id). Used ONLY for two
-# lightweight guards (hardening A + C): a per-IP request rate limit, and a daily
-# D1 read-budget counter that makes the public portal serve from cache (instead
-# of hitting D1) once the day's reads approach the free-tier limit — so a flood
-# of public requests can no longer exhaust D1 and take the whole portal (mgmt
-# included) offline. Keys are namespaced with a "pub:" prefix so they never
-# collide with mgmt's session/cache keys.
+# KV — used for two lightweight guards (hardening A + C): a per-IP request rate
+# limit, and a daily D1 read-budget counter that makes the public portal serve from
+# cache (instead of hitting D1) once the day's reads approach the free-tier limit —
+# so a flood of public requests can no longer exhaust D1 and take the whole portal
+# (mgmt included) offline. Also holds the last-known-good portalData snapshot.
+#
+# ⚠️ SECURITY (audit H-4) — THIS USED TO BE THE MGMT WORKER'S NAMESPACE.
+# Both wrangler.toml files carried the SAME id (fc720867ed48459bb723279a56767711),
+# which meant this PUBLIC, unauthenticated Worker held a read/write binding to the
+# namespace storing live mgmt sessions, the Google Drive OAuth access token, cached
+# member PII (mgmtcache:*), login lockout counters and consent OTP proofs. The only
+# thing keeping it away from them was the "pub:" prefix convention — a comment, not
+# a boundary. It also meant the two Workers competed for the same ~1000/day KV write
+# budget, which this file already documents as a real outage cause.
+#
+# ---- ONE-TIME SETUP REQUIRED BEFORE THIS TAKES EFFECT ----
+# Create a dedicated namespace and paste its id below:
+#
+#     cd Public/backend
+#     wrangler kv namespace create PUBLIC_CACHE
+#
+# then replace REPLACE_WITH_NEW_NAMESPACE_ID with the id it prints and deploy.
+#
+# The code is deliberately migration-safe: pubKv() in src/index.js prefers
+# env.KV_PUBLIC and falls back to env.KV_SESSIONS, so it behaves exactly as before
+# until the new namespace exists. Nothing is lost by switching — every key this
+# Worker writes (pub:rl:*, pub:d1reads:*, pub:snapshot:*) is a cache or a counter
+# that rebuilds itself on first use.
 [[kv_namespaces]]
-binding = "KV_SESSIONS"
-id = "fc720867ed48459bb723279a56767711"
+binding = "KV_PUBLIC"
+id = "REPLACE_WITH_NEW_NAMESPACE_ID"
 
 [[d1_databases]]
 binding = "DB_CORE"
