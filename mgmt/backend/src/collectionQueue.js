@@ -26,6 +26,7 @@ import { requireStaffRole, requireRole, requireYearUnlocked, requireYearAccess, 
 import { convertDocxToPdf } from './docxTemplates.js';
 import { triggerCollectionMessages } from './whatsapp.js';
 import { logErrorAt, logWarn } from './logger.js';
+import { randomId } from './random.js';
 
 const MAX_ATTEMPTS = 3;          // a job that keeps failing is parked as 'failed'
 const CLAIM_BATCH = 5;           // jobs processed per cron tick (keeps within CPU limits)
@@ -42,9 +43,7 @@ const QUEUEABLE_DOC_TYPES = new Set(['', 'receipt', 'certificate', 'samaan']);
 // 700 KB of base64 (~525 KB of bytes) is generous while still fitting a row.
 const MAX_QUEUE_BASE64_CHARS = 700 * 1024;
 
-function genJobId() {
-  return 'JOB' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-}
+const genJobId = () => randomId('JOB');
 
 function jobsDb(env) {
   if (!env || !env.DB_MISC) throw new Error('DB_MISC binding not configured — collection_jobs unavailable.');

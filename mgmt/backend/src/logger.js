@@ -1,3 +1,4 @@
+import { randomId } from './random.js';
 // ============ CENTRAL ERROR LOGGER ============
 //
 // Single source of truth for writing to `error_log`. Before this module there
@@ -26,7 +27,7 @@ const INSERT_SQL =
 const DEDUP_WINDOW_MS = 5 * 60 * 1000;
 
 export function newErrorId() {
-  return 'ERR' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  return randomId('ERR');
 }
 
 function clamp(v, max) {

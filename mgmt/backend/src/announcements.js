@@ -4,15 +4,16 @@ import { requireAdminOrAbove, ValidationError, hashPassword, verifyPassword } fr
 // accept 'yes'/0/false the way every other module did — exactly the divergence
 // that causes "Active but never shown" bugs.
 import { isTruthyFlag } from './flags.js';
+import { randomId, randomToken } from './random.js';
 
 const ANNOUNCE_MAX_PIN_ATTEMPTS = 5;
 const ANNOUNCE_PIN_LOCKOUT_SECONDS = 900; // 15 min, mirrors login lockout
 const ANNOUNCE_SESSION_TTL_SECONDS = 21600; // 6 hours
 
-function generateAnnouncementToken() {
-  return crypto.randomUUID().replace(/-/g, '') + Math.random().toString(36).slice(2, 8);
-}
-function generateCustomAnnouncementId() { return 'CA' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+// SECURITY (audit C-4): the announce token is a bearer credential handed out over
+// WhatsApp — it must come from a CSPRNG, not Math.random(). See random.js.
+const generateAnnouncementToken = () => randomToken();
+const generateCustomAnnouncementId = () => randomId('CA');
 
 // PIN minimum length. A shared on-stage announce link protected by a 4-digit PIN
 // (10k combinations) was too weak even with the 5-attempt lockout; require 6.

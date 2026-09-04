@@ -25,6 +25,7 @@
 // same D1 bindings. Nothing else in the codebase calls into here.
 
 import { requireSuperadmin } from './auth.js';
+import { randomHex } from './random.js';
 
 const BACKUP_FORMAT_VERSION = 1;
 
@@ -321,7 +322,8 @@ async function restoreOneTable(db, table, rows) {
   // per-connection; on D1 we create/drop an ordinary table with a random suffix to
   // avoid any collision, then always drop it in finally.
   // Must start with a lowercase letter to satisfy SAFE_IDENT (no leading '_').
-  const stg = `zzrestorestg_${table}_${Math.random().toString(36).slice(2, 8)}`;
+  // A collision here would make one restore clobber another's staging table.
+  const stg = `zzrestorestg_${table}_${randomHex(4)}`;
   assertSafeTable(stg);
   const qStg = quoteIdent(stg);
 
