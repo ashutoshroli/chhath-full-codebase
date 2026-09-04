@@ -130,6 +130,23 @@ export async function exportBackup(env, user) {
   }
 
   const totalRows = Object.values(counts).reduce((a, b) => a + b, 0);
+
+  // SCALE GUARD (audit): exportBackup materialises every row of every table into
+  // one in-memory object in a single Worker request. At 32k members + years of
+  // collections + message/activity logs this can approach the Worker's memory
+  // (128MB) and CPU/wall-clock limits and fail HALF-WAY with an opaque error. We
+  // don't refuse (a real backup must still be possible), but we surface a clear
+  // warning so a Superadmin knows a very large export may time out and can prune
+  // old logs first (activity_log / error_log / message logs are the usual bulk).
+  const BACKUP_ROW_WARN = 150000;
+  const warnings = [];
+  if (totalRows >= BACKUP_ROW_WARN) {
+    warnings.push(
+      `This backup contains ${totalRows.toLocaleString()} rows. Very large exports can be slow ` +
+      `or time out on the free tier — if it fails, clear old activity/error/message logs and retry.`
+    );
+  }
+
   return {
     success: true,
     backup: {
@@ -140,6 +157,7 @@ export async function exportBackup(env, user) {
       counts,
       data,
     },
+    warnings,
   };
 }
 
