@@ -794,7 +794,11 @@ export default {
       addCustomAnnouncement: () => withAuth(env, req, (user) => announce.addCustomAnnouncement(env, req.year, req.textHindi, req.textEnglish, req.priority, user)),
       updateCustomAnnouncement: () => withAuth(env, req, (user) => announce.updateCustomAnnouncement(env, req.id, req.textHindi, req.textEnglish, req.priority, user)),
       deleteCustomAnnouncement: () => withAuth(env, req, (user) => announce.deleteCustomAnnouncement(env, req.id, user)),
-      verifyAnnouncementPin: () => announce.verifyAnnouncementPin(env, req.token, req.pin),
+      // audit H-17: the PIN-failure lockout is now scoped to the caller, so a
+      // link-holder cannot lock the whole committee out. `req.serverIp` is the
+      // Cloudflare edge IP (CF-Connecting-IP, set above) — the one value the
+      // caller cannot forge.
+      verifyAnnouncementPin: () => announce.verifyAnnouncementPin(env, req.token, req.pin, req.serverIp),
       getAnnouncementQueue: () => announce.getAnnouncementQueue(env, req.announceToken, req.statusFilter, req.typeFilter),
       markAnnounced: () => announce.markAnnounced(env, req.announceToken, req.itemId, req.itemType),
       reannounceAll: () => announce.reannounceAll(env, req.announceToken, req.typeFilter),
