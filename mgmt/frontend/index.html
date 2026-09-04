@@ -57,7 +57,14 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round">
   </noscript>
 
-  <!-- Google Tag Manager — replace GTM-M2JP98W5 with your real container ID.
+  <!-- Google Tag Manager.
+       audit L-21: the container id used to be hardcoded here with a "replace with
+       your real container ID" comment, which means nobody could tell whether
+       GTM-M2JP98W5 was the real one or the placeholder from the tutorial. It now
+       comes from VITE_GTM_ID at build time (see vite.config.js), defaulting to the
+       id that has been shipping so this is not a behaviour change. Leave
+       VITE_GTM_ID empty to disable analytics entirely — the snippet then does not
+       load at all, which is what a local/dev build wants.
        GA4 and Microsoft Clarity are configured as tags INSIDE this GTM container.
        PERFORMANCE: loaded on window `load` (after first paint) so analytics never
        delays the LCP. The gtm.js script itself was already async; deferring the
@@ -66,18 +73,20 @@
   <script>
   window.dataLayer = window.dataLayer || [];
   window.addEventListener('load', function () {
+    var gtmId = __GTM_ID__;
+    if (!gtmId) return; // no container configured — ship no analytics at all
     (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
     j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
     'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
-    })(window,document,'script','dataLayer','GTM-M2JP98W5');
+    })(window,document,'script','dataLayer',gtmId);
   });
   </script>
   <!-- End Google Tag Manager -->
 </head>
 <body>
   <!-- Google Tag Manager (noscript) -->
-  <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-M2JP98W5"
+  <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=__GTM_ID_RAW__"
   height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   <!-- End Google Tag Manager (noscript) -->
 

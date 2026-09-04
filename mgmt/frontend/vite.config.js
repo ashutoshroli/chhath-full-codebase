@@ -1,8 +1,35 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+// audit L-21: the GTM container id was hardcoded in index.html next to a comment
+// telling the reader to replace it — so there was no way to know whether the value
+// there was real or the placeholder. It comes from the environment now.
+//
+// The default is the id that has been shipping, so a build with no env var set
+// behaves exactly as before. Set VITE_GTM_ID='' to ship no analytics (what a local
+// build wants).
+const GTM_ID = process.env.VITE_GTM_ID === undefined ? 'GTM-M2JP98W5' : process.env.VITE_GTM_ID;
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      // index.html is not processed by the JS pipeline, so `define` does not reach
+      // it. transformIndexHtml is the documented hook for exactly this.
+      name: 'inject-gtm-id',
+      transformIndexHtml(html) {
+        // With no container configured, drop the <noscript> iframe entirely rather
+        // than shipping a googletagmanager request with an empty id. The <script>
+        // half already self-disables via `if (!gtmId) return;`.
+        const out = GTM_ID
+          ? html
+          : html.replace(/<noscript><iframe src="https:\/\/www\.googletagmanager\.com[\s\S]*?<\/noscript>/g, '');
+        return out
+          .replace(/__GTM_ID__/g, JSON.stringify(GTM_ID))       // inside <script>
+          .replace(/__GTM_ID_RAW__/g, encodeURIComponent(GTM_ID)); // inside a URL
+      },
+    },
+  ],
   build: {
     // Vite's default target ('modules') assumes a fairly recent browser. Several
     // committee members are on older Android WebViews / iOS Safari builds, so pin
@@ -31,7 +58,16 @@ export default defineConfig({
         assetFileNames: 'assets/[name]-[hash].[ext]',
       },
     },
-    // Increase chunk size warning limit (docxtemplater is heavy)
-    chunkSizeWarningLimit: 1000,
+    // audit P-10: this was raised to 1000 kB to silence the warning about the
+    // deliberately-large `pdf-utils` (593 kB) and `docx-utils` (365 kB) chunks —
+    // which also silenced it for every OTHER chunk, including the entry chunk that
+    // every volunteer downloads on a phone over rural mobile data.
+    //
+    // 600 kB still covers the two known-heavy lazy chunks without hiding a
+    // regression in the ~191 kB entry chunk. CI additionally fails outright if the
+    // entry chunk passes 230,000 bytes (.github/workflows/ci.yml), which is the
+    // check that actually protects it — this limit just makes a local build noisy
+    // before CI does.
+    chunkSizeWarningLimit: 600,
   },
 });
