@@ -241,15 +241,6 @@ function httpStatusForError(err) {
   return 500;
 }
 
-// The error_log table has no columns for actor/device/IP, and api.js was already
-// computing all three on every request only to throw them away. They're folded
-// into the existing `context` column so "which admin, on which device" is finally
-// answerable from the Error Log screen.
-//
-// SECURITY (audit S7): clientIp/deviceId are CLIENT-supplied and therefore
-// spoofable. We keep the client's self-reported IP only as a labelled hint
-// (`clientIpReported`) and record the server-observed Cloudflare edge IP
-// (`clientIp`, from CF-Connecting-IP) as the authoritative value.
 // Compact, human-readable summary of a CRUD action for the activity log — a few
 // meaningful fields (Year/Name/Amount/etc.) rather than the whole payload.
 function summarizePayload(sheet, payload, extra) {
@@ -268,6 +259,15 @@ function summarizePayload(sheet, payload, extra) {
   } catch (e) { return (sheet || '').toString(); }
 }
 
+// The error_log table has no columns for actor/device/IP, and api.js was already
+// computing all three on every request only to throw them away. They're folded
+// into the existing `context` column so "which admin, on which device" is finally
+// answerable from the Error Log screen.
+//
+// SECURITY (audit S7): clientIp/deviceId are CLIENT-supplied and therefore
+// spoofable. We keep the client's self-reported IP only as a labelled hint
+// (`clientIpReported`) and record the server-observed Cloudflare edge IP
+// (`clientIp`, from CF-Connecting-IP) as the authoritative value.
 function buildLogContext(req) {
   const extra = {
     deviceId: req.deviceId || '',
@@ -557,9 +557,14 @@ export default {
 
       // ---- Receipt / Certificate / Samaan Templates + DOCX templates + PDF
       // conversion — fully ported (see templates.js / docxTemplates.js / drive.js).
-      // The docx->pdf leg needs your real Drive service-account credential
-      // (DRIVE_SA_EMAIL/DRIVE_SA_PRIVATE_KEY/DRIVE_ROOT_FOLDER_ID) to actually
-      // test — see account.js's getDriveAccessToken() ----
+      //
+      // audit L-15: this comment used to say the docx->pdf leg needs
+      // DRIVE_SA_EMAIL / DRIVE_SA_PRIVATE_KEY. Those names are read by NO code
+      // anywhere — wrangler.toml says so explicitly. That service-account path was
+      // replaced by an OAuth refresh-token flow, so the real requirements are
+      // DRIVE_OAUTH_CLIENT_ID / DRIVE_OAUTH_CLIENT_SECRET /
+      // DRIVE_OAUTH_REFRESH_TOKEN plus DRIVE_ROOT_FOLDER_ID. Setting the old two
+      // does nothing, which is a genuinely expensive hour for whoever tries. ----
       // audit M-1: these six had NO role argument — `withAuth(env, req, () => ...)`
       // — so any authenticated caller could read every year's receipt, certificate
       // and material-receipt template text. All six are used ONLY by the three

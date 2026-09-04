@@ -741,6 +741,74 @@ export default {
       });
     }
 
+    // audit M-36 / M-37 — this Worker had no health endpoint and no config check.
+    //
+    // M-36: an uptime monitor pointed at `/` got `{"status":false,"message":"Invalid
+    // Request"}` with HTTP 400, which most monitors read as DOWN — so the only way
+    // to watch the public portal was to watch something that always looked broken.
+    // mgmt has had `GET ?health=1` since config.js; this is the same contract.
+    //
+    // M-37: nothing validated the bindings. A partially-bound deployment serves
+    // happily and silently WRONG — a missing DB_MISC makes every popup disappear
+    // (getActivePublicPopups returns [] by design), a missing KV_PUBLIC disables the
+    // rate limiter and the D1 budget guard, both of which fail open. Every one of
+    // those is invisible in normal responses, which is exactly why it belongs in a
+    // health check rather than in a log line nobody reads.
+    //
+    // Deliberately BEFORE the rate limiter: a monitor polling every minute must not
+    // be able to rate-limit itself into a false alarm.
+    if (request.method === 'GET' && url.searchParams.get('health') === '1') {
+      const checks = {};
+
+      // Required: without these the portal cannot serve its core payload at all.
+      for (const binding of ['DB_CORE', 'DB_COLLECTIONS', 'DB_LOANS_EXPENSES', 'DB_FILE_INDEX']) {
+        if (!env[binding]) { checks[binding] = 'missing-binding'; continue; }
+        try {
+          await env[binding].prepare('SELECT 1 AS ok').first();
+          checks[binding] = 'ok';
+        } catch (e) {
+          checks[binding] = 'error: ' + ((e && e.message) || 'unknown').toString().slice(0, 120);
+        }
+      }
+
+      // Degraded, not fatal: the portal still renders, but a feature is silently off.
+      for (const [binding, consequence] of [
+        ['DB_MISC', 'popups will not appear'],
+        ['DB_LOGS', 'public errors are not recorded'],
+      ]) {
+        if (!env[binding]) { checks[binding] = `degraded: missing-binding — ${consequence}`; continue; }
+        try {
+          await env[binding].prepare('SELECT 1 AS ok').first();
+          checks[binding] = 'ok';
+        } catch (e) {
+          checks[binding] = 'error: ' + ((e && e.message) || 'unknown').toString().slice(0, 120);
+        }
+      }
+
+      const kv = pubKv(env);
+      if (!kv) {
+        checks.KV_PUBLIC = 'degraded: missing-binding — rate limiting and the D1 budget guard are DISABLED (both fail open)';
+      } else {
+        try {
+          await kv.get('pub:healthcheck:probe'); // a missing key is still a healthy KV
+          checks.KV_PUBLIC = env.KV_PUBLIC ? 'ok' : 'ok (via the legacy KV_SESSIONS fallback — see wrangler.toml)';
+        } catch (e) {
+          checks.KV_PUBLIC = 'error: ' + ((e && e.message) || 'unknown').toString().slice(0, 120);
+        }
+      }
+
+      // Only a REQUIRED binding failing makes this unhealthy. A degraded feature
+      // must not page someone at 2am, but it must be visible.
+      const REQUIRED = ['DB_CORE', 'DB_COLLECTIONS', 'DB_LOANS_EXPENSES', 'DB_FILE_INDEX'];
+      const healthy = REQUIRED.every(b => checks[b] === 'ok');
+      const degraded = Object.values(checks).some(v => v.startsWith('degraded'));
+
+      return new Response(
+        JSON.stringify({ status: healthy, healthy, degraded, checks, worker: 'chhath-public-api' }),
+        { status: healthy ? 200 : 503, headers: { ...cors, 'Cache-Control': 'no-store' } }
+      );
+    }
+
     // Hardening A: per-IP rate limit (public, unauthenticated). A real viewer
     // makes a handful of requests per page load; a flood script makes hundreds.
     // Capping per IP narrows how fast anyone can burn the shared D1 daily quota.

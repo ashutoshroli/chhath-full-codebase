@@ -41,7 +41,8 @@ export function statusLabel(s, c) {
 // (blank when there are fewer guarantors) so a template never shows a stale row,
 // and we also emit any extras that genuinely exist so a 4th/5th guarantor is not
 // silently un-renderable.
-export const DOCUMENTED_GUARANTOR_SLOTS = 3;
+// audit L-8: un-exported — used only inside this module.
+const DOCUMENTED_GUARANTOR_SLOTS = 3;
 
 /**
  * Builds the complete consent placeholder map.

@@ -262,7 +262,9 @@ export const api = {
   deleteRecord: (sheet, rowIndex) => call('deleteRecord', { sheet, rowIndex }),
   saveLoan: (loan, guarantors) => call('saveLoan', { loan, guarantors }),
   deleteLoan: (rowIndex, year, loanerId, loanId) => call('deleteLoan', { rowIndex, year, loanerId, loanId }),
-  uploadFile: (base64, fileName, mimeType) => call('uploadFile', { base64, fileName, mimeType }),
+  // audit L-5: api.uploadFile was removed — no caller anywhere in the app. The
+  // backend `uploadFile` action stays (popup images use uploadPopupImage, which
+  // shares the same Drive path) and is gated to Admin-or-above per H-7.
 
   // WhatsApp: Templates
   getPersonTemplates: () => call('getPersonTemplates'),
