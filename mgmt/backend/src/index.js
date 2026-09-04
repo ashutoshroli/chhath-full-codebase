@@ -874,9 +874,16 @@ export default {
       // guesses, raw Google API error bodies) to any caller. Send a generic
       // message for those; the real message + stack still go to the error log
       // above for the committee to debug.
+      // `err.userMessage` is the escape hatch for a server fault that still owes
+      // the operator a specific sentence — chiefly "nothing was changed, your data
+      // is safe" after an aborted write. It is a hand-written, leak-free string set
+      // by InternalError(internalMessage, userMessage); the raw message + stack
+      // still went to the error log above. Anything without one gets the generic
+      // text, so an unexpected throw can never echo internal detail.
       const safeMessage = isExpectedError(err)
         ? (err.message || String(err))
-        : 'Something went wrong on the server. Please try again; the committee has been notified.';
+        : (err.userMessage
+          || 'Something went wrong on the server. Please try again; the committee has been notified.');
       return jsonOut(
         { success: false, message: safeMessage, [status]: true },
         request, env, httpStatusForError(err)

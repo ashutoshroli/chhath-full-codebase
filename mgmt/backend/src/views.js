@@ -1,6 +1,6 @@
 import { getSheetDataAsJSON, getSheetDataByYear, getSheetDataByColumn, filterByYear } from './crud.js';
 import { fromColumnRow } from './tableRegistry.js';
-import { requireSuperadmin } from './auth.js';
+import { requireSuperadmin, ValidationError } from './auth.js';
 import { usersByIdCodes, loansByLoanIds, loansForBorrowers } from './lookups.js';
 
 const parseAmt = (v) => parseFloat((v || '').toString().replace(/[^0-9.-]+/g, '')) || 0;
@@ -16,7 +16,7 @@ export async function getYears(env) {
 export async function addYear(env, year, user) {
   requireSuperadmin(user);
   const y = parseInt(year);
-  if (!y) throw new Error('Valid year required');
+  if (!y) throw ValidationError('Valid year required');
   const manualYears = await getSheetDataAsJSON(env, 'MANUAL YEARS');
   const already = manualYears.some(r => parseInt(r.Year) === y) || (await getYears(env)).includes(y);
   if (!already) {
@@ -161,7 +161,7 @@ export async function getYearContributors(env, year) {
 }
 
 export async function getUserProfile(env, userId) {
-  if (!userId) throw new Error('User ID required');
+  if (!userId) throw ValidationError('User ID required');
   const id = userId.toString().trim();
 
   // Phase 1: this used to do SEVEN full-table scans (USERS×2, COLLECTIONS, LOANS×2,
@@ -183,7 +183,7 @@ export async function getUserProfile(env, userId) {
   ]);
 
   const user = ownRows[0];
-  if (!user) throw new Error('User not found');
+  if (!user) throw ValidationError('User not found');
 
   const contributions = collectionRows
     .map(r => ({ Year: parseInt(r.Year), Amount: parseAmt(r.Amount), 'Payment Mode': r['Payment Mode'] || '' }))

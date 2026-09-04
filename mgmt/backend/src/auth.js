@@ -40,6 +40,33 @@ export function ValidationError(message) {
   return e;
 }
 
+// The OPPOSITE of ValidationError: a server-side fault — a missing binding, an
+// unset var, a Drive/WhatsApp API that answered non-2xx, a D1 write that failed.
+// Deliberately NOT `expected`, so index.js's top-level catch DOES write it to the
+// error log and DOES replace `message` with the generic user-facing string (the
+// raw text often carries binding names and upstream response bodies).
+//
+// It exists so that intent is explicit at every throw site, and so
+// `npm run lint:errors` can assert that no bare `throw` + `new Error(...)`
+// survives in src/ — a bare Error is now always a mistake: it is either a
+// user-facing message (ValidationError, HTTP 400) or a server fault
+// (InternalError, HTTP 500 + logged), never "whichever happens".
+//
+// `userMessage` is optional and is the ONE thing that makes this more than an
+// alias for `new Error`. Some server faults must still tell the operator
+// something specific — above all "nothing was changed, your data is safe" after
+// an aborted write. Without it, `internalMessage` (which may embed a D1 binding
+// name or a raw Drive response body) would be swallowed and replaced by the
+// generic string, and the person mid-edit would not know whether the record was
+// half-written. `userMessage` must therefore be a hand-written, leak-free
+// sentence; the raw `internalMessage` is what still reaches the error log.
+export function InternalError(internalMessage, userMessage) {
+  const e = new Error(internalMessage);
+  e.internal = true;
+  if (userMessage) e.userMessage = userMessage;
+  return e;
+}
+
 // ---- Password hashing ----
 //
 // SECURITY: passwords used to be stored as a bare SHA-256 hex digest of
@@ -634,7 +661,7 @@ export async function getLockedYearsSet(env) {
 export async function lockYear(env, year, user) {
   requireSuperadmin(user);
   const y = parseInt(year);
-  if (!y) throw new Error('Valid year required');
+  if (!y) throw ValidationError('Valid year required');
   const existing = await env.DB_CORE.prepare('SELECT id FROM locked_years WHERE year = ?').bind(y).first();
   if (!existing) {
     await env.DB_CORE.prepare('INSERT INTO locked_years (year, lockedby, lockedat) VALUES (?, ?, ?)')

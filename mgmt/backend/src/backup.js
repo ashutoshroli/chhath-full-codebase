@@ -24,7 +24,7 @@
 // only READS every table (export) and, on restore, writes rows back through the
 // same D1 bindings. Nothing else in the codebase calls into here.
 
-import { requireSuperadmin } from './auth.js';
+import { requireSuperadmin, ValidationError, InternalError } from './auth.js';
 import { randomHex } from './random.js';
 
 const BACKUP_FORMAT_VERSION = 1;
@@ -62,7 +62,7 @@ const BACKUP_MAP = {
 // BACKUP_MAP can never turn into an injection.
 const SAFE_IDENT = /^[a-z][a-z0-9_]*$/;
 function assertSafeTable(table) {
-  if (!SAFE_IDENT.test(table)) throw new Error(`Unsafe table identifier: ${table}`);
+  if (!SAFE_IDENT.test(table)) throw InternalError(`Unsafe table identifier: ${table}`);
   return table;
 }
 
@@ -81,7 +81,7 @@ function quoteIdent(ident) {
 
 function dbHandle(env, binding) {
   const db = env[binding];
-  if (!db) throw new Error(`D1 binding ${binding} not configured on server`);
+  if (!db) throw InternalError(`D1 binding ${binding} not configured on server`);
   return db;
 }
 
@@ -107,7 +107,11 @@ async function dumpTable(db, table) {
     if (msg.includes('no such table') || msg.includes('no such column')) {
       return []; // table genuinely not on this deployment — safe to treat as empty
     }
-    throw new Error(`Backup aborted: could not read table "${table}" (${e && e.message || e}). No partial/empty backup was produced.`);
+    throw InternalError(
+      `Backup aborted: could not read table "${table}": ${e && e.message || e}`,
+      `The backup was aborted because table "${table}" could not be read. `
+      + 'No partial or empty backup file was produced — your data is untouched.'
+    );
   }
 }
 
@@ -178,13 +182,13 @@ export async function restoreBackup(env, user, backup, confirm) {
   requireSuperadmin(user);
 
   if ((confirm || '').toString().trim().toUpperCase() !== 'RESTORE') {
-    throw new Error('Restore not confirmed — type exactly "RESTORE" in the confirmation box.');
+    throw ValidationError('Restore not confirmed — type exactly "RESTORE" in the confirmation box.');
   }
   if (!backup || typeof backup !== 'object' || !backup.data) {
-    throw new Error('The backup file is not valid (no data found).');
+    throw ValidationError('The backup file is not valid (no data found).');
   }
   if (backup.formatVersion && backup.formatVersion > BACKUP_FORMAT_VERSION) {
-    throw new Error(`The backup's format version (${backup.formatVersion}) is newer than this server — please update the deployment first.`);
+    throw ValidationError(`The backup's format version (${backup.formatVersion}) is newer than this server — please update the deployment first.`);
   }
 
   // 1) Safety snapshot of CURRENT data before we overwrite anything.
@@ -194,7 +198,11 @@ export async function restoreBackup(env, user, backup, confirm) {
   } catch (e) {
     // If we can't snapshot, refuse to proceed — restoring without a rollback
     // option is too dangerous.
-    throw new Error('Restore stopped: could not create a safety snapshot of the current data (' + e.message + '). Your data is safe, nothing was changed.');
+    throw InternalError(
+      'Restore stopped: safety snapshot failed: ' + (e && e.message || e),
+      'The restore was stopped because a safety snapshot of the current data could not be '
+      + 'taken. Your data is safe — nothing was changed.'
+    );
   }
 
   // restoredTables = table restored (value = rows inserted).

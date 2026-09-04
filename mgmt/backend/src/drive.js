@@ -1,6 +1,7 @@
 import { getDriveAccessToken } from './account.js';
 import { logWarn } from './logger.js';
 import { base64ToBytes, MAX_DOCX_BYTES } from './base64.js';
+import { InternalError } from './auth.js';
 
 const DRIVE_API = 'https://www.googleapis.com/drive/v3';
 const DRIVE_UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3';
@@ -11,7 +12,7 @@ async function driveFetch(env, path, opts = {}) {
     ...opts,
     headers: { Authorization: `Bearer ${token}`, ...(opts.headers || {}) },
   });
-  if (!res.ok) throw new Error(`Drive API ${path} failed: ${await res.text()}`);
+  if (!res.ok) throw InternalError(`Drive API ${path} failed: ${await res.text()}`);
   return res;
 }
 
@@ -29,7 +30,7 @@ export async function getOrCreateFolder(env, parentId, name) {
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, mimeType: 'application/vnd.google-apps.folder', parents: [parentId] }),
   });
-  if (!createRes.ok) throw new Error('Drive folder create failed: ' + await createRes.text());
+  if (!createRes.ok) throw InternalError('Drive folder create failed: ' + await createRes.text());
   const { id } = await createRes.json();
   return id;
 }
@@ -57,7 +58,7 @@ export async function uploadDocxFile(env, base64, fileName, folderId) {
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
     body,
   });
-  if (!res.ok) throw new Error('Drive docx upload failed: ' + await res.text());
+  if (!res.ok) throw InternalError('Drive docx upload failed: ' + await res.text());
   const file = await res.json();
   await setAnyoneReader(env, file.id);
   return file;
@@ -77,7 +78,7 @@ export async function setAnyoneReader(env, fileId) {
     const body = await res.text().catch(() => '');
     // Already-shared is not an error worth failing the whole generation for.
     if (/already ha(s|ve) (the )?permission|duplicate/i.test(body)) return;
-    throw new Error(`Drive public-share failed for file ${fileId} (${res.status}): ${body}`);
+    throw InternalError(`Drive public-share failed for file ${fileId} (${res.status}): ${body}`);
   }
 }
 
@@ -101,7 +102,7 @@ function arrayBufferToBase64(buf) {
 export async function getFileBytesBase64(env, fileId) {
   const token = await getDriveAccessToken(env);
   const res = await fetch(`${DRIVE_API}/files/${fileId}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
-  if (!res.ok) throw new Error('Drive file download failed: ' + await res.text());
+  if (!res.ok) throw InternalError('Drive file download failed: ' + await res.text());
   const buf = await res.arrayBuffer();
   return arrayBufferToBase64(buf);
 }
@@ -113,7 +114,7 @@ export async function copyFile(env, fileId, newName, parentId) {
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: newName, parents: [parentId] }),
   });
-  if (!res.ok) throw new Error('Drive file copy failed: ' + await res.text());
+  if (!res.ok) throw InternalError('Drive file copy failed: ' + await res.text());
   const file = await res.json();
   await setAnyoneReader(env, file.id);
   return file;
@@ -175,13 +176,13 @@ export async function convertDocxBytesToPdfRaw(env, base64, fileName) {
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
     body,
   });
-  if (!convertRes.ok) throw new Error('Drive docx->doc conversion failed: ' + await convertRes.text());
+  if (!convertRes.ok) throw InternalError('Drive docx->doc conversion failed: ' + await convertRes.text());
   const { id: googleDocId } = await convertRes.json();
 
   const exportRes = await fetch(`${DRIVE_API}/files/${googleDocId}/export?mimeType=application/pdf`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!exportRes.ok) { await trashFile(env, googleDocId); throw new Error('Drive PDF export failed: ' + await exportRes.text()); }
+  if (!exportRes.ok) { await trashFile(env, googleDocId); throw InternalError('Drive PDF export failed: ' + await exportRes.text()); }
   const pdfBytes = await exportRes.arrayBuffer();
 
   await trashFile(env, googleDocId); // clean up the intermediate Google Doc
@@ -204,14 +205,14 @@ export async function convertDocxBytesToPdf(env, base64, fileName, folderId) {
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
     body,
   });
-  if (!convertRes.ok) throw new Error('Drive docx->doc conversion failed: ' + await convertRes.text());
+  if (!convertRes.ok) throw InternalError('Drive docx->doc conversion failed: ' + await convertRes.text());
   const { id: googleDocId } = await convertRes.json();
 
   // Step 2: export as PDF bytes.
   const exportRes = await fetch(`${DRIVE_API}/files/${googleDocId}/export?mimeType=application/pdf`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!exportRes.ok) { await trashFile(env, googleDocId); throw new Error('Drive PDF export failed: ' + await exportRes.text()); }
+  if (!exportRes.ok) { await trashFile(env, googleDocId); throw InternalError('Drive PDF export failed: ' + await exportRes.text()); }
   const pdfBytes = await exportRes.arrayBuffer();
 
   // Step 3: upload the PDF as a plain file.
@@ -222,7 +223,7 @@ export async function convertDocxBytesToPdf(env, base64, fileName, folderId) {
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${b2}` },
     body: body2,
   });
-  if (!pdfRes.ok) { await trashFile(env, googleDocId); throw new Error('Drive PDF file upload failed: ' + await pdfRes.text()); }
+  if (!pdfRes.ok) { await trashFile(env, googleDocId); throw InternalError('Drive PDF file upload failed: ' + await pdfRes.text()); }
   const pdfFile = await pdfRes.json();
   await setAnyoneReader(env, pdfFile.id);
 

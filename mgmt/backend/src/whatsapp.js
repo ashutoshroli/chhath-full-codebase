@@ -31,16 +31,16 @@ export function generateMessageId() {
 
 function tableFor(type) {
   const t = MESSAGE_TABLE[type];
-  if (!t) throw new Error('type must be person or group');
+  if (!t) throw ValidationError('type must be person or group');
   return t.table;
 }
 
 // ---- Templates CRUD (Superadmin) ----
 export async function addTemplate(env, sheetName, text, messageType, contributionType, fileLink, docSubType, fileDocType, user) {
   requireSuperadmin(user);
-  if (!text || !text.toString().trim()) throw new Error('Template text required');
+  if (!text || !text.toString().trim()) throw ValidationError('Template text required');
   const table = TEMPLATE_TABLE[sheetName];
-  if (!table) throw new Error('Invalid template table');
+  if (!table) throw ValidationError('Invalid template table');
   const id = randomId('TPL');
   // doc_sub_type / file_doc_type now exist on BOTH template tables (they were
   // missing on group_message_templates, so every Add/Update Group Template
@@ -54,9 +54,9 @@ export async function addTemplate(env, sheetName, text, messageType, contributio
 
 export async function updateTemplate(env, sheetName, rowIndex, text, active, messageType, contributionType, fileLink, docSubType, fileDocType, user) {
   requireSuperadmin(user);
-  if (!rowIndex) throw new Error('rowIndex required');
+  if (!rowIndex) throw ValidationError('rowIndex required');
   const table = TEMPLATE_TABLE[sheetName];
-  if (!table) throw new Error('Invalid template table');
+  if (!table) throw ValidationError('Invalid template table');
   const sets = []; const vals = [];
   if (text !== undefined) { sets.push('text = ?'); vals.push(text); }
   // `active` is a TEXT column — bind the string form so the DB never ends up
@@ -75,9 +75,9 @@ export async function updateTemplate(env, sheetName, rowIndex, text, active, mes
 
 export async function deleteTemplate(env, sheetName, rowIndex, user) {
   requireSuperadmin(user);
-  if (!rowIndex) throw new Error('rowIndex required');
+  if (!rowIndex) throw ValidationError('rowIndex required');
   const table = TEMPLATE_TABLE[sheetName];
-  if (!table) throw new Error('Invalid template table');
+  if (!table) throw ValidationError('Invalid template table');
   await env.DB_WHATSAPP_INDEX.prepare(`DELETE FROM ${table} WHERE id = ?`).bind(rowIndex).run();
   return { success: true };
 }
@@ -85,7 +85,7 @@ export async function deleteTemplate(env, sheetName, rowIndex, user) {
 // ---- Group Info CRUD (Superadmin) ----
 export async function addWhatsappGroup(env, groupName, groupid, user) {
   requireSuperadmin(user);
-  if (!groupName || !groupid) throw new Error('Group name and Group ID required');
+  if (!groupName || !groupid) throw ValidationError('Group name and Group ID required');
   const id = randomId('GRP');
   await env.DB_WHATSAPP_INDEX.prepare(
     "INSERT INTO whatsapp_groups (group_id, group_name, groupid, active, created_at) VALUES (?, ?, ?, '1', ?)"
@@ -95,7 +95,7 @@ export async function addWhatsappGroup(env, groupName, groupid, user) {
 
 export async function updateWhatsappGroup(env, rowIndex, groupName, groupid, active, user) {
   requireSuperadmin(user);
-  if (!rowIndex) throw new Error('rowIndex required');
+  if (!rowIndex) throw ValidationError('rowIndex required');
   const sets = []; const vals = [];
   if (groupName !== undefined) { sets.push('group_name = ?'); vals.push(groupName); }
   if (groupid !== undefined) { sets.push('groupid = ?'); vals.push(groupid); }
@@ -108,7 +108,7 @@ export async function updateWhatsappGroup(env, rowIndex, groupName, groupid, act
 
 export async function deleteWhatsappGroup(env, rowIndex, user) {
   requireSuperadmin(user);
-  if (!rowIndex) throw new Error('rowIndex required');
+  if (!rowIndex) throw ValidationError('rowIndex required');
   await env.DB_WHATSAPP_INDEX.prepare('DELETE FROM whatsapp_groups WHERE id = ?').bind(rowIndex).run();
   return { success: true };
 }
@@ -271,7 +271,7 @@ async function failExhaustedMessages(env) {
 export async function resendMessage(env, type, messageId, user) {
   requireSuperadmin(user);
   const table = tableFor(type);
-  if (!messageId) throw new Error('message_id required');
+  if (!messageId) throw ValidationError('message_id required');
   const row = await env.DB_WHATSAPP_INDEX.prepare(
     `SELECT id, status, attempts FROM ${table} WHERE message_id = ?`
   ).bind(messageId.toString().trim()).first();
@@ -300,8 +300,8 @@ export async function resendMessage(env, type, messageId, user) {
 }
 
 export async function updateMessageStatus(env, type, messageId, status, remarks) {
-  if (!type || !messageId || !status) throw new Error('type, message_id and status required');
-  if (TERMINAL_STATES.indexOf(status) === -1) throw new Error('status must be sent or failed');
+  if (!type || !messageId || !status) throw ValidationError('type, message_id and status required');
+  if (TERMINAL_STATES.indexOf(status) === -1) throw ValidationError('status must be sent or failed');
   const table = tableFor(type);
 
   // State guard: previously this would happily flip an already-'sent' row back
@@ -319,7 +319,7 @@ export async function updateMessageStatus(env, type, messageId, status, remarks)
     if (!existing) {
       await logWarn(env, 'whatsapp-queue', 'updateMessageStatus',
         `updateMessageStatus called for unknown message_id ${messageId}`, { type, messageId, status });
-      throw new Error('message_id not found');
+      throw ValidationError('message_id not found');
     }
     return { success: true, alreadyFinal: true, status: existing.status };
   }

@@ -22,7 +22,7 @@
 //     risky server-side docxtemplater port. Only the orchestration moved.
 //   * enqueue enforces the same staff permission the direct save always required.
 
-import { requireStaffRole, requireRole, requireYearUnlocked, requireYearAccess, requireSuperadmin, ValidationError } from './auth.js';
+import { requireStaffRole, requireRole, requireYearUnlocked, requireYearAccess, requireSuperadmin, ValidationError, InternalError } from './auth.js';
 import { convertDocxToPdf } from './docxTemplates.js';
 import { triggerCollectionMessages } from './whatsapp.js';
 import { logErrorAt, logWarn } from './logger.js';
@@ -46,7 +46,7 @@ const MAX_QUEUE_BASE64_CHARS = 700 * 1024;
 const genJobId = () => randomId('JOB');
 
 function jobsDb(env) {
-  if (!env || !env.DB_MISC) throw new Error('DB_MISC binding not configured — collection_jobs unavailable.');
+  if (!env || !env.DB_MISC) throw InternalError('DB_MISC binding not configured — collection_jobs unavailable.');
   return env.DB_MISC;
 }
 
@@ -59,7 +59,7 @@ function jobsDb(env) {
 export async function enqueueCollectionJob(env, job, user) {
   // Same gate the direct save enforced: staff role.
   requireStaffRole(user);
-  if (!job || typeof job !== 'object') throw new Error('Invalid job');
+  if (!job || typeof job !== 'object') throw InternalError('Invalid job');
 
   // SECURITY (audit 2.2): the comment used to claim the job was "already
   // authorized at enqueue time", but the only check here was the staff role —
@@ -216,13 +216,13 @@ export async function retryQueueJob(env, user, jobId) {
   const db = jobsDb(env);
 
   const id = (jobId || '').toString().trim();
-  if (!id) throw new Error('jobId is required.');
+  if (!id) throw ValidationError('jobId is required.');
 
   const row = await db.prepare(
     `SELECT id, status FROM collection_jobs WHERE job_id = ?`
   ).bind(id).first();
-  if (!row) throw new Error('Job not found.');
-  if (row.status === 'done') throw new Error('This job has already completed successfully and cannot be retried.');
+  if (!row) throw ValidationError('Job not found.');
+  if (row.status === 'done') throw ValidationError('This job has already completed successfully and cannot be retried.');
 
   await db.prepare(
     `UPDATE collection_jobs
