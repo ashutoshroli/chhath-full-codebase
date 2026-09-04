@@ -579,7 +579,11 @@ const app = {
                 <span class="badge" style="background:#f3f4f6; color:#374151; flex-shrink:0;">${escapeHtml(r.Year)}</span>
              </div>
              <div style="font-size:0.85rem; color:var(--primary-saffron); font-weight:600; margin-bottom:4px;">
-                ${escapeHtml(r.Role || u.Designation || 'Member')}
+                ${/* The committee role column is `view_role`, surfaced as 'View Role'
+                      by the Worker's REVERSE_MAPS — there is no `Role` field, so this
+                      silently fell through to Designation and the committee role was
+                      never shown on the public site (audit H-2). */''}
+                ${escapeHtml(r['View Role'] || u.Designation || 'Member')}
              </div>
              <div style="font-size:0.8rem; color:var(--text-muted); display:flex; flex-wrap:wrap; gap:10px;">
                 <span style="display:flex; align-items:center; gap:3px;"><span class="material-icons-round" style="font-size:12px;">call</span> ${escapeHtml(u.Mobile || 'N/A')}</span>
