@@ -547,11 +547,17 @@ const ROLE_PERMISSIONS = {
 const SUBADMIN_ADD_SHEETS = ['USERS', 'COLLECTIONS'];
 
 export function requireRole(user, action, sheetName) {
-  const allowed = ROLE_PERMISSIONS[user.role] || [];
+  const allowed = ROLE_PERMISSIONS[user && user.role] || [];
   if (!allowed.includes(action)) {
-    throw PermissionError(`Your role (${user.role || 'unknown'}) does not have permission for this action.`);
+    throw PermissionError(`Your role (${(user && user.role) || 'unknown'}) does not have permission for this action.`);
   }
-  if (action === 'add' && user.role === 'Subadmin' && sheetName) {
+  // SECURITY (audit C-1): this restriction used to be gated on
+  // `action === 'add'`, so a Subadmin's sheet scope silently disappeared for any
+  // other action. A Subadmin holds only 'add' today, so that was not directly
+  // exploitable — but the omission is exactly the shape of the Admin-level hole
+  // fixed in crud.js (see GENERIC_CRUD_SHEETS), and granting a Subadmin 'edit'
+  // later would have reopened it. Scope EVERY action.
+  if ((user && user.role) === 'Subadmin' && sheetName) {
     const normalized = sheetName.toString().trim().toUpperCase();
     if (!SUBADMIN_ADD_SHEETS.includes(normalized)) {
       throw PermissionError('Your role can only add Users and Contributions.');
