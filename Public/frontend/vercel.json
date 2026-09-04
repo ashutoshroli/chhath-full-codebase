@@ -1,28 +1,4 @@
 {
-  "$comment": [
-    "SECURITY HEADERS for the public transparency portal (audit H-14).",
-    "This file did not exist, so the public site shipped with no security headers.",
-    "",
-    "This is a plain static site with no build step and no login, so the policy can be",
-    "much tighter than the management portal's. Origins were derived from",
-    "Public/frontend/index.html and script.js, not guessed:",
-    "  chhath-public-worker.shaharpura.com  the public read-only API (connect-src)",
-    "  fonts.googleapis.com / fonts.gstatic.com  the stylesheet and font files",
-    "  lh3.googleusercontent.com, drive.google.com  Drive-hosted popup images",
-    "  files-chhath.shaharpura.com  the R2 public bucket",
-    "  www.googletagmanager.com  the GTM bootstrap in index.html",
-    "",
-    "No rewrites block: this site is genuinely static (index.html + script.js +",
-    "style.css + robots.txt + sitemap.xml), unlike the mgmt SPA.",
-    "",
-    "The CSP ships as Report-Only for the same reason as the mgmt portal — see the",
-    "comment in mgmt/frontend/vercel.json. Rename the key to `Content-Security-Policy`",
-    "to enforce; the value needs no other change.",
-    "",
-    "Referrer-Policy matters here too: the portal is reached from QR codes carrying",
-    "?record=<docType>-<year>-<ref>, and there is no reason to hand that reference to",
-    "Google's font CDN or to any outbound link a visitor taps."
-  ],
   "headers": [
     {
       "source": "/(.*)",
