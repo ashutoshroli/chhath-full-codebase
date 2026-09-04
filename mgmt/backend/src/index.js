@@ -398,7 +398,11 @@ export default {
       saveLoan: () => withAuth(env, req, (user) => loans.saveLoanTransaction(env, req.loan, req.guarantors, user)),
       deleteLoan: () => withAuth(env, req, (user) => loans.deleteLoanTransaction(env, req.rowIndex, req.year, req.loanerId, user, req.loanId)),
 
-      uploadFile: () => withAuth(env, req, () => uploadFileToDrive(env, req.base64, req.fileName, req.mimeType)),
+      // SECURITY: this handler had NO role check — any authenticated user
+      // (including a Subadmin) could push arbitrary bytes to the committee's
+      // Drive folder, uploaded world-readable by default. Gate it to staff
+      // (Admin/Superadmin) like the other write/upload paths.
+      uploadFile: () => withAuth(env, req, (user) => { requireAdminOrAbove(user); return uploadFileToDrive(env, req.base64, req.fileName, req.mimeType); }),
 
       // ---- WhatsApp: Templates (Superadmin only) ----
       getPersonTemplates: () => withAuth(env, req, (user) => { requireSuperadmin(user); return getSheetDataAsJSON(env, 'PERSON_MESSAGE_TEMPLATES'); }),
@@ -754,8 +758,17 @@ export default {
         );
       }
 
+      // SECURITY: only return the raw message for EXPECTED errors (Validation/
+      // Permission/Auth) — those are safe, user-facing strings. Unexpected 500s
+      // used to echo internal detail verbatim (D1 binding names, table/column
+      // guesses, raw Google API error bodies) to any caller. Send a generic
+      // message for those; the real message + stack still go to the error log
+      // above for the committee to debug.
+      const safeMessage = isExpectedError(err)
+        ? (err.message || String(err))
+        : 'Something went wrong on the server. Please try again; the committee has been notified.';
       return jsonOut(
-        { success: false, message: err.message || String(err), [status]: true },
+        { success: false, message: safeMessage, [status]: true },
         request, env, httpStatusForError(err)
       );
     }
