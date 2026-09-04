@@ -103,3 +103,11 @@ database_id = "b4204316-e268-4fc3-bb4c-922cd291fb22"
 binding = "DB_MISC"
 database_name = "chhath-misc"
 database_id = "a9298585-e108-4f7e-b555-7da7fc0a1921"
+
+# Audit store (own DB) — active sessions + login attempts. Powers the Active
+# Devices/remote-logout feature and the Superadmin Activity & Login Logs page.
+# See mgmt/db/schema/audit.sql + migration/2026-09-04/01-audit-sessions-logins.sql.
+[[d1_databases]]
+binding = "DB_AUDIT"
+database_name = "chhath-audit"
+database_id = "c25cdf0d-c545-42f1-9ca0-06836a4a1cc3"
