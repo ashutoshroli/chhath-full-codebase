@@ -73,10 +73,37 @@ export async function getPopupWithSlides(env, popupId, user) {
   return { popup: popupOut(popup), slides: results.map(slideOut) };
 }
 
+// audit M-7 — `roles` was stored completely unvalidated.
+//
+// Both readers below do an exact string match against `user.role` (or the literal
+// 'Public'), so a single typo — 'SuperAdmin', 'admin', a trailing character — makes
+// the popup invisible to everyone, for ever, with no error anywhere. The author
+// sees "Saved" and then a popup that never appears, which is indistinguishable
+// from the popup feature being broken.
+//
+// 'Public' is a valid audience here even though it is not a login role: it is what
+// getActivePublicPopups() matches on for the anonymous portal.
+const VALID_POPUP_ROLES = ['Superadmin', 'Admin', 'Subadmin', 'Public'];
+
+function normalizePopupRoles(roles) {
+  const list = (Array.isArray(roles) ? roles : (roles == null ? '' : roles).toString().split(','))
+    .map(r => (r == null ? '' : r).toString().trim())
+    .filter(Boolean);
+  const bad = list.filter(r => !VALID_POPUP_ROLES.includes(r));
+  if (bad.length) {
+    throw ValidationError(
+      `Unknown audience: ${[...new Set(bad)].join(', ')}. `
+      + `Allowed: ${VALID_POPUP_ROLES.join(', ')}. Leave it empty to show the popup to everyone.`
+    );
+  }
+  // De-duplicate so 'Admin,Admin' cannot end up stored.
+  return [...new Set(list)].join(',');
+}
+
 export async function savePopup(env, popupId, title, roles, active, startAt, endAt, user) {
   requireAdminOrAbove(user);
   if (!title || !title.toString().trim()) throw ValidationError('Title is required.');
-  const rolesStr = Array.isArray(roles) ? roles.join(',') : (roles || '');
+  const rolesStr = normalizePopupRoles(roles);
   const now = new Date().toISOString();
   // Bind the STRING form: the column is TEXT, and writing a number left the DB
   // holding a mix of '1' (portal) and 'True' (migration).

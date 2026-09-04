@@ -18,8 +18,26 @@ async function driveFetch(env, path, opts = {}) {
 
 // Finds (or creates) a named subfolder under `parentId` — same as Code.js's
 // getOrCreateFolder(parent, name).
+// Drive folder names permitted in a `q=` search expression.
+//
+// audit M-11: the query below interpolates `name` into Drive's search syntax and
+// escapes ONLY the single quote. Every caller today passes a constant or a year, so
+// it is not exploitable — but it is a search-injection primitive sitting one
+// dynamic folder name away from being one, and the escaping is hand-rolled against
+// a syntax we do not control. Whitelisting the input is both simpler and stronger
+// than trying to escape it correctly.
+const SAFE_DRIVE_FOLDER_NAME = /^[\w .\-()]{1,80}$/;
+
 export async function getOrCreateFolder(env, parentId, name) {
-  const q = encodeURIComponent(`name='${name.replace(/'/g, "\\'")}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  const folderName = (name == null ? '' : name).toString();
+  if (!SAFE_DRIVE_FOLDER_NAME.test(folderName)) {
+    throw InternalError(
+      `getOrCreateFolder: unsafe Drive folder name ${JSON.stringify(folderName)} — `
+      + 'only letters, digits, spaces, dot, dash, underscore and parentheses are allowed.',
+      'A folder could not be created on Google Drive because its name is not valid. Nothing was uploaded.'
+    );
+  }
+  const q = encodeURIComponent(`name='${folderName.replace(/'/g, "\\'")}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`);
   const listRes = await driveFetch(env, `/files?q=${q}&fields=files(id,name)`);
   const { files } = await listRes.json();
   if (files && files.length) return files[0].id;

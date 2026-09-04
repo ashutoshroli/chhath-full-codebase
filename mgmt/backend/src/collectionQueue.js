@@ -339,7 +339,17 @@ async function runOneJob(env, job) {
     // trusted internal caller, so we pass a system user with a staff role that
     // satisfies convertDocxToPdf's requireStaffRole for mode 'auto'. Attribution
     // (created_by) is preserved for the audit trail.
-    const systemUser = { name: job.created_by || 'system', role: 'Superadmin', system: true };
+    // audit M-5: this used to claim `role: 'Superadmin'`, so every authorization
+    // decision downstream saw the highest privilege in the system and no gate could
+    // tell an internal cron caller apart from a real Superadmin. The privilege the
+    // cron actually needs is narrow: satisfy convertDocxToPdf's requireStaffRole
+    // for mode 'auto'. So claim the LOWEST role that does that, and carry the
+    // `system: true` marker for a future gate that wants to distinguish the two.
+    //
+    // Authorization for what this job may touch already happened at enqueue time
+    // (see the C-2 whitelist above), which is the check that matters — this is
+    // defence in depth against a future gate being added upstream of it.
+    const systemUser = { name: job.created_by || 'system', role: 'Subadmin', system: true };
     const res = await convertDocxToPdf(
       env, docType, year, recordId, job.filled_base64, job.file_name || `${docType}.docx`,
       systemUser, 'auto', {}
