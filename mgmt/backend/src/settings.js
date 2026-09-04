@@ -27,13 +27,39 @@ export async function saveFestivalDates(env, year, diwali, nahayKhay, chhathArgh
   return { success: true };
 }
 
-const WEEKDAY_HI = ['रविवार', 'सोमवार', 'मंगलवार', 'बुधवार', 'गुरुवार', 'शुक्रवार', 'शनिवार'];
+// audit L-12 — the English and Hindi day names were computed from DIFFERENT clocks.
+//
+//     const en = d.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'Asia/Kolkata' });
+//     return { en, hi: WEEKDAY_HI[d.getDay()] };
+//
+// `en` was formatted in IST. `d.getDay()` is the LOCAL weekday, and a Cloudflare
+// Worker's local zone is UTC — so any timestamp falling between 18:30 UTC and
+// midnight UTC is already the next day in IST, and the two names disagreed by one.
+//
+// These names go onto loan consent documents (FINAL_REPAYMENT_DAY_NAME,
+// NAHAY_KHAY_DAY_NAME, CHHATH_MORNING_ARGHYA_DAY_NAME, DIWALI_NEXT_DAY_DAY_NAME),
+// which the loaner and three guarantors sign. A document reading "Monday /
+// रविवार" is not a cosmetic defect.
+//
+// Keying the Hindi name on the English one that `toLocaleDateString` ALREADY
+// produced in IST removes the second clock entirely — there is no index arithmetic
+// left to get wrong.
+const WEEKDAY_HI_BY_EN = {
+  Sunday: 'रविवार',
+  Monday: 'सोमवार',
+  Tuesday: 'मंगलवार',
+  Wednesday: 'बुधवार',
+  Thursday: 'गुरुवार',
+  Friday: 'शुक्रवार',
+  Saturday: 'शनिवार',
+};
+
 export function dayNamesOf(dateStr) {
   if (!dateStr) return { en: '', hi: '' };
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return { en: '', hi: '' };
   const en = d.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'Asia/Kolkata' });
-  return { en, hi: WEEKDAY_HI[d.getDay()] };
+  return { en, hi: WEEKDAY_HI_BY_EN[en] || '' };
 }
 
 // ---- Portal settings (core db) ----

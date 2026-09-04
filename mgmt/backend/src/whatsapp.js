@@ -364,9 +364,9 @@ export async function updateMessageStatus(env, type, messageId, status, remarks)
 // template is missing which fields.
 const TOKEN_RE = /\{([A-Za-z][A-Za-z0-9_]*)\}/g;
 
-export function renderTemplate(text, data) {
-  return renderTemplateChecked(text, data).text;
-}
+// audit L-2: renderTemplate() was removed. It had NO callers — every site uses
+// renderTemplateChecked(), which is the whole point (see the note above: the old
+// function silently left unresolved {{KEYS}} in the message text).
 
 export function renderTemplateChecked(text, data) {
   const src = (text || '').toString();

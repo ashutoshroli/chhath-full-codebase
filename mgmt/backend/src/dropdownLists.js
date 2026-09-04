@@ -62,9 +62,7 @@ export async function deleteDropdownListItem(env, rowIndex, user) {
 // Seed data — run once against a fresh `core` DB if DROPDOWN_LISTS didn't have
 // rows in your xlsx export (it did — 15 rows — so migration/core.sql already
 // covers this; this export is kept only as a reference/backup seed).
-export const DROPDOWN_LIST_SEED = {
-  'Category': [['Lighting', 'रोशनी'], ['Puja Samagri', 'पूजा सामग्री'], ['Food', 'भोजन'], ['Decoration', 'सजावट'], ['Sound & DJ', 'साउंड एंड डीजे'], ['Other', 'अन्य']],
-  'Payment Mode': [['Cash', 'नकद'], ['Online', 'ऑनलाइन'], ['UPI', 'यूपीआई']],
-  'Loan Status': [['Active', 'सक्रिय'], ['Repaid', 'चुकाया गया']],
-  'Village': [['Shaharpura', 'शाहरपुरा'], ['Gardih', 'गरधी']],
-};
+// audit L-4: the DROPDOWN_LIST_SEED constant was removed. Nothing imported it, so it
+// was seed DATA living in application code where it could drift from what the
+// dropdown_lists table actually holds, with no way to notice. Seed data belongs in
+// db/seed/ as SQL.

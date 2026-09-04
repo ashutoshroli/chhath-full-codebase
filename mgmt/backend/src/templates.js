@@ -167,14 +167,9 @@ export async function deleteTemplate(env, kind, year, user) {
 // Migration data already seeded RECEIPT/CERTIFICATE/SAMAAN from your live export
 // (18 rows total across all templates tables — see migration/templates.sql), so
 // this only matters for a genuinely fresh deploy.
-export async function ensureSeedTemplate(env, kind) {
-  const { table, sample } = ENGINES[kind];
-  const { results } = await env.DB_TEMPLATES.prepare(`SELECT id FROM ${table} LIMIT 1`).all();
-  if (results.length) return;
-  const now = new Date();
-  await env.DB_TEMPLATES.prepare(`INSERT INTO ${table} (year, template_text, page_size, created_at, updated_at) VALUES (?, ?, 'A5', ?, ?)`)
-    .bind(now.getFullYear(), sample, now.toISOString(), now.toISOString()).run();
-}
+// audit L-3: ensureSeedTemplate() was removed — it had no callers and no route, so
+// it was a bootstrap step that never ran. If template seeding is wanted, it belongs
+// in db/seed/ as SQL alongside the other one-time data, not as dead reachable code.
 
 const parseAmt = (v) => parseFloat((v || '').toString().replace(/[^0-9.-]+/g, '')) || 0;
 // Guards on the *parsed* number, not raw truthiness — a literal "0" string
