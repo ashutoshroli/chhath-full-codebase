@@ -140,11 +140,28 @@ export async function saveLoanTransaction(env, loanPayload, guarantorPayloads, u
   loanPayload['Loan ID'] = loanId;
   loanPayload['Loan Status'] = 'Created';
 
+  // ---- audit H-8: the loan and its guarantors must land together ----
+  //
+  // This used to be an INSERT for the loan, awaited, and THEN a separate batch()
+  // for the three guarantors:
+  //
+  //     await ...INSERT INTO loans...        <-- committed on its own
+  //     await ...batch(guarStmts)            <-- separate transaction
+  //
+  // If the second await failed for any reason — a D1 blip, a bad guarantor
+  // payload, the isolate being evicted — the loan row was already committed and
+  // stayed behind with ZERO guarantors. That is not a recoverable state through
+  // the UI: the Loans screen renders the loan, but every consent, the approval
+  // rule ("all three guarantors must Accept") and the repayment gate read the
+  // guarantor rows, so the loan can never be approved and can never be repaid.
+  // The admin saw a plain success.
+  //
+  // One batch() is one implicit transaction in D1: all four rows land, or none do.
   const loanCols = toColumnPayload('loans', loanPayload);
   const loanKeys = Object.keys(loanCols);
-  await env.DB_LOANS_EXPENSES.prepare(
+  const loanStmt = env.DB_LOANS_EXPENSES.prepare(
     `INSERT INTO loans (${loanKeys.join(', ')}) VALUES (${loanKeys.map(() => '?').join(', ')})`
-  ).bind(...loanKeys.map(k => loanCols[k])).run();
+  ).bind(...loanKeys.map(k => loanCols[k]));
 
   const guarStmts = guarantorPayloads.map(gPayload => {
     gPayload['Created By'] = user.name;
@@ -155,7 +172,8 @@ export async function saveLoanTransaction(env, loanPayload, guarantorPayloads, u
       `INSERT INTO loan_guarantors (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`
     ).bind(...keys.map(k => cols[k]));
   });
-  await env.DB_LOANS_EXPENSES.batch(guarStmts);
+
+  await env.DB_LOANS_EXPENSES.batch([loanStmt, ...guarStmts]);
 
   // The loan rows are committed at this point, so we must not throw — but the
   // old code did `console.error(...)` and then returned a flat {success:true},
@@ -184,20 +202,104 @@ export async function saveLoanTransaction(env, loanPayload, guarantorPayloads, u
     : { success: true, loanId };
 }
 
+// audit H-8. Four separate problems, all in one seven-line function:
+//
+//  1. THE CONSENTS WERE NEVER DELETED. loan_consents rows survived, and each one
+//     holds a live `token` that was WhatsApped to the loaner and the three
+//     guarantors. The consent page is PUBLIC and authenticates on that token
+//     alone, so after a loan was deleted anyone still holding the link could
+//     open it, request an OTP, and upload a photo + signature to Drive/R2
+//     against a loan that no longer exists. Deleting the loan looked like it
+//     revoked access; it did not.
+//  2. THREE UNPROTECTED STATEMENTS. `DELETE loans` was awaited, then
+//     `DELETE loan_guarantors` separately. A failure in between left the
+//     guarantor rows behind with no loan — invisible, and they still counted
+//     towards a member's guarantee load on their profile.
+//  3. `loanerId.toString()` WAS UNGUARDED. On the legacy branch (no loan_id), a
+//     null/absent loanerId threw a raw TypeError -> HTTP 500, generic message,
+//     a row in error_log, and nothing deleted.
+//  4. THE YEAR LOCK WAS CHECKED AGAINST THE CLIENT'S CLAIM. `requireYearUnlocked
+//     (env, year)` used the year in the REQUEST, while `rowIndex` addressed the
+//     row directly. A caller could send an unlocked year they have access to and
+//     delete a loan belonging to a LOCKED year. This is the same IDOR that
+//     crud.js deleteRecordByIdx was hardened against in audit 2.1; this path
+//     was missed.
 export async function deleteLoanTransaction(env, rowIndex, year, loanerId, user, loanId) {
   requireRole(user, 'delete');
-  await requireYearUnlocked(env, year);
-  await requireYearAccess(env, user, year);
 
-  await env.DB_LOANS_EXPENSES.prepare('DELETE FROM loans WHERE id = ?').bind(rowIndex).run();
+  const idx = parseInt(rowIndex);
+  if (!idx) throw ValidationError('Could not tell which loan to delete. Please reload the page and try again.');
 
-  if (loanId) {
-    await env.DB_LOANS_EXPENSES.prepare('DELETE FROM loan_guarantors WHERE loan_id = ?').bind(loanId.toString().trim()).run();
-  } else {
-    await env.DB_LOANS_EXPENSES.prepare('DELETE FROM loan_guarantors WHERE year = ? AND loaner = ?')
-      .bind(parseInt(year), loanerId.toString().trim()).run();
+  // (4) Resolve the row FIRST and enforce the locks against its STORED year.
+  const stored = await env.DB_LOANS_EXPENSES
+    .prepare('SELECT year, name, loan_id FROM loans WHERE id = ?').bind(idx).first();
+  if (!stored) throw ValidationError('This loan has already been deleted.');
+
+  await requireYearUnlocked(env, stored.year);
+  await requireYearAccess(env, user, stored.year);
+  // Also honour the year the caller claims, so a mismatch can never be used to
+  // skip a check rather than add one.
+  if (year && parseInt(year) !== parseInt(stored.year)) {
+    await requireYearUnlocked(env, year);
+    await requireYearAccess(env, user, year);
   }
-  return { success: true };
+
+  // Prefer the loan_id on the stored row over the client-supplied one.
+  const key = (loanId || stored.loan_id || '').toString().trim();
+
+  const statements = [
+    env.DB_LOANS_EXPENSES.prepare('DELETE FROM loans WHERE id = ?').bind(idx),
+  ];
+  let removed = { guarantors: 0, consents: 0 };
+
+  if (key) {
+    // Count first, so the activity log can say what was removed. Both tables are
+    // indexed on loan_id, so this is two cheap lookups, not a scan.
+    const [g, c] = await Promise.all([
+      env.DB_LOANS_EXPENSES.prepare('SELECT COUNT(*) AS n FROM loan_guarantors WHERE loan_id = ?').bind(key).first('n'),
+      env.DB_LOANS_EXPENSES.prepare('SELECT COUNT(*) AS n FROM loan_consents WHERE loan_id = ?').bind(key).first('n'),
+    ]);
+    removed = { guarantors: Number(g) || 0, consents: Number(c) || 0 };
+
+    statements.push(
+      env.DB_LOANS_EXPENSES.prepare('DELETE FROM loan_guarantors WHERE loan_id = ?').bind(key),
+      // (1) THE FIX THAT MATTERS: this revokes every outstanding consent link.
+      env.DB_LOANS_EXPENSES.prepare('DELETE FROM loan_consents WHERE loan_id = ?').bind(key)
+    );
+  } else {
+    // Legacy rows saved before `loan_id` existed. They can have no consents
+    // (createLoanConsents always keys on a loan_id), so only guarantors apply.
+    const loaner = (loanerId != null && loanerId !== '' ? loanerId : stored.name);
+    const loanerKey = (loaner == null ? '' : loaner).toString().trim();
+    // (3) A missing loaner used to become `null.toString()` — a raw TypeError.
+    if (!loanerKey) {
+      throw ValidationError(
+        'This older loan has no Loan ID and no receiver name, so its guarantors cannot be '
+        + 'matched. Delete the guarantor rows from the Loan Guarantor screen instead.'
+      );
+    }
+    const y = parseInt(stored.year);
+    const g = await env.DB_LOANS_EXPENSES
+      .prepare('SELECT COUNT(*) AS n FROM loan_guarantors WHERE year = ? AND loaner = ?')
+      .bind(y, loanerKey).first('n');
+    removed = { guarantors: Number(g) || 0, consents: 0 };
+
+    statements.push(
+      env.DB_LOANS_EXPENSES.prepare('DELETE FROM loan_guarantors WHERE year = ? AND loaner = ?')
+        .bind(y, loanerKey)
+    );
+  }
+
+  // (2) One batch = one transaction: the loan, its guarantors and its consents
+  // all go, or nothing does.
+  await env.DB_LOANS_EXPENSES.batch(statements);
+
+  return {
+    success: true,
+    loanId: key || null,
+    removedGuarantors: removed.guarantors,
+    removedConsents: removed.consents,
+  };
 }
 
 // ---- Consent creation (called right after saveLoanTransaction) ----
