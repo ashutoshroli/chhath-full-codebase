@@ -1,5 +1,6 @@
 import { getSheetDataAsJSON, getSheetDataByYear, getSheetDataByColumn, filterByYear } from './crud.js';
 import { requireSuperadmin } from './auth.js';
+import { usersByIdCodes, loansByLoanIds, loansForBorrowers } from './lookups.js';
 
 const parseAmt = (v) => parseFloat((v || '').toString().replace(/[^0-9.-]+/g, '')) || 0;
 
@@ -118,26 +119,32 @@ export async function getUserProfile(env, userId) {
   // is fetched for just those specific loans/loaners, not the whole tables. Output
   // is identical to before (same fields, same filters, same sort order).
 
-  // The user's own row (indexed: idx_users... on id_code). USERS keeps the header
-  // shape where the id lives under `ID`.
-  const user = (await getSheetDataByColumn(env, 'USERS', 'id_code', id))[0];
+  // These four reads are independent of one another, so they run CONCURRENTLY rather
+  // than as four sequential awaits. Same queries, same results — a quarter of the
+  // wall-clock, which matters against the Worker's CPU/duration budget.
+  // (users.id_code is now genuinely indexed — see migration 2026-09-05/01.)
+  const [ownRows, collectionRows, loanRows, guarantorRows] = await Promise.all([
+    getSheetDataByColumn(env, 'USERS', 'id_code', id),
+    getSheetDataByColumn(env, 'COLLECTIONS', 'name', id),
+    getSheetDataByColumn(env, 'LOANS', 'name', id),
+    getSheetDataByColumn(env, 'LOAN GUARANTOR', 'guarantor', id),
+  ]);
+
+  const user = ownRows[0];
   if (!user) throw new Error('User not found');
 
-  const contributions = (await getSheetDataByColumn(env, 'COLLECTIONS', 'name', id))
+  const contributions = collectionRows
     .map(r => ({ Year: parseInt(r.Year), Amount: parseAmt(r.Amount), 'Payment Mode': r['Payment Mode'] || '' }))
     .sort((a, b) => b.Year - a.Year);
   const totalContributed = contributions.reduce((s, c) => s + c.Amount, 0);
 
-  const loansTaken = (await getSheetDataByColumn(env, 'LOANS', 'name', id))
+  const loansTaken = loanRows
     .map(r => ({
       Year: parseInt(r.Year), Amount: parseAmt(r.Amount),
       'Intrest Rate': r['Intrest Rate'] || r['Interest Rate'] || '',
       Tenure: r.Tenure || '', Status: r.Status || 'Active',
     }))
     .sort((a, b) => b.Year - a.Year);
-
-  // This person's guarantor rows (indexed: idx_loan_guarantors_guarantor).
-  const guarantorRows = await getSheetDataByColumn(env, 'LOAN GUARANTOR', 'guarantor', id);
 
   // For each guarantor row we need the referenced loan (by Loan ID, or legacy
   // Year+Loaner) and the loaner's display name. Resolve ONLY the loans/loaners
@@ -150,26 +157,32 @@ export async function getUserProfile(env, userId) {
     if (g.Loaner) neededLoanerIds.add((g.Loaner || '').toString().trim());
   });
 
-  // Fetch referenced loans by loan_id (indexed: idx_loans_loan_id). Legacy rows
-  // with no Loan ID fall back to a Year+Loaner match, so for those we also pull the
-  // loaner's loans by name (indexed: idx_loans_name).
-  const loansByLoanId = {};
+  // audit H-11: these were THREE sequential `for … await` loops — one D1 query per
+  // referenced loan, one per referenced loaner's loans, and one per loaner's display
+  // name. A member who has guaranteed ten loans therefore issued ~30 queries here,
+  // and on the FREE plan every D1 query is a subrequest against a hard cap of 50 per
+  // invocation — so a slightly busier record did not just get slow, it started
+  // failing outright. All three are now single batched IN (...) reads that run
+  // concurrently.
+  const loanIds = [...neededLoanIds];
+  const loanerIds = [...neededLoanerIds].filter(Boolean);
+
+  const [loansById, loanerLoanRows, loanerUserMap] = await Promise.all([
+    loansByLoanIds(env, loanIds),
+    // Legacy guarantor rows carry no Loan ID and are matched on Year + Loaner, so we
+    // still need those loaners' loans — but as ONE query, not one per loaner.
+    loansForBorrowers(env, loanerIds),
+    usersByIdCodes(env, loanerIds),
+  ]);
+
+  const loansByLoanId = loansById;
   const loansByLoanerName = {};
-  for (const lid of neededLoanIds) {
-    const rows = await getSheetDataByColumn(env, 'LOANS', 'loan_id', lid);
-    if (rows[0]) loansByLoanId[lid] = rows[0];
+  for (const l of loanerLoanRows) {
+    const key = (l.Name || '').toString().trim();
+    if (key) (loansByLoanerName[key] = loansByLoanerName[key] || []).push(l);
   }
-  for (const lname of neededLoanerIds) {
-    if (!lname) continue;
-    loansByLoanerName[lname] = await getSheetDataByColumn(env, 'LOANS', 'name', lname);
-  }
-  // Loaner display names (indexed lookup per referenced loaner).
   const nameById = {};
-  for (const lid of neededLoanerIds) {
-    if (!lid || nameById[lid] !== undefined) continue;
-    const u = (await getSheetDataByColumn(env, 'USERS', 'id_code', lid))[0];
-    nameById[lid] = u ? u.Name : undefined;
-  }
+  for (const id of loanerIds) nameById[id] = loanerUserMap[id] ? loanerUserMap[id].Name : undefined;
 
   const guarantorFor = guarantorRows
     .map(g => {

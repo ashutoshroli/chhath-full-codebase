@@ -10,6 +10,7 @@ import { base64ToBytes, MAX_CONSENT_IMAGE_BYTES } from './base64.js';
 import { logErrorAt, logWarn } from './logger.js';
 import { waNumberOf, looksLikeAttemptedNumber } from './phone.js';
 import { buildConsentPlaceholders } from './consentPlaceholders.js';
+import { usersByIdCodes, userByIdCode, loanByLoanId, loansByLoanIds } from './lookups.js';
 import { randomId, randomToken, randomOtp } from './random.js';
 
 // SECURITY (audit C-4): all four of these were built from Math.random(), which is
@@ -200,9 +201,9 @@ export async function deleteLoanTransaction(env, rowIndex, year, loanerId, user,
 // ---- Consent creation (called right after saveLoanTransaction) ----
 
 async function createLoanConsents(env, loanId, loanPayload, guarantorPayloads, user) {
-  const users = await getSheetDataAsJSON(env, 'USERS');
-  const userMap = {};
-  users.forEach(u => { userMap[u.ID] = u; });
+  // audit M-14: only the loaner and the three guarantors are needed — this used to
+  // read every member row to look up four of them.
+  const userMap = await usersByIdCodes(env, [loanPayload.Name, ...guarantorPayloads.map(g => g.Guarantor)]);
 
   const now = new Date().toISOString();
   const participants = [{ personId: loanPayload.Name, role: 'loaner' }]
@@ -349,16 +350,16 @@ export async function getConsentByToken(env, token) {
   if (!rowObj) throw ValidationError('This link is not valid or has expired.');
   const loanId = rowObj.loan_id;
 
-  const loans = await getSheetDataAsJSON(env, 'LOANS');
-  const loan = loans.find(l => l['Loan ID'] === loanId);
+  // audit M-14: this is a PUBLIC endpoint. It used to scan the whole loans table AND
+  // the whole users table on every consent-page open.
+  const loan = await loanByLoanId(env, loanId);
   if (!loan) throw ValidationError('Loan record not found.');
 
-  const users = await getSheetDataAsJSON(env, 'USERS');
-  const userMap = {};
-  users.forEach(u => { userMap[u.ID] = u; });
-  const nameOf = (id) => (userMap[id] && userMap[id].Name) || id;
-
   const { results: allConsentsRaw } = await env.DB_LOANS_EXPENSES.prepare("SELECT * FROM loan_consents WHERE loan_id = ? AND status != 'replaced'").bind(loanId).all();
+
+  // Only the people actually named on this loan.
+  const userMap = await usersByIdCodes(env, [loan.Name, ...allConsentsRaw.map(c => c.person_id)]);
+  const nameOf = (id) => (userMap[id] && userMap[id].Name) || id;
   const guarantorConsents = allConsentsRaw.filter(c => c.role === 'guarantor');
   const acceptedCount = guarantorConsents.filter(c => c.status === 'accepted').length;
   const allGuarantorsAccepted = guarantorConsents.length > 0 && acceptedCount === guarantorConsents.length;
@@ -430,8 +431,8 @@ export async function requestConsentOtp(env, token) {
   if (!rowObj) throw ValidationError('This link is not valid.');
   if (rowObj.status !== 'pending') throw ValidationError('Your response for this loan has already been recorded.');
 
-  const users = await getSheetDataAsJSON(env, 'USERS');
-  const person = users.find(u => u.ID === rowObj.person_id);
+  // audit M-14: one indexed lookup instead of a full users scan.
+  const person = await userByIdCode(env, rowObj.person_id);
   const wa = waNumberOf(person || {});
   if (!wa) throw new Error('Your WhatsApp number is not registered in the portal. Please contact the Superadmin.');
 
@@ -588,8 +589,8 @@ export async function respondConsent(env, token, decision, deviceId, deviceInfo,
       // Derive the loan's year so the files land under the right R2 year prefix
       // (used by the Superadmin "Move <year> to Drive" feature). If the loan
       // can't be resolved, keyForYear() falls back to an 'unknown-year' prefix.
-      const loansList = await getSheetDataAsJSON(env, 'LOANS');
-      const loanRow = loansList.find(l => l['Loan ID'] === rowObj.loan_id);
+      // audit M-14: one indexed lookup instead of scanning every loan.
+      const loanRow = await loanByLoanId(env, rowObj.loan_id);
       const consentYear = loanRow ? loanRow.Year : '';
       photoUrl = await uploadConsentFile(env, photoBase64, `consent_${rowObj.consent_id}_photo.jpg`, consentYear);
       signatureUrl = await uploadConsentFile(env, signatureBase64, `consent_${rowObj.consent_id}_signature.jpg`, consentYear);
@@ -643,25 +644,28 @@ function notificationData(loan, loanerU, person, role, guarantorUsers) {
   };
 }
 
-// Loads the guarantor USERS rows for a loan so notificationData() can fill
+// The guarantor person ids for a loan, in order, so notificationData() can fill
 // {Guarantor1..3} — templates assume these exist.
-async function guarantorUsersFor(env, loanId, userMap) {
+//
+// audit M-14: this used to return USERS ROWS, which forced every caller to have
+// already built a full userMap from a whole-table scan. Returning the IDS lets the
+// caller fetch exactly the people it needs in ONE batched lookup instead.
+async function guarantorPersonIds(env, loanId) {
   const { results } = await env.DB_LOANS_EXPENSES.prepare(
     "SELECT person_id FROM loan_consents WHERE loan_id = ? AND role = 'guarantor' AND status != 'replaced' ORDER BY id ASC"
   ).bind(loanId).all().catch(() => ({ results: [] }));
-  return (results || []).map(r => userMap[r.person_id] || {});
+  return (results || []).map(r => (r.person_id == null ? '' : r.person_id.toString().trim()));
 }
 
 async function notifyConsentAccepted(env, loanId, personId, role) {
   return trySend(env, 'notifyConsentAccepted', async () => {
-    const users = await getSheetDataAsJSON(env, 'USERS');
-    const userMap = {};
-    users.forEach(u => { userMap[u.ID] = u; });
-    const loans = await getSheetDataAsJSON(env, 'LOANS');
-    const loan = loans.find(l => l['Loan ID'] === loanId) || {};
+    // audit M-14: fetch the loan, then only the people it names.
+    const loan = (await loanByLoanId(env, loanId)) || {};
+    const guarantorIds = await guarantorPersonIds(env, loanId);
+    const userMap = await usersByIdCodes(env, [loan.Name, personId, ...guarantorIds]);
     const loanerU = userMap[loan.Name] || {};
     const person = userMap[personId] || {};
-    const guarantorUsers = await guarantorUsersFor(env, loanId, userMap);
+    const guarantorUsers = guarantorIds.map(id => userMap[id] || {});
 
     const data = notificationData(loan, loanerU, person, role, guarantorUsers);
     const tpls = await loanTemplateContext(env);
@@ -744,9 +748,8 @@ export async function getLoanConsents(env, loanId, user) {
   const { results } = await env.DB_LOANS_EXPENSES
     .prepare(`SELECT ${CONSENT_LIST_COLS} FROM loan_consents WHERE loan_id = ?`)
     .bind(loanId).all();
-  const users = await getSheetDataAsJSON(env, 'USERS');
-  const userMap = {};
-  users.forEach(u => { userMap[u.ID] = u; });
+  // audit M-14: only the people named on this loan's consents.
+  const userMap = await usersByIdCodes(env, results.map(c => c.person_id));
   return results.map(c => Object.assign({}, c, {
     personName: (userMap[c.person_id] && userMap[c.person_id].Name) || c.person_id,
     personNameHindi: (userMap[c.person_id] && userMap[c.person_id]['Name (Hindi)']) || '',
@@ -763,12 +766,13 @@ export async function getConsentsForReview(env, user) {
       WHERE status IN ('accepted', 'declined')
       ORDER BY responded_at DESC LIMIT ?`
   ).bind(CONSENT_REVIEW_LIMIT).all();
-  const users = await getSheetDataAsJSON(env, 'USERS');
-  const loans = await getSheetDataAsJSON(env, 'LOANS');
-  const userMap = {};
-  users.forEach(u => { userMap[u.ID] = u; });
-  const loanMap = {};
-  loans.forEach(l => { loanMap[l['Loan ID']] = l; });
+  // audit M-14: two bounded IN (...) lookups scoped to the rows on THIS page,
+  // instead of reading the whole users and loans tables.
+  const loanMap = await loansByLoanIds(env, results.map(c => c.loan_id));
+  const userMap = await usersByIdCodes(env, [
+    ...results.map(c => c.person_id),
+    ...Object.values(loanMap).map(l => l.Name),
+  ]);
 
   return results
     .map(c => {
@@ -798,14 +802,12 @@ async function notifyConsentVerified(env, consentId) {
   return trySend(env, 'notifyConsentVerified', async () => {
     const consent = await env.DB_LOANS_EXPENSES.prepare('SELECT * FROM loan_consents WHERE consent_id = ?').bind(consentId).first();
     if (!consent) return;
-    const users = await getSheetDataAsJSON(env, 'USERS');
-    const userMap = {};
-    users.forEach(u => { userMap[u.ID] = u; });
-    const loans = await getSheetDataAsJSON(env, 'LOANS');
-    const loan = loans.find(l => l['Loan ID'] === consent.loan_id) || {};
+    const loan = (await loanByLoanId(env, consent.loan_id)) || {};
+    const guarantorIds = await guarantorPersonIds(env, consent.loan_id);
+    const userMap = await usersByIdCodes(env, [loan.Name, consent.person_id, ...guarantorIds]);
     const loanerU = userMap[loan.Name] || {};
     const person = userMap[consent.person_id] || {};
-    const guarantorUsers = await guarantorUsersFor(env, consent.loan_id, userMap);
+    const guarantorUsers = guarantorIds.map(id => userMap[id] || {});
 
     const data = notificationData(loan, loanerU, person, consent.role, guarantorUsers);
     const tpls = await loanTemplateContext(env);
@@ -846,15 +848,13 @@ export async function resendConsent(env, consentId, user) {
   ).bind(newToken, sendCount + 1, rowObj.id).run();
 
   const consentLink = consentLinkBuilder(env);
-  const users = await getSheetDataAsJSON(env, 'USERS');
-  const userMap = {};
-  users.forEach(u => { userMap[u.ID] = u; });
+  const loan = (await loanByLoanId(env, rowObj.loan_id)) || {};
+  const guarantorIds = await guarantorPersonIds(env, rowObj.loan_id);
+  const userMap = await usersByIdCodes(env, [loan.Name, rowObj.person_id, ...guarantorIds]);
   const person = userMap[rowObj.person_id] || {};
   const wa = waNumberOf(person);
-  const loans = await getSheetDataAsJSON(env, 'LOANS');
-  const loan = loans.find(l => l['Loan ID'] === rowObj.loan_id) || {};
   const loanerU = userMap[loan.Name] || {};
-  const guarantorUsers = await guarantorUsersFor(env, rowObj.loan_id, userMap);
+  const guarantorUsers = guarantorIds.map(id => userMap[id] || {});
   const tplType = rowObj.role === 'loaner' ? 'consent_personal_loaner' : 'consent_personal_guarantor';
   const tpls = await loanTemplateContext(env);
   const tpl = tpls.pick(tplType);
@@ -883,8 +883,7 @@ export async function replaceGuarantor(env, loanId, oldConsentId, newPersonId, u
   if (oldRow.role !== 'guarantor') throw new Error('Only a guarantor can be replaced.');
   if (oldRow.status === 'accepted') throw new Error('This guarantor has already accepted — they cannot be replaced.');
 
-  const loans = await getSheetDataAsJSON(env, 'LOANS');
-  const loan = loans.find(l => l['Loan ID'] === loanId);
+  const loan = await loanByLoanId(env, loanId);
   if (!loan) throw ValidationError('Loan not found.');
 
   const { results: activeRows } = await env.DB_LOANS_EXPENSES.prepare(
@@ -917,9 +916,8 @@ export async function replaceGuarantor(env, loanId, oldConsentId, newPersonId, u
   ).bind(consentId, loanId, newPersonId, 'guarantor', token, 'pending', '', 0, 1, new Date().toISOString(), '').run();
 
   const consentLink = consentLinkBuilder(env);
-  const users = await getSheetDataAsJSON(env, 'USERS');
-  const userMap = {};
-  users.forEach(u => { userMap[u.ID] = u; });
+  const guarantorIdsAfter = await guarantorPersonIds(env, loanId);
+  const userMap = await usersByIdCodes(env, [newPersonId, loan.Name, ...guarantorIdsAfter]);
   const newPerson = userMap[newPersonId] || {};
   const loanerU = userMap[loan.Name] || {};
   const wa = waNumberOf(newPerson);
@@ -943,7 +941,7 @@ export async function replaceGuarantor(env, loanId, oldConsentId, newPersonId, u
     };
   }
 
-  const guarantorUsers = await guarantorUsersFor(env, loanId, userMap);
+  const guarantorUsers = guarantorIdsAfter.map(id => userMap[id] || {});
   const tplData = Object.assign(notificationData(loan, loanerU, newPerson, 'guarantor', guarantorUsers), {
     ConsentLink: consentLink(token),
   });
@@ -967,9 +965,8 @@ export async function markLoanDisbursed(env, loanId, cashAmount, onlineAmount, u
   ).bind(cash, online, loanId).run();
 
   const notify = await trySend(env, 'markLoanDisbursed', async () => {
-    const users = await getSheetDataAsJSON(env, 'USERS');
-    const userMap = {};
-    users.forEach(u => { userMap[u.ID] = u; });
+    const guarantorIds = await guarantorPersonIds(env, loanId);
+    const userMap = await usersByIdCodes(env, [loanRow.name, ...guarantorIds]);
     const loaner = userMap[loanRow.name] || {};
     const wa = waNumberOf(loaner);
     const tpls = await loanTemplateContext(env);
@@ -984,7 +981,7 @@ export async function markLoanDisbursed(env, loanId, cashAmount, onlineAmount, u
         `Loaner ${loanRow.name} has no valid WhatsApp/Mobile number — disbursement confirmation not sent.`, { loanId });
       return { skipped: 'no-number' };
     }
-    const guarantorUsers = await guarantorUsersFor(env, loanId, userMap);
+    const guarantorUsers = guarantorIds.map(id => userMap[id] || {});
     const tplData = Object.assign(
       notificationData(
         { Name: loanRow.name, Amount: loanRow.amount, Tenure: loanRow.tenure, 'Intrest Rate': loanRow.intrest_rate, Year: loanRow.year },
