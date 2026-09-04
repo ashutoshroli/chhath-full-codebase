@@ -29,19 +29,26 @@ compatibility_date = "2025-01-01"
 # a boundary. It also meant the two Workers competed for the same ~1000/day KV write
 # budget, which this file already documents as a real outage cause.
 #
-# ---- ONE-TIME SETUP REQUIRED BEFORE THIS TAKES EFFECT ----
-# Create a dedicated namespace and paste its id below:
+# ---- SETUP: DONE, NOTHING TO DO ----
+# The dedicated namespace was created with
 #
-#     cd Public/backend
 #     wrangler kv namespace create PUBLIC_CACHE
 #
-# then replace REPLACE_WITH_NEW_NAMESPACE_ID with the id it prints and deploy.
+# and the id it printed is bound below. Note that KV_SESSIONS is deliberately NOT
+# bound in this file any more, and that absence is the actual boundary: this
+# Worker now has no route at all to mgmt sessions, the Drive OAuth token, cached
+# member PII or consent OTP proofs, and no longer competes for the mgmt Worker's
+# ~1000/day KV write budget.
 #
-# The code is deliberately migration-safe: pubKv() in src/index.js prefers
-# env.KV_PUBLIC and falls back to env.KV_SESSIONS, so it behaves exactly as before
-# until the new namespace exists. Nothing is lost by switching — every key this
-# Worker writes (pub:rl:*, pub:d1reads:*, pub:snapshot:*) is a cache or a counter
-# that rebuilds itself on first use.
+# The code stays migration-safe — pubKv() in src/index.js prefers env.KV_PUBLIC and
+# falls back to env.KV_SESSIONS — but with KV_SESSIONS unbound here that fallback
+# is now unreachable for this Worker, which is the intent.
+#
+# On the first request after deploying, the new namespace is empty, so the
+# last-known-good portalData snapshot is missing and gets rebuilt from D1. Every
+# key this Worker writes (pub:rl:*, pub:d1reads:*, pub:snapshot:*) is a cache or a
+# counter that regenerates itself on first use, so nothing is lost; the old
+# namespace's copies are simply abandoned and expire on their TTLs.
 [[kv_namespaces]]
 binding = "KV_PUBLIC"
 id = "dce0bc8851694b7883030edd6643859e"
