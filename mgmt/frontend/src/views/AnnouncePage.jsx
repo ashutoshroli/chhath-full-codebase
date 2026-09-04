@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api.js';
+import { usePolling } from '../usePolling.js';
 import ReportErrorButton from '../components/ReportErrorButton.jsx';
 
 const STATUS_OPTIONS = [['All', 'All'], ['Not Announced', 'Not Announced'], ['Announced', 'Announced']];
@@ -182,20 +183,19 @@ export default function AnnouncePage() {
   // Background poll — keeps queue fresh (new collections / new priority customs
   // added live during the event) without disturbing what's on screen. Only
   // safe to silently swap "items"/"priorityQueue" while not mid-priority-display.
-  useEffect(() => {
+  // audit P-8: pauses while the tab is hidden and refreshes once on return. The
+  // on-stage device is open for hours, so an unpaused poll here is pure waste.
+  usePolling(() => {
     if (!announceToken) return;
-    const iv = setInterval(() => {
-      if (priorityPointerRef.current >= 0) return; // don't disturb an active priority interrupt
-      api.getAnnouncementQueue(announceToken, statusFilter, typeFilter)
-        .then(res => { setItems(res.items || []); setPriorityQueue(res.priorityItems || []); setPollFailed(false); })
-        // Was `.catch(() => {})`. During a live event the operator had no way to
-        // know the auto-refresh had stopped — the screen just silently froze on
-        // stale data. A small indicator is enough; we must NOT interrupt the
-        // announcement display with an error banner.
-        .catch(() => setPollFailed(true));
-    }, POLL_MS);
-    return () => clearInterval(iv);
-  }, [announceToken, statusFilter, typeFilter]);
+    if (priorityPointerRef.current >= 0) return; // don't disturb an active priority interrupt
+    api.getAnnouncementQueue(announceToken, statusFilter, typeFilter)
+      .then(res => { setItems(res.items || []); setPriorityQueue(res.priorityItems || []); setPollFailed(false); })
+      // Was `.catch(() => {})`. During a live event the operator had no way to
+      // know the auto-refresh had stopped — the screen just silently froze on
+      // stale data. A small indicator is enough; we must NOT interrupt the
+      // announcement display with an error banner.
+      .catch(() => setPollFailed(true));
+  }, announceToken ? POLL_MS : 0, [announceToken, statusFilter, typeFilter]);
 
   const displayedItem = priorityPointer >= 0 ? priorityQueue[priorityPointer] : items[normalIndex];
 

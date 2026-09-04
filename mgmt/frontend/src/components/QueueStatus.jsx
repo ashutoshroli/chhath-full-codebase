@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { api } from '../api.js';
+import { usePolling } from '../usePolling.js';
 
 // Compact Collection-Queue status strip, shown on Home for every staff role.
 // Polls getCollectionQueueStatus every 10s (and on a `refreshKey` bump, e.g.
@@ -9,7 +10,6 @@ export default function QueueStatus({ refreshKey }) {
   const [counts, setCounts] = useState(null);
   const [open, setOpen] = useState(false);
   const [recent, setRecent] = useState([]);
-  const timer = useRef(null);
 
   const kickedRef = useRef(false);
 
@@ -34,11 +34,8 @@ export default function QueueStatus({ refreshKey }) {
     } catch (e) { /* silent — queue status is non-critical */ }
   };
 
-  useEffect(() => {
-    load();
-    timer.current = setInterval(load, 10000);
-    return () => { if (timer.current) clearInterval(timer.current); };
-  }, []);
+  // audit P-8: polls only while the tab is VISIBLE, and refreshes once on return.
+  usePolling(load, 10000);
 
   // Re-poll shortly after a save so the new job shows up quickly.
   useEffect(() => {

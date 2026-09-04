@@ -242,8 +242,33 @@ export async function retryQueueJob(env, user, jobId) {
 // for them: the UI calls this fire-and-forget after enqueuing, and it drains the
 // queue within seconds. Staff-gated (any logged-in staff role). Reuses the exact
 // same claim-and-process path as the cron, so concurrent runs are safe.
+// audit M-4: this is an unmetered heavy-work trigger available to ANY staff role —
+// each call can drive up to CLAIM_BATCH Google Drive conversions — and QueueStatus.jsx
+// nudges it from a 10-second poll. A loop could burn Drive quota and Worker CPU.
+//
+// WHY THE THROTTLE IS IN-ISOLATE AND NOT IN KV: a KV-backed cooldown would need a KV
+// WRITE on every drain attempt, and KV allows only ~1000 writes/day — the tightest
+// limit in this system. Spending that budget to rate-limit a call that is already
+// bounded elsewhere would be the wrong trade. A module-level timestamp costs nothing,
+// and Cloudflare reuses an isolate for bursts from the same colo, so it catches the
+// realistic case (one client or script hammering the endpoint) at zero quota cost.
+//
+// It is deliberately NOT a distributed lock, and it does not need to be: correctness
+// against concurrent drains is already guaranteed by the optimistic claim in
+// processPendingJobs (`UPDATE ... WHERE id = ? AND status IN ('pending','processing')`,
+// then `if (claim.meta.changes === 0) continue`), so two simultaneous runs can never
+// double-process a job. This throttle only trims wasted work.
+const DRAIN_COOLDOWN_MS = 5000;
+let lastDrainStartedAt = 0;
+
 export async function processCollectionQueueOnDemand(env, user) {
   requireStaffRole(user);
+  const now = Date.now();
+  if (now - lastDrainStartedAt < DRAIN_COOLDOWN_MS) {
+    // Not an error: the queue is already being drained, and the cron is the backstop.
+    return { processed: 0, throttled: true };
+  }
+  lastDrainStartedAt = now;
   return processPendingJobs(env);
 }
 

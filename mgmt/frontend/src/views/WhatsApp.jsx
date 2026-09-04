@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '../api.js';
+import { usePolling } from '../usePolling.js';
 import Modal from '../components/Modal.jsx';
 import { isTruthyFlag } from '../flags.js';
 
@@ -404,11 +405,8 @@ function MessageLog() {
     api.getStuckMessages(30).then(setStuck).catch(() => { /* panel is advisory only */ });
   }, []);
 
-  useEffect(() => {
-    load(false);
-    const interval = setInterval(() => load(true), 12000); // auto-refresh every 12s
-    return () => clearInterval(interval);
-  }, [load]);
+  // 12s auto-refresh, paused while the tab is hidden (audit P-8).
+  usePolling(() => load(true), 12000, [load]);
 
   const badgeClass = (status) => status === 'sent' ? 'badge-ok' : status === 'failed' ? 'badge-warn' : 'badge-pending';
 

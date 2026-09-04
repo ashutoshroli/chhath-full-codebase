@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
+import { usePolling } from '../usePolling.js';
 
 // Superadmin-only tab: full monitor for the background Collection Queue (PDF +
 // WhatsApp jobs). Unlike the compact QueueStatus strip on Home (last few jobs,
@@ -37,7 +38,6 @@ export default function QueueMonitor() {
   const [status, setStatus] = useState('');
   const [retrying, setRetrying] = useState(null);
   const [notice, setNotice] = useState('');
-  const timer = useRef(null);
   const statusRef = useRef(status);
   statusRef.current = status;
 
@@ -54,12 +54,8 @@ export default function QueueMonitor() {
     }
   };
 
-  // Initial load + 10s auto-refresh. Re-reads on the current filter each tick.
-  useEffect(() => {
-    load(true);
-    timer.current = setInterval(() => load(false), 10000);
-    return () => { if (timer.current) clearInterval(timer.current); };
-  }, []);
+  // Initial load + 10s auto-refresh, but only while the tab is VISIBLE (audit P-8).
+  usePolling(() => load(false), 10000);
 
   // Re-load immediately when the status filter changes.
   useEffect(() => { load(true); }, [status]);

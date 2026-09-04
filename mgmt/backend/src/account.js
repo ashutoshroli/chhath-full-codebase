@@ -222,7 +222,15 @@ export async function uploadFileToDrive(env, base64Data, fileName, mimeType, opt
 const DRIVE_TOKEN_KEY = 'drive:access_token';
 
 export async function getDriveAccessToken(env) {
-  const cached = await env.KV_SESSIONS.get(DRIVE_TOKEN_KEY);
+  // ROBUSTNESS: this used to be a bare `env.KV_SESSIONS.get(...)`, so a KV outage —
+  // or simply a deployment where the binding is absent — threw
+  // "Cannot read properties of undefined (reading 'get')" and took down EVERY Drive
+  // operation: template reads, PDF generation, popup and consent uploads. KV here is
+  // only a 55-minute cache in front of a token we can always re-mint, so it must be
+  // strictly best-effort. (Found by the P-4 caching tests.)
+  const cached = env.KV_SESSIONS
+    ? await env.KV_SESSIONS.get(DRIVE_TOKEN_KEY).catch(() => null)
+    : null;
   if (cached) return cached;
   if (!env.DRIVE_OAUTH_CLIENT_ID || !env.DRIVE_OAUTH_CLIENT_SECRET || !env.DRIVE_OAUTH_REFRESH_TOKEN) {
     throw new Error('DRIVE_OAUTH_CLIENT_ID / DRIVE_OAUTH_CLIENT_SECRET / DRIVE_OAUTH_REFRESH_TOKEN not configured');
@@ -239,7 +247,11 @@ export async function getDriveAccessToken(env) {
   });
   if (!res.ok) throw new Error('Drive OAuth token refresh failed: ' + await res.text());
   const { access_token, expires_in } = await res.json();
-  await env.KV_SESSIONS.put(DRIVE_TOKEN_KEY, access_token, { expirationTtl: Math.max(60, expires_in - 300) });
+  // Best-effort, for the same reason as the read above: failing to CACHE a token
+  // must never fail the operation that needs the token.
+  if (env.KV_SESSIONS) {
+    await env.KV_SESSIONS.put(DRIVE_TOKEN_KEY, access_token, { expirationTtl: Math.max(60, expires_in - 300) }).catch(() => {});
+  }
   return access_token;
 }
 
