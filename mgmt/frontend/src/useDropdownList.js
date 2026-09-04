@@ -5,10 +5,25 @@ import { isTruthyFlag } from './flags.js';
 let cache = null; // { Category: [...], 'Payment Mode': [...], 'Loan Status': [...], Village: [...] }
 let inflight = null;
 
+// audit M-29 — `inflight` was never cleared on failure, and a forced reload
+// overwrote it while the previous request was still running.
+//
+//   * On a REJECTED request the old code left the failed promise in `inflight`
+//     for ever, so every later caller re-awaited the same rejection. One network
+//     blip and every dropdown in the portal stayed empty until a full page reload,
+//     with retries doing nothing.
+//   * `force` overwrote `inflight` without settling the previous one, so two
+//     concurrent loads raced to assign `cache` and the loser's result won if it
+//     landed second — the classic last-writer-wins staleness.
+//
+// Now: `inflight` is cleared in both outcomes, and a forced load reuses an
+// already-running request rather than starting a second one.
 async function loadAll(force) {
   if (cache && !force) return cache;
-  if (inflight && !force) return inflight;
-  inflight = api.getAllDropdownLists().then(data => { cache = data; inflight = null; return data; });
+  if (inflight) return inflight; // a request is already running — join it, don't add another
+  inflight = api.getAllDropdownLists()
+    .then(data => { cache = data; return data; })
+    .finally(() => { inflight = null; });
   return inflight;
 }
 

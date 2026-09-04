@@ -11,7 +11,17 @@ function escapeHtml(v) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
-function escapeAttr(v) { return escapeHtml(v); }
+// audit L-19: there used to be an `escapeAttr` alias here that just called
+// escapeHtml. The name implied a different, attribute-specific escaping that did
+// not exist, which invites someone to "improve" one and not the other.
+//
+// escapeHtml is in fact correct for BOTH contexts, and deliberately so: it escapes
+// the double AND single quote, so an interpolated value cannot terminate either
+// form of quoted attribute. The alias is gone; every call site uses escapeHtml.
+//
+// The one place that needs more is a value going into a JS string inside an
+// onclick attribute (see renderDownloadPeople) — that is a third context, and it
+// escapes for the JS string FIRST and then for HTML.
 // Only http(s) — blocks javascript:, data:, vbscript: in href/src.
 function safeUrl(v) {
   const raw = (v === undefined || v === null ? '' : v.toString()).trim();
@@ -158,15 +168,27 @@ const app = {
 
         let years = new Set();
 
-        res.collections.forEach(r => {
+        // audit L-18: these three were unguarded while `users`, `generatedFiles` and
+        // `loanConsents` right above are defaulted. The last-known-good snapshot
+        // path (Public Worker, pub:snapshot:*) can serve a payload built before a
+        // key existed, and an older/partial deployment omits others — either way
+        // this threw "Cannot read properties of undefined (reading 'forEach')" and
+        // took the WHOLE public portal to a blank page, on the one code path whose
+        // entire purpose is to keep the portal up when things are already wrong.
+        app.data.collections = app.data.collections || [];
+        app.data.loans = app.data.loans || [];
+        app.data.committee = app.data.committee || [];
+        app.data.expenses = app.data.expenses || [];
+
+        (res.collections || []).forEach(r => {
           if (r.Year) years.add(parseInt(r.Year));
         });
 
-        res.loans.forEach(r => {
+        (res.loans || []).forEach(r => {
           if (r.Year) years.add(parseInt(r.Year));
         });
 
-        res.committee.forEach(r => {
+        (res.committee || []).forEach(r => {
           if (r.Year) years.add(parseInt(r.Year));
         });
 
@@ -244,9 +266,9 @@ const app = {
     // accepted `javascript:`. All four values are escaped now, and the link scheme
     // is restricted to http/https.
     content.innerHTML = `
-      ${slide.image_url && safeUrl(driveImageUrl(slide.image_url)) ? `<img class="popup-slide-img" src="${escapeAttr(driveImageUrl(slide.image_url))}" alt="" data-fb="${escapeAttr(driveImageFallbackUrl(slide.image_url))}" onerror="if(this.dataset.fb&&this.dataset.fbTried!=='1'){this.dataset.fbTried='1';this.src=this.dataset.fb;}else{this.style.display='none';}">` : ''}
+      ${slide.image_url && safeUrl(driveImageUrl(slide.image_url)) ? `<img class="popup-slide-img" src="${escapeHtml(driveImageUrl(slide.image_url))}" alt="" data-fb="${escapeHtml(driveImageFallbackUrl(slide.image_url))}" onerror="if(this.dataset.fb&&this.dataset.fbTried!=='1'){this.dataset.fbTried='1';this.src=this.dataset.fb;}else{this.style.display='none';}">` : ''}
       ${slide.text ? `<div class="popup-slide-text">${escapeHtml(slide.text)}</div>` : ''}
-      ${slide.link_url && safeUrl(slide.link_url) ? `<a class="popup-slide-link" href="${escapeAttr(slide.link_url)}" target="_blank" rel="noreferrer">${escapeHtml(slide.link_text || 'Learn more')}</a>` : ''}
+      ${slide.link_url && safeUrl(slide.link_url) ? `<a class="popup-slide-link" href="${escapeHtml(slide.link_url)}" target="_blank" rel="noreferrer">${escapeHtml(slide.link_text || 'Learn more')}</a>` : ''}
     `;
     const navEl = document.getElementById('popup-slide-nav');
     if (app.popupSlides.length > 1) {
@@ -602,7 +624,7 @@ const app = {
     (app.data.users || []).forEach(u => { if (u.Village) villages.add(u.Village.trim()); });
     const arr = Array.from(villages).sort((a, b) => a.localeCompare(b));
     const sel = document.getElementById('dc-village');
-    sel.innerHTML = `<option value="">-- Select Village --</option>` + arr.map(v => `<option value="${escapeAttr(v)}">${escapeHtml(v)}</option>`).join('');
+    sel.innerHTML = `<option value="">-- Select Village --</option>` + arr.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
     sel.value = '';
   },
 
@@ -648,7 +670,7 @@ const app = {
       // HTML-escaped like everywhere else.
       const idJs = (u.ID || '').toString().replace(/\\/g, '\\\\').replace(/'/g, "\\'");
       return `
-      <div class="data-row" style="cursor:pointer;" onclick="app.selectDownloadPerson('${escapeAttr(idJs)}')">
+      <div class="data-row" style="cursor:pointer;" onclick="app.selectDownloadPerson('${escapeHtml(idJs)}')">
         <div>
           <strong style="display:block;">${escapeHtml(u.Name)}</strong>
           <span style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(u.Village || '-')}</span>
@@ -738,7 +760,7 @@ const app = {
       <div class="data-row">
         <div><strong style="display:block; font-size:0.9rem;">${escapeHtml(item.label)}</strong></div>
         ${item.publicLink && safeUrl(item.publicLink)
-          ? `<a href="${escapeAttr(item.publicLink)}" target="_blank" rel="noreferrer" class="badge badge-ok" style="text-decoration:none;">Download</a>`
+          ? `<a href="${escapeHtml(item.publicLink)}" target="_blank" rel="noreferrer" class="badge badge-ok" style="text-decoration:none;">Download</a>`
           : `<span class="badge" style="background:#f3f4f6; color:#9CA3AF;">Not Available</span>`}
       </div>`;
 
@@ -763,4 +785,8 @@ const app = {
   }
 };
 
-window.onload = app.init;
+// audit L-17: `window.onload = app.init` REPLACES any existing load handler, so it
+// silently disables anything else that registers one — the GTM snippet in
+// index.html, an analytics tag, a future service-worker registration. addEventListener
+// composes instead of clobbering.
+window.addEventListener('load', () => app.init());
