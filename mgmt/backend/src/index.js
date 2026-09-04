@@ -1,4 +1,4 @@
-import { login, doLogout, withAuth, withApiKey, verifyToken, requireSuperadmin, requireAdminOrAbove, requireStaffRole, getLockedYearsSet, lockYear, unlockYear, getMySessions, revokeSession, revokeAllOtherSessions, getUserSessions, revokeUserSession } from './auth.js';
+import { login, doLogout, withAuth, withApiKey, verifyToken, requireSuperadmin, requireAdminOrAbove, requireStaffRole, getLockedYearsSet, lockYear, unlockYear, getMySessions, revokeSession, revokeAllOtherSessions, getUserSessions, revokeUserSession, getLoginAttempts, getLockedAccounts, revokeLock, revokeAllLocks } from './auth.js';
 import { getSheetDataAsJSON, saveRecord, updateRecordByIdx, deleteRecordByIdx } from './crud.js';
 import { getYears, addYear, getHomeData, getLoansData, getExpensesData, getCommitteeData, getUserHistory, getYearContributors, getUserProfile } from './views.js';
 import { getLoginUsers, addLoginUser, updateLoginUser, deleteLoginUser, updateOwnProfile, changePassword, uploadFileToDrive } from './account.js';
@@ -375,6 +375,11 @@ export default {
       // ---- Superadmin: view / force-logout ANY user's sessions ----
       getUserSessions: () => withAuth(env, req, (user) => getUserSessions(env, req.targetName, user)),
       revokeUserSession: () => withAuth(env, req, (user) => revokeUserSession(env, req.targetName, req.sessionId, user)),
+      // ---- Superadmin: login/activity audit + locked accounts + unlock ----
+      getLoginAttempts: () => withAuth(env, req, (user) => getLoginAttempts(env, { name: req.name2, failedOnly: req.failedOnly, successOnly: req.successOnly, limit: req.limit }, user)),
+      getLockedAccounts: () => withAuth(env, req, (user) => getLockedAccounts(env, user)),
+      revokeLock: () => withAuth(env, req, (user) => revokeLock(env, req.lockKey, req.targetName, req.ip, user)),
+      revokeAllLocks: () => withAuth(env, req, (user) => revokeAllLocks(env, user)),
       getYears: () => withAuth(env, req, () => getYears(env)),
       getUsers: () => withAuth(env, req, () => getSheetDataAsJSON(env, 'USERS')),
       getCommittee: () => withAuth(env, req, () => getCommitteeData(env, req.year)),
