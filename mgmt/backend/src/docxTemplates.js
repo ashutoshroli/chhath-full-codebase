@@ -1,10 +1,11 @@
-import { getSheetDataAsJSON, filterByYear } from './crud.js';
+import { getSheetDataAsJSON, getSheetDataByColumn, filterByYear } from './crud.js';
 import { requireSuperadmin, requireYearAccess, requireStaffRole, PermissionError, ValidationError } from './auth.js';
 import { getOrCreateFolder, uploadDocxFile, getFileBytesBase64, copyFile, convertDocxBytesToPdf, convertDocxBytesToPdfRaw } from './drive.js';
 import { r2Available, putToR2, keyForYear } from './r2.js';
 import { logErrorAt } from './logger.js';
 import { consentPlaceholderFactory } from './consentPlaceholders.js';
 import { isTruthyFlag } from './flags.js';
+import { usersByIdCodes, loansByBorrower, loansByLoanIds, generatedFilesByRecordIds, consentsForPerson, consentsForLoanIds } from './lookups.js';
 import { base64ByteLength, MAX_DOCX_BYTES } from './base64.js';
 
 export const DOC_TYPES = ['receipt', 'certificate', 'samaan', 'consent_loaner', 'consent_guarantor', 'report_en', 'report_hi', 'report_both'];
@@ -488,16 +489,88 @@ export async function getPersonDownloads(env, userId, user) {
   if (!userId) throw new Error('User ID required');
   const id = userId.toString().trim();
 
-  const users = await getSheetDataAsJSON(env, 'USERS');
-  const userMap = {};
-  users.forEach(u => { userMap[u.ID] = u; });
-  const u = userMap[id];
+  // audit H-11 / M-14: this read the WHOLE users table and the WHOLE collections
+  // table, then filtered in JS, to build one person's download list. Both are now
+  // scoped, and they run concurrently.
+  const [ownMap, personCollections] = await Promise.all([
+    usersByIdCodes(env, [id]),
+    getSheetDataByColumn(env, 'COLLECTIONS', 'name', id),
+  ]);
+  const u = ownMap[id];
   if (!u) throw ValidationError('User not found');
-  const nameOf = (pid) => (userMap[pid] && userMap[pid].Name) || pid;
 
-  const allCollections = (await getSheetDataAsJSON(env, 'COLLECTIONS'))
-    .filter(r => (r.Name || '').toString().trim() === id)
-    .filter(r => !isTruthyFlag(r['Is Resell']));
+  const allCollections = personCollections.filter(r => !isTruthyFlag(r['Is Resell']));
+
+  // The generated-file index is read ONCE for every record id this function will
+  // report on, instead of one query per row (audit H-11). Built up front so all three
+  // sections below share it.
+  const collectionRecordIds = allCollections.map(entry => {
+    const year = parseInt(entry.Year);
+    const isSamaan = entry['Contribution Type'] === '2';
+    const wantCert = !isSamaan && entry['Certificate Or Receipt'] === 'Certificate';
+    const docType = isSamaan ? 'samaan' : (wantCert ? 'certificate' : 'receipt');
+    return `${docType}-${year}-${entry.__rowIndex}`;
+  });
+
+  // audit H-11 / M-14: everything below used to be built from THREE unbounded reads —
+  // every loan_consents row, every loan, and (above) every user and every collection —
+  // to assemble one person's download list. It is now scoped in four indexed steps:
+  //
+  //   1. this person's own consents          (idx_loan_consents_person_id)
+  //   2. this person's own loans             (idx_loans_name)
+  //   3. every consent of the loans involved (idx_loan_consents_loan_id) — the
+  //      placeholder factory needs a loan's FULL consent set to compute the
+  //      accepted/pending/declined counts and the guarantor names
+  //   4. the loans referenced by 1, batched  (idx_loans_loan_id)
+  const myConsents = await consentsForPerson(env, id);
+  const guarantorConsents = myConsents.filter(c => c.role === 'guarantor' && c.status === 'accepted');
+
+  const [ownLoans, referencedLoans] = await Promise.all([
+    loansByBorrower(env, id),
+    loansByLoanIds(env, guarantorConsents.map(c => c.loan_id)),
+  ]);
+  const loanById = { ...referencedLoans };
+  ownLoans.forEach(l => { loanById[(l['Loan ID'] || '').toString().trim()] = l; });
+
+  // Step 3 — the consents of exactly the loans this page will render.
+  const involvedLoanIds = Object.keys(loanById);
+  const allConsents = await consentsForLoanIds(env, involvedLoanIds);
+
+  // Same 6-key-vs-24-key divergence as getRecordsForDocType above — Download
+  // Center produced consent PDFs with every festival date and count blank.
+  // Cached per loan so a person with several loans doesn't re-read festival dates.
+  //
+  // nameOf now resolves from a batched lookup of just the people involved (this
+  // person plus each referenced loaner), instead of a whole-table userMap.
+  const nameMap = await usersByIdCodes(env, [
+    id,
+    ...Object.values(loanById).map(l => l.Name),
+    ...allConsents.map(c => c.person_id),
+  ]);
+  const nameOf = (pid) => (nameMap[pid] && nameMap[pid].Name) || pid;
+
+  const factoryCache = new Map();
+  const placeholderFactoryFor = async (loan) => {
+    const key = loan['Loan ID'];
+    if (!factoryCache.has(key)) {
+      const consents = allConsents.filter(c => c.loan_id === key);
+      factoryCache.set(key, await consentPlaceholderFactory(env, loan, consents, nameOf));
+    }
+    return factoryCache.get(key);
+  };
+
+  // One generated-file index read covering every record id all three sections will
+  // report on, replacing one query per document (audit H-11).
+  const consentRecordIds = [];
+  for (const loan of ownLoans) {
+    const c = allConsents.find(x => x.loan_id === loan['Loan ID'] && x.role === 'loaner' && x.status === 'accepted');
+    if (c) consentRecordIds.push(`consent_loaner-${parseInt(loan.Year)}-${c.consent_id}`);
+  }
+  for (const c of guarantorConsents) {
+    const loan = loanById[c.loan_id];
+    if (loan) consentRecordIds.push(`consent_guarantor-${parseInt(loan.Year)}-${c.consent_id}`);
+  }
+  const genByRecordId = await generatedFilesByRecordIds(env, [...collectionRecordIds, ...consentRecordIds]);
 
   const collections = [];
   for (const entry of allCollections) {
@@ -520,7 +593,7 @@ export async function getPersonDownloads(env, userId, user) {
       AMOUNT: formatAmt(entry.Amount), DETAIL: entry.Detail || '', DATE: entry.Date || '', YEAR: year,
     };
     const docNoKey = isSamaan ? 'SAMAAN_NO' : (wantCert ? 'CERT_NO' : 'RECEIPT_NO');
-    const gen = await isFileGenerated(env, docType, year, recordId);
+    const gen = genByRecordId[recordId];
     collections.push({
       recordId, docType, year,
       label: `${isSamaan ? 'Samaan' : (wantCert ? 'Certificate' : 'Receipt')} — ${year}${placeholders.AMOUNT ? ' — ₹' + placeholders.AMOUNT : ''}`,
@@ -531,33 +604,15 @@ export async function getPersonDownloads(env, userId, user) {
   }
   collections.sort((a, b) => b.year - a.year);
 
-  const { results: allConsents } = await env.DB_LOANS_EXPENSES.prepare("SELECT * FROM loan_consents WHERE status != 'replaced'").all();
-
-  // Same 6-key-vs-24-key divergence as getRecordsForDocType above — Download
-  // Center produced consent PDFs with every festival date and count blank.
-  // Cached per loan so a person with several loans doesn't re-read festival dates.
-  const factoryCache = new Map();
-  const placeholderFactoryFor = async (loan) => {
-    const key = loan['Loan ID'];
-    if (!factoryCache.has(key)) {
-      const consents = allConsents.filter(c => c.loan_id === key);
-      factoryCache.set(key, await consentPlaceholderFactory(env, loan, consents, nameOf));
-    }
-    return factoryCache.get(key);
-  };
-
-  const allLoans = await getSheetDataAsJSON(env, 'LOANS');
-  const loanById = {};
-  allLoans.forEach(l => { loanById[l['Loan ID']] = l; });
 
   const loanerItems = [];
-  for (const loan of allLoans.filter(l => (l.Name || '').toString().trim() === id)) {
+  for (const loan of ownLoans) {
     const year = parseInt(loan.Year);
     const c = allConsents.find(x => x.loan_id === loan['Loan ID'] && x.role === 'loaner' && x.status === 'accepted');
     if (!c) continue;
     const recordId = `consent_loaner-${year}-${c.consent_id}`;
     const placeholders = (await placeholderFactoryFor(loan))(c);
-    const gen = await isFileGenerated(env, 'consent_loaner', year, recordId);
+    const gen = genByRecordId[recordId];
     loanerItems.push({
       recordId, docType: 'consent_loaner', year,
       label: `Loan Consent (as Loaner) — ${year} — ₹${loan.Amount}`,
@@ -568,13 +623,13 @@ export async function getPersonDownloads(env, userId, user) {
   loanerItems.sort((a, b) => b.year - a.year);
 
   const guarantorItems = [];
-  for (const c of allConsents.filter(c => c.role === 'guarantor' && c.status === 'accepted' && (c.person_id || '').toString().trim() === id)) {
+  for (const c of guarantorConsents) {
     const loan = loanById[c.loan_id];
     if (!loan) continue;
     const year = parseInt(loan.Year);
     const recordId = `consent_guarantor-${year}-${c.consent_id}`;
     const placeholders = (await placeholderFactoryFor(loan))(c);
-    const gen = await isFileGenerated(env, 'consent_guarantor', year, recordId);
+    const gen = genByRecordId[recordId];
     guarantorItems.push({
       recordId, docType: 'consent_guarantor', year,
       label: `Loan Consent (as Guarantor for ${nameOf(loan.Name)}) — ${year}`,
