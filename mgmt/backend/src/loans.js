@@ -509,7 +509,13 @@ export async function verifyConsentOtp(env, token, otp) {
     throw new Error(`The OTP is incorrect.${left > 0 ? ` ${left} attempt(s) remaining.` : ' Please request a new OTP.'}`);
   }
 
-  await env.DB_LOANS_EXPENSES.prepare('UPDATE loan_consents SET otp_verified = 1 WHERE id = ?').bind(rowObj.id).run();
+  // SECURITY (audit C-3): actually BURN the code in the database, not just in KV.
+  // The comment below has always said the OTP is burned, but only the KV meta was
+  // rewritten — the `otp` column kept the live code until a new one was requested.
+  // Combined with the old `SELECT *` list endpoints that returned it, that gave a
+  // staff member a reusable credential. Clearing it here means a verified code
+  // cannot be replayed even by someone who already holds it.
+  await env.DB_LOANS_EXPENSES.prepare("UPDATE loan_consents SET otp_verified = 1, otp = '' WHERE id = ?").bind(rowObj.id).run();
 
   // SECURITY: bind this verification to WHOEVER just proved control of the OTP,
   // instead of leaving a permanent otp_verified=1 flag that ANY later visitor to
@@ -683,11 +689,50 @@ async function notifyConsentAccepted(env, loanId, personId, role) {
 
 // ---- ADMIN (Superadmin/Admin) ----
 
+// ============ CONSENT COLUMN ALLOWLISTS (audit C-3) ============
+//
+// SECURITY: `token` and `otp` are CREDENTIALS, not data. Together they are
+// sufficient to impersonate the consenting person end-to-end:
+//     verifyConsentOtp(token, otp) -> mints a verifyToken for the caller
+//     respondConsent(token, 'accepted', ..., verifyToken) -> records the consent
+// so a staff member holding them could accept a loan guarantee on someone else's
+// behalf, complete with a fabricated photo, signature and geolocation.
+//
+// Both list endpoints used `SELECT *`, which returned them. They are now projected
+// explicitly, and `token`/`otp` appear in NEITHER list — there is no screen that
+// needs them, and no legitimate reason for them to leave the Worker.
+//
+// The two lists are also scoped differently, because their audiences differ:
+//   LIST   — the Loan Consents modal, reachable from the Loans tab by EVERY staff
+//            role. It renders six fields (consent_id, personName, personNameHindi,
+//            role, send_count, status), so it gets those and nothing more. The
+//            geolocation, photo, signature, IP and device of a named private
+//            person are not needed to show "2/3 guarantors accepted".
+//   REVIEW — the Consent Review screen (Admin/Superadmin), which exists precisely
+//            to inspect the photo/signature/geo before verifying. It gets the full
+//            evidence set, still minus the credentials.
+const CONSENT_LIST_COLS = `
+  id, consent_id, loan_id, person_id, role, status, otp_verified, send_count,
+  created_at, responded_at, verification_status`;
+
+const CONSENT_REVIEW_COLS = `
+  id, consent_id, loan_id, person_id, role, status, otp_verified, send_count,
+  created_at, responded_at, device_id, ip_address, user_agent,
+  geo_lat, geo_lng, geo_accuracy, photo_url, signature_url, decline_remarks,
+  verification_status, verification_remarks, verified_by, verified_at`;
+
+// A single loan has at most a handful of consents, but the review queue grows
+// without bound — cap it so one request can never read the whole table.
+const CONSENT_REVIEW_LIMIT = 500;
+
 export async function getLoanConsents(env, loanId, user) {
-  // Was completely un-gated beyond having a valid session — it returns consent
-  // tokens/photo URLs/geo data, so it needs at least a staff role.
+  // Was completely un-gated beyond having a valid session. The Loans tab is
+  // available to every staff role, so this stays staff-level — the fix is that it
+  // no longer hands out credentials or third-party evidence (see CONSENT_LIST_COLS).
   requireStaffRole(user);
-  const { results } = await env.DB_LOANS_EXPENSES.prepare('SELECT * FROM loan_consents WHERE loan_id = ?').bind(loanId).all();
+  const { results } = await env.DB_LOANS_EXPENSES
+    .prepare(`SELECT ${CONSENT_LIST_COLS} FROM loan_consents WHERE loan_id = ?`)
+    .bind(loanId).all();
   const users = await getSheetDataAsJSON(env, 'USERS');
   const userMap = {};
   users.forEach(u => { userMap[u.ID] = u; });
@@ -699,9 +744,14 @@ export async function getLoanConsents(env, loanId, user) {
 
 export async function getConsentsForReview(env, user) {
   requireAdminOrAbove(user);
+  // Explicit columns (never token/otp — see CONSENT_REVIEW_COLS) and a hard cap.
+  // Ordering moved into SQL so the LIMIT keeps the NEWEST responses rather than an
+  // arbitrary page (the JS sort below is now just a tie-break safety net).
   const { results } = await env.DB_LOANS_EXPENSES.prepare(
-    "SELECT * FROM loan_consents WHERE status = 'accepted' OR status = 'declined'"
-  ).all();
+    `SELECT ${CONSENT_REVIEW_COLS} FROM loan_consents
+      WHERE status IN ('accepted', 'declined')
+      ORDER BY responded_at DESC LIMIT ?`
+  ).bind(CONSENT_REVIEW_LIMIT).all();
   const users = await getSheetDataAsJSON(env, 'USERS');
   const loans = await getSheetDataAsJSON(env, 'LOANS');
   const userMap = {};

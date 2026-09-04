@@ -23,9 +23,16 @@ const HAS_RETURNING = /\bRETURNING\b/i;
 
 function toSqliteArg(v) {
   // D1 accepts booleans and coerces them; node:sqlite rejects them outright.
-  if (v === true) return 1;
-  if (v === false) return 0;
+  if (v === true) return 1n;
+  if (v === false) return 0n;
   if (v === undefined) return null;
+  // FIDELITY: node:sqlite binds every JS number as a REAL (a double), so binding
+  // 1 into a TEXT-affinity column stores the string "1.0". Real D1 binds an
+  // integer-valued number as an INTEGER, storing "1". Several flag columns in this
+  // schema are TEXT (`active`, `otp_verified`, `announced`, `reported`, ...), so
+  // without this the stub would disagree with production on exactly the values
+  // isTruthyFlag() exists to parse. Bind integers as BigInt to force INTEGER.
+  if (typeof v === 'number' && Number.isSafeInteger(v)) return BigInt(v);
   return v;
 }
 
