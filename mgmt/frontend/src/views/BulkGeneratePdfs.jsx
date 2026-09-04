@@ -115,7 +115,7 @@ export default function BulkGeneratePdfs() {
 
         const fileName = `${rec.fileNameHint}.docx`;
         const res = await withRetry(
-          () => api.convertDocxToPdf(docType, year, rec.recordId, filledBase64, fileName, 'bulk'),
+          () => api.convertDocxToPdfBulk(docType, year, rec.recordId, filledBase64, fileName),
           (attempt, wait) => appendLog(`↻ ${label} — ${rec.recordId}: retry ${attempt}/${RETRY_ATTEMPTS - 1} in ${Math.round(wait / 1000)}s`)
         );
 

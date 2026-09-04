@@ -156,7 +156,7 @@ export default function ReceiptModal({ row, year, open, onClose, docType = 'rece
         // entirely, which made the server demand Superadmin, so Admin/Subadmin
         // always got "Only a Superadmin can perform this action." even though the
         // download icon renders for every role.
-        const res = await api.convertDocxToPdf(docType, year, recordId, filledBase64, fileName, 'single');
+        const res = await api.convertDocxToPdf(docType, year, recordId, filledBase64, fileName);
 
         // indexFailed was returned by the backend but checked by only 1 of the 6
         // callers — so the user got a working file while the public portal would

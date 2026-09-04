@@ -22,7 +22,7 @@
 //     risky server-side docxtemplater port. Only the orchestration moved.
 //   * enqueue enforces the same staff permission the direct save always required.
 
-import { requireStaffRole, requireRole, requireYearUnlocked, requireYearAccess, requireSuperadmin } from './auth.js';
+import { requireStaffRole, requireRole, requireYearUnlocked, requireYearAccess, requireSuperadmin, ValidationError } from './auth.js';
 import { convertDocxToPdf } from './docxTemplates.js';
 import { triggerCollectionMessages } from './whatsapp.js';
 import { logErrorAt, logWarn } from './logger.js';
@@ -30,6 +30,17 @@ import { logErrorAt, logWarn } from './logger.js';
 const MAX_ATTEMPTS = 3;          // a job that keeps failing is parked as 'failed'
 const CLAIM_BATCH = 5;           // jobs processed per cron tick (keeps within CPU limits)
 const STUCK_MINUTES = 10;        // a 'processing' row older than this is retried
+
+// The ONLY documents a COLLECTION save can auto-generate (see
+// whatsapp.js resolveCollectionDocType). '' means "no document, WhatsApp only",
+// which is the resell case. Consent/report types are deliberately absent — see
+// the security note in enqueueCollectionJob.
+const QUEUEABLE_DOC_TYPES = new Set(['', 'receipt', 'certificate', 'samaan']);
+
+// D1 rows are limited to ~1 MB in practice and filled_base64 dominates the row.
+// The client sends a filled .docx (a few hundred KB with a letterhead image), so
+// 700 KB of base64 (~525 KB of bytes) is generous while still fitting a row.
+const MAX_QUEUE_BASE64_CHARS = 700 * 1024;
 
 function genJobId() {
   return 'JOB' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -65,6 +76,38 @@ export async function enqueueCollectionJob(env, job, user) {
   if (jobYear) {
     await requireYearUnlocked(env, jobYear);
     await requireYearAccess(env, user, jobYear);
+  }
+
+  // SECURITY (audit C-2): runOneJob() drives convertDocxToPdf() with a fabricated
+  // `{ role: 'Superadmin', system: true }` user, so EVERYTHING a job carries is
+  // effectively executed with Superadmin rights. doc_type / record_id /
+  // filled_base64 all come from the client, which meant a Subadmin could enqueue
+  // docType:'consent_loaner' with someone else's recordId and arbitrary bytes and
+  // have the queue overwrite that consent's indexed PDF on their behalf.
+  //
+  // This queue exists for ONE purpose: the document that a COLLECTION save
+  // auto-generates. Restrict it to exactly those types, and require the record id
+  // to describe the document being written.
+  const docType = (job.docType || '').toString();
+  if (!QUEUEABLE_DOC_TYPES.has(docType)) {
+    throw ValidationError(`"${docType}" documents cannot be queued from a collection save.`);
+  }
+  const recordId = (job.recordId || '').toString();
+  if (recordId && docType && !recordId.startsWith(`${docType}-`)) {
+    throw ValidationError('This job could not be queued (its document reference does not match its document type).');
+  }
+  if (recordId && !docType) {
+    throw ValidationError('This job could not be queued (a document reference was supplied without a document type).');
+  }
+
+  // A job row lives in D1, which has a ~1 MB practical row limit, and
+  // filled_base64 is by far the largest column. Reject an oversized payload here
+  // rather than letting the INSERT fail AFTER the collection was already saved.
+  const filled = (job.filledBase64 || '').toString();
+  if (filled.length > MAX_QUEUE_BASE64_CHARS) {
+    throw ValidationError(
+      `The generated document is too large to queue (${(filled.length / 1048576).toFixed(1)} MB of ${(MAX_QUEUE_BASE64_CHARS / 1048576).toFixed(1)} MB). The entry was saved; please ask a Superadmin to generate this document from the Generate PDFs screen.`
+    );
   }
 
   const db = jobsDb(env);
