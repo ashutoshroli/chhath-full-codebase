@@ -234,6 +234,19 @@ export const api = {
   updateOwnProfile: (payload) => call('updateOwnProfile', { payload }),
   changePassword: (currentPassword, newPassword) => call('changePassword', { currentPassword, newPassword }),
 
+  // Active sessions / devices (any role — own devices)
+  getMySessions: () => call('getMySessions'),
+  revokeSession: (sessionId) => call('revokeSession', { sessionId }),
+  revokeAllOtherSessions: () => call('revokeAllOtherSessions'),
+  // Superadmin: view / force-logout any user's sessions
+  getUserSessions: (targetName) => call('getUserSessions', { targetName }),
+  revokeUserSession: (targetName, sessionId) => call('revokeUserSession', { targetName, sessionId }),
+  // Superadmin: login audit + locked accounts + unlock
+  getLoginAttempts: (opts) => call('getLoginAttempts', opts || {}),
+  getLockedAccounts: () => call('getLockedAccounts'),
+  revokeLock: (lockKey, targetName, ip) => call('revokeLock', { lockKey, targetName, ip }),
+  revokeAllLocks: () => call('revokeAllLocks'),
+
   // Login Management (Superadmin)
   getLoginUsers: () => call('getLoginUsers', {}),
   addLoginUser: (userId, password, role, mobile, email) => call('addLoginUser', { userId, password, role, mobile, email }),
