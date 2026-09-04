@@ -1,0 +1,194 @@
+# Runs the checks that every audit-fix PR has been verifying by hand.
+#
+# The point is not coverage metrics — it is that the specific defects fixed in
+# PRs #68-#84 cannot come back silently. Each job below corresponds to a class of
+# bug that shipped to production at least once in this repo:
+#
+#   backend-tests   the 220 behavioural assertions (privilege escalation, leaked
+#                   consent tokens, id collisions, non-atomic writes, session
+#                   revocation, subrequest counts, KV write budgets)
+#   error-typing    audit H-3: a bare `throw new Error` is untyped, so the router
+#                   turns a blank-field message into a logged HTTP 500
+#   syntax          `node --check` on every Worker file. A syntax error here is
+#                   only caught at `wrangler deploy`, i.e. in production
+#   frontend-build  the mgmt SPA must build, and the main chunk must not balloon
+#   migrations      every .sql migration must apply against the committed schema
+#                   and be re-runnable
+#   no-real-data    the PII dumps under mgmt/db/migration/ must never be committed
+#                   (GitGuardian has flagged this repo for exactly that before)
+#
+# Deliberately NOT here: `wrangler deploy`, `npm audit --audit-level=high` as a
+# hard gate (one unfixable transitive advisory is handled by an npm override and
+# documented in mgmt/frontend/package.json), and any job needing a Cloudflare
+# token. CI must not be able to touch production.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Worker tests, error typing and syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # node:sqlite (the D1 stub the tests run against) needs Node 22+.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # The suite imports the Worker source directly and stubs D1 with
+      # node:sqlite and KV with a Map — no dependencies, nothing to install.
+      - name: Worker test suite
+        working-directory: mgmt/backend
+        run: npm test
+
+      # audit H-3. A bare `throw new Error(...)` is untyped, so index.js treats it
+      # as an unexpected server fault: HTTP 500, the message replaced by
+      # "Something went wrong on the server", and a row in error_log. Every throw
+      # must say which it is — ValidationError (user-facing, 400, not logged) or
+      # InternalError (server fault, 500, logged).
+      - name: No untyped throws
+        working-directory: mgmt/backend
+        run: npm run lint:errors
+
+      # A syntax error in a Worker file is otherwise found by `wrangler deploy`,
+      # which means it is found in production.
+      - name: Syntax check every Worker file
+        run: |
+          set -e
+          for f in mgmt/backend/src/*.js Public/backend/src/*.js; do
+            node --check "$f"
+          done
+          echo "node --check OK: $(ls mgmt/backend/src/*.js Public/backend/src/*.js | wc -l) files"
+
+  frontend:
+    name: mgmt SPA build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mgmt/frontend/package-lock.json
+
+      # `npm ci` and not `npm install`: the package.json `overrides` block
+      # redirects the deprecated `xmldom` (CRITICAL advisories, no upstream fix)
+      # to @xmldom/xmldom. The lockfile is what pins that, so it must be honoured.
+      - name: Install
+        working-directory: mgmt/frontend
+        run: npm ci
+
+      - name: Build
+        working-directory: mgmt/frontend
+        run: npm run build
+
+      # The main entry chunk is loaded by every visitor on a phone over rural
+      # mobile data, so a regression here is a real cost. ~191 kB is the current
+      # size; the limit is a warning threshold, not a target to grow into.
+      - name: Report and bound the main chunk size
+        working-directory: mgmt/frontend
+        run: |
+          set -e
+          MAIN=$(ls -S dist/assets/index-*.js | head -1)
+          BYTES=$(wc -c < "$MAIN")
+          # 1 kB = 1000 B, the same convention Vite uses, so this figure is
+          # comparable to the ~190.6 kB quoted in the audit-fix PRs. It reads a few
+          # hundred bytes higher than Vite's own line because Vite measures the
+          # chunk it generated and this measures the file on disk.
+          KB=$(awk -v b="$BYTES" 'BEGIN { printf "%.2f", b / 1000 }')
+          echo "main chunk: $MAIN — ${KB} kB (${BYTES} bytes)"
+          echo "### mgmt SPA main chunk: ${KB} kB" >> "$GITHUB_STEP_SUMMARY"
+          # 230,000 B is a warning threshold with ~20% headroom over today's
+          # 190.6 kB — not a target to grow into.
+          LIMIT_BYTES=230000
+          if [ "$BYTES" -gt "$LIMIT_BYTES" ]; then
+            echo "::error::main chunk is ${KB} kB, over the ${LIMIT_BYTES} byte budget."
+            echo "Check what was pulled into the entry chunk — the heavy libraries"
+            echo "(docxtemplater, jspdf, html2canvas) must stay lazily imported."
+            exit 1
+          fi
+
+  migrations:
+    name: SQL migrations apply and are idempotent
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Covered by the test suite (test/h10-m38-indexes-and-retention.test.mjs
+      # applies every file in db/migration/2026-09-05/ against the committed
+      # schema, twice). This job additionally fails when a NEW migration file is
+      # added without being registered there, which is the mistake that would
+      # otherwise let an unverified migration reach a live database.
+      - name: Every migration is covered by a test
+        run: |
+          set -e
+          missing=0
+          for f in mgmt/db/migration/2026-09-05/*.sql; do
+            base=$(basename "$f")
+            if ! grep -q "$base" mgmt/backend/test/*.test.mjs; then
+              echo "::error file=$f::$base is not referenced by any test."
+              echo "Add it to SCHEMA_FOR_MIGRATION in test/h10-m38-indexes-and-retention.test.mjs"
+              echo "so CI proves it applies against the committed schema and is idempotent."
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] && echo "all migrations under 2026-09-05/ are covered"
+
+      - name: Run the migration tests
+        working-directory: mgmt/backend
+        run: node --test test/h10-m38-indexes-and-retention.test.mjs test/h9-atomic-id-allocation.test.mjs
+
+  secrets:
+    name: No real data or credentials committed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The per-database dumps under mgmt/db/migration/ hold live PII — password
+      # hashes, emails, mobile numbers, IP addresses. They are gitignored, and
+      # this repo has been flagged for committing them before. .gitignore only
+      # stops an *unstaged* file; `git add -f` bypasses it.
+      - name: Real-data dumps are not tracked
+        run: |
+          set -e
+          bad=0
+          for f in collections core file_index loans_expenses logs misc templates whatsapp_index; do
+            if git ls-files --error-unmatch "mgmt/db/migration/$f.sql" >/dev/null 2>&1; then
+              echo "::error::mgmt/db/migration/$f.sql is TRACKED. It contains live PII and must be removed from the index and from history."
+              bad=1
+            fi
+          done
+          [ "$bad" -eq 0 ] && echo "no real-data dumps are tracked"
+
+      # wrangler.toml is committed (it holds ids and non-secret vars). Secrets
+      # belong in `wrangler secret put`, never in the file. This catches the
+      # obvious paste.
+      - name: No secret values pasted into wrangler.toml
+        run: |
+          set -e
+          bad=0
+          for f in mgmt/backend/wrangler.toml Public/backend/wrangler.toml; do
+            # Long opaque values assigned to a name that looks like a credential.
+            if grep -nEi '^[[:space:]]*(WHATSAPP_QUEUE_API_KEY|PASSWORD_SALT|DRIVE_OAUTH_CLIENT_SECRET|DRIVE_OAUTH_REFRESH_TOKEN|API_KEY|.*_SECRET|.*_TOKEN)[[:space:]]*=[[:space:]]*"[^"]{16,}"' "$f"; then
+              echo "::error file=$f::a credential-looking value is assigned in wrangler.toml. Use 'wrangler secret put <NAME>' instead."
+              bad=1
+            fi
+          done
+          [ "$bad" -eq 0 ] && echo "no secrets assigned in wrangler.toml"
