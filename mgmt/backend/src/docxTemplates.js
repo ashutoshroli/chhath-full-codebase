@@ -297,12 +297,27 @@ const CONSENT_DOC_TYPES = new Set(['consent_loaner', 'consent_guarantor']);
 // `recordId` is the primary key of the public file index, and callers pass it
 // explicitly. It MUST describe the document actually being written, otherwise a
 // caller allowed to generate (say) their own receipt could point the write at
-// someone else's consent row. The scheme is `<docType>-<year>-<ref>` everywhere
-// (see getRecordsForDocType / getPersonDownloads / resolveConsentContext).
+// someone else's consent row.
+//
+// There are TWO legitimate recordId shapes in this codebase, both of which must
+// pass:
+//   * PER-ROW documents — receipt / certificate / samaan / consent — are
+//     `<docType>-<year>-<ref>` (e.g. `receipt-2026-45`, `consent_loaner-2026-CN7`).
+//   * PER-YEAR documents — the yearly reports — are just `<docType>-<year>`
+//     with NO trailing `-<ref>` (e.g. `report_both-2026`), because a report is
+//     one document per year, not per row (see PdfExport.jsx: `${docType}-${year}`).
+//
+// The earlier version required a trailing `-`, so it rejected every report with
+// "its reference ... does not match report_both 2026" and broke PDF Export
+// entirely. The correct rule is: the id must be EXACTLY `<docType>-<year>` OR
+// begin with `<docType>-<year>-`. That still rejects a foreign docType, a wrong
+// year, or a receipt call trying to file under a consent id, which is the whole
+// point of the check.
 function assertRecordIdMatches(docType, year, recordId) {
   if (!recordId) return;
-  const expectedPrefix = `${docType}-${parseInt(year)}-`;
-  if (!recordId.toString().startsWith(expectedPrefix)) {
+  const id = recordId.toString();
+  const base = `${docType}-${parseInt(year)}`;
+  if (id !== base && !id.startsWith(`${base}-`)) {
     throw ValidationError(
       `This document could not be filed (its reference "${recordId}" does not match ${docType} ${year}). Please reload the page and try again.`
     );

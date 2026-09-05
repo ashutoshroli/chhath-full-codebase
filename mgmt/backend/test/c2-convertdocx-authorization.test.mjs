@@ -83,6 +83,8 @@ test('C-2: recordId must describe the document being written', async () => {
     ['receipt', 2026, 'certificate-2026-5', 'a receipt call filing under a certificate id'],
     ['receipt', 2026, 'receipt-2025-5', 'a 2026 call filing under 2025'],
     ['samaan', 2026, 'receipt-2026-5', 'a samaan call filing under a receipt id'],
+    ['report_both', 2026, 'report_en-2026', 'a report_both call filing under report_en'],
+    ['report_both', 2026, 'report_both-2027', 'a report call filing under the wrong year'],
   ];
   for (const [docType, year, recordId, why] of cases) {
     await assert.rejects(
@@ -93,6 +95,27 @@ test('C-2: recordId must describe the document being written', async () => {
         return true;
       },
       why
+    );
+  }
+});
+
+// REGRESSION: the yearly reports use a PER-YEAR recordId `<docType>-<year>` with
+// no trailing `-<ref>` (PdfExport.jsx builds `${docType}-${year}`). The first
+// version of assertRecordIdMatches required a trailing `-`, so it rejected every
+// report with "does not match report_both 2026" and broke PDF Export entirely.
+test('C-2: a per-year report recordId (no trailing -ref) is accepted', async () => {
+  const env = makeEnv();
+  for (const dt of ['report_en', 'report_hi', 'report_both']) {
+    // Reaches past the recordId check (it fails LATER, on the missing Drive
+    // config / template), which proves the recordId itself was accepted. A
+    // "does not match" rejection here would be the regression.
+    await assert.rejects(
+      () => convertDocxToPdf(env, dt, 2026, `${dt}-2026`, DOCX_B64, 'x.docx', SUPERADMIN, 'bulk', {}),
+      (err) => {
+        assert.doesNotMatch(err.message, /does not match/,
+          `${dt}-2026 must not be rejected as a mismatched reference`);
+        return true;
+      }
     );
   }
 });
