@@ -5,6 +5,7 @@ import { logErrorAt, logWarn } from './logger.js';
 import { waNumber, looksLikeAttemptedNumber } from './phone.js';
 import { isTruthyFlag } from './flags.js';
 import { randomId } from './random.js';
+import { parseAmt } from './money.js'; // audit L-13: shared, was duplicated here
 
 const TEMPLATE_TABLE = { PERSON_MESSAGE_TEMPLATES: 'person_message_templates', GROUP_MESSAGE_TEMPLATES: 'group_message_templates' };
 const MESSAGE_TABLE = { person: { table: 'person_messages' }, group: { table: 'group_messages' } };
@@ -552,7 +553,6 @@ export async function triggerCollectionMessages(env, payload, docType, recordId,
       if (tpl.file_doc_type) return docTypeMatches(tpl.file_doc_type) ? (generatedFileLink || '') : '';
       return tpl.file_link || '';
     };
-    const parseAmt = (v) => parseFloat((v || '').toString().replace(/[^0-9.-]+/g, '')) || 0;
 
     const users = await getSheetDataAsJSON(env, 'USERS');
     const isResell = isTruthyFlag(payload['Is Resell']);

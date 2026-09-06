@@ -2,8 +2,7 @@ import { getSheetDataAsJSON, getSheetDataByYear, getSheetDataByColumn, filterByY
 import { fromColumnRow } from './tableRegistry.js';
 import { requireSuperadmin, ValidationError } from './auth.js';
 import { usersByIdCodes, loansByLoanIds, loansForBorrowers } from './lookups.js';
-
-const parseAmt = (v) => parseFloat((v || '').toString().replace(/[^0-9.-]+/g, '')) || 0;
+import { parseAmt } from './money.js'; // audit L-13: shared, was duplicated here
 
 // audit M-19 — this used to do FIVE full table scans, shipping every row of
 // COLLECTIONS, LOANS, COMMITEE MEMBERS, EXPENSES and MANUAL YEARS into the isolate

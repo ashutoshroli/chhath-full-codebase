@@ -7,6 +7,7 @@ import { consentPlaceholderFactory } from './consentPlaceholders.js';
 import { isTruthyFlag } from './flags.js';
 import { usersByIdCodes, loansByBorrower, loansByLoanIds, generatedFilesByRecordIds, consentsForPerson, consentsForLoanIds } from './lookups.js';
 import { base64ByteLength, MAX_DOCX_BYTES } from './base64.js';
+import { parseAmt } from './money.js'; // audit L-13: shared, was duplicated here
 
 // `receipt_work` is the receipt for a Service (Work) contribution — previously it
 // reused the plain `receipt` template; it now has its OWN template/tab so a work
@@ -428,9 +429,9 @@ export async function convertDocxToPdfPublic(env, base64, token) {
 
 // ---- Batch placeholder resolution for Bulk "Generate PDFs" ----
 
-const parseAmt = (v) => parseFloat((v || '').toString().replace(/[^0-9.-]+/g, '')) || 0;
 // Same fix as templates.js's formatAmt — guard on the parsed number, not raw
-// truthiness, so a literal "0" is treated as "no amount" too.
+// truthiness, so a literal "0" is treated as "no amount" too. (parseAmt is the
+// shared money util — audit L-13.)
 const formatAmt = (v) => (parseAmt(v) > 0 ? new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(parseAmt(v)) : '');
 // isTruthyFlag comes from the shared flags.js util (audit 6.1) — see import above.
 
