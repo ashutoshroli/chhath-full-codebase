@@ -38,6 +38,7 @@ const PdfExport = lazy(() => import('./views/PdfExport.jsx'));
 const Backup = lazy(() => import('./views/Backup.jsx'));
 const SeoSettings = lazy(() => import('./views/SeoSettings.jsx'));
 const AuditLogs = lazy(() => import('./views/AuditLogs.jsx'));
+const UploadCsvs = lazy(() => import('./views/UploadCsvs.jsx'));
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import ProfileMenu from './components/ProfileMenu.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
@@ -72,6 +73,7 @@ const ANNOUNCEMENT_TAB = { id: 'announcementportal', label: 'Announcement Portal
 const QUEUE_MONITOR_TAB = { id: 'queuemonitor', label: 'Queue Monitor', icon: 'sync' };
 const SEO_TAB = { id: 'seo', label: 'SEO & Link Preview', icon: 'travel_explore' };
 const AUDIT_TAB = { id: 'auditlogs', label: 'Activity & Login Logs', icon: 'security' };
+const UPLOAD_CSV_TAB = { id: 'uploadcsvs', label: 'Upload CSVs', icon: 'upload_file' };
 // Superadmin: everything below, tucked behind a single "More" button instead of
 // crowding the nav bar (there'd be 14 tabs otherwise). Grouped into categories
 // so the More menu is scannable instead of one long flat list.
@@ -79,7 +81,7 @@ const SUPERADMIN_TAB_GROUPS = [
   { title: '📄 Documents & Templates', tabs: [RECEIPT_TEMPLATES_TAB, CERTIFICATE_TEMPLATES_TAB, SAMAAN_TEMPLATES_TAB, DOCX_TEMPLATES_TAB, BULK_GENERATE_TAB, DOWNLOAD_CENTER_TAB, PDF_TAB] },
   { title: '🤝 Loan Consent', tabs: [CONSENT_TEMPLATES_TAB, CONSENT_REVIEW_TAB] },
   { title: '💬 Communication', tabs: [WHATSAPP_TAB, POPUP_MGMT_TAB, ANNOUNCEMENT_TAB] },
-  { title: '⚙️ Data & Settings', tabs: [LOCK_TAB, LIST_TAB, STORAGE_TAB, BACKUP_TAB, QUEUE_MONITOR_TAB, ERROR_LOG_TAB, LOGIN_MGMT_TAB, SEO_TAB, AUDIT_TAB] },
+  { title: '⚙️ Data & Settings', tabs: [LOCK_TAB, LIST_TAB, UPLOAD_CSV_TAB, STORAGE_TAB, BACKUP_TAB, QUEUE_MONITOR_TAB, ERROR_LOG_TAB, LOGIN_MGMT_TAB, SEO_TAB, AUDIT_TAB] },
 ];
 // Admin: a smaller subset — no data-editing/config tools (Templates, Lock Data,
 // WhatsApp, List Management, Error Log), and Download Center is view/download
@@ -295,6 +297,7 @@ export default function App() {
         {tab === 'pdfexport' && canAccessTab('pdfexport') && <PdfExport />}
         {tab === 'seo' && canAccessTab('seo') && <SeoSettings />}
         {tab === 'auditlogs' && canAccessTab('auditlogs') && <AuditLogs />}
+        {tab === 'uploadcsvs' && canAccessTab('uploadcsvs') && <UploadCsvs />}
         </Suspense>
         </ErrorBoundary>
       </main>
