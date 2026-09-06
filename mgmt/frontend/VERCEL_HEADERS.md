@@ -45,7 +45,17 @@ Consent, Popups, Download Center and PDF Export), then flip it.
 | `inputtools.google.com` | `transliterate.js` — the Hindi transliteration API (mgmt only) |
 | `mgmt-chhath.shaharpura.com` | the mgmt API Worker (`connect-src`, mgmt only) |
 | `chhath-public-worker.shaharpura.com` | the public read-only API (`connect-src`, public only) |
+| `accounts.google.com` | **Sign in with Google** (Google Identity Services): the GSI client script (`script-src`), its iframe (`frame-src`) and its token exchange (`connect-src`). mgmt only. |
 | `blob:` / `data:` | jsPDF, html2canvas, QR data-URLs, camera capture |
+
+## Why `Cross-Origin-Opener-Policy` is `same-origin-allow-popups` (not `same-origin`)
+
+Sign in with Google opens a Google popup that must `postMessage` its result back
+to the login page. A strict `same-origin` COOP severs that link, so after the user
+picks an account the flow **hangs on `accounts.google.com/gsi/transform` and never
+returns a token**. `same-origin-allow-popups` keeps the cross-origin isolation
+protection for everything else while letting the user-opened Google popup talk
+back. This is Google's documented requirement for GSI.
 
 `'unsafe-inline'` is required for `script-src` by the GTM bootstrap and for
 `style-src` by the inline `style={{...}}` props used throughout the views.
