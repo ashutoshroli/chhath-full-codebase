@@ -261,6 +261,8 @@ export const api = {
   updateLoginUser: (rowIndex, password, role, mobile, email) => call('updateLoginUser', { rowIndex, password, role, mobile, email }),
   deleteLoginUser: (rowIndex) => call('deleteLoginUser', { rowIndex }),
   saveRecord: (sheet, payload) => call('saveRecord', { sheet, payload }),
+  // Superadmin CSV bulk import. `rows` is an array of objects keyed by CSV header.
+  importCsvRows: (sheet, rows) => call('importCsvRows', { sheet, rows }),
   queueCollectionMessages: (payload, rowIndex, fileLink) => call('queueCollectionMessages', { payload, rowIndex, fileLink }),
   updateRecord: (sheet, rowIndex, payload) => call('updateRecord', { sheet, rowIndex, payload }),
   deleteRecord: (sheet, rowIndex) => call('deleteRecord', { sheet, rowIndex }),

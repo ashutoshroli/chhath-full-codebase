@@ -1,5 +1,6 @@
 import { login, loginWithGoogle, doLogout, withAuth, withApiKey, verifyToken, requireSuperadmin, requireAdminOrAbove, requireStaffRole, getLockedYearsSet, lockYear, unlockYear, getMySessions, revokeSession, revokeAllOtherSessions, getUserSessions, revokeUserSession, getLoginAttempts, getLockedAccounts, revokeLock, revokeAllLocks } from './auth.js';
 import { getSheetDataAsJSON, saveRecord, updateRecordByIdx, deleteRecordByIdx } from './crud.js';
+import { importCsvRows } from './csvImport.js';
 import { getYears, addYear, getHomeData, getLoansData, getExpensesData, getCommitteeData, getUserHistory, getYearContributors, getUserProfile } from './views.js';
 import { getLoginUsers, addLoginUser, updateLoginUser, deleteLoginUser, updateOwnProfile, changePassword, uploadFileToDrive } from './account.js';
 import { getDropdownList, getAllDropdownLists, addDropdownListItem, updateDropdownListItem, deleteDropdownListItem } from './dropdownLists.js';
@@ -458,6 +459,22 @@ export default {
         return res;
       }),
       queueCollectionMessages: () => withAuth(env, req, (user) => wa.queueCollectionMessages(env, req.payload, req.rowIndex, req.fileLink, user)),
+
+      // Superadmin bulk CSV import (Users / Collections / Committee Members). Each
+      // row goes through saveRecord (same validation + id allocation as a manual
+      // add). Returns a per-row report; logs one activity entry summarising it.
+      // Not in READ_ONLY_ACTIONS, so bumpDataVersion fires afterwards and the
+      // public portal picks up the new rows.
+      importCsvRows: () => withAuth(env, req, async (user) => {
+        const res = await importCsvRows(env, req.sheet, req.rows, user);
+        const r = res.report || {};
+        ctx.waitUntil(logActivity(env, {
+          name: user.name, action: 'import CSV ' + (req.sheet || ''),
+          details: `${r.label || req.sheet}: ${r.imported || 0} imported, ${r.skipped || 0} skipped of ${r.total || 0}`,
+          deviceInfo: req.deviceInfo, ip: req.serverIp, deviceId: req.deviceId,
+        }));
+        return res;
+      }),
       updateRecord: () => withAuth(env, req, async (user) => {
         const res = await updateRecordByIdx(env, req.sheet, req.rowIndex, req.payload, user);
         ctx.waitUntil(logActivity(env, { name: user.name, action: 'edit ' + (req.sheet || ''), details: summarizePayload(req.sheet, req.payload, { rowIndex: req.rowIndex }), deviceInfo: req.deviceInfo, ip: req.serverIp, deviceId: req.deviceId }));
