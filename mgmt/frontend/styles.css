@@ -82,7 +82,15 @@ input[type="checkbox"], input[type="radio"] {
 }
 
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 15px; }
-.modal-content { background: white; width: 100%; max-width: 500px; border-radius: 12px; padding: 20px; max-height: 90vh; overflow-y: auto; overflow-wrap: anywhere; }
+.modal-content { position: relative; background: white; width: 100%; max-width: 500px; border-radius: 12px; padding: 20px; max-height: 90vh; overflow-y: auto; overflow-wrap: anywhere; }
+/* Close (X) button rendered by Modal.jsx in the top-right of every modal. It sits
+   inside the scroll container but stays pinned to the top-right corner. The extra
+   right padding on the header room is handled by the button being absolute so it
+   never overlaps content awkwardly; a small safe-area is reserved by modal padding. */
+.modal-close-btn { position: absolute; top: 10px; right: 10px; z-index: 2; width: 36px; height: 36px; border: none; border-radius: 8px; background: #f3f4f6; color: var(--text-muted); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.modal-close-btn:hover { background: #e5e7eb; color: var(--text-dark, #111); }
+.modal-close-btn:active { transform: scale(0.94); }
+.modal-close-btn .material-icons-round { font-size: 22px; }
 
 #loader { position: fixed; inset: 0; background: rgba(255,255,255,0.9); z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center; }
 .spinner { border: 4px solid #FFE4D6; border-top: 4px solid var(--primary-saffron); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 10px; }
