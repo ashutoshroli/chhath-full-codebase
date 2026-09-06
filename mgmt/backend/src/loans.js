@@ -1114,7 +1114,16 @@ export async function markLoanDisbursed(env, loanId, cashAmount, onlineAmount, u
 
 export async function getLoanTemplates(env, type) {
   const { results } = await env.DB_LOANS_EXPENSES.prepare('SELECT * FROM loan_message_templates WHERE type = ?').bind(type).all();
-  return results;
+  // BUGFIX: the WhatsApp Templates screen deletes/updates/toggles a loan template
+  // by `r.__rowIndex` (the same field the person/group lists use), and the backend
+  // delete/update run `WHERE id = ?`. Person/group templates get `__rowIndex`
+  // because they are read through getSheetDataAsJSON -> fromColumnRow, which
+  // aliases the `id` column to `__rowIndex`. This function returns the raw D1 rows
+  // instead, so loan-template rows had no `__rowIndex` — every delete/update/toggle
+  // failed with "rowIndex required". Alias `id` -> `__rowIndex` here to match, while
+  // leaving all the raw columns (text, active, message_type, file_link) the screen
+  // already reads untouched.
+  return (results || []).map(r => ({ ...r, __rowIndex: r.id }));
 }
 
 export async function addLoanTemplate(env, type, text, messageType, fileLink, user) {
