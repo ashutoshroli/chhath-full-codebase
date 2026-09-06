@@ -1,4 +1,4 @@
-import { login, doLogout, withAuth, withApiKey, verifyToken, requireSuperadmin, requireAdminOrAbove, requireStaffRole, getLockedYearsSet, lockYear, unlockYear, getMySessions, revokeSession, revokeAllOtherSessions, getUserSessions, revokeUserSession, getLoginAttempts, getLockedAccounts, revokeLock, revokeAllLocks } from './auth.js';
+import { login, loginWithGoogle, doLogout, withAuth, withApiKey, verifyToken, requireSuperadmin, requireAdminOrAbove, requireStaffRole, getLockedYearsSet, lockYear, unlockYear, getMySessions, revokeSession, revokeAllOtherSessions, getUserSessions, revokeUserSession, getLoginAttempts, getLockedAccounts, revokeLock, revokeAllLocks } from './auth.js';
 import { getSheetDataAsJSON, saveRecord, updateRecordByIdx, deleteRecordByIdx } from './crud.js';
 import { getYears, addYear, getHomeData, getLoansData, getExpensesData, getCommitteeData, getUserHistory, getYearContributors, getUserProfile } from './views.js';
 import { getLoginUsers, addLoginUser, updateLoginUser, deleteLoginUser, updateOwnProfile, changePassword, uploadFileToDrive } from './account.js';
@@ -128,7 +128,7 @@ async function mgmtCachePut(env, action, param, version, result) {
 // protected by the session + role checks, and login/OTP already have their own
 // dedicated attempt caps in auth.js / loans.js.
 const RATE_LIMITED_ACTIONS = new Set([
-  'login',
+  'login', 'verifyGoogleLogin',
   'logError', 'reportErrorToWhatsApp',
   'getConsentByToken', 'requestConsentOtp', 'verifyConsentOtp', 'respondConsent',
   'getDocxTemplatePublic', 'convertDocxToPdfPublic',
@@ -395,6 +395,12 @@ export default {
         }
         return res;
       },
+      // Sign in with Google. Verifies the Google ID token server-side and maps
+      // the verified email to an existing login_users row, issuing the same
+      // session a password login does. No auth token required to call it (like
+      // `login`); rate-limited per IP via RATE_LIMITED_ACTIONS below.
+      verifyGoogleLogin: () => loginWithGoogle(env, req.idToken, req.rememberMe, req.serverIp, req.deviceInfo),
+
       logout: () => withAuth(env, req, (user) => doLogout(env, req.token)),
 
       // ---- Active sessions / devices (every role: own devices) ----

@@ -36,6 +36,19 @@ ALLOWED_ORIGINS = "https://mgmt-chhath.shaharpura.com"
 # nothing breaks. Files are served as `${R2_PUBLIC_BASE}/<key>`.
 R2_PUBLIC_BASE = "https://files-chhath.shaharpura.com"
 
+# ---- Sign in with Google ----
+# The Google Cloud OAuth 2.0 **Web** client id used by "Sign in with Google" on
+# the login screen. loginWithGoogle() (auth.js) verifies every Google ID token's
+# `aud` claim against this value, so a token minted for any other app is rejected.
+# It is a PUBLIC value (it ships in the frontend too, as VITE_GOOGLE_CLIENT_ID),
+# so it lives here in [vars], not as a secret.
+#
+# If left blank, the code falls back to DRIVE_OAUTH_CLIENT_ID (same Google Cloud
+# project), so Google sign-in can work without a new value — but set this
+# explicitly to the Web client id whose "Authorized JavaScript origins" include
+# https://mgmt-chhath.shaharpura.com. See GOOGLE_SIGNIN_SETUP.md.
+GOOGLE_SIGNIN_CLIENT_ID = ""
+
 # ---- Secrets (set with `wrangler secret put NAME`, NOT here) ----
 # PASSWORD_SALT
 # WHATSAPP_QUEUE_API_KEY

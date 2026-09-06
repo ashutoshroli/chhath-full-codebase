@@ -306,7 +306,23 @@ export async function login(env, name, password, rememberMe, clientIp, deviceInf
     } catch (e) { /* non-fatal: login still succeeds, upgrade retried next time */ }
   }
 
-  const actualName = user.name.trim();
+  return issueSession(env, user, rememberMe, ip, deviceInfo, { identifier: name });
+}
+
+// ---- Shared session issuer ----
+//
+// Both password login() and loginWithGoogle() end the same way: mint a random
+// token, store the session in KV keyed by its hash, record it in the audit DB,
+// and return { success, token, name, role, expiresAt }. Factored out so the two
+// entry points stay byte-for-byte identical (the frontend's saveSession and the
+// whole verifyToken/remote-logout machinery depend on that exact shape) and so a
+// future third login method can't drift from it.
+//
+// `loginRow` is a login_users row (must have .name and .role). `opts.identifier`
+// is the raw value the user typed (for the login_attempts audit row) — for Google
+// it's the verified email.
+async function issueSession(env, loginRow, rememberMe, ip, deviceInfo, opts = {}) {
+  const actualName = loginRow.name.trim();
   const token = crypto.randomUUID();
   const ttl = rememberMe ? SESSION_LONG_MS : SESSION_SHORT_MS;
   const expiresAt = Date.now() + ttl;
@@ -317,7 +333,7 @@ export async function login(env, name, password, rememberMe, clientIp, deviceInf
   // without ever needing the raw token again.
   await env.KV_SESSIONS.put(
     sessionKeyByHash(tokenHash),
-    JSON.stringify({ name: actualName, role: user.role, expiresAt, th: tokenHash }),
+    JSON.stringify({ name: actualName, role: loginRow.role, expiresAt, th: tokenHash }),
     { expirationTtl: Math.floor(ttl / 1000) }
   );
 
@@ -330,13 +346,87 @@ export async function login(env, name, password, rememberMe, clientIp, deviceInf
       await env.DB_AUDIT.prepare(
         `INSERT INTO user_sessions (token_hash, name, role, ip, device_info, created_at, last_seen_at, expires_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      ).bind(tokenHash, actualName, user.role, ip || '', (deviceInfo || '').toString().slice(0, 400), now, now, expiresAt).run();
+      ).bind(tokenHash, actualName, loginRow.role, ip || '', (deviceInfo || '').toString().slice(0, 400), now, now, expiresAt).run();
     }
   } catch (e) { /* non-fatal: login still succeeds even if audit write fails */ }
 
-  await recordLoginAttempt(env, { identifier: name, name: actualName, success: true, reason: 'ok', ip, deviceInfo, locked: 0 });
+  await recordLoginAttempt(env, {
+    identifier: opts.identifier || actualName, name: actualName,
+    success: true, reason: opts.reason || 'ok', ip, deviceInfo, locked: 0,
+  });
 
-  return { success: true, token, name: actualName, role: user.role, expiresAt };
+  return { success: true, token, name: actualName, role: loginRow.role, expiresAt };
+}
+
+// ---- Sign in with Google ----
+//
+// Verifies a Google ID token (a JWT the browser gets from Google Identity
+// Services), then maps the verified email to an existing login_users row and
+// issues the SAME session a password login issues. There is deliberately NO
+// account creation here: a Google account can only sign in if a committee member
+// has already been given a login whose `email` matches — Google is an
+// authentication method, not a way to self-register.
+//
+// Verification is done by calling Google's tokeninfo endpoint (no extra secret,
+// no JWKS/JWT-crypto to hand-roll in the Worker) and then checking, ourselves:
+//   * aud  === our Google client id (the token was minted for THIS app), and
+//   * iss  is accounts.google.com, and
+//   * email_verified is true, and
+//   * the token has not expired.
+// The expected client id comes from GOOGLE_SIGNIN_CLIENT_ID, falling back to the
+// existing DRIVE_OAUTH_CLIENT_ID (same Google Cloud project) so no new secret is
+// strictly required to go live.
+export async function loginWithGoogle(env, idToken, rememberMe, clientIp, deviceInfo) {
+  const ip = (clientIp || '').toString().trim();
+  if (!idToken || !idToken.toString().trim()) throw ValidationError('Google sign-in token missing. Please try again.');
+
+  const expectedAud = (env.GOOGLE_SIGNIN_CLIENT_ID || env.DRIVE_OAUTH_CLIENT_ID || '').toString().trim();
+  if (!expectedAud) {
+    // A server misconfiguration, not a user error -> 500 + logged.
+    throw InternalError('Google sign-in is not configured (no GOOGLE_SIGNIN_CLIENT_ID / DRIVE_OAUTH_CLIENT_ID).',
+      'Google sign-in is not set up on the server yet. Please use your username and password.');
+  }
+
+  // Verify the token with Google. tokeninfo validates the signature/expiry for us
+  // and returns the decoded claims.
+  let claims = null;
+  try {
+    const resp = await fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken.toString().trim()));
+    if (resp.ok) claims = await resp.json();
+  } catch (e) {
+    claims = null; // network error -> treated as "could not verify" below
+  }
+  if (!claims) throw ValidationError('Could not verify your Google sign-in. Please try again.');
+
+  // Defence in depth — re-check every claim ourselves rather than trusting the
+  // 200 alone.
+  const iss = (claims.iss || '').toString();
+  const audOk = (claims.aud || '').toString() === expectedAud;
+  const issOk = iss === 'accounts.google.com' || iss === 'https://accounts.google.com';
+  const notExpired = claims.exp && (parseInt(claims.exp, 10) * 1000) > Date.now();
+  const emailVerified = claims.email_verified === true || claims.email_verified === 'true';
+  const email = (claims.email || '').toString().trim();
+
+  if (!audOk || !issOk || !notExpired) {
+    throw ValidationError('This Google sign-in could not be verified. Please try again.');
+  }
+  if (!email || !emailVerified) {
+    throw ValidationError('Your Google account has no verified email, so it cannot be used to sign in.');
+  }
+
+  // Map the verified email to a committee login. Case-insensitive, mirroring the
+  // email branch of findLoginRowByIdentifier.
+  const row = await env.DB_CORE
+    .prepare('SELECT * FROM login_users WHERE email = ? COLLATE NOCASE LIMIT 1')
+    .bind(email).first();
+  if (!row) {
+    await recordLoginAttempt(env, {
+      identifier: email, name: null, success: false, reason: 'google_no_match', ip, deviceInfo, locked: 0,
+    });
+    throw ValidationError('No committee login is linked to this Google account. Ask a Superadmin to add your email to your login, or sign in with your password.');
+  }
+
+  return issueSession(env, row, rememberMe, ip, deviceInfo, { identifier: email, reason: 'google' });
 }
 
 export async function doLogout(env, token) {
