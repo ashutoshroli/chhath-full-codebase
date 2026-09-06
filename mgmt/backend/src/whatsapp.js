@@ -521,7 +521,9 @@ function resolveCollectionDocType(payload) {
   const type = normalizeType(payload['Contribution Type'] || '1');
   if (type === '1') return 'receipt';
   if (type === '2') return 'samaan';
-  if (type === '3') return payload['Certificate Or Receipt'] === 'Certificate' ? 'certificate' : 'receipt';
+  // Type 3 = Service (Work): a Certificate stays 'certificate', but a Receipt is
+  // now its own doc type 'receipt_work' (was 'receipt').
+  if (type === '3') return payload['Certificate Or Receipt'] === 'Certificate' ? 'certificate' : 'receipt_work';
   return null;
 }
 

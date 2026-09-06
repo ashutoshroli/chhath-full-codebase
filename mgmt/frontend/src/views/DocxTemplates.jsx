@@ -3,6 +3,9 @@ import { api } from '../api.js';
 
 const DOC_TYPES = [
   ['receipt', 'Receipt', 'receipt-sample.docx', ['RECEIPT_NO', 'DATE', 'YEAR', 'NAME', 'FATHER_NAME', 'VILLAGE', 'DESIGNATION', 'MOBILE', 'DETAIL', 'AMOUNT', 'GENERATED_AT', 'QR_CODE']],
+  // receipt_work = the receipt for a Service (Work) contribution. Same placeholder
+  // set as a plain receipt; it exists so a work receipt can have its own design.
+  ['receipt_work', 'Receipt — Work', 'receipt-work-sample.docx', ['RECEIPT_NO', 'DATE', 'YEAR', 'NAME', 'FATHER_NAME', 'VILLAGE', 'DESIGNATION', 'MOBILE', 'DETAIL', 'AMOUNT', 'GENERATED_AT', 'QR_CODE']],
   ['certificate', 'Certificate', 'certificate-sample.docx', ['CERT_NO', 'DATE', 'NAME', 'DETAIL', 'VILLAGE', 'FATHER_NAME', 'DESIGNATION', 'YEAR', 'GENERATED_AT', 'QR_CODE']],
   ['samaan', 'Material', 'samaan-sample.docx', ['SAMAAN_NO', 'DATE', 'NAME', 'ITEM_DETAIL', 'VILLAGE', 'FATHER_NAME', 'YEAR', 'GENERATED_AT', 'QR_CODE']],
   ['consent_loaner', 'Consent — Loaner', 'consent-loaner-sample.docx', [
@@ -142,10 +145,17 @@ export default function DocxTemplates() {
         </p>
         {docType === 'receipt' && (
           <p style={{ fontSize: '0.8rem', color: '#1E40AF', background: '#DBEAFE', borderRadius: 6, padding: '6px 10px', margin: '8px 0 0' }}>
-            ℹ️ This <strong>Receipt</strong> template is used for both <strong>Cash (Money)</strong> contributions and
-            <strong> Service (Work)</strong> contributions where "Receipt" is chosen — there is no separate "Work Receipt".
-            If a Service (Work) — Receipt WhatsApp message says a document is attached but none arrives, it means this
-            Receipt template has <strong>not been uploaded for the selected year</strong> — upload it here.
+            ℹ️ This <strong>Receipt</strong> template is used for <strong>Cash (Money)</strong> contributions.
+            A <strong>Service (Work)</strong> contribution where "Receipt" is chosen now uses the separate
+            <strong> Receipt — Work</strong> tab. Upload a template for the selected year, or the receipt won't be attached.
+          </p>
+        )}
+        {docType === 'receipt_work' && (
+          <p style={{ fontSize: '0.8rem', color: '#1E40AF', background: '#DBEAFE', borderRadius: 6, padding: '6px 10px', margin: '8px 0 0' }}>
+            ℹ️ This <strong>Receipt — Work</strong> template is used for <strong>Service (Work)</strong> contributions
+            where "Receipt" is chosen (as opposed to a Certificate). It has the same fields as a normal Receipt, so you
+            can start from the sample. If a Service (Work) — Receipt message says a document is attached but none arrives,
+            it means this template has <strong>not been uploaded for the selected year</strong> — upload it here.
           </p>
         )}
         {!docType.startsWith('report') && (
