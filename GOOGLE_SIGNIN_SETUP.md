@@ -93,6 +93,8 @@ use their password — they just can't use Google until an email is added.
 | *Your Google account has no verified email…* | The Google account's email isn't verified | Use a verified Google account |
 | *Google sign-in is not set up on the server yet* | Neither `GOOGLE_SIGNIN_CLIENT_ID` nor `DRIVE_OAUTH_CLIENT_ID` is set on the Worker | Set `GOOGLE_SIGNIN_CLIENT_ID` and redeploy |
 | The Google button doesn't appear | `VITE_GOOGLE_CLIENT_ID` wasn't set at build time | Set it and rebuild/redeploy the frontend |
+| After picking an account it **hangs on `accounts.google.com/gsi/transform`** and never returns | `Cross-Origin-Opener-Policy: same-origin` severs the Google popup's message back to the page | Fixed in `mgmt/frontend/vercel.json` — COOP is now `same-origin-allow-popups`. If you host elsewhere, ensure that header value and that the CSP allows `https://accounts.google.com` in `script-src`, `connect-src` and `frame-src`. |
+| It hangs and the client is a **Desktop** type | Browser Sign-In requires a **Web application** OAuth client | Use the "Web application" client (not the Desktop/Drive one) and set that client's id in both env vars |
 
 ---
 
