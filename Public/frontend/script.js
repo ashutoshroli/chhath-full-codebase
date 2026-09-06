@@ -100,11 +100,149 @@ window.addEventListener('unhandledrejection', (e) => {
   reportPublicError('Unhandled rejection: ' + ((err && err.message) || String(err)), err, {});
 });
 
+// ============ i18n (bilingual English / हिंदी) ============
+//
+// The toggle is PURELY CLIENT-SIDE — it does not change any network request, so
+// the version-keyed edge cache is untouched (the Hindi values already ship in the
+// same portalData payload as 'Name (Hindi)', 'Village (Hindi)', etc.). Switching
+// language just re-reads those fields and re-renders.
+//
+// Two parts:
+//   T[lang][key]         — static UI strings (headings, buttons, table labels).
+//   localize(row, field) — a person/record's DATA value, preferring the Hindi DB
+//                          column when Hindi is active, falling back to English.
+const T = {
+  en: {
+    app_title: 'Chhath Puja', app_subtitle: 'Transparency Portal',
+    nav_home: 'Home', nav_expenses: 'Expenses', nav_loans: 'Loans', nav_committee: 'Committee', nav_downloads: 'Downloads',
+    back_to_home: 'Back to Home',
+    master_calc: 'Master Financial Calculation',
+    budget_overview: 'Budget Overview', lifetime_budget_overview: 'Lifetime Budget Overview',
+    past_loan_returned: '(+) Past Loan Returned (with Int.)', lifetime_loans_returned: '(+) Lifetime Loans Returned (with Int.)',
+    current_year_collection: '(+) Current Year Collection', lifetime_collections: '(+) Lifetime Collections',
+    total_budget: 'TOTAL BUDGET', total_expense: 'Total Expense', net_surplus: 'Net Surplus',
+    contributors_list: 'Contributors List', search_by_name: 'Search by Name...',
+    expenses_ledger: 'Expenses Ledger', loan_distribution: 'Surplus Loan Distribution',
+    active_committee: 'Active Committee', login: 'Login',
+    download_center: 'Download Center', village: 'Village', name: 'Name',
+    select_village: '-- Select Village --', select_village_first: 'Please select a village first', search: 'Search',
+    resell: 'Resell', resold_item: 'Resold item', material: 'Material', service: 'Service',
+    no_records_found: 'No records found.', no_expenses: 'No expenses recorded.',
+    not_distributed: 'Not Distributed Yet', no_committee: 'No committee on record.',
+    no_matches: 'No matches found.', no_docs: 'No records available.',
+    verified_record: 'Verified Record', record_not_found: 'Record Not Found',
+    verify_help: "This record could not be verified against the committee's records. If you believe this is an error, please contact the committee.",
+    year: 'Year', amount: 'Amount', detail: 'Detail',
+    surplus_loan: 'Surplus Loan', given_to_verified: 'Given to a single verified contributor.',
+    receiver_name: 'Receiver Name', int_rate: 'Int. Rate', tenure: 'Tenure',
+    verified_guarantors: 'Verified Guarantors', no_guarantors: 'No guarantors on record.',
+    rule_violation: 'Rule Violation (Committee Member)', valid_guarantor: 'Valid Guarantor',
+    contributor_yes_no: 'Contributor', committee_yes_no: 'Committee', yes: 'Yes', no: 'No',
+    member: 'Member', na: 'N/A', download: 'Download', not_available: 'Not Available', back: '← Back',
+    doc_receipt: 'Receipt', doc_receipt_work: 'Work Receipt', doc_certificate: 'Certificate',
+    doc_samaan: 'Material Receipt', doc_consent_loaner: 'Loan Consent (Loaner)', doc_consent_guarantor: 'Loan Consent (Guarantor)',
+    dc_collections: 'Collections (Receipt / Certificate / Material)',
+    dc_as_loaner: 'Loan Consent — As Loaner', dc_as_guarantor: 'Loan Consent — As Guarantor',
+  },
+  hi: {
+    app_title: 'छठ पूजा', app_subtitle: 'पारदर्शिता पोर्टल',
+    nav_home: 'होम', nav_expenses: 'व्यय', nav_loans: 'ऋण', nav_committee: 'समिति', nav_downloads: 'डाउनलोड',
+    back_to_home: 'होम पर वापस',
+    master_calc: 'मुख्य वित्तीय गणना',
+    budget_overview: 'बजट विवरण', lifetime_budget_overview: 'कुल बजट विवरण',
+    past_loan_returned: '(+) पिछला ऋण वापसी (ब्याज सहित)', lifetime_loans_returned: '(+) कुल ऋण वापसी (ब्याज सहित)',
+    current_year_collection: '(+) इस वर्ष का संग्रह', lifetime_collections: '(+) कुल संग्रह',
+    total_budget: 'कुल बजट', total_expense: 'कुल व्यय', net_surplus: 'शुद्ध शेष',
+    contributors_list: 'योगदानकर्ता सूची', search_by_name: 'नाम से खोजें...',
+    expenses_ledger: 'व्यय बही', loan_distribution: 'अधिशेष ऋण वितरण',
+    active_committee: 'सक्रिय समिति', login: 'लॉगिन',
+    download_center: 'डाउनलोड केंद्र', village: 'गाँव', name: 'नाम',
+    select_village: '-- गाँव चुनें --', select_village_first: 'कृपया पहले गाँव चुनें', search: 'खोजें',
+    resell: 'पुनर्विक्रय', resold_item: 'पुनर्विक्रीत वस्तु', material: 'सामग्री', service: 'सेवा',
+    no_records_found: 'कोई रिकॉर्ड नहीं मिला।', no_expenses: 'कोई व्यय दर्ज नहीं है।',
+    not_distributed: 'अभी वितरित नहीं हुआ', no_committee: 'कोई समिति दर्ज नहीं है।',
+    no_matches: 'कोई परिणाम नहीं मिला।', no_docs: 'कोई दस्तावेज़ उपलब्ध नहीं है।',
+    verified_record: 'सत्यापित रिकॉर्ड', record_not_found: 'रिकॉर्ड नहीं मिला',
+    verify_help: 'यह रिकॉर्ड समिति के अभिलेखों से सत्यापित नहीं हो सका। यदि आपको लगता है कि यह त्रुटि है, तो कृपया समिति से संपर्क करें।',
+    year: 'वर्ष', amount: 'राशि', detail: 'विवरण',
+    surplus_loan: 'अधिशेष ऋण', given_to_verified: 'एक सत्यापित योगदानकर्ता को दिया गया।',
+    receiver_name: 'प्राप्तकर्ता का नाम', int_rate: 'ब्याज दर', tenure: 'अवधि',
+    verified_guarantors: 'सत्यापित गारंटर', no_guarantors: 'कोई गारंटर दर्ज नहीं है।',
+    rule_violation: 'नियम उल्लंघन (समिति सदस्य)', valid_guarantor: 'मान्य गारंटर',
+    contributor_yes_no: 'योगदानकर्ता', committee_yes_no: 'समिति', yes: 'हाँ', no: 'नहीं',
+    member: 'सदस्य', na: 'उपलब्ध नहीं', download: 'डाउनलोड', not_available: 'उपलब्ध नहीं', back: '← वापस',
+    doc_receipt: 'रसीद', doc_receipt_work: 'कार्य रसीद', doc_certificate: 'प्रमाण-पत्र',
+    doc_samaan: 'सामग्री रसीद', doc_consent_loaner: 'ऋण सहमति (ऋणी)', doc_consent_guarantor: 'ऋण सहमति (गारंटर)',
+    dc_collections: 'योगदान (रसीद / प्रमाण-पत्र / सामग्री)',
+    dc_as_loaner: 'ऋण सहमति — ऋणी के रूप में', dc_as_guarantor: 'ऋण सहमति — गारंटर के रूप में',
+  },
+};
+
+const LANG_KEY = 'cpm_public_lang';
+
 const app = {
   data: null,
   userMap: {},
   dcVillage: 'All',
   dcSelectedId: null,
+  // 'en' | 'hi' — restored from localStorage, default English. Read on first render.
+  lang: (() => { try { return localStorage.getItem(LANG_KEY) === 'hi' ? 'hi' : 'en'; } catch (e) { return 'en'; } })(),
+
+  // Static UI string for the current language (falls back to English, then the key).
+  t: (key) => (T[app.lang] && T[app.lang][key]) || T.en[key] || key,
+
+  // A DATA value for the current language. `field` is the English key
+  // ('Name', 'Village', "Father's Name", 'Designation', 'View Role', 'Discription').
+  // When Hindi is active, prefer '<field> (Hindi)' and fall back to English when
+  // the Hindi column is blank — so a missing Hindi name never shows an empty cell.
+  localize: (row, field) => {
+    if (!row) return '';
+    const en = (row[field] === undefined || row[field] === null) ? '' : row[field].toString();
+    if (app.lang !== 'hi') return en;
+    const hi = row[field + ' (Hindi)'];
+    const hiStr = (hi === undefined || hi === null) ? '' : hi.toString().trim();
+    return hiStr || en;
+  },
+
+  // Flip the language, persist it, update the toggle label + <html lang>, then
+  // re-apply the static strings and re-render every dynamic view.
+  toggleLang: () => {
+    app.lang = app.lang === 'hi' ? 'en' : 'hi';
+    try { localStorage.setItem(LANG_KEY, app.lang); } catch (e) { /* private mode */ }
+    app.applyLang();
+  },
+
+  // Static-only application: the toggle button label, <html lang>, and every
+  // element tagged data-i18n / data-i18n-placeholder. Safe to call before data
+  // loads (does NOT re-render dynamic views), so init() uses it directly.
+  applyStaticLang: () => {
+    // The toggle button shows the language it will SWITCH TO (so it reads 'हिंदी'
+    // while in English, and 'English' while in Hindi).
+    const label = document.getElementById('lang-toggle-label');
+    if (label) label.innerText = app.lang === 'hi' ? 'English' : 'हिंदी';
+    try { document.documentElement.setAttribute('lang', app.lang); } catch (e) { /* ignore */ }
+
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const v = app.t(el.getAttribute('data-i18n'));
+      if (v) el.innerText = v;
+    });
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+      const v = app.t(el.getAttribute('data-i18n-placeholder'));
+      if (v) el.setAttribute('placeholder', v);
+    });
+  },
+
+  // Full application: static strings + re-render every dynamic view. Used by the
+  // toggle so a language switch updates the whole page live.
+  applyLang: () => {
+    app.applyStaticLang();
+    if (app.data && app.currentData) {
+      app.refreshData();
+      app.renderDownloadVillages();
+      if (app.dcSelectedId) app.renderDownloadDocs();
+    }
+    app.checkRecordVerification();
+  },
 
   init: () => {
     // Was a hardcoded Apps Script /exec URL — now the deployed chhath-public-api
@@ -204,6 +342,11 @@ const app = {
         // that referenced them breaks.
         sel.innerHTML = yearArr.map(y => `<option value="${y}">${y}</option>`).join('');
         sel.value = yearArr[0];
+
+        // Apply the saved language to the static labels + toggle button now that
+        // the DOM strings exist. The render calls below already read app.lang, so
+        // we don't want applyLang()'s re-render loop here — just the static bits.
+        app.applyStaticLang();
 
         app.refreshData();
         app.renderDownloadVillages();
@@ -348,10 +491,7 @@ const app = {
     const ref = parts.slice(2).join('-');
 
     const genFile = (app.data.generatedFiles || []).find(g => (g.record_id || '').toString().trim() === recordId);
-    const docLabel = {
-      receipt: 'Receipt', receipt_work: 'Work Receipt', certificate: 'Certificate', samaan: 'Material Receipt',
-      consent_loaner: 'Loan Consent (Loaner)', consent_guarantor: 'Loan Consent (Guarantor)',
-    }[docType] || docType;
+    const docLabel = app.t('doc_' + docType) !== ('doc_' + docType) ? app.t('doc_' + docType) : docType;
 
     let detailsHtml = '';
     if (['receipt', 'receipt_work', 'certificate', 'samaan'].includes(docType)) {
@@ -362,16 +502,17 @@ const app = {
         if (app.isResellRow(entry)) {
           detailsHtml = `
             <div style="margin-top:8px; font-size:0.9rem;">
-              <div><strong>♻️ Resell: ${escapeHtml(entry.Detail || '-')}</strong></div>
-              ${entry.Amount ? `<div>Amount: ${fmt(entry.Amount)}</div>` : ''}
+              <div><strong>♻️ ${app.t('resell')}: ${escapeHtml(entry.Detail || '-')}</strong></div>
+              ${entry.Amount ? `<div>${app.t('amount')}: ${fmt(entry.Amount)}</div>` : ''}
             </div>`;
         } else {
           const u = app.getUser(entry.Name);
+          const village = app.localize(u, 'Village');
           detailsHtml = `
             <div style="margin-top:8px; font-size:0.9rem;">
-              <div><strong>${escapeHtml(u.Name)}</strong>${u.Village && u.Village !== '-' ? ' — ' + escapeHtml(u.Village) : ''}</div>
-              ${entry.Amount ? `<div>Amount: ${fmt(entry.Amount)}</div>` : ''}
-              ${entry.Detail ? `<div>Detail: ${escapeHtml(entry.Detail)}</div>` : ''}
+              <div><strong>${escapeHtml(app.localize(u, 'Name'))}</strong>${village && village !== '-' ? ' — ' + escapeHtml(village) : ''}</div>
+              ${entry.Amount ? `<div>${app.t('amount')}: ${fmt(entry.Amount)}</div>` : ''}
+              ${entry.Detail ? `<div>${app.t('detail')}: ${escapeHtml(entry.Detail)}</div>` : ''}
             </div>`;
         }
       }
@@ -380,10 +521,10 @@ const app = {
     content.innerHTML = `
       <div style="display:flex; align-items:center; gap:8px;">
         <span class="material-icons-round" style="color:${genFile ? 'var(--success)' : 'var(--danger)'};">${genFile ? 'verified' : 'error_outline'}</span>
-        <strong>${genFile ? 'Verified Record' : 'Record Not Found'}</strong>
+        <strong>${genFile ? app.t('verified_record') : app.t('record_not_found')}</strong>
       </div>
-      <div style="font-size:0.85rem; color:var(--text-muted); margin-top:4px;">${escapeHtml(docLabel)} — Year ${escapeHtml(year)}</div>
-      ${genFile ? detailsHtml : `<p style="font-size:0.85rem; margin-top:8px;">This record could not be verified against the committee's records. If you believe this is an error, please contact the committee.</p>`}
+      <div style="font-size:0.85rem; color:var(--text-muted); margin-top:4px;">${escapeHtml(docLabel)} — ${app.t('year')} ${escapeHtml(year)}</div>
+      ${genFile ? detailsHtml : `<p style="font-size:0.85rem; margin-top:8px;">${app.t('verify_help')}</p>`}
     `;
 
     app.nav('verify');
@@ -394,9 +535,9 @@ const app = {
     const isAll = rawYear === 'All';
     const tYear = isAll ? 'All' : parseInt(rawYear);
 
-    document.getElementById('disp-year-title').innerText = isAll ? 'Lifetime Budget Overview' : `${tYear} Budget Overview`;
-    document.getElementById('lbl-past-loan').innerText = isAll ? '(+) Lifetime Loans Returned (with Int.)' : '(+) Past Loan Returned (with Int.)';
-    document.getElementById('lbl-cur-col').innerText = isAll ? '(+) Lifetime Collections' : '(+) Current Year Collection';
+    document.getElementById('disp-year-title').innerText = isAll ? app.t('lifetime_budget_overview') : `${tYear} ${app.t('budget_overview')}`;
+    document.getElementById('lbl-past-loan').innerText = isAll ? app.t('lifetime_loans_returned') : app.t('past_loan_returned');
+    document.getElementById('lbl-cur-col').innerText = isAll ? app.t('lifetime_collections') : app.t('current_year_collection');
 
     const curCol = isAll ? app.data.collections : app.data.collections.filter(c => parseInt(c.Year) === tYear);
     const totCol = curCol.reduce((s, c) => s + parseAmt(c.Amount), 0);
@@ -446,7 +587,9 @@ const app = {
          // string "unknown user".
          if (app.isResellRow(r)) return (r.Detail || '').toLowerCase().includes(s);
          const u = app.getUser(r.ID || r.Name);
-         return (u.Name || '').toLowerCase().includes(s);
+         // Search matches the English OR Hindi name, in either display language.
+         return (u.Name || '').toLowerCase().includes(s)
+            || (u['Name (Hindi)'] || '').toString().toLowerCase().includes(s);
       })
       .map(r => {
          const cType = (r['Contribution Type'] || 1).toString();
@@ -457,8 +600,8 @@ const app = {
          if (app.isResellRow(r)) {
             return `<div class="data-row">
                <div>
-                 <strong style="display:block;">♻️ Resell: ${escapeHtml(r.Detail || '-')} ${yrTag}</strong>
-                 <span style="font-size:0.8rem; color:var(--text-muted);">Resold item</span>
+                 <strong style="display:block;">♻️ ${app.t('resell')}: ${escapeHtml(r.Detail || '-')} ${yrTag}</strong>
+                 <span style="font-size:0.8rem; color:var(--text-muted);">${app.t('resold_item')}</span>
                </div>
                <strong style="color:var(--success);">+${fmt(r.Amount)}</strong>
             </div>`;
@@ -471,20 +614,22 @@ const app = {
          const rightSide = isMoney
             ? `<strong style="color:var(--success);">+${fmt(r.Amount)}</strong>`
             : `<div style="text-align:right;">
-                 <span class="badge" style="background:#DBEAFE; color:#1E40AF;">${cType === '2' ? 'Material' : 'Service'}</span>
+                 <span class="badge" style="background:#DBEAFE; color:#1E40AF;">${cType === '2' ? app.t('material') : app.t('service')}</span>
                  ${r.Detail ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px; max-width:150px;">${escapeHtml(r.Detail)}</div>` : ''}
                </div>`;
 
+         // Name / Designation / Village / Father's Name come from the Hindi DB
+         // columns when Hindi is active (localize falls back to English if blank).
          return `<div class="data-row">
             <div>
-              <strong style="display:block;">${escapeHtml(u.Name)} (${escapeHtml(u.Designation || '-')}) ${yrTag}</strong>
-              <span style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(u.Village || r.Village || '-')} | ${escapeHtml(u["Father's Name"] || '-')}</span>
+              <strong style="display:block;">${escapeHtml(app.localize(u, 'Name'))} (${escapeHtml(app.localize(u, 'Designation') || '-')}) ${yrTag}</strong>
+              <span style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(app.localize(u, 'Village') || r.Village || '-')} | ${escapeHtml(app.localize(u, "Father's Name") || '-')}</span>
             </div>
             
             ${rightSide}
          </div>`;
       }).join('');
-    document.getElementById('home-col-list').innerHTML = html || '<div style="text-align:center; padding:20px;">No records found.</div>';
+    document.getElementById('home-col-list').innerHTML = html || `<div style="text-align:center; padding:20px;">${app.t('no_records_found')}</div>`;
   },
 
   renderExpenses: () => {
@@ -492,14 +637,16 @@ const app = {
       // The column is misspelled "Discription" in the schema; some payloads use
       // "Description". Fall back across both (and to a dash) so the name is never
       // blank, and escape it.
-      const desc = r.Discription || r.Description || '-';
+      // Prefer the Hindi description when Hindi is active (localize on 'Discription',
+      // the schema's misspelling; falls back to English / 'Description' / '-').
+      const desc = app.localize(r, 'Discription') || r.Description || '-';
       const yrTag = app.currentData.isAll ? `<span class="yr-tag">[${escapeHtml(r.Year)}]</span>` : '';
       return `<div class="data-row">
         <div><strong style="display:block; max-width:200px;">${escapeHtml(desc)} ${yrTag}</strong></div>
         <strong style="color:var(--danger);">-${fmt(r.Amount)}</strong>
       </div>`;
     }).join('');
-    document.getElementById('exp-list').innerHTML = html || '<div style="text-align:center; padding:20px;">No expenses recorded.</div>';
+    document.getElementById('exp-list').innerHTML = html || `<div style="text-align:center; padding:20px;">${app.t('no_expenses')}</div>`;
   },
 
   renderLoans: () => {
@@ -507,7 +654,7 @@ const app = {
     const targetLoans = isAll ? app.data.loans : app.data.loans.filter(l => parseInt(l.Year) === app.currentData.tYear);
     
     if(targetLoans.length === 0) {
-      document.getElementById('loans-dynamic-list').innerHTML = '<div class="glass-card" style="text-align:center; padding: 20px;">Not Distributed Yet</div>';
+      document.getElementById('loans-dynamic-list').innerHTML = `<div class="glass-card" style="text-align:center; padding: 20px;">${app.t('not_distributed')}</div>`;
       return;
     }
 
@@ -544,38 +691,38 @@ const app = {
          // produced false red flags for perfectly valid guarantors. Now only an
          // actual committee-member guarantor is a violation.
          const statusBadge = isCom
-            ? '<span class="badge badge-warn">Rule Violation (Committee Member)</span>'
-            : '<span class="badge badge-ok">Valid Guarantor</span>';
+            ? `<span class="badge badge-warn">${app.t('rule_violation')}</span>`
+            : `<span class="badge badge-ok">${app.t('valid_guarantor')}</span>`;
 
          gHtml += `<div class="glass-card" style="padding:15px; margin-bottom:10px;">
             <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-              <strong style="min-width:0; overflow-wrap:anywhere;">${escapeHtml(uGuarantor.Name)}</strong>
+              <strong style="min-width:0; overflow-wrap:anywhere;">${escapeHtml(app.localize(uGuarantor, 'Name'))}</strong>
               <span style="flex-shrink:0;">${statusBadge}</span>
             </div>
            
             <div style="font-size:0.75rem; color:gray; margin-top:5px;">
-              Village: ${escapeHtml(uGuarantor.Village || '-')} | Contributor: ${isCont ? 'Yes':'No'} | Committee: ${isCom ? 'Yes':'No'}
+              ${app.t('village')}: ${escapeHtml(app.localize(uGuarantor, 'Village') || '-')} | ${app.t('contributor_yes_no')}: ${isCont ? app.t('yes') : app.t('no')} | ${app.t('committee_yes_no')}: ${isCom ? app.t('yes') : app.t('no')}
             </div>
          </div>`;
       });
 
       finalHtml += `
       <div class="glass-card" style="background: #FFFBEB; border-color: #FCD34D;">
-        <h3 style="color: #92400E; margin-bottom: 5px;">Surplus Loan ${isAll ? `(${lYear})` : ''}</h3>
-        <p style="font-size: 0.85rem; color: #B45309; margin-bottom: 15px;">Given to a single verified contributor.</p>
+        <h3 style="color: #92400E; margin-bottom: 5px;">${app.t('surplus_loan')} ${isAll ? `(${lYear})` : ''}</h3>
+        <p style="font-size: 0.85rem; color: #B45309; margin-bottom: 15px;">${app.t('given_to_verified')}</p>
         
         <div style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #FDE68A; margin-bottom: 15px;">
-          <div style="font-size: 0.8rem; color: var(--text-muted);">Receiver Name</div>
-          <div style="font-size: 1.3rem; font-weight: bold; color: var(--text-main); margin-bottom: 10px;">${escapeHtml(uReceiver.Name)}</div>
+          <div style="font-size: 0.8rem; color: var(--text-muted);">${app.t('receiver_name')}</div>
+          <div style="font-size: 1.3rem; font-weight: bold; color: var(--text-main); margin-bottom: 10px;">${escapeHtml(app.localize(uReceiver, 'Name'))}</div>
           <div class="grid-3">
-            <div><span style="font-size:0.75rem;">Amount</span><br><strong style="font-size: 0.95rem;">${fmt(curLoan.Amount)}</strong></div>
-            <div><span style="font-size:0.75rem;">Int. Rate</span><br><strong style="font-size: 0.95rem;">${escapeHtml(curLoan['Intrest Rate'] || curLoan['Interest Rate'] || '0')}%</strong></div>
-            <div><span style="font-size:0.75rem;">Tenure</span><br><strong style="font-size: 0.95rem;">${escapeHtml(curLoan.Tenure || '0')} Mo</strong></div>
+            <div><span style="font-size:0.75rem;">${app.t('amount')}</span><br><strong style="font-size: 0.95rem;">${fmt(curLoan.Amount)}</strong></div>
+            <div><span style="font-size:0.75rem;">${app.t('int_rate')}</span><br><strong style="font-size: 0.95rem;">${escapeHtml(curLoan['Intrest Rate'] || curLoan['Interest Rate'] || '0')}%</strong></div>
+            <div><span style="font-size:0.75rem;">${app.t('tenure')}</span><br><strong style="font-size: 0.95rem;">${escapeHtml(curLoan.Tenure || '0')} Mo</strong></div>
           </div>
         </div>
         
-        <h4 style="margin-bottom: 10px; color: #92400E;">Verified Guarantors</h4>
-        ${gHtml || '<p>No guarantors on record.</p>'}
+        <h4 style="margin-bottom: 10px; color: #92400E;">${app.t('verified_guarantors')}</h4>
+        ${gHtml || `<p>${app.t('no_guarantors')}</p>`}
       </div>`;
     });
 
@@ -590,7 +737,7 @@ const app = {
        const u = app.getUser(r.ID || r.Name); 
        // `u.Name[0]` threw a TypeError (blanking the WHOLE list) if a committee
        // member's Name was ever undefined. Coerce to a string first.
-       const nameStr = (u.Name || '').toString();
+       const nameStr = (app.localize(u, 'Name') || '').toString();
        const initial = (nameStr.charAt(0) || '?').toUpperCase();
 
        // Naya Professional ID Card Layout
@@ -609,16 +756,16 @@ const app = {
                       by the Worker's REVERSE_MAPS — there is no `Role` field, so this
                       silently fell through to Designation and the committee role was
                       never shown on the public site (audit H-2). */''}
-                ${escapeHtml(r['View Role'] || u.Designation || 'Member')}
+                ${escapeHtml(app.localize(r, 'View Role') || app.localize(u, 'Designation') || app.t('member'))}
              </div>
              <div style="font-size:0.8rem; color:var(--text-muted); display:flex; flex-wrap:wrap; gap:10px;">
-                <span style="display:flex; align-items:center; gap:3px;"><span class="material-icons-round" style="font-size:12px;">call</span> ${escapeHtml(u.Mobile || 'N/A')}</span>
-                <span style="display:flex; align-items:center; gap:3px;"><span class="material-icons-round" style="font-size:12px;">place</span> ${escapeHtml(u.Village || 'N/A')}</span>
+                <span style="display:flex; align-items:center; gap:3px;"><span class="material-icons-round" style="font-size:12px;">call</span> ${escapeHtml(u.Mobile || app.t('na'))}</span>
+                <span style="display:flex; align-items:center; gap:3px;"><span class="material-icons-round" style="font-size:12px;">place</span> ${escapeHtml(app.localize(u, 'Village') || app.t('na'))}</span>
              </div>
           </div>
        </div>`;
     }).join('');
-    document.getElementById('com-list').innerHTML = html || '<div style="text-align:center; padding:20px;">No committee on record.</div>';
+    document.getElementById('com-list').innerHTML = html || `<div style="text-align:center; padding:20px;">${app.t('no_committee')}</div>`;
   },
 
   /* ================= DOWNLOAD CENTER ================= */
@@ -628,7 +775,7 @@ const app = {
     (app.data.users || []).forEach(u => { if (u.Village) villages.add(u.Village.trim()); });
     const arr = Array.from(villages).sort((a, b) => a.localeCompare(b));
     const sel = document.getElementById('dc-village');
-    sel.innerHTML = `<option value="">-- Select Village --</option>` + arr.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+    sel.innerHTML = `<option value="">${app.t('select_village')}</option>` + arr.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
     sel.value = '';
   },
 
@@ -643,13 +790,13 @@ const app = {
 
     if (village) {
       nameInput.disabled = false;
-      nameInput.placeholder = 'Search by Name...';
+      nameInput.placeholder = app.t('search_by_name');
       searchBtn.disabled = false;
       searchBtn.style.opacity = '1';
     } else {
       nameInput.disabled = true;
       nameInput.value = '';
-      nameInput.placeholder = 'Please select a village first';
+      nameInput.placeholder = app.t('select_village_first');
       searchBtn.disabled = true;
       searchBtn.style.opacity = '0.5';
     }
@@ -657,7 +804,7 @@ const app = {
 
   searchDownloadPeople: () => {
     const village = document.getElementById('dc-village').value;
-    if (!village) { alert('Please select a village first'); return; }
+    if (!village) { alert(app.t('select_village_first')); return; }
     const q = document.getElementById('dc-search').value.toLowerCase().trim();
 
     app.dcSelectedId = null;
@@ -665,7 +812,11 @@ const app = {
 
     const list = (app.data.users || [])
       .filter(u => (u.Village || '').trim() === village)
-      .filter(u => !q || (u.Name || '').toLowerCase().includes(q))
+      // Match against BOTH the English and Hindi name so a search works in either
+      // language regardless of which language is currently displayed.
+      .filter(u => !q
+        || (u.Name || '').toLowerCase().includes(q)
+        || (u['Name (Hindi)'] || '').toString().toLowerCase().includes(q))
       .slice(0, 50);
 
     const html = list.map(u => {
@@ -676,14 +827,14 @@ const app = {
       return `
       <div class="data-row" style="cursor:pointer;" onclick="app.selectDownloadPerson('${escapeHtml(idJs)}')">
         <div>
-          <strong style="display:block;">${escapeHtml(u.Name)}</strong>
-          <span style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(u.Village || '-')}</span>
+          <strong style="display:block;">${escapeHtml(app.localize(u, 'Name'))}</strong>
+          <span style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(app.localize(u, 'Village') || '-')}</span>
         </div>
         <span class="material-icons-round" style="color:var(--primary-saffron);">chevron_right</span>
       </div>`;
     }).join('');
 
-    document.getElementById('dc-people-wrap').innerHTML = `<div class="glass-card" id="dc-people-list">${html || '<div style="text-align:center; padding:20px;">No matches found.</div>'}</div>`;
+    document.getElementById('dc-people-wrap').innerHTML = `<div class="glass-card" id="dc-people-list">${html || `<div style="text-align:center; padding:20px;">${app.t('no_matches')}</div>`}</div>`;
   },
 
   selectDownloadPerson: (id) => {
@@ -721,7 +872,7 @@ const app = {
         const docType = isSamaan ? 'samaan' : (wantCert ? 'certificate' : (isWork ? 'receipt_work' : 'receipt'));
         const recordId = `${docType}-${year}-${entry.__rowIndex}`;
         const gen = isFileGenerated(docType, year, recordId);
-        const label = `${isSamaan ? 'Material' : (wantCert ? 'Certificate' : (isWork ? 'Work Receipt' : 'Receipt'))} — ${year}${(!isSamaan && entry.Amount) ? ' — ' + fmt(entry.Amount) : ''}`;
+        const label = `${app.t('doc_' + docType)} — ${year}${(!isSamaan && entry.Amount) ? ' — ' + fmt(entry.Amount) : ''}`;
         return { recordId, docType, year, label, publicLink: gen ? gen.public_link : null };
       })
       .sort((a, b) => b.year - a.year);
@@ -735,7 +886,7 @@ const app = {
         if (!c) return [];
         const recordId = `consent_loaner-${year}-${c.consent_id}`;
         const gen = isFileGenerated('consent_loaner', year, recordId);
-        return [{ recordId, docType: 'consent_loaner', year, label: `Loan Consent (as Loaner) — ${year} — ${fmt(loan.Amount)}`, publicLink: gen ? gen.public_link : null }];
+        return [{ recordId, docType: 'consent_loaner', year, label: `${app.t('doc_consent_loaner')} — ${year} — ${fmt(loan.Amount)}`, publicLink: gen ? gen.public_link : null }];
       })
       .sort((a, b) => b.year - a.year);
 
@@ -748,8 +899,8 @@ const app = {
         const year = parseInt(loan.Year);
         const recordId = `consent_guarantor-${year}-${c.consent_id}`;
         const gen = isFileGenerated('consent_guarantor', year, recordId);
-        const loanerName = app.getUser(loan.ID || loan.Name).Name;
-        return [{ recordId, docType: 'consent_guarantor', year, label: `Loan Consent (as Guarantor for ${loanerName}) — ${year}`, publicLink: gen ? gen.public_link : null }];
+        const loanerName = app.localize(app.getUser(loan.ID || loan.Name), 'Name');
+        return [{ recordId, docType: 'consent_guarantor', year, label: `${app.t('doc_consent_guarantor')} — ${loanerName} — ${year}`, publicLink: gen ? gen.public_link : null }];
       })
       .sort((a, b) => b.year - a.year);
 
@@ -768,27 +919,27 @@ const app = {
       <div class="data-row">
         <div><strong style="display:block; font-size:0.9rem;">${escapeHtml(item.label)}</strong></div>
         ${item.publicLink && safeUrl(item.publicLink)
-          ? `<a href="${escapeHtml(item.publicLink)}" target="_blank" rel="noreferrer" class="badge badge-ok" style="text-decoration:none;">Download</a>`
-          : `<span class="badge" style="background:#f3f4f6; color:#9CA3AF;">Not Available</span>`}
+          ? `<a href="${escapeHtml(item.publicLink)}" target="_blank" rel="noreferrer" class="badge badge-ok" style="text-decoration:none;">${app.t('download')}</a>`
+          : `<span class="badge" style="background:#f3f4f6; color:#9CA3AF;">${app.t('not_available')}</span>`}
       </div>`;
 
     const section = (title, items) => `
       <h4 style="margin: 15px 0 8px; color: var(--text-main);">${escapeHtml(title)}</h4>
       <div class="glass-card" style="padding:10px 15px;">
-        ${items.length ? items.map(rowHtml).join('') : '<div style="text-align:center; padding:10px; color:var(--text-muted); font-size:0.85rem;">No records available.</div>'}
+        ${items.length ? items.map(rowHtml).join('') : `<div style="text-align:center; padding:10px; color:var(--text-muted); font-size:0.85rem;">${app.t('no_docs')}</div>`}
       </div>`;
 
     wrap.innerHTML = `
       <div class="glass-card" style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
         <div style="min-width:0; overflow-wrap:anywhere;">
-          <strong style="display:block; font-size:1.05rem;">${escapeHtml(u.Name)}</strong>
-          <span style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(u.Village || '-')}</span>
+          <strong style="display:block; font-size:1.05rem;">${escapeHtml(app.localize(u, 'Name'))}</strong>
+          <span style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(app.localize(u, 'Village') || '-')}</span>
         </div>
-        <button style="background:#e5e7eb; color:#111; border:none; padding:8px 14px; border-radius:8px; font-weight:600; font-size:0.85rem; cursor:pointer; flex-shrink:0;" onclick="app.backToDownloadList()">← Back</button>
+        <button style="background:#e5e7eb; color:#111; border:none; padding:8px 14px; border-radius:8px; font-weight:600; font-size:0.85rem; cursor:pointer; flex-shrink:0;" onclick="app.backToDownloadList()">${app.t('back')}</button>
       </div>
-      ${section('Collections (Receipt / Certificate / Samaan)', collections)}
-      ${section('Loan Consent — As Loaner', loanerItems)}
-      ${section('Loan Consent — As Guarantor', guarantorItems)}
+      ${section(app.t('dc_collections'), collections)}
+      ${section(app.t('dc_as_loaner'), loanerItems)}
+      ${section(app.t('dc_as_guarantor'), guarantorItems)}
     `;
   }
 };

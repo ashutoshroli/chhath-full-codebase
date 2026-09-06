@@ -14,6 +14,17 @@ body { background-color: var(--bg-offwhite); color: var(--text-main); padding-bo
 .year-selector { background: var(--primary-saffron); color: white; border: none; padding: 8px 15px; border-radius: 8px; font-weight: 700;
   font-size: 0.95rem; outline: none; cursor: pointer; }
 
+/* Language toggle sits to the LEFT of the year selector; grouped in a small flex
+   wrapper so they stay together on the right of the header. Styled to match the
+   year selector but outlined (not filled) so the year stays the primary control. */
+.header-controls { display: flex; align-items: center; gap: 8px; }
+.lang-toggle { display: flex; align-items: center; gap: 5px; background: #fff; color: var(--primary-saffron);
+  border: 1.5px solid var(--primary-saffron); padding: 7px 12px; border-radius: 8px; font-weight: 700;
+  font-size: 0.9rem; outline: none; cursor: pointer; line-height: 1; }
+.lang-toggle:hover { background: var(--saffron-light); }
+.lang-toggle:active { transform: scale(0.96); }
+.lang-toggle .material-icons-round { font-size: 18px; }
+
 .desktop-nav { display: none; } 
 
 .page-view { display: none; max-width: 1000px; margin: 90px auto 0; padding: 0 15px; animation: fade 0.3s; }
