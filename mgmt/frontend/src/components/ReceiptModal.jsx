@@ -10,7 +10,7 @@ import { generateQrDataUrl, publicRecordUrl } from '../qrCode.js';
 import Modal from './Modal.jsx';
 import ReportErrorButton from './ReportErrorButton.jsx';
 
-// docType: 'receipt' | 'certificate' | 'samaan' — same preview engine, different
+// docType: 'receipt' | 'receipt_work' | 'certificate' | 'samaan' — same preview engine, different
 // backend data source. Preview always stays the Markdown view below; Download
 // uses a Superadmin-uploaded .docx template if one exists for this (docType,
 // year) — filled client-side (docxtemplater) then converted to PDF via Drive
@@ -18,6 +18,8 @@ import ReportErrorButton from './ReportErrorButton.jsx';
 // itself, so nothing ever breaks even for years with no docx template yet.
 const DOC_CONFIG = {
   receipt: { label: 'Receipt', docNoKey: 'RECEIPT_NO', fetch: (rowIndex, year) => api.getReceiptData(rowIndex, year) },
+  // Work receipt: same data + doc number as a receipt, its own .docx template.
+  receipt_work: { label: 'Work Receipt', docNoKey: 'RECEIPT_NO', fetch: (rowIndex, year) => api.getReceiptData(rowIndex, year) },
   certificate: { label: 'Certificate', docNoKey: 'CERT_NO', fetch: (rowIndex, year) => api.getCertificateData(rowIndex, year) },
   samaan: { label: 'Material Receipt', docNoKey: 'SAMAAN_NO', fetch: (rowIndex, year) => api.getSamaanData(rowIndex, year) },
 };

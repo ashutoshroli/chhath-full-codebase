@@ -8,10 +8,15 @@ import { isTruthyFlag } from './flags.js';
 import { usersByIdCodes, loansByBorrower, loansByLoanIds, generatedFilesByRecordIds, consentsForPerson, consentsForLoanIds } from './lookups.js';
 import { base64ByteLength, MAX_DOCX_BYTES } from './base64.js';
 
-export const DOC_TYPES = ['receipt', 'certificate', 'samaan', 'consent_loaner', 'consent_guarantor', 'report_en', 'report_hi', 'report_both'];
+// `receipt_work` is the receipt for a Service (Work) contribution — previously it
+// reused the plain `receipt` template; it now has its OWN template/tab so a work
+// receipt can look different from a cash receipt. It shares the COLLECTIONS row
+// and the same placeholder set as `receipt` (RECEIPT_NO, NAME, AMOUNT, ...); only
+// the template document differs.
+export const DOC_TYPES = ['receipt', 'receipt_work', 'certificate', 'samaan', 'consent_loaner', 'consent_guarantor', 'report_en', 'report_hi', 'report_both'];
 
 const TYPE_FOLDER_NAMES = {
-  receipt: 'Receipts', certificate: 'Certificates', samaan: 'Samaan',
+  receipt: 'Receipts', receipt_work: 'Receipts-Work', certificate: 'Certificates', samaan: 'Samaan',
   consent_loaner: 'Consents-Loaner', consent_guarantor: 'Consents-Guarantor',
   report_en: 'Reports-English', report_hi: 'Reports-Hindi', report_both: 'Reports-Both',
 };
@@ -450,12 +455,30 @@ export async function getRecordsForDocType(env, docType, year, user) {
   // year, plus a third full scan of USERS. `getSheetDataByYear` pushes the year into
   // an indexed `WHERE`, and USERS is now fetched only for the ids each branch
   // actually references (the H-11 batched-lookup approach) rather than in full.
-  if (docType === 'receipt' || docType === 'certificate') {
+  // receipt / receipt_work / certificate all come from non-material COLLECTIONS
+  // rows, split by Contribution Type and the Receipt-vs-Certificate choice:
+  //   receipt       — Type 1 (Cash/Money) receipts
+  //   receipt_work  — Type 3 (Service/Work) where "Receipt" was chosen
+  //   certificate   — the "Certificate" choice (only Type 3 can be a Certificate)
+  // Splitting receipt vs receipt_work here is what stops the SAME collection row
+  // being generated under two different doc types.
+  if (docType === 'receipt' || docType === 'receipt_work' || docType === 'certificate') {
     const wantCert = docType === 'certificate';
+    const wantWork = docType === 'receipt_work';
+    // Contribution Type comes from a REAL column, so it may arrive as 1 / 3 / 3.0
+    // / '3.0'. Normalise to the integer string ('1'/'2'/'3') before comparing, so
+    // the receipt / receipt_work / samaan split is affinity-proof.
+    const ctype = (c) => String(parseInt(c['Contribution Type'], 10) || '');
     const collections = (await getSheetDataByYear(env, 'COLLECTIONS', year))
       .filter(c => !isTruthyFlag(c['Is Resell']))
-      .filter(c => c['Contribution Type'] !== '2')
-      .filter(c => (wantCert ? c['Certificate Or Receipt'] === 'Certificate' : c['Certificate Or Receipt'] !== 'Certificate'));
+      .filter(c => ctype(c) !== '2')
+      .filter(c => {
+        if (wantCert) return c['Certificate Or Receipt'] === 'Certificate';
+        // Non-certificate receipts, split by contribution type.
+        if (c['Certificate Or Receipt'] === 'Certificate') return false;
+        const isWork = ctype(c) === '3';
+        return wantWork ? isWork : !isWork;
+      });
     const userMap = await usersByIdCodes(env, collections.map(c => c.Name));
     return collections.map(entry => {
       const u = userMap[entry.Name] || {};
@@ -476,7 +499,8 @@ export async function getRecordsForDocType(env, docType, year, user) {
   if (docType === 'samaan') {
     const collections = (await getSheetDataByYear(env, 'COLLECTIONS', year))
       .filter(c => !isTruthyFlag(c['Is Resell']))
-      .filter(c => c['Contribution Type'] === '2');
+      // parseInt so a REAL-affinity 2 / 2.0 / '2.0' all match (see the receipt branch).
+      .filter(c => String(parseInt(c['Contribution Type'], 10) || '') === '2');
     const userMap = await usersByIdCodes(env, collections.map(c => c.Name));
     return collections.map(entry => {
       const u = userMap[entry.Name] || {};
@@ -572,7 +596,10 @@ export async function getPersonDownloads(env, userId, user) {
     const year = parseInt(entry.Year);
     const isSamaan = entry['Contribution Type'] === '2';
     const wantCert = !isSamaan && entry['Certificate Or Receipt'] === 'Certificate';
-    const docType = isSamaan ? 'samaan' : (wantCert ? 'certificate' : 'receipt');
+    // A non-certificate receipt for a Service (Work) contribution (Type 3) is now
+    // its own doc type (receipt_work); Cash (Type 1) stays plain `receipt`.
+    const isWork = !isSamaan && !wantCert && (entry['Contribution Type'] || '').toString() === '3';
+    const docType = isSamaan ? 'samaan' : (wantCert ? 'certificate' : (isWork ? 'receipt_work' : 'receipt'));
     return `${docType}-${year}-${entry.__rowIndex}`;
   });
 
@@ -641,7 +668,8 @@ export async function getPersonDownloads(env, userId, user) {
     const year = parseInt(entry.Year);
     const isSamaan = entry['Contribution Type'] === '2';
     const wantCert = !isSamaan && entry['Certificate Or Receipt'] === 'Certificate';
-    const docType = isSamaan ? 'samaan' : (wantCert ? 'certificate' : 'receipt');
+    const isWork = !isSamaan && !wantCert && (entry['Contribution Type'] || '').toString() === '3';
+    const docType = isSamaan ? 'samaan' : (wantCert ? 'certificate' : (isWork ? 'receipt_work' : 'receipt'));
     const recordId = `${docType}-${year}-${entry.__rowIndex}`;
     const placeholders = isSamaan ? {
       SAMAAN_NO: `NCS-SAMAAN-${year}-${entry['Sl. No.']}`, NAME: u.Name || entry.Name || '',
@@ -660,7 +688,7 @@ export async function getPersonDownloads(env, userId, user) {
     const gen = genByRecordId[recordId];
     collections.push({
       recordId, docType, year,
-      label: `${isSamaan ? 'Samaan' : (wantCert ? 'Certificate' : 'Receipt')} — ${year}${placeholders.AMOUNT ? ' — ₹' + placeholders.AMOUNT : ''}`,
+      label: `${isSamaan ? 'Samaan' : (wantCert ? 'Certificate' : (isWork ? 'Work Receipt' : 'Receipt'))} — ${year}${placeholders.AMOUNT ? ' — ₹' + placeholders.AMOUNT : ''}`,
       fileNameHint: `${docType}-${placeholders[docNoKey]}`,
       placeholders,
       publicLink: gen ? gen.public_link : null,

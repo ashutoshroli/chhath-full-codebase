@@ -36,7 +36,7 @@ const STUCK_MINUTES = 10;        // a 'processing' row older than this is retrie
 // whatsapp.js resolveCollectionDocType). '' means "no document, WhatsApp only",
 // which is the resell case. Consent/report types are deliberately absent — see
 // the security note in enqueueCollectionJob.
-const QUEUEABLE_DOC_TYPES = new Set(['', 'receipt', 'certificate', 'samaan']);
+const QUEUEABLE_DOC_TYPES = new Set(['', 'receipt', 'receipt_work', 'certificate', 'samaan']);
 
 // D1 rows are limited to ~1 MB in practice and filled_base64 dominates the row.
 // The client sends a filled .docx (a few hundred KB with a letterhead image), so

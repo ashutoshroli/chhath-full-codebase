@@ -349,12 +349,12 @@ const app = {
 
     const genFile = (app.data.generatedFiles || []).find(g => (g.record_id || '').toString().trim() === recordId);
     const docLabel = {
-      receipt: 'Receipt', certificate: 'Certificate', samaan: 'Material Receipt',
+      receipt: 'Receipt', receipt_work: 'Work Receipt', certificate: 'Certificate', samaan: 'Material Receipt',
       consent_loaner: 'Loan Consent (Loaner)', consent_guarantor: 'Loan Consent (Guarantor)',
     }[docType] || docType;
 
     let detailsHtml = '';
-    if (['receipt', 'certificate', 'samaan'].includes(docType)) {
+    if (['receipt', 'receipt_work', 'certificate', 'samaan'].includes(docType)) {
       const entry = (app.data.collections || []).find(c =>
         (c.__rowIndex || '').toString() === ref && parseInt(c.Year) === parseInt(year));
       if (entry) {
@@ -714,10 +714,14 @@ const app = {
         const year = parseInt(entry.Year);
         const isSamaan = entry['Contribution Type'] === '2';
         const wantCert = !isSamaan && entry['Certificate Or Receipt'] === 'Certificate';
-        const docType = isSamaan ? 'samaan' : (wantCert ? 'certificate' : 'receipt');
+        // Type 3 (Service/Work) + Receipt is its own doc type receipt_work; must
+        // match how the mgmt backend files/generates it, or the public download
+        // for a work receipt would look for the wrong recordId and never appear.
+        const isWork = !isSamaan && !wantCert && (entry['Contribution Type'] || '').toString() === '3';
+        const docType = isSamaan ? 'samaan' : (wantCert ? 'certificate' : (isWork ? 'receipt_work' : 'receipt'));
         const recordId = `${docType}-${year}-${entry.__rowIndex}`;
         const gen = isFileGenerated(docType, year, recordId);
-        const label = `${isSamaan ? 'Material' : (wantCert ? 'Certificate' : 'Receipt')} — ${year}${(!isSamaan && entry.Amount) ? ' — ' + fmt(entry.Amount) : ''}`;
+        const label = `${isSamaan ? 'Material' : (wantCert ? 'Certificate' : (isWork ? 'Work Receipt' : 'Receipt'))} — ${year}${(!isSamaan && entry.Amount) ? ' — ' + fmt(entry.Amount) : ''}`;
         return { recordId, docType, year, label, publicLink: gen ? gen.public_link : null };
       })
       .sort((a, b) => b.year - a.year);

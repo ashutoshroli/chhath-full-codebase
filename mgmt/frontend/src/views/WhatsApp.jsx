@@ -41,8 +41,11 @@ const DOC_SUB_TYPES = [['', 'Both (Receipt + Certificate)'], ['Receipt', 'Receip
 // below). Instead of pasting a static link, pick WHICH generated document this
 // template should carry — the recipient's own file gets auto-attached when the
 // message is queued (right after that PDF finishes generating).
-const FILE_DOC_TYPE_OPTIONS = [['receipt', 'Receipt'], ['certificate', 'Certificate'], ['samaan', 'Material Receipt']];
-const DEFAULT_FILE_DOC_TYPE = { '1': 'receipt', '2': 'samaan', '3': 'receipt' };
+const FILE_DOC_TYPE_OPTIONS = [['receipt', 'Receipt'], ['receipt_work', 'Work Receipt'], ['certificate', 'Certificate'], ['samaan', 'Material Receipt']];
+// Default auto-attach doc type per Contribution Type. Type 3 (Service/Work) now
+// defaults to the work receipt so the attachment matches what the collection
+// actually generates (backend resolveCollectionDocType returns receipt_work).
+const DEFAULT_FILE_DOC_TYPE = { '1': 'receipt', '2': 'samaan', '3': 'receipt_work' };
 
 // ============ Templates (Person / Group / Loan incl. OTP) ============
 function TemplateList({ kind, loanType, titleLabel }) {
@@ -266,7 +269,7 @@ function TemplateList({ kind, loanType, titleLabel }) {
                 const val = e.target.value;
                 setContributionType(val);
                 if (val !== '3') setDocSubType('');
-                if (hasFile) setFileDocType(val === '3' ? (docSubType === 'Certificate' ? 'certificate' : 'receipt') : (DEFAULT_FILE_DOC_TYPE[val] || 'receipt'));
+                if (hasFile) setFileDocType(val === '3' ? (docSubType === 'Certificate' ? 'certificate' : 'receipt_work') : (DEFAULT_FILE_DOC_TYPE[val] || 'receipt'));
               }}>
                 {contributionTypeOptions.map(([val, lbl]) => <option key={val} value={val}>{lbl}</option>)}
               </select>
@@ -278,7 +281,7 @@ function TemplateList({ kind, loanType, titleLabel }) {
               <select value={docSubType} onChange={e => {
                 const val = e.target.value;
                 setDocSubType(val);
-                if (hasFile) setFileDocType(val === 'Certificate' ? 'certificate' : 'receipt');
+                if (hasFile) setFileDocType(val === 'Certificate' ? 'certificate' : 'receipt_work');
               }}>
                 {DOC_SUB_TYPES.map(([val, lbl]) => <option key={val} value={val}>{lbl}</option>)}
               </select>
@@ -289,7 +292,7 @@ function TemplateList({ kind, loanType, titleLabel }) {
               const checked = e.target.checked;
               setHasFile(checked);
               if (checked && hasContributionType && !fileDocType) {
-                setFileDocType(contributionType === '3' ? (docSubType === 'Certificate' ? 'certificate' : 'receipt') : (DEFAULT_FILE_DOC_TYPE[contributionType] || 'receipt'));
+                setFileDocType(contributionType === '3' ? (docSubType === 'Certificate' ? 'certificate' : 'receipt_work') : (DEFAULT_FILE_DOC_TYPE[contributionType] || 'receipt'));
               }
             }} />
             Is this template have files?

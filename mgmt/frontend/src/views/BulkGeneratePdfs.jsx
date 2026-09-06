@@ -38,6 +38,7 @@ async function withRetry(fn, onRetry) {
 
 const DOC_TYPES = [
   ['receipt', 'Receipts'],
+  ['receipt_work', 'Work Receipts'],
   ['certificate', 'Certificates'],
   ['samaan', 'Material Items'],
   ['consent_loaner', 'Consent — Loaner'],

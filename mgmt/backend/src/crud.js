@@ -408,12 +408,13 @@ async function supersedeCollectionJobsForRow(env, rowIndex) {
 }
 
 // A COLLECTIONS row can back a receipt, a certificate OR a samaan document, and
-// the recordId scheme is `<docType>-<year>-<rowIndex>` — so clear all three.
+// the recordId scheme is `<docType>-<year>-<rowIndex>` — so clear every doc type a
+// collection row can back (receipt, work receipt, certificate, material).
 async function purgeGeneratedFilesForCollection(env, year, rowIndex) {
   if (!env.DB_FILE_INDEX) return;
   try {
     const y = parseInt(year);
-    for (const docType of ['receipt', 'certificate', 'samaan']) {
+    for (const docType of ['receipt', 'receipt_work', 'certificate', 'samaan']) {
       await env.DB_FILE_INDEX.prepare(
         'DELETE FROM generated_files WHERE doc_type = ? AND year = ? AND record_id = ?'
       ).bind(docType, y, `${docType}-${y}-${rowIndex}`).run();
