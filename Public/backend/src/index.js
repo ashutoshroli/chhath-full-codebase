@@ -694,7 +694,10 @@ async function serveVersionCacheOnly(request, ctx, cacheName, version, cors, eta
       const hit = await cache.match(key).catch(() => null);
       if (hit) {
         const body = await hit.text();
-        return new Response(body, { headers: { ...cors, ETag: etag, 'Cache-Control': 'public, max-age=30' } });
+        // Budget-exhausted path: keep the edge serving this cached copy (fresh 30s,
+        // then stale-while-revalidate for a day) so the public site stays fast
+        // WITHOUT touching D1 while the daily budget is spent.
+        return new Response(body, { headers: { ...cors, ETag: etag, 'Cache-Control': 'public, max-age=30, stale-while-revalidate=86400' } });
       }
     }
     return null;
@@ -936,7 +939,16 @@ export default {
             await d1BudgetAdd(env, ctx);
             await maybeSaveSnapshot(env, ctx, version, data);
             return new Response(JSON.stringify(data), {
-              headers: { ...cors, ETag: etag, 'Cache-Control': 'public, max-age=30' },
+              // fresh for 30s; then, for up to a day, the edge may serve this copy
+              // INSTANTLY while it revalidates in the background. This smooths the
+              // brief cliff right after a data-version bump — the moment every open
+              // tab's ?v= goes stale at once — so those requests are answered from
+              // cache instead of each triggering a fresh D1 build. It is a standard
+              // HTTP cache hint (no Worker/D1 cost, fully free-plan compatible), and
+              // data can never go MORE than one version behind because a bump makes
+              // a new cache key. versionCached ignores this header (it caches on
+              // status only), so nothing here changes when/what we store.
+              headers: { ...cors, ETag: etag, 'Cache-Control': 'public, max-age=30, stale-while-revalidate=86400' },
             });
           });
         } catch (buildErr) {
@@ -991,7 +1003,8 @@ export default {
           const data = await getActivePublicPopups(env);
           await d1BudgetAdd(env, ctx);
           return new Response(JSON.stringify(data), {
-            headers: { ...cors, ETag: etag, 'Cache-Control': 'public, max-age=30' },
+            // Same stale-while-revalidate smoothing as portalData (see the note there).
+            headers: { ...cors, ETag: etag, 'Cache-Control': 'public, max-age=30, stale-while-revalidate=86400' },
           });
         });
       }
