@@ -44,7 +44,7 @@ export function clearSession() {
 // COMPLETELY invisible: zero brute-force visibility. The backend now logs login
 // failures itself (see index.js), so the client still skips it to avoid a
 // duplicate row, but the event is no longer lost.
-const NO_AUTOLOG_ACTIONS = ['logError', 'reportErrorToWhatsApp', 'login'];
+const NO_AUTOLOG_ACTIONS = ['logError', 'reportErrorToWhatsApp', 'login', 'verifyGoogleLogin'];
 
 // Noise produced by browser extensions and by the browser itself — never our bug.
 // The live log had "Failed to connect to MetaMask" rows from a crypto wallet
@@ -220,6 +220,10 @@ export function reportClientError(page, message, err, context) {
 
 export const api = {
   login: (name, password, rememberMe) => call('login', { name, password, rememberMe }, false),
+  // Sign in with Google: send the Google ID token (JWT) the browser got from
+  // Google Identity Services; the server verifies it and returns the same
+  // { token, name, role, expiresAt } shape as `login`.
+  verifyGoogleLogin: (idToken, rememberMe) => call('verifyGoogleLogin', { idToken, rememberMe }, false),
   logout: () => call('logout'),
   getYears: () => call('getYears'),
   getUsers: () => call('getUsers'),
