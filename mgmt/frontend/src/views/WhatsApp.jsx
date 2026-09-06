@@ -63,6 +63,7 @@ function TemplateList({ kind, loanType, titleLabel }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState(null); // the row being edited, or null for "add"
   const [text, setText] = useState('');
   const [messageType, setMessageType] = useState('normal');
   const [contributionType, setContributionType] = useState('1');
@@ -79,6 +80,38 @@ function TemplateList({ kind, loanType, titleLabel }) {
 
   useEffect(() => { load(); }, [load]);
 
+  const resetForm = () => {
+    setText('');
+    setMessageType('normal');
+    setContributionType('1');
+    setDocSubType('');
+    setHasFile(false);
+    setFileLink('');
+    setFileDocType('');
+  };
+
+  const closeModal = () => { setShowAdd(false); setEditing(null); resetForm(); };
+
+  // Open the modal pre-filled from an existing row (Edit). contribution_type is a
+  // REAL column, so normalise the number back to the '1'/'2'/'3' string the form
+  // selects use.
+  const openEdit = (r) => {
+    setEditing(r);
+    setText(r.text || '');
+    setMessageType(r.message_type === 'priority' ? 'priority' : 'normal');
+    const ct = String(parseInt(r.contribution_type, 10) || 1);
+    setContributionType(hasContributionType ? ct : '1');
+    setDocSubType(r.doc_sub_type || '');
+    const fdt = r.file_doc_type || '';
+    const link = r.file_link || '';
+    setFileDocType(fdt);
+    setFileLink(link);
+    // "has file" is on if either an auto-attach doc type (contribution templates)
+    // or a manual link (loan templates) is set.
+    setHasFile(hasContributionType ? !!fdt : !!link);
+    setShowAdd(true);
+  };
+
   const submit = async (e) => {
     e.preventDefault();
     if (!text.trim()) return alert('Please enter the template text');
@@ -89,16 +122,20 @@ function TemplateList({ kind, loanType, titleLabel }) {
       const link = (hasFile && !hasContributionType) ? fileLink.trim() : '';
       const fdt = (hasFile && hasContributionType) ? fileDocType : '';
       const dst = (hasContributionType && contributionType === '3') ? docSubType : '';
-      if (hasContributionType) await add(text.trim(), messageType, contributionType, link, dst, fdt);
-      else await add(text.trim(), messageType, link);
-      setText('');
-      setMessageType('normal');
-      setContributionType('1');
-      setDocSubType('');
-      setHasFile(false);
-      setFileLink('');
-      setFileDocType('');
-      setShowAdd(false);
+      if (editing) {
+        // Update in place. `active` is left undefined so it is not changed here
+        // (the Active/Inactive badge toggles that separately).
+        if (hasContributionType) {
+          await update(editing.__rowIndex, text.trim(), undefined, messageType, contributionType, link, dst, fdt);
+        } else {
+          // Loan templates: update(rowIndex, text, active, messageType, fileLink)
+          await update(editing.__rowIndex, text.trim(), undefined, messageType, link);
+        }
+      } else {
+        if (hasContributionType) await add(text.trim(), messageType, contributionType, link, dst, fdt);
+        else await add(text.trim(), messageType, link);
+      }
+      closeModal();
       load();
     } catch (err) {
       alert(err.message);
@@ -165,12 +202,21 @@ function TemplateList({ kind, loanType, titleLabel }) {
               >
                 {isPriority ? '⚡ Priority' : 'Normal'}
               </span>
-              {hasContributionType && (
-                <span className="badge" style={{ background: '#f3f4f6', color: '#374151' }}>
-                  {(contributionTypeOptions.find(t => t[0] === (r.contribution_type || '1')) || [])[1] || 'Cash'}
-                  {(r.contribution_type === '3' && r.doc_sub_type) ? ` — ${r.doc_sub_type}` : ''}
-                </span>
-              )}
+              {hasContributionType && (() => {
+                // contribution_type is stored as a REAL column, so D1 hands it back
+                // as the NUMBER 1/2/3 (or 1.0). The options table is keyed by the
+                // STRING '1'/'2'/'3', so `t[0] === r.contribution_type` was always
+                // false (1 !== '1') and every badge fell back to the literal 'Cash'.
+                // Normalise to a string (dropping any ".0") before matching.
+                const ct = String(parseInt(r.contribution_type, 10) || 1);
+                const label = (contributionTypeOptions.find(t => t[0] === ct) || [])[1] || 'Cash (Money)';
+                return (
+                  <span className="badge" style={{ background: '#f3f4f6', color: '#374151' }}>
+                    {label}
+                    {(ct === '3' && r.doc_sub_type) ? ` — ${r.doc_sub_type}` : ''}
+                  </span>
+                );
+              })()}
               {r.file_doc_type && (
                 <span className="badge" style={{ background: '#DBEAFE', color: '#1E40AF' }} title="The recipient's own file is auto-attached">
                   📎 Auto: {(FILE_DOC_TYPE_OPTIONS.find(t => t[0] === r.file_doc_type) || [])[1] || r.file_doc_type}
@@ -182,7 +228,10 @@ function TemplateList({ kind, loanType, titleLabel }) {
                 </span>
               )}
             </div>
-            <div className="row-actions" style={{ marginTop: 10 }}>
+            <div className="row-actions" style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+              <button type="button" className="icon-btn" title="Edit" onClick={() => openEdit(r)}>
+                <span className="material-icons-round" style={{ fontSize: 16 }}>edit</span>
+              </button>
               <button type="button" className="icon-btn icon-danger" title="Delete" onClick={() => remove(r)}>
                 <span className="material-icons-round" style={{ fontSize: 16 }}>delete</span>
               </button>
@@ -191,10 +240,10 @@ function TemplateList({ kind, loanType, titleLabel }) {
         );
       })}
 
-      <button className="fab" onClick={() => setShowAdd(true)}><span className="material-icons-round">add</span></button>
+      <button className="fab" onClick={() => { setEditing(null); resetForm(); setShowAdd(true); }}><span className="material-icons-round">add</span></button>
 
-      <Modal open={showAdd} onClose={() => setShowAdd(false)}>
-        <h3 style={{ marginBottom: 15 }}>New {titleLabel || (kind === 'person' ? 'Person' : 'Group')} Template</h3>
+      <Modal open={showAdd} onClose={closeModal}>
+        <h3 style={{ marginBottom: 15 }}>{editing ? 'Edit' : 'New'} {titleLabel || (kind === 'person' ? 'Person' : 'Group')} Template</h3>
         <form onSubmit={submit}>
           <div className="form-group">
             <label>Message Text</label>
@@ -263,7 +312,7 @@ function TemplateList({ kind, loanType, titleLabel }) {
               </div>
             )
           )}
-          <button className="btn-submit" disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+          <button className="btn-submit" disabled={saving}>{saving ? 'Saving...' : (editing ? 'Update' : 'Save')}</button>
         </form>
       </Modal>
     </>
