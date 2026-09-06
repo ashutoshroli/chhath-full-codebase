@@ -1,4 +1,8 @@
-# WhatsApp Message Templates — Chhath Puja Samiti (नवयुवक चौक छठ पूजा समिति, शहरपुरा)
+# WhatsApp Message Templates — नवयुवक छठ पूजा समिति, शहरपुरा, गरडीह (Navyuvak Chhath Puja Samiti, Shaharpura, Gardih)
+
+**समिति / Samiti:** नवयुवक छठ पूजा समिति, शहरपुरा, गरडीह
+(Navyuvak Chhath Puja Samiti, Shaharpura, Gardih)
+**डाउनलोड / Downloads:** https://chhath.shaharpura.com/#downloads
 
 Ready-to-use, professional WhatsApp templates for **every** message the portal
 can send. Each one is **copy-paste** into the matching template screen in the
@@ -65,7 +69,7 @@ Receipt sub-type), `4` = Resell.
 
 ```
 🪔 *छठ महापर्व — योगदान की सूचना* 🪔
-नवयुवक चौक छठ पूजा समिति, शहरपुरा
+नवयुवक छठ पूजा समिति, शहरपुरा, गरडीह
 
 आदरणीय सदस्यगण,
 हमें यह बताते हुए हर्ष है कि निम्न श्रद्धालु ने {Year} के छठ महापर्व हेतु सहयोग राशि प्रदान की है:
@@ -77,6 +81,10 @@ Receipt sub-type), `4` = Resell.
 💳 माध्यम / Mode: {PaymentMethod}
 
 समिति आपके इस सहयोग के लिए हृदय से आभार व्यक्त करती है।
+
+📥 सभी रसीद व दस्तावेज़ यहाँ देखें / Download receipts & documents:
+🔗 https://chhath.shaharpura.com/#downloads
+
 जय छठी मैया! 🌅
 
 _This is an official update from the Samiti._
@@ -86,7 +94,7 @@ _This is an official update from the Samiti._
 
 ```
 🪔 *छठ महापर्व — सामग्री सहयोग की सूचना* 🪔
-नवयुवक चौक छठ पूजा समिति, शहरपुरा
+नवयुवक छठ पूजा समिति, शहरपुरा, गरडीह
 
 निम्न श्रद्धालु द्वारा {Year} के छठ महापर्व हेतु सामग्री का सहयोग प्राप्त हुआ है:
 
@@ -95,6 +103,10 @@ _This is an official update from the Samiti._
 📦 विवरण / Detail: {Detail}
 
 समिति इस उदार सहयोग के लिए आभारी है।
+
+📥 सभी रसीद व दस्तावेज़ यहाँ देखें / Download receipts & documents:
+🔗 https://chhath.shaharpura.com/#downloads
+
 जय छठी मैया! 🌅
 ```
 
@@ -102,7 +114,7 @@ _This is an official update from the Samiti._
 
 ```
 🪔 *छठ महापर्व — सेवा/कार्य सहयोग* 🪔
-नवयुवक चौक छठ पूजा समिति, शहरपुरा
+नवयुवक छठ पूजा समिति, शहरपुरा, गरडीह
 
 {Year} के छठ महापर्व हेतु निम्न श्रद्धालु का सेवा-सहयोग सादर स्वीकार किया गया है:
 
@@ -111,6 +123,10 @@ _This is an official update from the Samiti._
 📝 विवरण / Detail: {Detail}
 
 आपके सहयोग हेतु समिति आभार व्यक्त करती है।
+
+📥 सभी रसीद व दस्तावेज़ यहाँ देखें / Download receipts & documents:
+🔗 https://chhath.shaharpura.com/#downloads
+
 जय छठी मैया! 🌅
 ```
 
@@ -118,13 +134,16 @@ _This is an official update from the Samiti._
 
 ```
 🪔 *छठ महापर्व — पुनर्विक्रय सूचना* 🪔
-नवयुवक चौक छठ पूजा समिति, शहरपुरा
+नवयुवक छठ पूजा समिति, शहरपुरा, गरडीह
 
 निम्न सामग्री का पुनर्विक्रय {Year} में दर्ज किया गया है:
 
 📦 वस्तु / Item: {ItemName}
 📝 विवरण / Detail: {Detail}
 💰 राशि / Amount: ₹{Amount}
+
+📥 सभी रसीद व दस्तावेज़ यहाँ देखें / Download receipts & documents:
+🔗 https://chhath.shaharpura.com/#downloads
 
 जय छठी मैया! 🌅
 ```
@@ -143,7 +162,7 @@ automatically when the template's document type matches.
 
 ```
 🙏 *धन्यवाद / Thank You* 🙏
-नवयुवक चौक छठ पूजा समिति, शहरपुरा
+नवयुवक छठ पूजा समिति, शहरपुरा, गरडीह
 
 आदरणीय {NameHindi} जी,
 {Year} के छठ महापर्व हेतु आपके योगदान के लिए समिति हार्दिक आभार व्यक्त करती है।
@@ -161,7 +180,7 @@ Your official receipt is attached with this message.
 
 ```
 🙏 *धन्यवाद / Thank You* 🙏
-नवयुवक चौक छठ पूजा समिति, शहरपुरा
+नवयुवक छठ पूजा समिति, शहरपुरा, गरडीह
 
 आदरणीय {NameHindi} जी,
 {Year} के छठ महापर्व हेतु आपके द्वारा दी गई सामग्री के लिए समिति आभारी है।
@@ -176,7 +195,7 @@ Your official receipt is attached with this message.
 
 ```
 🙏 *आभार / Thank You* 🙏
-नवयुवक चौक छठ पूजा समिति, शहरपुरा
+नवयुवक छठ पूजा समिति, शहरपुरा, गरडीह
 
 आदरणीय {NameHindi} जी,
 {Year} के छठ महापर्व में आपके सेवा-सहयोग हेतु समिति हृदय से आभार व्यक्त करती है।
@@ -235,7 +254,7 @@ Individual-invite messages (W4, W5, W12, W13) also supply `{Name}`, `{NameHindi}
 
 ```
 🔔 *ऋण सहमति प्रक्रिया आरंभ / Loan Consent Initiated*
-नवयुवक चौक छठ पूजा समिति, शहरपुरा
+नवयुवक छठ पूजा समिति, शहरपुरा, गरडीह
 
 निम्न ऋण हेतु सहमति प्रक्रिया आरंभ की गई है:
 
@@ -257,7 +276,7 @@ Consent links have been sent to the concerned members.
 
 ```
 🙏 नमस्ते {NameHindi} जी,
-नवयुवक चौक छठ पूजा समिति, शहरपुरा
+नवयुवक छठ पूजा समिति, शहरपुरा, गरडीह
 
 आपके नाम पर निम्न ऋण हेतु आपकी डिजिटल सहमति आवश्यक है:
 
@@ -284,7 +303,7 @@ guaranteeing.
 
 ```
 🙏 नमस्ते {NameHindi} जी,
-नवयुवक चौक छठ पूजा समिति, शहरपुरा
+नवयुवक छठ पूजा समिति, शहरपुरा, गरडीह
 
 आपको {LoanerNameHindi} ({LoanerName}) के निम्न ऋण हेतु *गारंटर* के रूप में नामित किया गया है:
 
@@ -311,7 +330,7 @@ and `{Name}`. Keep it short and unambiguous.
 ```
 🔐 आपका OTP / Your OTP: *{OTP}*
 
-नमस्ते {Name}, नवयुवक चौक छठ पूजा समिति की सहमति प्रक्रिया पूर्ण करने हेतु यह OTP दर्ज करें।
+नमस्ते {Name}, नवयुवक छठ पूजा समिति, शहरपुरा, गरडीह की सहमति प्रक्रिया पूर्ण करने हेतु यह OTP दर्ज करें।
 Enter this OTP to verify your consent.
 
 यह OTP 10 मिनट के लिए मान्य है। किसी के साथ साझा न करें।
@@ -326,7 +345,7 @@ Valid for 10 minutes. Never share this code with anyone.
 
 ```
 ✅ *सहमति प्राप्त / Consent Received*
-नवयुवक चौक छठ पूजा समिति, शहरपुरा
+नवयुवक छठ पूजा समिति, शहरपुरा, गरडीह
 
 {LoanerNameHindi} ({LoanerName}) के ऋण हेतु निम्न द्वारा सहमति दर्ज की गई है:
 
@@ -335,6 +354,9 @@ Valid for 10 minutes. Never share this code with anyone.
 💰 ऋण राशि / Loan Amount: ₹{Amount}
 
 प्रक्रिया अद्यतन (updated) कर दी गई है।
+
+📥 दस्तावेज़ यहाँ देखें / Download documents:
+🔗 https://chhath.shaharpura.com/#downloads
 ```
 
 ---
@@ -345,7 +367,7 @@ Valid for 10 minutes. Never share this code with anyone.
 
 ```
 🙏 नमस्ते {NameHindi} जी,
-नवयुवक चौक छठ पूजा समिति, शहरपुरा
+नवयुवक छठ पूजा समिति, शहरपुरा, गरडीह
 
 आपके ऋण (₹{Amount}) की प्रक्रिया में एक सहमति दर्ज हुई है।
 A consent has just been recorded for your loan.
@@ -364,7 +386,7 @@ We will keep you updated as the process continues.
 
 ```
 🎉 नमस्ते {NameHindi} जी,
-नवयुवक चौक छठ पूजा समिति, शहरपुरा
+नवयुवक छठ पूजा समिति, शहरपुरा, गरडीह
 
 शुभ समाचार! आपके ऋण (₹{Amount}) हेतु *तीनों गारंटरों* ने अपनी सहमति दे दी है।
 Good news! All three guarantors have given their consent for your loan.
@@ -383,7 +405,7 @@ The committee will now complete the final verification.
 
 ```
 ✅ नमस्ते {NameHindi} जी,
-नवयुवक चौक छठ पूजा समिति, शहरपुरा
+नवयुवक छठ पूजा समिति, शहरपुरा, गरडीह
 
 {LoanerNameHindi} ({LoanerName}) के ऋण हेतु आपकी {Role} सहमति समिति द्वारा *सत्यापित* कर दी गई है।
 Your consent has been verified by the committee.
@@ -400,7 +422,7 @@ Thank you for your cooperation.
 
 ```
 🎉 *बधाई / Congratulations* 🎉
-नवयुवक चौक छठ पूजा समिति, शहरपुरा
+नवयुवक छठ पूजा समिति, शहरपुरा, गरडीह
 
 आदरणीय {NameHindi} जी,
 आपके ऋण (₹{Amount}) की सभी सहमतियाँ सत्यापित हो चुकी हैं और ऋण *स्वीकृत* कर दिया गया है।
@@ -445,7 +467,7 @@ the **notificationData** tokens, three extra tokens are available:
 
 ```
 💸 *ऋण वितरण / Loan Disbursed*
-नवयुवक चौक छठ पूजा समिति, शहरपुरा
+नवयुवक छठ पूजा समिति, शहरपुरा, गरडीह
 
 आदरणीय {NameHindi} जी,
 आपका स्वीकृत ऋण वितरित कर दिया गया है।
@@ -512,5 +534,7 @@ _notificationData = `{Name}` `{NameHindi}` `{FatherName}` `{FatherNameHindi}`
 
 ---
 
-*Generated for नवयुवक चौक छठ पूजा समिति, शहरपुरा. Tokens verified against
-`whatsapp.js`, `loans.js`, `consentPlaceholders.js` and `errorLog.js`.*
+*Generated for नवयुवक छठ पूजा समिति, शहरपुरा, गरडीह (Navyuvak Chhath Puja Samiti,
+Shaharpura, Gardih). Downloads: https://chhath.shaharpura.com/#downloads.
+Tokens verified against `whatsapp.js`, `loans.js`, `consentPlaceholders.js` and
+`errorLog.js`.*
