@@ -533,8 +533,23 @@ export async function triggerCollectionMessages(env, payload, docType, recordId,
   const warnings = [];
 
   try {
+    // A template auto-attaches the generated PDF when its file_doc_type matches
+    // the document this collection actually produced (docType). `receipt` and
+    // `receipt_work` are treated as interchangeable here: they are both "the
+    // receipt for this contribution" (same row, same recordId except the prefix),
+    // and only ONE document was generated for this save (generatedFileLink). This
+    // means a template authored before the receipt_work split — set to attach
+    // `receipt` — still attaches the work receipt, and vice-versa, instead of
+    // silently attaching nothing. `samaan` / `certificate` stay strict, because
+    // those are genuinely different documents.
+    const RECEIPT_EQUIVALENT = new Set(['receipt', 'receipt_work']);
+    const docTypeMatches = (want) => {
+      if (!want || !docType) return false;
+      if (want === docType) return true;
+      return RECEIPT_EQUIVALENT.has(want) && RECEIPT_EQUIVALENT.has(docType);
+    };
     const resolveFileLink = (tpl) => {
-      if (tpl.file_doc_type) return (docType && tpl.file_doc_type === docType) ? (generatedFileLink || '') : '';
+      if (tpl.file_doc_type) return docTypeMatches(tpl.file_doc_type) ? (generatedFileLink || '') : '';
       return tpl.file_link || '';
     };
     const parseAmt = (v) => parseFloat((v || '').toString().replace(/[^0-9.-]+/g, '')) || 0;
