@@ -35,6 +35,10 @@ const AUTO_GENERATE_FETCH = {
   samaan: (api, rowIndex, year) => api.getSamaanData(rowIndex, year),
 };
 const AUTO_GENERATE_DOC_NO_KEY = { receipt: 'RECEIPT_NO', certificate: 'CERT_NO', samaan: 'SAMAAN_NO' };
+// Human-readable labels for the auto-generated document types, matching the tab
+// names on the Document Templates screen — used in the "no template uploaded"
+// warning so the user knows exactly which template to add.
+const DOC_TYPE_LABELS = { receipt: 'Receipt', certificate: 'Certificate', samaan: 'Material Receipt' };
 
 export default function Home({ year, users, onUserCreated, role, editable }) {
   const [receiptRow, setReceiptRow] = useState(null);
@@ -240,8 +244,18 @@ export default function Home({ year, users, onUserCreated, role, editable }) {
         return { filledBase64: '', fileName: '', warning: `PDF template failed to load: ${err.message}` };
       }
       if (!docxRow || (!docxRow.base64 && !docxRow.downloadUrl)) {
-        // Genuinely not configured — expected, not an error.
-        return { filledBase64: '', fileName: '', warning: '' };
+        // No DOCX template uploaded for this document type / year. This is not a
+        // crash, but it IS worth telling the user: the collection still saves and
+        // the WhatsApp text still goes out — but if that template promises an
+        // attached receipt/certificate ("document is attached"), there will be
+        // NOTHING attached, silently. Surface it so they know to upload the
+        // template under Document Templates.
+        const label = DOC_TYPE_LABELS[docType] || docType;
+        return {
+          filledBase64: '', fileName: '',
+          warning: `No ${label} template is uploaded for ${genYear}, so no document could be attached. `
+            + `The entry was saved. To attach a document, upload a ${label} template under Document Templates.`,
+        };
       }
 
       const dataFetcher = AUTO_GENERATE_FETCH[docType];
