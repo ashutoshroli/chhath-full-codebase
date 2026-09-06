@@ -128,6 +128,10 @@ export default function QueueMonitor() {
       {error && <div className="error-banner">{error}</div>}
       {loading && !data && <div className="inline-spinner">Loading...</div>}
 
+      {/* The table is given a minWidth (760) so it is WIDER than a phone screen;
+          that makes the wrapping div's overflowX:auto scroll sideways. Without it,
+          width:100% squeezed all 8 columns to a few px and every cell wrapped one
+          letter per line. whiteSpace:nowrap on the cells keeps them legible. */}
       {data && (
         <div className="glass-card" style={{ padding: 0, overflowX: 'auto' }}>
           {jobs.length === 0 ? (
@@ -135,36 +139,36 @@ export default function QueueMonitor() {
               No jobs match this filter.
             </div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+            <table style={{ width: '100%', minWidth: 760, borderCollapse: 'collapse', fontSize: '0.82rem' }}>
               <thead>
                 <tr style={{ textAlign: 'left', color: 'var(--text-muted)' }}>
-                  <th style={{ padding: '8px 10px' }}>User</th>
-                  <th style={{ padding: '8px 10px' }}>Document</th>
-                  <th style={{ padding: '8px 10px' }}>Year</th>
-                  <th style={{ padding: '8px 10px' }}>Status</th>
-                  <th style={{ padding: '8px 10px' }}>Attempts</th>
-                  <th style={{ padding: '8px 10px' }}>Created</th>
-                  <th style={{ padding: '8px 10px' }}>Error</th>
-                  <th style={{ padding: '8px 10px' }}>Action</th>
+                  <th style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>User</th>
+                  <th style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>Document</th>
+                  <th style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>Year</th>
+                  <th style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>Status</th>
+                  <th style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>Attempts</th>
+                  <th style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>Created</th>
+                  <th style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>Error</th>
+                  <th style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {jobs.map(j => (
                   <tr key={j.job_id} style={{ borderTop: '1px solid #f0f0f0' }}>
-                    <td style={{ padding: '8px 10px' }}>{j.created_by || '—'}</td>
-                    <td style={{ padding: '8px 10px' }}>{j.doc_type || '(no document)'}</td>
-                    <td style={{ padding: '8px 10px' }}>{j.year || '—'}</td>
-                    <td style={{ padding: '8px 10px' }}>
+                    <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{j.created_by || '—'}</td>
+                    <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{j.doc_type || '(no document)'}</td>
+                    <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{j.year || '—'}</td>
+                    <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
                       <span style={{ color: STATUS_COLOR[j.status] || '#374151', fontWeight: 600 }}>
                         {j.status}
                       </span>
                     </td>
-                    <td style={{ padding: '8px 10px' }}>{j.attempts || 0} / {maxAttempts}</td>
+                    <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{j.attempts || 0} / {maxAttempts}</td>
                     <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{fmtTime(j.created_at)}</td>
                     <td style={{ padding: '8px 10px', color: '#b91c1c', maxWidth: 260 }} title={j.last_error || ''}>
                       {j.last_error ? j.last_error.slice(0, 120) : ''}
                     </td>
-                    <td style={{ padding: '8px 10px' }}>
+                    <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
                       {j.status !== 'done' ? (
                         <button
                           className="btn-submit"
