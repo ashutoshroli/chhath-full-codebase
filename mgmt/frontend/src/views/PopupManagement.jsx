@@ -8,6 +8,12 @@ import { driveImageUrl, driveImgOnError } from '../driveUrl.js';
 
 const ROLES = ['Superadmin', 'Admin', 'Subadmin', 'Public'];
 const BLANK_SLIDE = { imageUrl: '', text: '', linkUrl: '', linkText: '' };
+// Each slide carries a stable client-side `_key` so React tracks it correctly
+// across reordering (moveSlide) — array-index keys made the wrong slide's fields
+// appear to jump on a move (audit L-20). The `_key` is UI-only and is stripped
+// before saving.
+let __slideKeySeq = 0;
+const newSlide = (data) => ({ ...BLANK_SLIDE, ...(data || {}), _key: `sl_${Date.now()}_${__slideKeySeq++}` });
 
 // `datetime-local` gives a bare wall-clock string like "2026-09-01T01:12" with NO
 // timezone, and that used to be stored verbatim. The Worker then did
@@ -71,7 +77,7 @@ export default function PopupManagement() {
   const [error, setError] = useState('');
   const [editingId, setEditingId] = useState(null); // null = not editing, 'new' = creating
   const [form, setForm] = useState({ title: '', roles: [...ROLES], active: true, startAt: '', endAt: '' });
-  const [slides, setSlides] = useState([{ ...BLANK_SLIDE }]);
+  const [slides, setSlides] = useState([newSlide()]);
   const [saving, setSaving] = useState(false);
   const [uploadingSlide, setUploadingSlide] = useState(null);
   const [preview, setPreview] = useState(null);       // "Preview as Public" result
@@ -85,7 +91,7 @@ export default function PopupManagement() {
   const startNew = () => {
     setEditingId('new');
     setForm({ title: '', roles: [...ROLES], active: true, startAt: '', endAt: '' });
-    setSlides([{ ...BLANK_SLIDE }]);
+    setSlides([newSlide()]);
   };
 
   const startEdit = async (popupId) => {
@@ -104,8 +110,8 @@ export default function PopupManagement() {
       // and save()'s `s.text.trim()` then threw a TypeError OUTSIDE its try/catch —
       // so the Save button silently did nothing at all.
       setSlides(existingSlides.length
-        ? existingSlides.map(s => ({ imageUrl: str(s.image_url), text: str(s.text), linkUrl: str(s.link_url), linkText: str(s.link_text) }))
-        : [{ ...BLANK_SLIDE }]);
+        ? existingSlides.map(s => newSlide({ imageUrl: str(s.image_url), text: str(s.text), linkUrl: str(s.link_url), linkText: str(s.link_text) }))
+        : [newSlide()]);
     } catch (err) {
       setError(err.message);
     }
@@ -117,7 +123,7 @@ export default function PopupManagement() {
     setForm(f => ({ ...f, roles: f.roles.includes(role) ? f.roles.filter(r => r !== role) : [...f.roles, role] }));
   };
 
-  const addSlide = () => setSlides(s => [...s, { ...BLANK_SLIDE }]);
+  const addSlide = () => setSlides(s => [...s, newSlide()]);
   const removeSlide = (i) => setSlides(s => s.filter((_, idx) => idx !== i));
   // Slide order decides the display sequence but there was no way to change it
   // without deleting and re-adding every slide.
@@ -277,7 +283,7 @@ export default function PopupManagement() {
         <div className="glass-card" style={{ padding: 15, marginBottom: 15 }}>
           <strong>Slides</strong>
           {slides.map((slide, i) => (
-            <div key={i} style={{ background: '#f9fafb', borderRadius: 8, padding: 12, marginTop: 10 }}>
+            <div key={slide._key ?? i} style={{ background: '#f9fafb', borderRadius: 8, padding: 12, marginTop: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                 <strong style={{ fontSize: '0.85rem' }}>Slide {i + 1}</strong>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

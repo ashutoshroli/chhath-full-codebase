@@ -72,7 +72,7 @@ export default function Expenses({ year, role, editable }) {
       <div className="glass-card">
         {(!data || data.length === 0) && <div style={{ textAlign: 'center', padding: 20 }}>No expenses recorded.</div>}
         {(data || []).map((r, i) => (
-          <div className="data-row" key={i}>
+          <div className="data-row" key={r.__rowIndex ?? i}>
             <div>
               <strong style={{ display: 'block' }}>{r.Discription} {year === 'All' && <span style={{ color: 'var(--primary-saffron)', fontSize: '0.75rem' }}>[{r.Year}]</span>}</strong>
               {r.Category && <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{r.Category}{categoryHindiOf(r.Category) ? ` (${categoryHindiOf(r.Category)})` : ''}</span>}

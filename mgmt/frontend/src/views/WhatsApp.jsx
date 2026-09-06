@@ -189,7 +189,7 @@ function TemplateList({ kind, loanType, titleLabel }) {
         const isActive = isTruthyFlag(r.active);
         const isPriority = r.message_type === 'priority';
         return (
-          <div className="glass-card" style={{ padding: 15, marginBottom: 10 }} key={i}>
+          <div className="glass-card" style={{ padding: 15, marginBottom: 10 }} key={r.__rowIndex ?? i}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
               <p style={{ margin: 0, flexGrow: 1 }}>{r.text}</p>
               <span className={`badge ${isActive ? 'badge-ok' : 'badge-warn'} toggle-switch`} onClick={() => toggleActive(r)}>
@@ -395,7 +395,7 @@ function GroupInfoList() {
       {(rows || []).map((r, i) => {
         const isActive = isTruthyFlag(r.active);
         return (
-          <div className="glass-card" style={{ padding: 15, marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }} key={i}>
+          <div className="glass-card" style={{ padding: 15, marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }} key={r.__rowIndex ?? i}>
             <div>
               <strong>{r.group_name}</strong>
               <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{r.groupid}</div>
