@@ -140,6 +140,14 @@ export default function DocxTemplates() {
         <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '8px 0 0' }}>
           This sample already comes with a professional design — open it in Word and edit it directly (colors, logo, layout — change whatever you like), keep the placeholders (like <code>{'{NAME}'}</code>) as they are, and upload it here.
         </p>
+        {docType === 'receipt' && (
+          <p style={{ fontSize: '0.8rem', color: '#1E40AF', background: '#DBEAFE', borderRadius: 6, padding: '6px 10px', margin: '8px 0 0' }}>
+            ℹ️ This <strong>Receipt</strong> template is used for both <strong>Cash (Money)</strong> contributions and
+            <strong> Service (Work)</strong> contributions where "Receipt" is chosen — there is no separate "Work Receipt".
+            If a Service (Work) — Receipt WhatsApp message says a document is attached but none arrives, it means this
+            Receipt template has <strong>not been uploaded for the selected year</strong> — upload it here.
+          </p>
+        )}
         {!docType.startsWith('report') && (
           <p style={{ fontSize: '0.8rem', color: '#92400E', background: '#FEF3C7', borderRadius: 6, padding: '6px 10px', margin: '8px 0 0' }}>
             ⚠️ The sample does <strong>not</strong> include the QR code. If you want the scannable QR (used by the public
