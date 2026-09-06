@@ -114,7 +114,12 @@ export default function App() {
       return h || 'home';
     } catch (e) { return 'home'; }
   });
-  const [year, setYear] = useState('All');
+  // Default is empty until the years list loads (right after login), then the
+  // effect below selects the LATEST year. The "All Years" option was removed from
+  // the dropdown, so a specific year is always selected in normal use. The
+  // `year === 'All'` branches elsewhere are kept intact (harmless dead paths) so
+  // nothing that referenced them can break.
+  const [year, setYear] = useState('');
   const [yearInitialized, setYearInitialized] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdminMenu, setShowAdminMenu] = useState(false);
@@ -223,7 +228,9 @@ export default function App() {
       <header className="top-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <select className="year-selector" value={year} onChange={e => setYear(e.target.value)}>
-            <option value="All">All Years</option>
+            {/* Placeholder shown only for the brief moment before the years list
+                loads and the effect selects the latest year. Never selectable. */}
+            {!year && <option value="" disabled>Year…</option>}
             {(years || []).map(y => (
               <option key={y} value={y}>{y}{lockedYearsSet.has(parseInt(y)) ? ' 🔒' : ''}</option>
             ))}

@@ -198,7 +198,11 @@ const app = {
           yearArr = [new Date().getFullYear()];
 
         const sel = document.getElementById('global-year');
-        sel.innerHTML = `<option value="All">All Years</option>` + yearArr.map(y => `<option value="${y}">${y}</option>`).join('');
+        // The "All Years" option was removed; the dropdown now shows only real
+        // years and defaults to the latest (yearArr is sorted newest-first). The
+        // `isAll` code paths below are kept as harmless dead branches so nothing
+        // that referenced them breaks.
+        sel.innerHTML = yearArr.map(y => `<option value="${y}">${y}</option>`).join('');
         sel.value = yearArr[0];
 
         app.refreshData();
