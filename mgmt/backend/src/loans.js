@@ -3,7 +3,7 @@ import { requireRole, requireYearUnlocked, requireYearAccess, requireSuperadmin,
 import { toColumnPayload } from './tableRegistry.js';
 import { otpConsentSenderNumber } from './settings.js';
 import { getConsentPageTemplate } from './settings.js';
-import { pickRandomActive, renderTemplateChecked, queuePersonMessageDirect, queueGroupMessageDirect, isTruthyFlag as waTruthyFlag } from './whatsapp.js';
+import { pickRandomActive, renderTemplateChecked, queuePersonMessageDirect, queueGroupMessageDirect, isTruthyFlag as waTruthyFlag, MAX_GROUPS_PER_JOB } from './whatsapp.js';
 import { uploadFileToDrive } from './account.js';
 import { r2Available, putToR2, keyForYear } from './r2.js';
 import { base64ToBytes, MAX_CONSENT_IMAGE_BYTES } from './base64.js';
@@ -348,12 +348,18 @@ async function createLoanConsents(env, loanId, loanPayload, guarantorPayloads, u
 
   // Group template — to all Active WhatsApp groups.
   await trySend(env, 'createLoanConsents:group', async () => {
-    const groups = (await getSheetDataAsJSON(env, 'WHATSAPP_GROUPS')).filter(g => isTruthyFlag(g.active));
+    let groups = (await getSheetDataAsJSON(env, 'WHATSAPP_GROUPS')).filter(g => isTruthyFlag(g.active));
     if (!groups.length) {
       warnings.push('there is no active WhatsApp group');
       await logWarn(env, 'whatsapp-loans', 'createLoanConsents:group',
         'No ACTIVE WhatsApp group configured — loan consent group announcement was not queued.', { loanId });
       return;
+    }
+    // free-plan: cap the per-invocation group fan-out (see MAX_GROUPS_PER_JOB in whatsapp.js).
+    if (groups.length > MAX_GROUPS_PER_JOB) {
+      await logWarn(env, 'whatsapp-loans', 'createLoanConsents:group',
+        `${groups.length} active WhatsApp groups exceed the per-job cap of ${MAX_GROUPS_PER_JOB}; messaging only the first ${MAX_GROUPS_PER_JOB}.`, { loanId, activeGroups: groups.length, cap: MAX_GROUPS_PER_JOB });
+      groups = groups.slice(0, MAX_GROUPS_PER_JOB);
     }
     for (const g of groups) {
       const tpl = tpls.pick('consent_group');

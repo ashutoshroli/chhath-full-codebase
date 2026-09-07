@@ -6,9 +6,17 @@ import { waNumber, looksLikeAttemptedNumber } from './phone.js';
 import { isTruthyFlag } from './flags.js';
 import { randomId } from './random.js';
 import { parseAmt } from './money.js'; // audit L-13: shared, was duplicated here
+import { userByIdCode } from './lookups.js'; // free-plan: targeted USERS lookup instead of a full scan
 
 const TEMPLATE_TABLE = { PERSON_MESSAGE_TEMPLATES: 'person_message_templates', GROUP_MESSAGE_TEMPLATES: 'group_message_templates' };
 const MESSAGE_TABLE = { person: { table: 'person_messages' }, group: { table: 'group_messages' } };
+
+// free-plan (Cloudflare 50-subrequest-per-invocation cap): the per-active-group
+// message loops (here and in loans.js createLoanConsents) do ~1 D1 INSERT per
+// group in ONE invocation. Cap how many groups a single job fans out to so a
+// mis-configuration (many active groups) can't push one save toward the 50 cap.
+// A real committee has a handful of groups; this is a safety ceiling, not a target.
+export const MAX_GROUPS_PER_JOB = 20;
 
 // 'sending' is the new claimed state set by getPendingMessages() so a second /
 // overlapping poll cycle cannot re-serve the same row (which is how duplicate
@@ -452,7 +460,11 @@ export async function senderNumberForLogin(env, createdBy, users) {
   if (!name) return '';
 
   // Primary: the USERS row for this staff login (has both WhatsApp and Mobile).
-  const staffRow = (users || []).find(u => (u.ID || '').toString().trim() === name);
+  // free-plan: if the caller didn't pass a pre-loaded users array, do a single
+  // indexed lookup instead of forcing a full USERS scan (audit M-14 batched-lookup).
+  const staffRow = (users && users.length)
+    ? users.find(u => (u.ID || '').toString().trim() === name)
+    : await userByIdCode(env, name);
   if (staffRow) {
     const n = waNumber(staffRow.WhatsApp) || waNumber(staffRow.Mobile);
     if (n) return n;
@@ -554,9 +566,11 @@ export async function triggerCollectionMessages(env, payload, docType, recordId,
       return tpl.file_link || '';
     };
 
-    const users = await getSheetDataAsJSON(env, 'USERS');
+    // free-plan: was `getSheetDataAsJSON(env,'USERS')` (a FULL members-table scan
+    // on every collection-save/cron job — the single largest row-read on this
+    // path). Now a single indexed lookup for the one contributor we actually need.
     const isResell = isTruthyFlag(payload['Is Resell']);
-    const contributor = isResell ? null : users.find(u => (u.ID || '').toString().trim() === (payload.Name || '').toString().trim());
+    const contributor = isResell ? null : await userByIdCode(env, (payload.Name || '').toString().trim());
     const contributionType = normalizeType(payload['Contribution Type'] || '1');
     const effectiveType = isResell ? '4' : contributionType;
     const docSubType = (payload['Certificate Or Receipt'] || '').toString();
@@ -576,7 +590,9 @@ export async function triggerCollectionMessages(env, payload, docType, recordId,
     // fallback. The old inline lookup returned empty on the queue path because
     // 'Created By' wasn't set on the stored payload (now backfilled in
     // collectionQueue.runOneJob). Option A: if no number is on file, from stays ''.
-    const from = await senderNumberForLogin(env, payload['Created By'], users);
+    // free-plan: no pre-loaded users array any more — senderNumberForLogin now does
+    // its own single indexed lookup (see its body) instead of scanning USERS.
+    const from = await senderNumberForLogin(env, payload['Created By'], null);
 
     const placeholderData = {
       Name: contributor ? contributor.Name : (payload.Name || ''),
@@ -594,7 +610,18 @@ export async function triggerCollectionMessages(env, payload, docType, recordId,
 
     // ---- Group messages ----
     const allGroups = await getSheetDataAsJSON(env, 'WHATSAPP_GROUPS');
-    const groups = allGroups.filter(g => isTruthyFlag(g.active));
+    let groups = allGroups.filter(g => isTruthyFlag(g.active));
+    // free-plan (50-subrequest cap): this loop does one INSERT per active group in
+    // a single invocation. A committee normally has 1-3 groups, but nothing stops
+    // an admin activating many; cap the per-job fan-out so one save can't approach
+    // the subrequest limit. If capped, the rest still get their message on the next
+    // save (or an admin can prune inactive groups). Logged, not silent.
+    if (groups.length > MAX_GROUPS_PER_JOB) {
+      await logWarn(env, 'whatsapp-queue', 'triggerCollectionMessages',
+        `${groups.length} active WhatsApp groups exceed the per-job cap of ${MAX_GROUPS_PER_JOB}; messaging only the first ${MAX_GROUPS_PER_JOB} this run. Consider deactivating unused groups.`,
+        { activeGroups: groups.length, cap: MAX_GROUPS_PER_JOB, docType, recordId });
+      groups = groups.slice(0, MAX_GROUPS_PER_JOB);
+    }
     const allGroupTemplates = await getSheetDataAsJSON(env, 'GROUP_MESSAGE_TEMPLATES');
     const groupTemplates = templatesForContribution(allGroupTemplates, effectiveType, docSubType);
 
