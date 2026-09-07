@@ -178,7 +178,30 @@ export async function exportBackup(env, user) {
 // shape dumpTable produced), so the round-trip is lossless. A row whose column
 // set the live table doesn't have would fail — so a table's insert is wrapped in
 // its own try/catch and reported, letting the rest of the restore proceed.
-export async function restoreBackup(env, user, backup, confirm) {
+// audit H-16 — restore is now INCREMENTAL, one D1 binding per request.
+//
+// The old path called exportBackup() up front to build a safety snapshot, so the
+// whole DB was materialised TWICE (snapshot + incoming backup) in one 128 MB
+// invocation, and a memory/CPU kill could land in the MIDDLE of the table-by-table
+// swap — some tables restored, others not, and the rollback snapshot never
+// delivered. At the projected 32k-member scale that WILL happen.
+//
+// The fix (as the audit prescribes):
+//   1. The operator must acknowledge they already have a fresh backup
+//      (opts.snapshotAcknowledged). The UI downloads one first, so we no longer
+//      build a second full export in-request — that is what doubled the memory.
+//   2. Restore ONE binding per request (opts.onlyBinding). A kill can then never
+//      straddle two databases; at worst one binding is half-swapped, and each
+//      table's swap is already atomic + non-destructive (restoreOneTable).
+//   3. Called WITHOUT onlyBinding, it is a PLANNING call: it validates, checks the
+//      acknowledgement, and returns the ordered list of bindings the UI must walk,
+//      one request each. It touches NO data.
+//
+// Backward-compatible escape hatch: opts.withInRequestSnapshot === true restores
+// the whole backup in one request AND takes the in-request snapshot (the old
+// behaviour), for a small deployment or a scripted caller. The UI no longer uses
+// it. It carries the same scale caveat the old code did, now stated in a warning.
+export async function restoreBackup(env, user, backup, confirm, opts = {}) {
   requireSuperadmin(user);
 
   if ((confirm || '').toString().trim().toUpperCase() !== 'RESTORE') {
@@ -191,6 +214,52 @@ export async function restoreBackup(env, user, backup, confirm) {
     throw ValidationError(`The backup's format version (${backup.formatVersion}) is newer than this server — please update the deployment first.`);
   }
 
+  const onlyBinding = (opts.onlyBinding || '').toString();
+  const withInRequestSnapshot = opts.withInRequestSnapshot === true;
+
+  // ---- PLANNING CALL (no onlyBinding, incremental mode) ----
+  // Validate + gate on the acknowledged snapshot, then hand the UI the binding
+  // list to walk one request at a time. Touches no data.
+  if (!onlyBinding && !withInRequestSnapshot) {
+    if (!opts.snapshotAcknowledged) {
+      throw ValidationError(
+        'Download a fresh backup of the CURRENT data first, then tick "I have a current backup" and run the restore again. '
+        + 'This replaces the old automatic snapshot, which could run out of memory on a large database mid-restore.'
+      );
+    }
+    const bindings = Object.keys(BACKUP_MAP).filter(b => backup.data[b]);
+    if (!bindings.length) throw ValidationError('The backup contains no known databases to restore.');
+    return {
+      success: true,
+      staged: true,
+      incremental: true,
+      bindings,
+      message: `Ready to restore ${bindings.length} database(s), one at a time. Do not close this tab until it finishes.`,
+    };
+  }
+
+  // ---- PER-BINDING RESTORE (incremental mode) ----
+  if (onlyBinding) {
+    if (!BACKUP_MAP[onlyBinding]) throw ValidationError(`Unknown database binding "${onlyBinding}".`);
+    if (!opts.snapshotAcknowledged) {
+      throw ValidationError('Restore requires an acknowledged current backup (snapshotAcknowledged).');
+    }
+    const report = { restoredTables: {}, partialTables: {}, emptyTables: {}, skippedTables: {}, errors: [] };
+    const tables = backup.data[onlyBinding] || {};
+    await restoreBindingTables(env, onlyBinding, tables, report);
+    const errCount = report.errors.length;
+    return {
+      success: errCount === 0,
+      report,
+      binding: onlyBinding,
+      incremental: true,
+      message: errCount === 0
+        ? `Restored database "${onlyBinding}".`
+        : `Database "${onlyBinding}" restored with ${errCount} problem(s) — see the report.`,
+    };
+  }
+
+  // ---- LEGACY WHOLE-BACKUP PATH (opts.withInRequestSnapshot === true) ----
   // 1) Safety snapshot of CURRENT data before we overwrite anything.
   let safetySnapshot = null;
   try {
@@ -217,38 +286,7 @@ export async function restoreBackup(env, user, backup, confirm) {
   const report = { restoredTables: {}, partialTables: {}, emptyTables: {}, skippedTables: {}, errors: [] };
 
   for (const [binding, tables] of Object.entries(backup.data)) {
-    if (!BACKUP_MAP[binding]) { report.skippedTables[binding] = 'unknown db binding'; continue; }
-    const db = env[binding];
-    if (!db) { report.skippedTables[binding] = 'binding not configured on server'; continue; }
-
-    for (const [table, rows] of Object.entries(tables)) {
-      // Only allow tables we know about for this binding.
-      if (!BACKUP_MAP[binding].includes(table)) { report.skippedTables[`${binding}.${table}`] = 'not in backup map'; continue; }
-      if (!SAFE_IDENT.test(table)) { report.skippedTables[`${binding}.${table}`] = 'unsafe identifier'; continue; }
-
-      const rowArr = Array.isArray(rows) ? rows : [];
-      try {
-        const res = await restoreOneTable(db, table, rowArr);
-        if (res.skippedEmpty) {
-          // Backup carried no rows for this table — live data was left as-is.
-          report.emptyTables[`${binding}.${table}`] = 'backup had 0 rows — live table left unchanged';
-          continue;
-        }
-        if (res.allRowsFailed) {
-          // Every row failed to insert; we refused to wipe the live table. This is
-          // a real failure, NOT a silent success.
-          report.errors.push(`${binding}.${table}: all ${res.skipped} row(s) failed to restore, live table left unchanged (${res.examples.join('; ')})`);
-          continue;
-        }
-        report.restoredTables[`${binding}.${table}`] = res.inserted;
-        if (res.skipped > 0) {
-          report.partialTables[`${binding}.${table}`] = `${res.skipped} row(s) skipped: ${res.examples.join('; ')}`;
-        }
-      } catch (err) {
-        // A genuine whole-table failure (e.g. the table doesn't exist here).
-        report.errors.push(`${binding}.${table}: ${err.message}`);
-      }
-    }
+    await restoreBindingTables(env, binding, tables, report);
   }
 
   const partialCount = Object.keys(report.partialTables).length;
@@ -271,6 +309,45 @@ export async function restoreBackup(env, user, backup, confirm) {
     safetySnapshot,
     message,
   };
+}
+
+// Restores every table for ONE D1 binding into `report` (mutated in place). Shared
+// by the incremental per-binding path and the legacy whole-backup loop so the
+// per-table behaviour is identical in both. Never throws — a whole-table failure
+// is recorded in report.errors, matching the original inline loop exactly.
+async function restoreBindingTables(env, binding, tables, report) {
+  if (!BACKUP_MAP[binding]) { report.skippedTables[binding] = 'unknown db binding'; return; }
+  const db = env[binding];
+  if (!db) { report.skippedTables[binding] = 'binding not configured on server'; return; }
+
+  for (const [table, rows] of Object.entries(tables || {})) {
+    // Only allow tables we know about for this binding.
+    if (!BACKUP_MAP[binding].includes(table)) { report.skippedTables[`${binding}.${table}`] = 'not in backup map'; continue; }
+    if (!SAFE_IDENT.test(table)) { report.skippedTables[`${binding}.${table}`] = 'unsafe identifier'; continue; }
+
+    const rowArr = Array.isArray(rows) ? rows : [];
+    try {
+      const res = await restoreOneTable(db, table, rowArr);
+      if (res.skippedEmpty) {
+        // Backup carried no rows for this table — live data was left as-is.
+        report.emptyTables[`${binding}.${table}`] = 'backup had 0 rows — live table left unchanged';
+        continue;
+      }
+      if (res.allRowsFailed) {
+        // Every row failed to insert; we refused to wipe the live table. This is
+        // a real failure, NOT a silent success.
+        report.errors.push(`${binding}.${table}: all ${res.skipped} row(s) failed to restore, live table left unchanged (${res.examples.join('; ')})`);
+        continue;
+      }
+      report.restoredTables[`${binding}.${table}`] = res.inserted;
+      if (res.skipped > 0) {
+        report.partialTables[`${binding}.${table}`] = `${res.skipped} row(s) skipped: ${res.examples.join('; ')}`;
+      }
+    } catch (err) {
+      // A genuine whole-table failure (e.g. the table doesn't exist here).
+      report.errors.push(`${binding}.${table}: ${err.message}`);
+    }
+  }
 }
 
 // Restores one table's rows.

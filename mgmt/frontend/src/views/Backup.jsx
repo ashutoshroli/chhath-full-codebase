@@ -85,6 +85,11 @@ export default function Backup() {
   const [pendingName, setPendingName] = useState('');
   const [confirmText, setConfirmText] = useState('');
   const [restoreReport, setRestoreReport] = useState(null);
+  // audit H-16: the backend no longer builds a full safety snapshot in-request
+  // (it could run out of memory on a large DB mid-restore). The operator must
+  // confirm they have downloaded a current backup, and the restore then runs
+  // ONE database at a time so a failure can't straddle multiple databases.
+  const [ackCurrentBackup, setAckCurrentBackup] = useState(false);
 
   const doDownload = async () => {
     setError(''); setStatus(''); setBusy(true);
@@ -124,24 +129,50 @@ export default function Backup() {
     }
   };
 
+  // Merge a per-binding report into the running aggregate report.
+  const mergeReport = (agg, r) => {
+    if (!r) return agg;
+    for (const k of ['restoredTables', 'partialTables', 'emptyTables', 'skippedTables']) {
+      Object.assign(agg[k], r[k] || {});
+    }
+    agg.errors.push(...(r.errors || []));
+    return agg;
+  };
+
   const doRestore = async () => {
     if (!pendingBackup) return;
+    if (!ackCurrentBackup) {
+      setError('Tick "I have already downloaded a current backup" first. The restore no longer takes an automatic snapshot (it could run out of memory on a large database), so you must have your own rollback copy.');
+      return;
+    }
     setError(''); setStatus(''); setBusy(true);
     try {
-      setStatus('Restoring (a safety snapshot of the current data is being created first)...');
-      const res = await api.restoreBackup(pendingBackup, confirmText);
-      setRestoreReport(res.report || null);
-      // Immediately offer the pre-restore safety snapshot as a rollback download.
-      if (res.safetySnapshot) {
-        try {
-          const blob = await buildZip(res.safetySnapshot);
-          downloadBlob(blob, `chhath-PRE-RESTORE-safety-${tsStamp()}.zip`);
-        } catch (e) { /* snapshot download is best-effort */ }
+      // 1) PLANNING call — validate + get the list of databases to restore, one at
+      //    a time. Touches no data. (audit H-16)
+      setStatus('Preparing restore...');
+      const plan = await api.restoreBackup(pendingBackup, confirmText, { snapshotAcknowledged: true });
+      const bindings = (plan && plan.bindings) || [];
+      if (!bindings.length) throw new Error('The backup contains no known databases to restore.');
+
+      // 2) Restore each database in its OWN request so a failure can't straddle
+      //    databases and a large DB can't blow the Worker memory in one shot.
+      const agg = { restoredTables: {}, partialTables: {}, emptyTables: {}, skippedTables: {}, errors: [] };
+      for (let i = 0; i < bindings.length; i++) {
+        const b = bindings[i];
+        setStatus(`Restoring database ${i + 1} of ${bindings.length}: ${b} ...`);
+        const res = await api.restoreBackup(pendingBackup, confirmText, { snapshotAcknowledged: true, onlyBinding: b });
+        mergeReport(agg, res.report);
       }
-      setStatus(res.message || 'Restore complete.');
+      setRestoreReport(agg);
+      const restored = Object.keys(agg.restoredTables).length;
+      const failed = agg.errors.length;
+      setStatus(failed === 0
+        ? `Restore complete — ${restored} table(s) restored across ${bindings.length} database(s).`
+        : `Restore finished with problems — ${restored} table(s) restored, ${failed} FAILED. See the report.`);
       setPendingBackup(null);
       setPendingName('');
       setConfirmText('');
+      setAckCurrentBackup(false);
     } catch (err) {
       setError('Restore failed: ' + err.message);
       reportClientError('Backup', 'restoreBackup failed', err);
@@ -180,8 +211,8 @@ export default function Backup() {
         <h3 style={{ marginTop: 0, color: '#b45309' }}>2. Restore from Backup</h3>
         <div style={{ background: '#fff7ed', border: '1px solid #fdba74', borderRadius: 8, padding: 12, marginBottom: 14, fontSize: '0.88rem', color: '#7c2d12' }}>
           <strong>⚠️ Please note:</strong> Restore REPLACES all data with the data from the backup —
-          this cannot be undone. For safety, a snapshot of the current data will download automatically
-          before the restore (keep it for rollback).
+          this cannot be undone. Download a fresh backup of the CURRENT data first (button above) and
+          keep it as your rollback copy. The restore runs one database at a time.
         </div>
 
         {!pendingBackup ? (
@@ -205,6 +236,16 @@ export default function Backup() {
                 </ul>
               </details>
             )}
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.85rem', margin: '4px 0 12px', color: '#7c2d12' }}>
+              <input
+                type="checkbox"
+                checked={ackCurrentBackup}
+                onChange={e => setAckCurrentBackup(e.target.checked)}
+                disabled={busy}
+                style={{ marginTop: 3 }}
+              />
+              <span>I have already downloaded a current backup and understand this restore replaces the live data and cannot be undone.</span>
+            </label>
             <p style={{ fontSize: '0.9rem', marginBottom: 6 }}>To confirm, type <code>RESTORE</code> (uppercase) in the box below:</p>
             <input
               type="text"
@@ -218,11 +259,11 @@ export default function Backup() {
               className="btn-submit"
               style={{ background: '#dc2626' }}
               onClick={doRestore}
-              disabled={busy || confirmText.trim().toUpperCase() !== 'RESTORE'}
+              disabled={busy || !ackCurrentBackup || confirmText.trim().toUpperCase() !== 'RESTORE'}
             >
               {busy ? 'Restoring...' : 'Restore Now (destructive)'}
             </button>
-            <button className="btn-secondary" style={{ marginLeft: 10 }} onClick={() => { setPendingBackup(null); setPendingName(''); setConfirmText(''); }} disabled={busy}>
+            <button className="btn-secondary" style={{ marginLeft: 10 }} onClick={() => { setPendingBackup(null); setPendingName(''); setConfirmText(''); setAckCurrentBackup(false); }} disabled={busy}>
               Cancel
             </button>
           </div>

@@ -678,7 +678,7 @@ export default {
       // contents (DESTRUCTIVE) and is guarded by a typed confirmation + an
       // automatic pre-restore safety snapshot inside backup.js.
       exportBackup: () => withAuth(env, req, (user) => backup.exportBackup(env, user)),
-      restoreBackup: () => withAuth(env, req, (user) => backup.restoreBackup(env, user, req.backup, req.confirm)),
+      restoreBackup: () => withAuth(env, req, (user) => backup.restoreBackup(env, user, req.backup, req.confirm, req.opts || {})),
 
       // ---- Collection Queue (background PDF + WhatsApp) ----
       // enqueueCollectionJob: called right after a COLLECTION save so the browser
