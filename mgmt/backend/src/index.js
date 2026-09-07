@@ -27,7 +27,20 @@ import { runRetentionSweep, shouldSweepNow } from './retention.js';
 // default: a new action that isn't listed here is treated as a write and simply
 // causes one extra (harmless) public revalidation. Anything that can change data
 // the public portal renders MUST NOT be added here.
-const READ_ONLY_ACTIONS = new Set([
+//
+// audit Q-8 — the report asked to INVERT this to an allowlist of writes. That was
+// NOT done, and deliberately: for THIS use (deciding whether to bump the public
+// data-version) the read-list is the fail-SAFE default. A forgotten READ costs one
+// harmless extra revalidation; a forgotten WRITE — the dangerous case — is
+// impossible, because "write" is the default. Inverting would flip that: a forgotten
+// write would then NOT bump the version and the public portal would serve STALE data
+// under a matching ETag. So the fix for the real Q-8 risk ("a new action is silently
+// misclassified") is not inversion but a DRIFT GUARD: `READ_ONLY_ACTIONS` and
+// `EXPECTED_MUTATING_ACTIONS` are exported and a test (see q8-action-classification)
+// asserts every handler the router actually exposes is consciously listed in exactly
+// one of the two. A new action that nobody classified fails CI instead of silently
+// taking a default.
+export const READ_ONLY_ACTIONS = new Set([
   'logout',
   'getYears', 'getUsers', 'getCommittee', 'getHome', 'getExpenses', 'getLoans',
   'getUserHistory', 'getUserProfile', 'getYearContributors', 'getLockedYears',
@@ -51,9 +64,63 @@ const READ_ONLY_ACTIONS = new Set([
   'getPendingMessages', 'getStuckMessages',
   'whatsappDiagnostic',
   'getAnnouncementLinks', 'getCustomAnnouncements', 'getAnnouncementQueue',
-  'publicGetSeo',
+  'publicGetSeo', 'getSeoSettings',
   // OTP request/verify only touch consent-flow state, not public-portal data.
   'requestConsentOtp', 'verifyConsentOtp', 'verifyAnnouncementPin',
+]);
+
+// audit Q-8 — the EXPLICIT list of every router action that DOES change data (or
+// otherwise must be treated as a write). This is not consulted at runtime — the
+// runtime rule is still "not in READ_ONLY_ACTIONS => bump the version", which stays
+// fail-safe. Its only job is to make classification a CONSCIOUS act: the drift-guard
+// test asserts that the router's actual handler keys are exactly
+// READ_ONLY_ACTIONS ∪ EXPECTED_MUTATING_ACTIONS, with no overlap and nothing left
+// unclassified. Add a new action here (or to READ_ONLY_ACTIONS) or CI fails.
+export const EXPECTED_MUTATING_ACTIONS = new Set([
+  // auth / session mutations
+  'login', 'verifyGoogleLogin', 'changePassword', 'updateOwnProfile',
+  'revokeSession', 'revokeAllOtherSessions', 'revokeUserSession',
+  'revokeLock', 'revokeAllLocks',
+  // login-user management
+  'addLoginUser', 'updateLoginUser', 'deleteLoginUser',
+  // years
+  'lockYear', 'unlockYear', 'addYear',
+  // generic CRUD
+  'saveRecord', 'updateRecord', 'deleteRecord',
+  // collections queue / announce
+  'queueCollectionMessages', 'importCsvRows', 'enqueueCollectionJob',
+  'processCollectionQueue', 'retryQueueJob', 'markAnnounced', 'reannounceAll',
+  // loans
+  'saveLoan', 'deleteLoan', 'markLoanDisbursed', 'replaceGuarantor',
+  // consent flow mutations
+  'resendConsent', 'respondConsent', 'setConsentVerification', 'setPortalSetting',
+  'updateConsentPageTemplate',
+  // festival dates / portal settings
+  'saveFestivalDates',
+  // dropdown lists
+  'addDropdownListItem', 'updateDropdownListItem', 'deleteDropdownListItem',
+  // whatsapp groups + templates
+  'addWhatsappGroup', 'updateWhatsappGroup', 'deleteWhatsappGroup',
+  'addGroupTemplate', 'updateGroupTemplate', 'deleteGroupTemplate',
+  'addPersonTemplate', 'updatePersonTemplate', 'deletePersonTemplate',
+  'addLoanTemplate', 'updateLoanTemplate', 'deleteLoanTemplate',
+  'resendMessage', 'updateMessageStatus',
+  // announcements
+  'addCustomAnnouncement', 'updateCustomAnnouncement', 'deleteCustomAnnouncement',
+  'generateAnnouncementLink', 'revokeAnnouncementLink',
+  // docx / receipt / certificate / samaan templates (uploads + copies + saves)
+  'uploadDocxTemplate', 'copyDocxTemplate', 'deleteDocxTemplate',
+  'saveReceiptTemplate', 'copyReceiptTemplate', 'deleteReceiptTemplate',
+  'saveCertificateTemplate', 'copyCertificateTemplate', 'deleteCertificateTemplate',
+  'saveSamaanTemplate', 'copySamaanTemplate', 'deleteSamaanTemplate',
+  // popups
+  'savePopup', 'savePopupSlides', 'deletePopup', 'uploadPopupImage',
+  // seo
+  'saveSeoSettings', 'uploadSeoImage',
+  // files / drive / backup / rebuild
+  'uploadFile', 'moveYearToDrive', 'restoreBackup', 'triggerRebuild',
+  // pdf conversion (writes generated files to the index / drive)
+  'convertDocxToPdf', 'convertDocxToPdfBulk', 'convertDocxToPdfPublic',
 ]);
 
 // ============ RESPONSE CACHE (Phase 2 scalability) ============
