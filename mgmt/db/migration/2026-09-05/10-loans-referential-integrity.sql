@@ -1,0 +1,107 @@
+-- ============================================================================
+-- audit M-34 — referential integrity for the loan tables (loans_expenses DB)
+--
+-- D1/SQLite has no way to ADD a FOREIGN KEY to an existing table, and it does not
+-- enforce PRAGMA foreign_keys during a `wrangler d1 execute` migration anyway. So
+-- a real FK means a full table rebuild (CREATE new / INSERT SELECT / DROP / RENAME)
+-- AND a UNIQUE index on the parent key first (loans.loan_id) — a rebuild on live,
+-- spreadsheet-sourced data, which is exactly the risk the audit flagged.
+--
+-- This file therefore applies NOTHING to your data. It ships, ready to run by
+-- hand once verified:
+--   PART 1 — DETECTION queries: find the orphan rows a FK would reject (the H-8
+--            orphaned-consent case above all). Read-only.
+--   PART 2 — ENFORCE-GOING-FORWARD triggers: reject NEW orphan writes without a
+--            rebuild or a backfill. Safe on live data, idempotent. Apply these
+--            once PART 1 returns zero rows and you have confirmed the app writes
+--            (loans.js saveLoanTransaction) never trip them.
+--   PART 3 — the eventual real FK, as a documented table-rebuild recipe.
+--
+-- Idempotent (it is entirely comments — running it changes nothing).
+-- Apply with:
+--   wrangler d1 execute chhath_loans_expenses --remote --file=./10-loans-referential-integrity.sql
+-- ============================================================================
+
+
+-- ============================================================================
+-- PART 1 — DETECTION (read-only; run these first)
+-- ============================================================================
+--
+-- 1a. loan_consents pointing at a loan_id that no longer exists (H-8 orphans —
+--     their consent tokens may still be live):
+--
+--   SELECT lc.consent_id, lc.loan_id, lc.role, lc.status
+--     FROM loan_consents lc
+--    WHERE lc.loan_id IS NOT NULL AND lc.loan_id <> ''
+--      AND NOT EXISTS (SELECT 1 FROM loans l WHERE l.loan_id = lc.loan_id);
+--
+-- 1b. loan_guarantors pointing at a missing loan_id:
+--
+--   SELECT lg.id, lg.loan_id, lg.loaner, lg.guarantor
+--     FROM loan_guarantors lg
+--    WHERE lg.loan_id IS NOT NULL AND lg.loan_id <> ''
+--      AND NOT EXISTS (SELECT 1 FROM loans l WHERE l.loan_id = lg.loan_id);
+--
+-- 1c. duplicate loans.loan_id (a FK's parent key must be unique — this must
+--     return zero before PART 3):
+--
+--   SELECT loan_id, COUNT(*) AS copies
+--     FROM loans
+--    WHERE loan_id IS NOT NULL AND loan_id <> ''
+--    GROUP BY loan_id HAVING COUNT(*) > 1;
+--
+-- Repair 1a/1b before enforcing: either delete the orphan consent/guarantor rows
+-- (their loan is gone, per #82 they should have been removed) or re-point them at
+-- the correct loan_id. Do NOT blind-delete without checking status — a still-live
+-- consent token on an orphan row should be revoked, not just dropped.
+
+
+-- ============================================================================
+-- PART 2 — ENFORCE GOING FORWARD (triggers; apply after PART 1 is clean)
+-- ============================================================================
+-- These reject only NEW violating writes. They touch no existing row, need no
+-- backfill, and are idempotent (CREATE TRIGGER IF NOT EXISTS). The app's own
+-- writer (loans.js saveLoanTransaction) always inserts a consent with the loan_id
+-- of the loan it just created, so these never fire for a legitimate save.
+--
+-- CREATE TRIGGER IF NOT EXISTS trg_loan_consents_loan_fk_ins
+-- BEFORE INSERT ON loan_consents
+-- FOR EACH ROW WHEN NEW.loan_id IS NOT NULL AND NEW.loan_id <> ''
+--   AND NOT EXISTS (SELECT 1 FROM loans WHERE loan_id = NEW.loan_id)
+-- BEGIN
+--   SELECT RAISE(ABORT, 'loan_consents.loan_id references a non-existent loans.loan_id');
+-- END;
+--
+-- CREATE TRIGGER IF NOT EXISTS trg_loan_guarantors_loan_fk_ins
+-- BEFORE INSERT ON loan_guarantors
+-- FOR EACH ROW WHEN NEW.loan_id IS NOT NULL AND NEW.loan_id <> ''
+--   AND NOT EXISTS (SELECT 1 FROM loans WHERE loan_id = NEW.loan_id)
+-- BEGIN
+--   SELECT RAISE(ABORT, 'loan_guarantors.loan_id references a non-existent loans.loan_id');
+-- END;
+
+
+-- ============================================================================
+-- PART 3 — the real FOREIGN KEY (documented table-rebuild; DO NOT run blind)
+-- ============================================================================
+-- Only after PART 1 (all three) returns zero rows. FKs need the parent key unique:
+--
+--   CREATE UNIQUE INDEX IF NOT EXISTS uq_loans_loan_id
+--     ON loans (loan_id) WHERE loan_id IS NOT NULL AND loan_id <> '';
+--
+-- Then rebuild loan_consents with the FK (SQLite cannot ALTER one in). Run inside a
+-- single `wrangler d1 execute` so it is one implicit transaction:
+--
+--   PRAGMA foreign_keys=OFF;
+--   CREATE TABLE loan_consents_new ( ...same columns as schema/loans_expenses.sql...,
+--     FOREIGN KEY (loan_id) REFERENCES loans(loan_id) );
+--   INSERT INTO loan_consents_new SELECT * FROM loan_consents;
+--   DROP TABLE loan_consents;
+--   ALTER TABLE loan_consents_new RENAME TO loan_consents;
+--   -- recreate the three indexes from schema/loans_expenses.sql
+--   PRAGMA foreign_keys=ON;
+--
+-- Note: D1 does not persist PRAGMA foreign_keys across requests, so even after the
+-- rebuild the FK is documentation + the PART 2 triggers are what actually enforces
+-- it at write time. The rebuild is still worth doing so the schema is self-describing.
+-- ============================================================================

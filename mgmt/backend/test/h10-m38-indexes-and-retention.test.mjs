@@ -29,6 +29,12 @@ const SCHEMA_FOR_MIGRATION = {
   // audit H-9 — one file per database, same as the six above.
   '07-core-id-uniqueness.sql': 'core.sql',
   '08-collections-sl-no-uniqueness.sql': 'collections.sql',
+  // 10/11 are comment-only (M-34/M-35): they ship detection queries + ready-to-run
+  // trigger/rebuild recipes but apply nothing, so they map to any schema and pass
+  // the apply-twice idempotency check trivially. Their recipes are proven to work
+  // by m34-m35-constraints.test.mjs.
+  '10-loans-referential-integrity.sql': 'loans_expenses.sql',
+  '11-domain-check-constraints.sql': 'loans_expenses.sql',
   // audit M-13 — the one migration in this folder that is NOT index-only: it adds a
   // column and backfills it. Listed in SCHEMA_ONLY_MIGRATIONS below so the
   // index-only invariants do not apply to it, and asserted separately instead.
