@@ -54,6 +54,21 @@ const REVERSE_MAPS = {
 // exactly what Public/frontend/script.js's buildPersonDownloads() reads.
 const LOAN_CONSENTS_PUBLIC_COLS = ['loan_id', 'role', 'status', 'person_id', 'consent_id'];
 
+// audit H-5 — the core finding is "the public payload ships the whole database".
+// Beyond the guarantor/consent slices already done, these are the exact DB columns
+// each remaining section's frontend (Public/frontend/script.js) actually reads,
+// verified field-by-field. Everything else (created_by, utr, status, dates,
+// announced flags, category, loan_status, file_name, drive_path, ...) never
+// reaches an anonymous visitor. Same allowlist pattern as guarantors/consents:
+// fails CLOSED, so a future column can't leak. `id` -> `__rowIndex` is emitted by
+// tableRows() before the allowlist runs, so it is always kept (the collections QR
+// record-id needs it) and does NOT need listing here.
+const COMMITTEE_PUBLIC_COLS   = ['year', 'name', 'view_role', 'view_role_hindi'];
+const COLLECTIONS_PUBLIC_COLS = ['year', 'name', 'amount', 'detail', 'contribution_type', 'certificate_or_receipt', 'is_resell'];
+const EXPENSES_PUBLIC_COLS    = ['year', 'amount', 'discription', 'discription_hindi'];
+const LOANS_PUBLIC_COLS       = ['year', 'name', 'amount', 'intrest_rate', 'tenure', 'loan_id'];
+const GENERATED_FILES_PUBLIC_COLS = ['doc_type', 'year', 'record_id', 'public_link'];
+
 // The ONLY loan_guarantors columns the public portal is allowed to see (audit H-5,
 // safe slice). The public loan view (script.js renderLoans) reads exactly Year,
 // Loan ID, Loaner and Guarantor from each guarantor row and derives everything
@@ -348,22 +363,16 @@ async function getAllPortalData(env) {
     // committee member (in any year), so a plain contributor's number never
     // leaves the server while committee mobiles still render as before.
     users: await usersPublicSafe(env),
-    committee: await tableRows(env.DB_CORE, 'committee_members', REVERSE_MAPS.committee_members),
-    collections: await tableRows(env.DB_COLLECTIONS, 'collections', REVERSE_MAPS.collections),
-    expenses: await tableRows(env.DB_LOANS_EXPENSES, 'expenses', REVERSE_MAPS.expenses),
-    // SECURITY: drop `signature` + `loan_documents` (personal signature image +
-    // document links) — the public site never renders them.
-    loans: await tableRows(env.DB_LOANS_EXPENSES, 'loans', REVERSE_MAPS.loans, ['signature', 'loan_documents']),
-    // SECURITY (audit H-5): allowlist to the four columns the public loan view
-    // actually reads. This drops `guarantor_signature` (as before) AND `created_by`,
-    // and — crucially — fails closed for any future column. See
-    // LOAN_GUARANTORS_PUBLIC_COLS above.
+    // audit H-5: all sections below now use an ALLOWLIST of exactly the columns the
+    // public frontend reads (verified field-by-field), so nothing extra leaves the
+    // server and any future column fails closed. `id`->`__rowIndex` is preserved by
+    // tableRows regardless (needed for the collections QR record-id).
+    committee: await tableRows(env.DB_CORE, 'committee_members', REVERSE_MAPS.committee_members, null, COMMITTEE_PUBLIC_COLS),
+    collections: await tableRows(env.DB_COLLECTIONS, 'collections', REVERSE_MAPS.collections, null, COLLECTIONS_PUBLIC_COLS),
+    expenses: await tableRows(env.DB_LOANS_EXPENSES, 'expenses', REVERSE_MAPS.expenses, null, EXPENSES_PUBLIC_COLS),
+    loans: await tableRows(env.DB_LOANS_EXPENSES, 'loans', REVERSE_MAPS.loans, null, LOANS_PUBLIC_COLS),
     guarantors: await tableRows(env.DB_LOANS_EXPENSES, 'loan_guarantors', REVERSE_MAPS.loan_guarantors, null, LOAN_GUARANTORS_PUBLIC_COLS),
-    // `drive_path` is an INTERNAL Drive location ("Generated PDFs/Consents-Loaner/
-    // 2026/Consent-CN...pdf") that the public site never renders — it was being
-    // shipped to every anonymous visitor for no reason. The portal only needs
-    // doc_type/year/record_id (to match a record) and public_link (to download).
-    generatedFiles: await tableRows(env.DB_FILE_INDEX, 'generated_files', REVERSE_MAPS.generated_files, ['drive_path']),
+    generatedFiles: await tableRows(env.DB_FILE_INDEX, 'generated_files', REVERSE_MAPS.generated_files, null, GENERATED_FILES_PUBLIC_COLS),
     loanConsents: await tableRows(env.DB_LOANS_EXPENSES, 'loan_consents', REVERSE_MAPS.loan_consents, null, LOAN_CONSENTS_PUBLIC_COLS),
   };
 }
