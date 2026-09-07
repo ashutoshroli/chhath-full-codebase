@@ -8,7 +8,14 @@ compatibility_date = "2025-01-01"
 # save enqueued, so the save itself returns instantly. If this line is removed
 # the queue simply stops draining — nothing else breaks.
 [triggers]
-crons = ["* * * * *"]
+# Was "* * * * *" (every minute = 1,440 invocations/day). On the free tier each
+# tick reads D1 (queue poll) and periodically writes (retention), which — with the
+# public D1-budget over-estimate — pushed the daily D1/KV counters high even at tiny
+# real data volume. Every 3 minutes (480/day) cuts that ~3x. The trade-off is only
+# latency: a queued WhatsApp/PDF job waits up to ~3 min instead of ~1 min. Nothing
+# is dropped. shouldSweepNow() was updated to a WINDOW check so the hourly retention
+# sweep still fires on this coarser schedule (an exact-minute match would be skipped).
+crons = ["*/3 * * * *"]
 
 [vars]
 # ⚠️ MUST be replaced with the real frontend domain before deploying.

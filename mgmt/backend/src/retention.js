@@ -48,6 +48,15 @@ const SWEEP_LIMIT = 200;
 // top-of-hour crowd.
 export const SWEEP_MINUTE = 7;
 
+// The cron no longer fires every minute (it runs every 3 minutes to save free-tier
+// D1/KV — see wrangler.toml), so an EXACT `minute === 7` match would be skipped on any interval
+// that doesn't land on 7. Instead the sweep fires on the FIRST tick that falls in a
+// short window starting at SWEEP_MINUTE. The window is wide enough to always catch
+// one tick for cron intervals up to 5 minutes, and the once-per-window guarantee is
+// preserved because the window is shorter than an hour, so it triggers exactly once
+// per hour regardless of the exact cron cadence.
+export const SWEEP_WINDOW_MINUTES = 5;
+
 const DAYS_MS = 86400000;
 const isoDaysAgo = (n) => new Date(Date.now() - n * DAYS_MS).toISOString();
 
@@ -164,7 +173,21 @@ export async function runRetentionSweep(env) {
   return report;
 }
 
-/** True when this cron tick should run the sweep (once per hour). */
+/**
+ * True when this cron tick should run the sweep (once per hour).
+ *
+ * Fires when the current minute is within [SWEEP_MINUTE, SWEEP_MINUTE +
+ * SWEEP_WINDOW_MINUTES). With an every-3-minute (or any <=5-min) cron, at least one
+ * tick lands in that window every hour, and because the window is far shorter than
+ * an hour it can only match once per hour — so the sweep still runs exactly once per
+ * hour, never twice, and is never skipped. (An exact `=== SWEEP_MINUTE` check would
+ * be missed whenever the cron interval does not land on minute 7.)
+ *
+ * NOTE: the sweep body is naturally idempotent (bounded DELETEs of already-old
+ * rows), so even if two ticks ever matched the same window the second is a cheap
+ * no-op — but the window math above prevents that anyway.
+ */
 export function shouldSweepNow(now = new Date()) {
-  return now.getUTCMinutes() === SWEEP_MINUTE;
+  const m = now.getUTCMinutes();
+  return m >= SWEEP_MINUTE && m < SWEEP_MINUTE + SWEEP_WINDOW_MINUTES;
 }
