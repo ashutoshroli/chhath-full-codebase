@@ -39,6 +39,10 @@ const SCHEMA_FOR_MIGRATION = {
   // column and backfills it. Listed in SCHEMA_ONLY_MIGRATIONS below so the
   // index-only invariants do not apply to it, and asserted separately instead.
   '09-error-log-client-ip.sql': 'logs.sql',
+  // audit M-33 — comment-only rebuild recipes (REAL->INTEGER/TEXT). They apply
+  // nothing; proven by m33-column-types.test.mjs.
+  '12-column-types-integer.sql': 'collections.sql',
+  '13-column-types-text.sql': 'core.sql',
 };
 
 // Migrations that legitimately do more than CREATE INDEX. Keep this list as short

@@ -1,0 +1,78 @@
+-- ============================================================================
+-- audit M-33 (part 2 of 2) — identifier columns that are REAL but must be TEXT
+--
+-- These hold IDENTIFIERS, not quantities, so storing them as REAL is the genuinely
+-- risky part of M-33 (not just cosmetic):
+--   users.mobile, users.whatsapp, committee_members.whatsapp, login_users.mobile
+--     — phone numbers. Today the app validates them as exactly 10 digits
+--       (crud.js: /^\d{10}$/), which fits a float exactly, so no data is lost YET.
+--       But any future '+91' prefix, leading zero, or landline format would be
+--       silently mangled by REAL. TEXT is the correct type for a phone number.
+--   collections.utr — a bank UTR/reference. These are long digit strings; stored
+--       as REAL they lose precision (and any leading zero) outright. TEXT is
+--       mandatory here, this is the one that can already corrupt data.
+--
+-- Like the rest of M-33 this file applies NOTHING (a rebuild on live data is the
+-- flagged risk). It ships detection queries + the rebuild recipe.
+--
+-- Idempotent (entirely comments).
+-- ============================================================================
+
+
+-- ============================================================================
+-- PART 1 — DETECTION (read-only)
+-- ============================================================================
+-- 1a. UTRs that may ALREADY have been damaged by REAL storage (scientific
+--     notation, a trailing '.0', or precision loss). Inspect these first:
+--
+--   SELECT id, sl_no, utr FROM collections
+--    WHERE utr IS NOT NULL AND utr <> ''
+--      AND (CAST(utr AS TEXT) LIKE '%e%' OR CAST(utr AS TEXT) LIKE '%.%');
+--
+-- 1b. phone numbers not stored as a clean 10-digit value (the app's own rule):
+--
+--   SELECT id, mobile FROM users        WHERE mobile   IS NOT NULL AND mobile   <> '' AND CAST(mobile   AS TEXT) NOT GLOB '[0-9]*';
+--   SELECT id, whatsapp FROM users      WHERE whatsapp IS NOT NULL AND whatsapp <> '' AND CAST(whatsapp AS TEXT) NOT GLOB '[0-9]*';
+--   SELECT id, whatsapp FROM committee_members WHERE whatsapp IS NOT NULL AND whatsapp <> '' AND CAST(whatsapp AS TEXT) NOT GLOB '[0-9]*';
+--   SELECT id, mobile FROM login_users  WHERE mobile   IS NOT NULL AND mobile   <> '' AND CAST(mobile   AS TEXT) NOT GLOB '[0-9]*';
+--
+--   A '.0' suffix (e.g. '9876543210.0') is the tell-tale of REAL storage. The
+--   rebuild below strips it; if PART 1a/1b surface anything stranger, fix it first.
+
+
+-- ============================================================================
+-- PART 2 — the rebuild recipes (documented; DO NOT run blind)
+-- ============================================================================
+-- Rebuild each table in ONE `wrangler d1 execute`. The SELECT converts REAL ->
+-- clean TEXT: cast to INTEGER first (drops the '.0' that float storage adds) then
+-- to TEXT, guarding NULL/blank. Example for `users` (chhath_core):
+--
+--   CREATE TABLE users_new (
+--     id INTEGER PRIMARY KEY AUTOINCREMENT,
+--     id_code TEXT, name TEXT, village TEXT, fathers_name TEXT,
+--     mobile TEXT, designation TEXT, created_by TEXT, email TEXT,
+--     whatsapp TEXT, name_hindi TEXT, fathers_name_hindi TEXT,
+--     designation_hindi TEXT, village_hindi TEXT
+--   );
+--   INSERT INTO users_new SELECT
+--     id, id_code, name, village, fathers_name,
+--     CASE WHEN mobile   IS NULL OR mobile   = '' THEN mobile   ELSE CAST(CAST(mobile   AS INTEGER) AS TEXT) END,
+--     designation, created_by, email,
+--     CASE WHEN whatsapp IS NULL OR whatsapp = '' THEN whatsapp ELSE CAST(CAST(whatsapp AS INTEGER) AS TEXT) END,
+--     name_hindi, fathers_name_hindi, designation_hindi, village_hindi
+--   FROM users;
+--   DROP TABLE users;
+--   ALTER TABLE users_new RENAME TO users;
+--   CREATE INDEX idx_users_village ON users(village);
+--   CREATE INDEX idx_users_mobile ON users(mobile);
+--
+-- Same shape for:
+--   committee_members.whatsapp (chhath_core)  — recreate idx_committee_members_year
+--   login_users.mobile         (chhath_core)  — recreate idx_login_users_name
+--   collections.utr            (chhath_collections) — fold into 12-*.sql's collections
+--                                rebuild so the table is rebuilt once (see the note there)
+--
+-- After this, mobile/whatsapp/utr are TEXT and round-trip losslessly. The app's
+-- 10-digit validation (crud.js) is unchanged and still passes, because a clean
+-- 10-digit string satisfies /^\d{10}$/ exactly as the numeric form did.
+-- ============================================================================

@@ -1,0 +1,94 @@
+-- ============================================================================
+-- audit M-33 (part 1 of 2) — columns that are REAL but hold whole numbers
+--
+-- The tables were generated from a Google Sheet export, which typed every numeric
+-- column as REAL. Several are conceptually INTEGER (year, serial numbers, counts).
+-- SQLite applies type AFFINITY on comparison, so `year = 2026` already matches a
+-- stored `2026.0` (verified in #84), and the app parseInt()s at its boundaries — so
+-- this is a ROBUSTNESS / self-describing-schema fix, not a live bug. Fixing the
+-- storage type means a full table rebuild, which on live data is the risk the audit
+-- flagged, so this file applies NOTHING. It ships:
+--   PART 1 — detection queries: rows whose value is not actually a whole number
+--            (a real surprise worth seeing before you rebuild). Read-only.
+--   PART 2 — the rebuild recipe per table (CREATE new / INSERT SELECT with CAST /
+--            DROP / RENAME / recreate indexes). Documented, DO NOT run blind.
+--
+-- NOTE: amount / intrest_rate / cash_amount / online_amount stay REAL on purpose —
+-- they are genuinely fractional money. Only whole-number columns are listed here.
+--
+-- Idempotent (entirely comments). Run the relevant PART 2 against each DB:
+--   collections DB: collections.{year,sl_no,contribution_type,announcedcount}
+--   loans_expenses DB: loans.{year,tenure}, expenses.year, loan_consents.send_count
+--   core DB: committee_members.year, festival_dates.year, dropdown_lists.sort_order
+-- ============================================================================
+
+
+-- ============================================================================
+-- PART 1 — DETECTION (read-only): find values that aren't whole numbers
+-- ============================================================================
+-- If any of these return rows, decide what the value should be BEFORE rebuilding
+-- (a CAST(... AS INTEGER) truncates 3.7 -> 3, which may not be what you want).
+--
+--   -- collections (chhath_collections)
+--   SELECT id, year, sl_no, contribution_type, announcedcount FROM collections
+--    WHERE (year IS NOT NULL           AND CAST(year AS INTEGER)            <> year)
+--       OR (sl_no IS NOT NULL          AND CAST(sl_no AS INTEGER)           <> sl_no)
+--       OR (contribution_type IS NOT NULL AND CAST(contribution_type AS INTEGER) <> contribution_type)
+--       OR (announcedcount IS NOT NULL AND CAST(announcedcount AS INTEGER)  <> announcedcount);
+--
+--   -- loans / expenses / loan_consents (chhath_loans_expenses)
+--   SELECT id, year, tenure FROM loans
+--    WHERE (year IS NOT NULL AND CAST(year AS INTEGER) <> year)
+--       OR (tenure IS NOT NULL AND CAST(tenure AS INTEGER) <> tenure);
+--   SELECT id, year FROM expenses WHERE year IS NOT NULL AND CAST(year AS INTEGER) <> year;
+--   SELECT id, send_count FROM loan_consents WHERE send_count IS NOT NULL AND CAST(send_count AS INTEGER) <> send_count;
+--
+--   -- core DB (chhath_core)
+--   SELECT id, year FROM committee_members WHERE year IS NOT NULL AND CAST(year AS INTEGER) <> year;
+--   SELECT id, year FROM festival_dates    WHERE year IS NOT NULL AND CAST(year AS INTEGER) <> year;
+--   SELECT id, sort_order FROM dropdown_lists WHERE sort_order IS NOT NULL AND CAST(sort_order AS INTEGER) <> sort_order;
+
+
+-- ============================================================================
+-- PART 2 — the rebuild recipes (documented; DO NOT run blind)
+-- ============================================================================
+-- SQLite has no ALTER COLUMN TYPE. Rebuild each table in ONE `wrangler d1 execute`
+-- so the steps share an implicit transaction. Example for `collections`
+-- (chhath_collections) — the same shape applies to every table above:
+--
+--   CREATE TABLE collections_new (
+--     id INTEGER PRIMARY KEY AUTOINCREMENT,
+--     year INTEGER, sl_no INTEGER, name TEXT, amount REAL, created_by TEXT,
+--     payment_mode TEXT, date TEXT, contribution_type INTEGER, detail TEXT,
+--     certificate_or_receipt TEXT, utr TEXT, is_resell TEXT, announced TEXT,
+--     announcedcount INTEGER
+--   );
+--   INSERT INTO collections_new
+--     SELECT id,
+--            CAST(year AS INTEGER), CAST(sl_no AS INTEGER), name, amount, created_by,
+--            payment_mode, date, CAST(contribution_type AS INTEGER), detail,
+--            certificate_or_receipt,
+--            -- utr: the OLD column is REAL, so a UTR entered as '123...' was coerced
+--            -- to a float and now reads back as '123....0'. Double-cast via INTEGER
+--            -- drops that '.0'. NB: only safe for a plain all-digit UTR within the
+--            -- 64-bit range — run 13-*.sql PART 1a FIRST; if a UTR has a leading zero
+--            -- or is longer, keep it as CAST(utr AS TEXT) and clean it by hand.
+--            CASE WHEN utr IS NULL OR utr = '' THEN utr ELSE CAST(CAST(utr AS INTEGER) AS TEXT) END,
+--            is_resell, announced,
+--            CAST(announcedcount AS INTEGER)
+--       FROM collections;
+--   DROP TABLE collections;
+--   ALTER TABLE collections_new RENAME TO collections;
+--   CREATE INDEX idx_collections_year ON collections(year);
+--   CREATE INDEX idx_collections_payment_mode ON collections(payment_mode);
+--   CREATE INDEX idx_collections_contribution_type ON collections(contribution_type);
+--   CREATE INDEX idx_collections_announced ON collections(announced);
+--
+-- (utr is CAST to TEXT here because 13-column-types-text.sql wants it TEXT — doing
+--  both in one rebuild avoids rebuilding collections twice. Combine with the M-35
+--  CHECK rebuild for the same reason.)
+--
+-- Repeat the pattern for loans, expenses, loan_consents, committee_members,
+-- festival_dates and dropdown_lists using the column lists in
+-- mgmt/db/schema/*.sql, changing only the REAL->INTEGER columns named in PART 1.
+-- ============================================================================
