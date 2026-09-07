@@ -6,14 +6,14 @@ DROP TABLE IF EXISTS custom_announcements;
 CREATE TABLE custom_announcements (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   id_code TEXT,
-  year REAL,
+  year INTEGER,              -- audit M-33: was REAL. Whole year.
   texthindi TEXT,
   textenglish TEXT,
   priority TEXT,
   announced TEXT,
-  announcedcount REAL,
+  announcedcount INTEGER,     -- audit M-33: was REAL. Integer counter.
   createdat TEXT,
-  "order" REAL
+  "order" INTEGER             -- audit M-33: was REAL. Integer ordering field.
 );
 CREATE INDEX idx_custom_announcements_year ON custom_announcements(year);
 CREATE INDEX idx_custom_announcements_announced ON custom_announcements(announced);
@@ -23,7 +23,7 @@ DROP TABLE IF EXISTS announcement_links;
 CREATE TABLE announcement_links (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   token TEXT,
-  year REAL,
+  year INTEGER,              -- audit M-33: was REAL. Whole year.
   pin TEXT,
   expiresat TEXT,
   active TEXT,
@@ -40,7 +40,7 @@ CREATE TABLE popup_slides (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   slide_id TEXT,
   popup_id TEXT,
-  slide_order REAL,
+  slide_order INTEGER,        -- audit M-33: was REAL. Integer ordering (ORDER BY slide_order).
   image_url TEXT,
   text TEXT,
   link_url TEXT,

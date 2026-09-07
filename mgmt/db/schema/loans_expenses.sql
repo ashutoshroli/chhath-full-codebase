@@ -11,17 +11,17 @@ CREATE TABLE loan_consents (
   role TEXT,
   token TEXT,
   status TEXT,
-  otp REAL,
+  otp INTEGER,                -- audit M-33: was REAL. 6-digit OTP generated without leading zeros (see random.js).
   otp_verified TEXT,
-  send_count REAL,
+  send_count INTEGER,         -- audit M-33: was REAL. Integer counter.
   created_at TEXT,
   responded_at TEXT,
   device_id TEXT,
   ip_address TEXT,
   user_agent TEXT,
-  geo_lat REAL,
-  geo_lng REAL,
-  geo_accuracy REAL,
+  geo_lat REAL,               -- stays REAL: fractional GPS coordinate.
+  geo_lng REAL,               -- stays REAL: fractional GPS coordinate.
+  geo_accuracy REAL,          -- stays REAL: fractional metres.
   photo_url TEXT,
   signature_url TEXT,
   decline_remarks TEXT,
@@ -51,9 +51,9 @@ CREATE TABLE loan_message_templates (
 DROP TABLE IF EXISTS expenses;
 CREATE TABLE expenses (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  year REAL,
+  year INTEGER,              -- audit M-33: was REAL. Whole year.
   discription TEXT,
-  amount REAL,
+  amount REAL,               -- stays REAL: fractional money (feeds SUM()).
   created_by TEXT,
   category TEXT,
   discription_hindi TEXT
@@ -65,11 +65,11 @@ CREATE INDEX idx_expenses_category ON expenses(category);
 DROP TABLE IF EXISTS loans;
 CREATE TABLE loans (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  year REAL,
+  year INTEGER,              -- audit M-33: was REAL. Whole year.
   name TEXT,
-  amount REAL,
-  intrest_rate REAL,
-  tenure REAL,
+  amount REAL,               -- stays REAL: fractional money (feeds SUM()).
+  intrest_rate REAL,         -- stays REAL: percentage, can be fractional.
+  tenure INTEGER,            -- audit M-33: was REAL. Whole months.
   signature TEXT,
   loan_documents TEXT,
   created_by TEXT,
@@ -77,8 +77,8 @@ CREATE TABLE loans (
   loan_id TEXT,
   loan_status TEXT,
   final_repayment_date TEXT,
-  cash_amount REAL,
-  online_amount REAL
+  cash_amount REAL,          -- stays REAL: fractional money.
+  online_amount REAL         -- stays REAL: fractional money.
 );
 CREATE INDEX idx_loans_year ON loans(year);
 CREATE INDEX idx_loans_loan_id ON loans(loan_id);
@@ -88,7 +88,7 @@ CREATE INDEX idx_loans_status ON loans(status);
 DROP TABLE IF EXISTS loan_guarantors;
 CREATE TABLE loan_guarantors (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  year REAL,
+  year INTEGER,              -- audit M-33: was REAL. Whole year.
   loaner TEXT,
   guarantor TEXT,
   guarantor_signature TEXT,

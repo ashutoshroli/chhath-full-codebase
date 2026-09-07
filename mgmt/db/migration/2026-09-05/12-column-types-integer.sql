@@ -1,4 +1,11 @@
 -- ============================================================================
+-- UPDATE (M-33 applied at the schema level): the committed schema in
+-- mgmt/db/schema/*.sql now declares these columns with the CORRECT types
+-- (INTEGER / TEXT) directly. For a FRESH deployment you get the right types just
+-- by applying the schema — you do NOT need this file. This file remains as the
+-- IN-PLACE rebuild recipe for an EXISTING database that still has the old REAL
+-- columns and cannot be re-created from scratch.
+-- ============================================================================
 -- audit M-33 (part 1 of 2) — columns that are REAL but hold whole numbers
 --
 -- The tables were generated from a Google Sheet export, which typed every numeric

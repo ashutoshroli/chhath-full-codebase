@@ -10,7 +10,7 @@ CREATE TABLE group_message_templates (
   active TEXT,
   created_at TEXT,
   message_type TEXT,
-  contribution_type REAL,
+  contribution_type INTEGER,  -- audit M-33: was REAL. Only ever 1-4.
   file_link TEXT,
   -- Both columns were missing here even though addTemplate()/updateTemplate()
   -- always write them for BOTH template tables -> every "Add/Update Group
@@ -43,7 +43,7 @@ CREATE TABLE person_message_templates (
   active TEXT,
   created_at TEXT,
   message_type TEXT,
-  contribution_type REAL,
+  contribution_type INTEGER,  -- audit M-33: was REAL. Only ever 1-4.
   file_link TEXT,
   doc_sub_type TEXT,
   file_doc_type TEXT

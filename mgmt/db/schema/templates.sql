@@ -5,7 +5,7 @@
 DROP TABLE IF EXISTS samaan_templates;
 CREATE TABLE samaan_templates (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  year REAL,
+  year INTEGER,              -- audit M-33: was REAL. Whole year (equality-matched in UNIQUE(doc_type, year)).
   template_text TEXT,
   page_size TEXT,
   created_at TEXT,
@@ -18,7 +18,7 @@ DROP TABLE IF EXISTS docx_templates;
 CREATE TABLE docx_templates (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   doc_type TEXT,
-  year REAL,
+  year INTEGER,              -- audit M-33: was REAL. Whole year (equality-matched in UNIQUE(doc_type, year)).
   drive_file_id TEXT,
   file_name TEXT,
   created_at TEXT,
@@ -36,7 +36,7 @@ DROP TABLE IF EXISTS doc_pdf_templates;
 CREATE TABLE doc_pdf_templates (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   doc_type TEXT,
-  year REAL,
+  year INTEGER,              -- audit M-33: was REAL. Whole year (equality-matched in UNIQUE(doc_type, year)).
   schema_json TEXT,
   created_at TEXT,
   updated_at TEXT
@@ -48,7 +48,7 @@ CREATE INDEX idx_doc_pdf_templates_year ON doc_pdf_templates(year);
 DROP TABLE IF EXISTS certificate_templates;
 CREATE TABLE certificate_templates (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  year REAL,
+  year INTEGER,              -- audit M-33: was REAL. Whole year (equality-matched in UNIQUE(doc_type, year)).
   template_text TEXT,
   page_size TEXT,
   created_at TEXT,
@@ -60,7 +60,7 @@ CREATE INDEX idx_certificate_templates_year ON certificate_templates(year);
 DROP TABLE IF EXISTS receipt_templates;
 CREATE TABLE receipt_templates (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  year REAL,
+  year INTEGER,              -- audit M-33: was REAL. Whole year (equality-matched in UNIQUE(doc_type, year)).
   template_text TEXT,
   page_size TEXT,
   created_at TEXT,
