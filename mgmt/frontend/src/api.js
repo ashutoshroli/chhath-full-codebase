@@ -419,7 +419,11 @@ export const api = {
   // (the view zips it client-side); restoreBackup is destructive and requires
   // confirm === 'RESTORE'.
   exportBackup: () => call('exportBackup'),
-  restoreBackup: (backup, confirm) => call('restoreBackup', { backup, confirm }),
+  // opts (audit H-16): { snapshotAcknowledged, onlyBinding, withInRequestSnapshot }.
+  //   - no onlyBinding + snapshotAcknowledged -> PLANNING call, returns the binding
+  //     list to walk one request each (incremental restore; no data touched).
+  //   - onlyBinding='DB_CORE' etc -> restore just that database (bounded memory).
+  restoreBackup: (backup, confirm, opts = {}) => call('restoreBackup', { backup, confirm, opts }),
 
   // Collection Queue: enqueue a job right after a save (fast return); the Worker
   // Cron Trigger does the PDF + WhatsApp in the background. getCollectionQueueStatus
