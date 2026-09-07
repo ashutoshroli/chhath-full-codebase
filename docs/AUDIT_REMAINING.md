@@ -9,6 +9,38 @@ Nothing here is unknown or forgotten. If a reviewer disagrees with a call, the
 reasoning is written down so the disagreement can be about the trade-off rather
 than about whether anyone noticed.
 
+---
+
+## Reconciliation — 2026-09 (after PRs #90–#110)
+
+A full re-review of this ledger against the current code. Several items listed
+below have since been closed; the rest remain deferred for the SAME reasons.
+
+**Closed since this doc was written:**
+
+| # | Was | Now |
+|---|---|---|
+| **L-7** | `getFromR2` returned an unread `contentType` | Fixed — `storage.js` reads it as the Drive-upload mime fallback. |
+| **L-13** | `parseAmt` duplicated in ~7 files | Consolidated in mgmt backend into `money.js` (5 copies → 1 import) — PR L-13. The two remaining single copies (`mgmt/frontend` PdfExport, `Public/frontend` non-bundled script) are the documented cross-deployment case (Q-4). |
+| **L-20** | `key={i}` array-index keys in view files | Fixed on the lists that actually reorder (Committee, Expenses, Loans, LoginManagement, WhatsApp, Popup slides) — PR L-20. Append-only/never-reordered lists correctly keep `key={i}`. |
+| **Q-10** | ~17 markdown files crowding the repo root | The 10 historical audit/incident notes moved to `docs/history/`; active guides stay at root — PR Q-10. |
+
+**Assessed and deliberately LEFT (changing it is riskier than the finding):**
+
+| # | Finding | Why left |
+|---|---|---|
+| **Q-8** | `READ_ONLY_ACTIONS` is a denylist-by-omission | The current default is already the SAFE direction: an action *not* in the set is treated as a write and bumps the public data-version (one harmless extra edge revalidation). A forgotten new write therefore fails safe. Inverting to an allowlist would make a forgotten new *read* bump the version unnecessarily, i.e. more cache churn for no correctness gain. The two entries that look wrong (`logError`, `reportErrorToWhatsApp`) only touch `error_log`, which is NOT part of the public payload, so not bumping for them is correct. Net: leaving it is the lower-risk choice. |
+
+**Still deferred (unchanged reasons — see the sections below):**
+H-5 (public payload shape), H-12 (cookie-vs-localStorage session), M-10 (CORS
+preflight), H-16 (incremental restore), P-3 (server-side bulk PDF; note it is now
+a throttled+retrying serial browser loop, an improvement but not a concurrency
+pool), Q-1 (zod), M-33 (`REAL` identity columns), M-34/M-35 (FKs/CHECKs). Each is
+a breaking change or a migration on live spreadsheet-origin data, and none has
+become cheaper since. They remain the right things to do *when there is a staging
+environment and time to verify a live-data migration* — not as a quiet pre-launch
+edit.
+
 Launch date at the time of writing: **25 October 2026.** "Post-launch" below means
 "the risk of changing this now exceeds the risk of leaving it".
 
