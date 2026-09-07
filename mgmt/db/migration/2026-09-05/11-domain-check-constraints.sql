@@ -1,0 +1,80 @@
+-- ============================================================================
+-- audit M-35 — domain (CHECK) constraints for the loan / collection tables
+--
+-- Like M-34, SQLite cannot ADD a CHECK to an existing table (it needs a rebuild),
+-- so this file applies NOTHING to your data. It ships:
+--   PART 1 — DETECTION queries: find rows that already violate each intended
+--            domain rule. Read-only.
+--   PART 2 — ENFORCE-GOING-FORWARD triggers: reject NEW violating writes without a
+--            rebuild. Safe, idempotent. Apply once PART 1 is clean for that rule.
+--   PART 3 — the eventual CHECK, as a documented table-rebuild recipe.
+--
+-- The rules mirror what the app already guarantees in code, so PART 2 never fires
+-- for a legitimate write — they only stop a future bug or a raw manual edit from
+-- introducing bad data silently.
+--
+-- Databases touched: chhath_loans_expenses (loans, loan_consents) and
+-- chhath_collections (collections). Run the relevant PARTs against each DB.
+-- Idempotent (entirely comments).
+-- ============================================================================
+
+
+-- ============================================================================
+-- PART 1 — DETECTION (read-only)
+-- ============================================================================
+--
+-- 1a. loan_consents.role outside the two values the app writes:
+--   SELECT consent_id, role FROM loan_consents
+--    WHERE role IS NOT NULL AND role NOT IN ('loaner','guarantor');
+--
+-- 1b. negative money (should never happen):
+--   SELECT loan_id, amount FROM loans    WHERE amount IS NOT NULL AND amount < 0;   -- chhath_loans_expenses
+--   SELECT sl_no, amount   FROM collections WHERE amount IS NOT NULL AND amount < 0; -- chhath_collections
+--
+-- 1c. collections.contribution_type outside the known set (1 cash, 2 material,
+--     3 receipt/certificate) — legacy blanks are allowed:
+--   SELECT sl_no, contribution_type FROM collections
+--    WHERE contribution_type IS NOT NULL AND contribution_type <> ''
+--      AND CAST(contribution_type AS INTEGER) NOT IN (1,2,3);
+
+
+-- ============================================================================
+-- PART 2 — ENFORCE GOING FORWARD (triggers; apply per-rule after PART 1 is clean)
+-- ============================================================================
+-- chhath_loans_expenses:
+--
+-- CREATE TRIGGER IF NOT EXISTS trg_loan_consents_role_ins
+-- BEFORE INSERT ON loan_consents
+-- FOR EACH ROW WHEN NEW.role IS NOT NULL AND NEW.role NOT IN ('loaner','guarantor')
+-- BEGIN SELECT RAISE(ABORT, 'loan_consents.role must be loaner or guarantor'); END;
+--
+-- CREATE TRIGGER IF NOT EXISTS trg_loans_amount_nonneg_ins
+-- BEFORE INSERT ON loans
+-- FOR EACH ROW WHEN NEW.amount IS NOT NULL AND NEW.amount < 0
+-- BEGIN SELECT RAISE(ABORT, 'loans.amount must be >= 0'); END;
+--
+-- chhath_collections:
+--
+-- CREATE TRIGGER IF NOT EXISTS trg_collections_amount_nonneg_ins
+-- BEFORE INSERT ON collections
+-- FOR EACH ROW WHEN NEW.amount IS NOT NULL AND NEW.amount < 0
+-- BEGIN SELECT RAISE(ABORT, 'collections.amount must be >= 0'); END;
+--
+-- (Add matching BEFORE UPDATE triggers if you also want to guard edits — the
+--  INSERT guards are the ones that stop bad data being created.)
+
+
+-- ============================================================================
+-- PART 3 — the real CHECK constraints (documented table-rebuild; DO NOT run blind)
+-- ============================================================================
+-- Only after the matching PART 1 query returns zero rows. Example for loans.amount:
+--
+--   CREATE TABLE loans_new ( ...same columns as schema/loans_expenses.sql...,
+--     CHECK (amount IS NULL OR amount >= 0) );
+--   INSERT INTO loans_new SELECT * FROM loans;
+--   DROP TABLE loans; ALTER TABLE loans_new RENAME TO loans;
+--   -- recreate idx_loans_year / idx_loans_loan_id / idx_loans_status
+--
+-- Combine with the M-33 REAL->INTEGER rebuild (12-*.sql) so each table is rebuilt
+-- ONCE, not twice.
+-- ============================================================================
