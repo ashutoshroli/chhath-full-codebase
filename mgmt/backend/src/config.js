@@ -52,6 +52,25 @@ export function checkConfig(env) {
   }
   for (const s of FEATURE_SECRETS) if (!present(env && env[s])) featureWarnings.push(s);
 
+  // audit M-10 / H-12 PREREQUISITE. allowedOrigin() in index.js fails CLOSED: with
+  // ALLOWED_ORIGINS unset, no Access-Control-Allow-Origin is sent. That is harmless
+  // TODAY (requests are CORS "simple" — no Content-Type header, token in the body —
+  // so the browser never needs ACAO), which is exactly why a missing/wrong value is
+  // currently INVISIBLE. But it is the hard prerequisite for ever landing M-10 (send
+  // Content-Type -> every request preflighted) or H-12 (cookie auth): the moment
+  // either ships, an unset/wrong ALLOWED_ORIGINS turns into a TOTAL outage. Surfacing
+  // it here (as a non-fatal warning — the portal runs fine without it today) means an
+  // operator can VERIFY it in production BEFORE flipping either change, instead of
+  // discovering it as a site-wide failure. See docs/CORS_COOKIE_MIGRATION.md.
+  const allowedOrigins = (env && env.ALLOWED_ORIGINS ? env.ALLOWED_ORIGINS.toString() : '').trim();
+  if (!allowedOrigins) {
+    featureWarnings.push(
+      'ALLOWED_ORIGINS (unset — CORS fails closed. Harmless now, but set it to your exact ' +
+      'frontend origin(s) BEFORE enabling M-10 preflight or H-12 cookie auth, or those changes ' +
+      'will take the whole app offline. See docs/CORS_COOKIE_MIGRATION.md)'
+    );
+  }
+
   const ok = missing.d1.length === 0 && missing.bindings.length === 0 &&
              missing.secrets.length === 0 && missing.vars.length === 0;
   return { ok, missing, featureWarnings };
