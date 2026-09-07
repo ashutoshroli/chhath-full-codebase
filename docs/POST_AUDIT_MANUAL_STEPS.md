@@ -9,6 +9,31 @@ Nothing here is urgent-or-broken: the app runs today without any of it. Each ite
 sequenced and marked with its risk. Do them in order; **A first** (deploy), then **B**
 (config), then **C/D** (optional live-data hardening, on your own schedule).
 
+---
+
+> ## ⚡ UPDATE — after PRs #128–#133 (pre-launch hardening, data is test-only)
+>
+> Several things below changed from *"recipe to run by hand"* to **already applied
+> in code**, because the data is test-only and could be safely finished:
+>
+> - **Column types (M-33)** and **CHECK constraints (M-35)** are now in
+>   `mgmt/db/schema/*.sql` directly. **For a fresh/test deploy you do NOT run the
+>   `12/13-*.sql` rebuild recipes** — just (re)apply the schema and re-import your
+>   test data. The rebuild recipes in §C5/§C4 are only for an *existing* DB you
+>   can't recreate.
+> - **Cookie session + CSRF + CORS preflight (H-12/M-10)** is now **IMPLEMENTED**
+>   (backward-compatible). §D's "deliberately deferred" note is superseded: just
+>   redeploy the mgmt Worker + mgmt frontend with `ALLOWED_ORIGINS` set (§B1). The
+>   body-token path still works, so nothing breaks.
+> - **FK enforcement (M-34)** stays as the operator triggers in §C3 (D1 can't
+>   enforce schema FK) — apply them once if you haven't (you already did, live).
+> - **Everything else** (deploys §A, config §B, uptime §B3) is unchanged and still
+>   applies.
+>
+> **So the short version now is: (1) redeploy all three targets §A, (2) confirm
+> `ALLOWED_ORIGINS`/`VITE_GTM_ID`/uptime §B, (3) FK triggers §C3 if not already
+> applied. §C5/§C4 rebuilds and §D are NOT needed for a fresh test-data deploy.**
+
 > Legend: 🟢 safe / routine · 🟡 verify before/after · 🔴 destructive on live data (take a backup first)
 
 ---
