@@ -11,7 +11,34 @@ const RETRY_ATTEMPTS = 3;
 const BASE_BACKOFF_MS = 1500;
 const THROTTLE_MS = 350; // small gap between records to stay under Drive's per-user limit
 
+// audit P-3 — bounded concurrency. The loop used to be strictly serial (one record,
+// then a 350ms gap), which is subrequest-safe but slow for a big year. We now run a
+// small POOL of workers so a few conversions are in flight at once, cutting a
+// several-hundred-record run's wall-clock time roughly CONCURRENCY-fold — WITHOUT
+// changing the "each conversion is its own request" property that keeps us clear of
+// the 50-subrequest-per-invocation free-plan cap (moving this server-side is exactly
+// what would breach it). Kept deliberately LOW: Drive's per-user quota is the limit,
+// and each worker still throttles + retries with backoff, so N=3 in flight with a
+// per-worker gap stays comfortably under the rate that produced 429s before.
+const CONCURRENCY = 3;
+
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// Run `worker(item, index)` over `items` with at most `limit` in flight at once.
+// Workers pull from a shared cursor, so a slow record never blocks the others and
+// the pool naturally drains. Never rejects — each worker call is expected to handle
+// its own errors (as processRecord does); this just bounds parallelism.
+async function runPool(items, limit, worker) {
+  let cursor = 0;
+  const next = async () => {
+    while (cursor < items.length) {
+      const i = cursor++;
+      await worker(items[i], i);
+    }
+  };
+  const size = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(Array.from({ length: size }, () => next()));
+}
 
 function isRetryable(err) {
   const m = (err && err.message ? err.message : '').toLowerCase();
@@ -86,7 +113,7 @@ export default function BulkGeneratePdfs() {
       return;
     }
 
-    for (const rec of records) {
+    const processRecord = async (rec) => {
       try {
         let qrCode = '';
         try {
@@ -149,9 +176,16 @@ export default function BulkGeneratePdfs() {
         // a bulk run of hundreds can actually be diagnosed afterwards.
         reportClientError('BulkGeneratePdfs', `Record failed: ${rec.recordId}`, err, { docType, year, recordId: rec.recordId });
       }
-      // Gap between records so Drive's per-user rate limit isn't tripped.
+      // Per-worker gap AFTER each record so N workers together still pace Drive's
+      // per-user rate limit (≈ CONCURRENCY requests per THROTTLE_MS) rather than
+      // firing an unbounded burst.
       await sleep(THROTTLE_MS);
-    }
+    };
+
+    // Bounded-concurrency pool instead of a strict serial loop (audit P-3). Each
+    // record is still an independent request with its own retry/backoff; we just
+    // allow CONCURRENCY of them in flight at once.
+    await runPool(records, CONCURRENCY, processRecord);
     appendLog(`✓ ${label} complete.`);
   };
 
@@ -189,7 +223,7 @@ export default function BulkGeneratePdfs() {
           </select>
         </div>
         <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 12 }}>
-          Generates PDFs for all Receipt, Certificate, Material, and (Accepted) Consent records that have a .docx template uploaded for that doc-type. Records that have already been generated will be skipped automatically.
+          Generates PDFs for all Receipt, Certificate, Material, and (Accepted) Consent records that have a .docx template uploaded for that doc-type. Records that have already been generated will be skipped automatically. A few are processed at a time (with automatic retry) — keep this tab open until it finishes.
         </p>
         <button className="btn-submit" onClick={runAll} disabled={running || !year}>
           {running ? 'Generating...' : '⚡ Generate PDFs for this Year'}
