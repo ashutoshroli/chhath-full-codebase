@@ -368,6 +368,55 @@ async function getAllPortalData(env) {
   };
 }
 
+// audit H-5 — per-year AGGREGATES only, computed in SQL (SUM/COUNT), NOT by shipping
+// rows. This is what the public landing view actually needs for its headline totals;
+// the detailed lists still come from portalData, loaded lazily per tab. Returns a
+// tiny object: { years: [{ year, collectionTotal, collectionCount, expenseTotal,
+// expenseCount, loanTotal, loanCount }] }.
+//
+// Each query is a single grouped aggregate — cheap, and the whole thing is cached
+// under the version key exactly like portalData, so it runs at most once per data
+// version. A missing table/column on an older deployment degrades to zero rows for
+// that metric rather than failing the summary.
+async function getPortalSummary(env) {
+  const safeAgg = async (db, sql) => {
+    if (!db) return [];
+    try {
+      const { results } = await db.prepare(sql).all();
+      return results || [];
+    } catch (e) {
+      const msg = (e && e.message ? e.message : String(e)).toLowerCase();
+      if (msg.includes('no such table') || msg.includes('no such column')) return [];
+      throw e; // a real error still fails loudly (caught by the outer snapshot fallback)
+    }
+  };
+
+  const [coll, exp, loan] = await Promise.all([
+    safeAgg(env.DB_COLLECTIONS, 'SELECT year, COALESCE(SUM(amount),0) AS total, COUNT(*) AS n FROM collections GROUP BY year'),
+    safeAgg(env.DB_LOANS_EXPENSES, 'SELECT year, COALESCE(SUM(amount),0) AS total, COUNT(*) AS n FROM expenses GROUP BY year'),
+    safeAgg(env.DB_LOANS_EXPENSES, 'SELECT year, COALESCE(SUM(amount),0) AS total, COUNT(*) AS n FROM loans GROUP BY year'),
+  ]);
+
+  // Merge the three per-year aggregates into one keyed map, then emit a sorted array.
+  const byYear = new Map();
+  const yr = (v) => (v === null || v === undefined ? '' : String(parseInt(v, 10) || v));
+  const bump = (rows, tKey, cKey) => {
+    for (const r of rows) {
+      const y = yr(r.year);
+      const cur = byYear.get(y) || { year: y, collectionTotal: 0, collectionCount: 0, expenseTotal: 0, expenseCount: 0, loanTotal: 0, loanCount: 0 };
+      cur[tKey] = Number(r.total) || 0;
+      cur[cKey] = Number(r.n) || 0;
+      byYear.set(y, cur);
+    }
+  };
+  bump(coll, 'collectionTotal', 'collectionCount');
+  bump(exp, 'expenseTotal', 'expenseCount');
+  bump(loan, 'loanTotal', 'loanCount');
+
+  const years = [...byYear.values()].sort((a, b) => (parseInt(b.year, 10) || 0) - (parseInt(a.year, 10) || 0));
+  return { years };
+}
+
 // ---- Public popups (read-only, scoped to ONLY popups + popup_slides — never
 // any other table in the misc DB, per the "no extra data" requirement) ----
 //
@@ -977,6 +1026,58 @@ export default {
           }
           throw buildErr;
         }
+      }
+
+      // ---- summary: tiny per-year AGGREGATES (audit H-5) ----
+      //
+      // The full H-5 fix is to stop shipping the entire member+finance database to
+      // every anonymous visitor. This is the additive, cache-safe first half: a new
+      // endpoint that returns only SQL aggregates (SUM/COUNT per year) — a few dozen
+      // bytes — for the landing view, instead of every collections/expense/loan ROW.
+      //
+      // It is ADDITIVE: `portalData` is unchanged and still served, so nothing that
+      // depends on it breaks. `summary` reuses the SAME version-keyed cache machinery
+      // (edgeCached / versionCached / the D1 budget guard), so it gets its own
+      // ?v=-scoped edge cache key automatically — the working portalData cache path
+      // is not touched at all. The frontend prefers `summary` for totals and only
+      // falls back to `portalData` for the detailed lists (loaded lazily per tab).
+      if (action === 'summary') {
+        const version = await getDataVersion(env);
+        const requestedV = (url.searchParams.get('v') || '').trim();
+
+        if (await d1BudgetExceeded(env)) {
+          const cachedOnly = await serveVersionCacheOnly(request, ctx, 'summary', version, cors, etagFor('summary', version));
+          if (cachedOnly) return cachedOnly;
+          // Aggregates are non-critical for a first paint; an empty summary is a safe
+          // fallback (the frontend still has portalData/snapshot for the real data).
+          return new Response(JSON.stringify({ years: [] }), { headers: { ...cors, 'Cache-Control': 'no-store' } });
+        }
+
+        if (requestedV && requestedV === version) {
+          return edgeCached(request, ctx, async () => {
+            const data = await getPortalSummary(env);
+            await d1BudgetAdd(env, ctx);
+            return new Response(JSON.stringify(data), {
+              headers: {
+                ...cors,
+                ETag: etagFor('summary', version),
+                'Cache-Control': 'public, max-age=31536000, immutable',
+              },
+            });
+          });
+        }
+
+        const etag = etagFor('summary', version);
+        if (clientHasCurrent(request, etag)) {
+          return new Response(null, { status: 304, headers: { ...cors, ETag: etag, 'Cache-Control': 'no-cache' } });
+        }
+        return versionCached(ctx, 'summary', version, async () => {
+          const data = await getPortalSummary(env);
+          await d1BudgetAdd(env, ctx);
+          return new Response(JSON.stringify(data), {
+            headers: { ...cors, ETag: etag, 'Cache-Control': 'public, max-age=30, stale-while-revalidate=86400' },
+          });
+        });
       }
 
       if (action === 'activePopups') {
