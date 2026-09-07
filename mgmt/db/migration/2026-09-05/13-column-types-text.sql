@@ -1,4 +1,9 @@
 -- ============================================================================
+-- UPDATE (M-33 applied at the schema level): mgmt/db/schema/*.sql now declares
+-- these columns as TEXT directly, so a FRESH deployment needs nothing here. This
+-- file remains as the IN-PLACE rebuild recipe for an EXISTING database that still
+-- has the old REAL columns.
+-- ============================================================================
 -- audit M-33 (part 2 of 2) — identifier columns that are REAL but must be TEXT
 --
 -- These hold IDENTIFIERS, not quantities, so storing them as REAL is the genuinely

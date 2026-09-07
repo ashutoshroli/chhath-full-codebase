@@ -6,7 +6,7 @@ DROP TABLE IF EXISTS generated_files;
 CREATE TABLE generated_files (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   doc_type TEXT,
-  year REAL,
+  year INTEGER,              -- audit M-33: was REAL. Whole year; bound as parseInt in the UNIQUE(doc_type,year,record_id) guard.
   record_id TEXT,
   file_name TEXT,
   public_link TEXT,

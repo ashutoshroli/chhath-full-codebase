@@ -5,12 +5,12 @@
 DROP TABLE IF EXISTS committee_members;
 CREATE TABLE committee_members (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  year REAL,
+  year INTEGER,               -- audit M-33: was REAL. Whole year, parseInt-compared.
   name TEXT,
   created_by TEXT,
   view_role TEXT,
   view_role_hindi TEXT,
-  whatsapp REAL
+  whatsapp TEXT               -- audit M-33: was REAL. Phone number — REAL loses leading '+'/0 + precision.
 );
 CREATE INDEX idx_committee_members_year ON committee_members(year);
 
@@ -22,7 +22,7 @@ CREATE TABLE login_users (
   password TEXT,
   role TEXT,
   updated_at TEXT,
-  mobile REAL,
+  mobile TEXT,                -- audit M-33: was REAL. Phone number; compared as text in login lookup.
   email TEXT
 );
 CREATE INDEX idx_login_users_name ON login_users(name);
@@ -39,7 +39,7 @@ CREATE TABLE portal_settings (
 DROP TABLE IF EXISTS festival_dates;
 CREATE TABLE festival_dates (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  year REAL,
+  year INTEGER,              -- audit M-33: was REAL. Whole year.
   diwali_next_day_date TEXT,
   nahay_khay_date TEXT,
   chhath_morning_arghya_date TEXT
@@ -54,7 +54,7 @@ CREATE TABLE dropdown_lists (
   english_value TEXT,
   hindi_label TEXT,
   active TEXT,
-  sort_order REAL
+  sort_order INTEGER          -- audit M-33: was REAL. Integer ordering index (max+1).
 );
 CREATE INDEX idx_dropdown_lists_list_type ON dropdown_lists(list_type);
 CREATE INDEX idx_dropdown_lists_active ON dropdown_lists(active);
@@ -85,11 +85,11 @@ CREATE TABLE users (
   name TEXT,
   village TEXT,
   fathers_name TEXT,
-  mobile REAL,
+  mobile TEXT,                -- audit M-33: was REAL. Phone number — TEXT preserves digits/leading zeros.
   designation TEXT,
   created_by TEXT,
   email TEXT,
-  whatsapp REAL,
+  whatsapp TEXT,             -- audit M-33: was REAL. Phone number.
   name_hindi TEXT,
   fathers_name_hindi TEXT,
   designation_hindi TEXT,
