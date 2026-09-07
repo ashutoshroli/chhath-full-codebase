@@ -1,6 +1,7 @@
 import { login, loginWithGoogle, doLogout, withAuth, withApiKey, verifyToken, requireSuperadmin, requireAdminOrAbove, requireStaffRole, getLockedYearsSet, lockYear, unlockYear, getMySessions, revokeSession, revokeAllOtherSessions, getUserSessions, revokeUserSession, getLoginAttempts, getLockedAccounts, revokeLock, revokeAllLocks } from './auth.js';
 import { getSheetDataAsJSON, saveRecord, updateRecordByIdx, deleteRecordByIdx } from './crud.js';
 import { importCsvRows } from './csvImport.js';
+import { parseCookies, buildSessionCookies, buildClearCookies, SESSION_COOKIE, CSRF_COOKIE, CSRF_HEADER } from './cookies.js';
 import { getYears, addYear, getHomeData, getLoansData, getExpensesData, getCommitteeData, getUserHistory, getYearContributors, getUserProfile } from './views.js';
 import { getLoginUsers, addLoginUser, updateLoginUser, deleteLoginUser, updateOwnProfile, changePassword, uploadFileToDrive } from './account.js';
 import { getDropdownList, getAllDropdownLists, addDropdownListItem, updateDropdownListItem, deleteDropdownListItem } from './dropdownLists.js';
@@ -275,6 +276,11 @@ function corsHeaders(request, env, extra) {
     headers['Access-Control-Allow-Origin'] = origin;
     // When we echo a specific origin (not '*'), caches must vary on Origin.
     if (origin !== '*') headers['Vary'] = 'Origin';
+    // audit H-12/M-10: allow the browser to send/receive the session + CSRF
+    // cookies on cross-origin requests. Credentials CANNOT be combined with a
+    // wildcard ACAO, so only advertise them when we echoed a specific origin
+    // (ALLOWED_ORIGINS is set — the deliberate, non-wildcard case).
+    if (origin !== '*') headers['Access-Control-Allow-Credentials'] = 'true';
   }
   return headers;
 }
@@ -384,7 +390,10 @@ export default {
       return new Response(null, {
         headers: corsHeaders(request, env, {
           'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
+          // audit H-12/M-10: allow the CSRF header on preflight; allow credentials
+          // so the browser will send/accept the cookies on cross-origin XHR.
+          'Access-Control-Allow-Headers': 'Content-Type, X-CSRF-Token',
+          'Access-Control-Allow-Credentials': 'true',
         }),
       });
     }
@@ -421,6 +430,35 @@ export default {
     req.serverIp = edgeIp;
     req.clientIpReported = req.clientIp || '';
     if (edgeIp) req.clientIp = edgeIp;
+
+    // ---- audit H-12 / M-10: cookie session + CSRF (backward-compatible) ----
+    //
+    // Read the HttpOnly session cookie so withAuth() can fall back to it when the
+    // body carried no token (a cookie-only client). This is ADDITIVE: a client
+    // that still sends req.token in the body is unaffected — that path stays first.
+    //
+    // CSRF is enforced ONLY when the request authenticated via the COOKIE (no body
+    // token) AND is a state-changing action. A body-token caller is structurally
+    // CSRF-immune (a cross-site page can't read localStorage to forge the body
+    // token), so it is never blocked — which is exactly what lets the old and new
+    // schemes run side by side with zero breakage. The check is the standard
+    // double-submit: the readable cpm_csrf cookie must equal the X-CSRF-Token
+    // header. `login`/`verifyGoogleLogin` are exempt (no session yet).
+    const cookies = parseCookies(request);
+    const cookieSession = cookies[SESSION_COOKIE] || '';
+    if (cookieSession) req.__cookieSessionToken = cookieSession;
+    const usingCookieAuth = !req.token && !!cookieSession;
+    const CSRF_EXEMPT = new Set(['login', 'verifyGoogleLogin']);
+    if (usingCookieAuth && EXPECTED_MUTATING_ACTIONS.has(action) && !CSRF_EXEMPT.has(action)) {
+      const headerToken = (request.headers.get(CSRF_HEADER) || '').trim();
+      const cookieToken = (cookies[CSRF_COOKIE] || '').trim();
+      if (!headerToken || !cookieToken || headerToken !== cookieToken) {
+        return jsonOut(
+          { success: false, message: 'Security check failed (CSRF). Please refresh the page and sign in again.' },
+          request, env, 403
+        );
+      }
+    }
 
     // SECURITY (audit S5): lightweight per-IP rate limit on UNAUTHENTICATED /
     // public actions (the authenticated ones are already gated by login + role,
@@ -970,10 +1008,30 @@ export default {
       // surface it as 400 so infra sees it as a client-correctable outcome, not
       // a 200 "success". Everything else is a real 200.
       const status = (result && result.success === false) ? 400 : 200;
+
+      // audit H-12: on a successful login, set the HttpOnly session + readable CSRF
+      // cookies. `token` STAYS in the body (so the existing localStorage path is
+      // unchanged); `csrf`/`ttlMs` are transport-only for the cookie, so strip them
+      // from the body before serializing. On logout, clear the cookies.
+      let setCookies = null;
+      if (status === 200 && result && result.success && result.token && result.csrf) {
+        const maxAge = Math.floor((result.ttlMs || 8 * 60 * 60 * 1000) / 1000);
+        setCookies = buildSessionCookies(result.token, result.csrf, maxAge);
+        delete result.csrf;
+        delete result.ttlMs;
+      } else if (action === 'logout') {
+        setCookies = buildClearCookies();
+      }
+
       // mgmt responses are per-caller/private — never let a browser/CDN cache them
       // across users (our own server-side KV cache is the only cache, and it only
       // holds shared read data).
-      return jsonOut(result, request, env, status, { 'Cache-Control': 'private, no-store' });
+      const resp = jsonOut(result, request, env, status, { 'Cache-Control': 'private, no-store' });
+      if (setCookies) {
+        try { for (const c of setCookies) resp.headers.append('Set-Cookie', c); }
+        catch (e) { /* cookie set is best-effort — never fail the response */ }
+      }
+      return resp;
     } catch (err) {
       const status = err.authError ? 'authError' : (err.announceSessionExpired ? 'announceSessionExpired' : 'error');
 
