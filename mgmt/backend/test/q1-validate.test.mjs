@@ -96,3 +96,38 @@ test('field names are humanised in messages (snake_case + camelCase)', () => {
   expectValidationError(() => validateFields({}, { fathers_name: v.string({ required: true }) }), /Fathers Name is required/);
   expectValidationError(() => validateFields({}, { loanId: v.string({ required: true }) }), /Loan Id is required/);
 });
+
+
+// ---------------------------------------------------------------------------
+// audit Q-1 (adoption): the shared assertTenDigits / assertEmail validators now
+// back account.js (addLoginUser/updateLoginUser) and crud.js (validatePayload),
+// replacing three verbatim copies of the same regex checks. These pin that they
+// preserve the EXACT user-facing messages (so nothing that keys on them breaks)
+// and the exact accept/reject behaviour.
+// ---------------------------------------------------------------------------
+import { assertTenDigits, assertEmail } from '../src/validate.js';
+
+test('Q-1 adoption: assertTenDigits accepts a 10-digit value and returns it trimmed', () => {
+  assert.equal(assertTenDigits('9876543210', 'Mobile number'), '9876543210');
+  assert.equal(assertTenDigits('  9876543210  ', 'Mobile'), '9876543210');
+});
+
+test('Q-1 adoption: assertTenDigits rejects a non-10-digit value with the exact message', () => {
+  // account.js message: "Mobile number must be 10 digits."
+  expectValidationError(() => assertTenDigits('123', 'Mobile number'), /^Mobile number must be 10 digits\.$/);
+  // crud.js field label: "Mobile" / "WhatsApp" — still matches the tested /must be 10 digits/.
+  expectValidationError(() => assertTenDigits('abcd', 'WhatsApp'), /must be 10 digits/);
+});
+
+test('Q-1 adoption: assertTenDigits treats blank as allowed unless required', () => {
+  assert.equal(assertTenDigits('', 'Mobile'), '');       // optional blank -> ok
+  assert.equal(assertTenDigits(undefined, 'Mobile'), '');
+  expectValidationError(() => assertTenDigits('', 'Mobile number', { required: true }), /must be 10 digits\./);
+});
+
+test('Q-1 adoption: assertEmail accepts a valid address, rejects a bad one with the exact message', () => {
+  assert.equal(assertEmail('a@b.co'), 'a@b.co');
+  assert.equal(assertEmail(''), '');                      // optional blank -> ok
+  expectValidationError(() => assertEmail('not-an-email'), /^A valid Email is required\.$/);
+  expectValidationError(() => assertEmail('', { required: true }), /^A valid Email is required\.$/);
+});

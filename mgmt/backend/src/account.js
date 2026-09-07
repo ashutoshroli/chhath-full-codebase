@@ -1,6 +1,7 @@
 import { getSheetDataAsJSON } from './crud.js';
 import { requireAdminOrAbove, requireSuperadmin, PermissionError, ValidationError, hashPassword, verifyPassword, InternalError, revokeSessionsFor } from './auth.js';
 import { base64ToBytes, MAX_GENERIC_UPLOAD_BYTES } from './base64.js';
+import { assertTenDigits, assertEmail } from './validate.js'; // audit Q-1: shared field validators
 
 const ROLE_PERMISSIONS_KEYS = ['Superadmin', 'Admin', 'Subadmin'];
 
@@ -50,10 +51,9 @@ export async function addLoginUser(env, userId, password, roleVal, mobile, email
     throw ValidationError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
   }
   if (!ROLE_PERMISSIONS_KEYS.includes(roleVal)) throw ValidationError('Invalid role.');
-  const mobileTrim = (mobile || '').toString().trim();
-  const emailTrim = (email || '').toString().trim();
-  if (!/^\d{10}$/.test(mobileTrim)) throw ValidationError('Mobile number must be 10 digits.');
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) throw ValidationError('A valid Email is required.');
+  // audit Q-1: shared validators (validate.js) — same messages as before, one impl.
+  const mobileTrim = assertTenDigits(mobile, 'Mobile number', { required: true });
+  const emailTrim = assertEmail(email, { required: true });
 
   const existing = await env.DB_CORE.prepare('SELECT id FROM login_users WHERE name = ?').bind(userId.toString().trim()).first();
   if (existing) throw ValidationError('A login for this user already exists — please edit it instead.');
@@ -71,10 +71,9 @@ export async function updateLoginUser(env, rowIndex, password, roleVal, mobile, 
   requireSuperadmin(user);
   if (!rowIndex) throw ValidationError('rowIndex required');
   if (!roleVal || !ROLE_PERMISSIONS_KEYS.includes(roleVal)) throw ValidationError('Invalid role.');
-  const mobileTrim = (mobile || '').toString().trim();
-  const emailTrim = (email || '').toString().trim();
-  if (!/^\d{10}$/.test(mobileTrim)) throw ValidationError('Mobile number must be 10 digits.');
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) throw ValidationError('A valid Email is required.');
+  // audit Q-1: shared validators (validate.js) — same messages as before, one impl.
+  const mobileTrim = assertTenDigits(mobile, 'Mobile number', { required: true });
+  const emailTrim = assertEmail(email, { required: true });
 
   const current = await env.DB_CORE.prepare('SELECT name FROM login_users WHERE id = ?').bind(rowIndex).first();
   const currentName = current ? current.name.trim() : null;
