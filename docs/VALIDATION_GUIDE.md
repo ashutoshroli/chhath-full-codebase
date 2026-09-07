@@ -66,6 +66,22 @@ year-locked checks, role permissions, id allocation, uniqueness — stay in the
 handlers (and in `crud.js`'s existing `validatePayload` / `saveRecord`). `validate.js`
 replaces the duplicated, easy-to-get-subtly-wrong shape checks, not those.
 
+## Adoption status (audit Q-1)
+
+Adopted so far, message-preserving:
+- `account.js` `addLoginUser` / `updateLoginUser` — the 10-digit phone + email
+  checks now use the shared `assertTenDigits` / `assertEmail` (validate.js). Same
+  exact messages ("Mobile number must be 10 digits.", "A valid Email is required.").
+- `crud.js` `validatePayload` — the Mobile/WhatsApp 10-digit check uses
+  `assertTenDigits` (one implementation instead of three verbatim copies).
+
+Deliberately NOT force-adopted: the ~190 other `throw ValidationError` sites mostly
+encode DOMAIN rules (year locked, role/permission, "already exists", conditionally
+required fields) that `validate.js` intentionally does not replace, and several have
+user-facing messages other code/tests key on. Converting them wholesale would change
+messages/behaviour for no functional gain — against the "nothing breaks" rule. They
+are migrated only where it is a clean, message-preserving consolidation.
+
 ## Adoption checklist (per handler, incremental)
 
 1. Identify the handler's shape/type/format checks (the `if (!x) throw` block).

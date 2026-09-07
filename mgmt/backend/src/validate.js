@@ -136,3 +136,37 @@ export function validateFields(payload, schema, label) {
   }
   return out;
 }
+
+
+// ---------------------------------------------------------------------------
+// audit Q-1 (adoption) — shared field validators that PRESERVE the exact
+// user-facing messages the handlers already threw, so they are a true drop-in
+// consolidation of duplicated logic (the /^\d{10}$/ phone check and the email
+// regex appeared verbatim in account.js addLoginUser + updateLoginUser + crud.js).
+// Callers pass the label so the message reads exactly as before, e.g.
+// assertTenDigits(mobile, 'Mobile number') -> "Mobile number must be 10 digits".
+// Returns the trimmed value; a blank/absent value is allowed (the callers decide
+// separately whether the field is required) UNLESS required:true is passed.
+// ---------------------------------------------------------------------------
+const TEN_DIGITS = /^\d{10}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function assertTenDigits(value, label, { required = false } = {}) {
+  const s = (value === undefined || value === null) ? '' : value.toString().trim();
+  if (s === '') {
+    if (required) throw ValidationError(`${label} must be 10 digits.`);
+    return s; // blank allowed — caller's requiredness rules apply elsewhere
+  }
+  if (!TEN_DIGITS.test(s)) throw ValidationError(`${label} must be 10 digits.`);
+  return s;
+}
+
+export function assertEmail(value, { required = false } = {}) {
+  const s = (value === undefined || value === null) ? '' : value.toString().trim();
+  if (s === '') {
+    if (required) throw ValidationError('A valid Email is required.');
+    return s;
+  }
+  if (!EMAIL_RE.test(s)) throw ValidationError('A valid Email is required.');
+  return s;
+}

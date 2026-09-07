@@ -2,6 +2,7 @@ import { resolveSheet, toColumnPayload, fromColumnRow } from './tableRegistry.js
 import { requireRole, requireYearUnlocked, requireYearAccess, PermissionError, ValidationError, InternalError } from './auth.js';
 import { logErrorAt } from './logger.js';
 import { isTruthyFlag } from './flags.js';
+import { assertTenDigits } from './validate.js'; // audit Q-1: shared field validator
 
 const DB_BINDINGS = {
   core: 'DB_CORE',
@@ -156,13 +157,11 @@ function validatePayload(sheetName, payload) {
   if (payload.Amount !== undefined && payload.Amount !== '' && isNaN(parseFloat(payload.Amount))) {
     throw ValidationError('Amount must be a number');
   }
-  ['Mobile', 'WhatsApp'].forEach(f => {
-    if (payload[f] !== undefined && payload[f] !== null && payload[f].toString().trim() !== '') {
-      if (!/^\d{10}$/.test(payload[f].toString().trim())) {
-        throw ValidationError(f + ' must be 10 digits');
-      }
-    }
-  });
+  // audit Q-1: shared 10-digit validator (validate.js). Optional here — a blank
+  // Mobile/WhatsApp is allowed; only a NON-blank value must be 10 digits. Message
+  // is "<field> must be 10 digits." (was "... 10 digits" — the frontend/test match
+  // on the substring, so unchanged in effect).
+  ['Mobile', 'WhatsApp'].forEach(f => assertTenDigits(payload[f], f));
 }
 
 export async function saveRecord(env, sheetName, payload, user) {
