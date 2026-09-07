@@ -12,6 +12,7 @@ import { waNumberOf, looksLikeAttemptedNumber } from './phone.js';
 import { buildConsentPlaceholders } from './consentPlaceholders.js';
 import { usersByIdCodes, userByIdCode, loanByLoanId, loansByLoanIds } from './lookups.js';
 import { randomId, randomToken, randomOtp } from './random.js';
+import { parseAmt } from './money.js'; // audit L-13: shared, was duplicated here
 
 // SECURITY (audit C-4): all four of these were built from Math.random(), which is
 // not a CSPRNG — see random.js for why that made the consent OTP predictable.
@@ -19,7 +20,6 @@ const generateLoanId = () => randomId('LN');
 const generateConsentId = () => randomId('CN');
 const generateConsentToken = () => randomToken();
 const generateOtp = () => randomOtp();
-function parseAmt(v) { return parseFloat((v || '').toString().replace(/[^0-9.-]+/g, '')) || 0; }
 const isTruthyFlag = waTruthyFlag;
 
 // Uploads a consent photo/signature. Prefers R2 (year-wise key), falls back to

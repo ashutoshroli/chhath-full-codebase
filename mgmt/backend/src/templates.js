@@ -1,6 +1,7 @@
 import { getSheetDataByColumn } from './crud.js';
 import { userByIdCode } from './lookups.js';
 import { requireSuperadmin, requireYearAccess, requireStaffRole, ValidationError } from './auth.js';
+import { parseAmt } from './money.js'; // audit L-13: shared, was duplicated here
 
 const RECEIPT_TEMPLATE_SAMPLE = `## नवयुवक छठ पूजा समिति / NAVYUVAK CHHATH PUJA SAMITI
 ### Donation Receipt / दान रसीद
@@ -171,7 +172,6 @@ export async function deleteTemplate(env, kind, year, user) {
 // it was a bootstrap step that never ran. If template seeding is wanted, it belongs
 // in db/seed/ as SQL alongside the other one-time data, not as dead reachable code.
 
-const parseAmt = (v) => parseFloat((v || '').toString().replace(/[^0-9.-]+/g, '')) || 0;
 // Guards on the *parsed* number, not raw truthiness — a literal "0" string
 // (accidental typo, or a pre-existing row saved before Kaam/Samaan entries
 // properly left Amount blank) must still be treated as "no amount", same as
