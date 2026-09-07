@@ -75,6 +75,34 @@ couldn't be verified. The operator actions are collected in
 
 ---
 
+## Reconciliation — after PRs #128–#133 (pre-launch hardening, data still test-only)
+
+With the data confirmed **test-only / pre-launch**, the items that were previously
+"recipe only" or "config-gated, not enabled" were taken to completion — safely,
+each verified by the full test suite (now **403 passing**). The deferred list below
+is therefore now **effectively empty of actionable items**; what remains is
+genuinely cosmetic or was withdrawn.
+
+| # | PR | Status now | What changed vs the recipe/deferred state |
+|---|----|-----------|-------------------------------------------|
+| **M-33** | #128 | **DONE (applied)** | The correct column types (`INTEGER`/`TEXT`) are now declared **directly in `mgmt/db/schema/*.sql`**, so a fresh deploy gets them for free. The in-place rebuild recipes (`12/13-*.sql`) are kept for any existing DB. Verified by context-gatherer (no write coercion, no strict-`===` on raw columns) + suite. |
+| **M-34 / M-35** | #129 | **DONE (CHECK applied)** | `role IN ('loaner','guarantor')` and `amount >= 0` are now **real schema CHECK constraints** (reliably enforced by D1). FK stays as the operator triggers (D1 doesn't enforce FK across requests, and it would break isolated-insert tests). |
+| **H-12 / M-10** | #130 | **DONE (implemented)** | HttpOnly `cpm_session` cookie + double-submit CSRF (`cpm_csrf` + `X-CSRF-Token`) + `credentials`/`Content-Type` preflight — **backward-compatible**: the body token still works and is never CSRF-checked, so nothing breaks mid-transition. `ALLOWED_ORIGINS` is set in prod. |
+| **H-5** | #131 (+#120,#113) | **DONE (minimized)** | All five remaining payload sections (committee/collections/expenses/loans/generatedFiles) now use column **allowlists** of exactly what the frontend renders. The full "split into lazy per-section endpoints" was deliberately NOT done — the frontend sections are interdependent and the payload is already edge-cached (`HIT`), so a split is high-risk/low-gain. Data-minimization (the real finding) is achieved. |
+| **Q-1** | #132 | **DONE (adopted)** | `validate.js` (`assertTenDigits`/`assertEmail`) adopted in `account.js` + `crud.js`, consolidating three verbatim copies, message-preserving. Wholesale adoption of the ~190 domain-rule throws was correctly NOT forced (they aren't shape checks and several messages are contracts). |
+| **free-plan** | #133 | **DONE (reviewed + fixed)** | Full free-tier review (`docs/FREE_PLAN_LIMITS.md`): app well inside limits. Capped the WhatsApp group fan-out (`MAX_GROUPS_PER_JOB`) and replaced the last full-USERS-scan on the save/cron path with an indexed lookup. |
+
+**Only these classes remain, and none is an actionable defect:**
+- **Cosmetic / structural** (below): M-9, Q-2, Q-3, Q-6, Q-9, Q-11/Q-12, L-6 — no
+  behavioural impact; changing them is churn or a breaking API-shape change.
+- **Withdrawn** (below): L-1, M-8, M-22, H-18, L-16, H-7 — findings that were wrong
+  on inspection; must NOT be "fixed".
+
+There are no remaining High/Medium items with behavioural impact. The sections that
+follow are retained as the historical record of *why* each was deferred at the time.
+
+---
+
 ## Deferred deliberately — the fix is riskier than the finding
 
 ### H-5 — the public portal ships the whole member + finance database
