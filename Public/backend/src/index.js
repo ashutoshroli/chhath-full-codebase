@@ -54,6 +54,18 @@ const REVERSE_MAPS = {
 // exactly what Public/frontend/script.js's buildPersonDownloads() reads.
 const LOAN_CONSENTS_PUBLIC_COLS = ['loan_id', 'role', 'status', 'person_id', 'consent_id'];
 
+// The ONLY loan_guarantors columns the public portal is allowed to see (audit H-5,
+// safe slice). The public loan view (script.js renderLoans) reads exactly Year,
+// Loan ID, Loaner and Guarantor from each guarantor row and derives everything
+// else (village / contributor / committee status) from the users/collections/
+// committee maps it already has. Previously this shipped via a DENYLIST that only
+// dropped `guarantor_signature`, so `created_by` — and, more dangerously, ANY
+// column added to loan_guarantors in future — leaked to every anonymous visitor.
+// Switching to this ALLOWLIST (same pattern as loan_consents above) ships only the
+// four rendered columns and fails CLOSED: a new sensitive column can never leak
+// unless it is added here deliberately. No rendered field changes.
+const LOAN_GUARANTORS_PUBLIC_COLS = ['year', 'loaner', 'guarantor', 'loan_id'];
+
 // Returns the public `users` rows with `email`/`whatsapp` always dropped, and
 // `mobile` kept ONLY for people who are committee members in some year (the only
 // place the public site shows a mobile). Everyone else has their mobile stripped
@@ -342,8 +354,11 @@ async function getAllPortalData(env) {
     // SECURITY: drop `signature` + `loan_documents` (personal signature image +
     // document links) — the public site never renders them.
     loans: await tableRows(env.DB_LOANS_EXPENSES, 'loans', REVERSE_MAPS.loans, ['signature', 'loan_documents']),
-    // SECURITY: drop `guarantor_signature` (personal signature image URL).
-    guarantors: await tableRows(env.DB_LOANS_EXPENSES, 'loan_guarantors', REVERSE_MAPS.loan_guarantors, ['guarantor_signature']),
+    // SECURITY (audit H-5): allowlist to the four columns the public loan view
+    // actually reads. This drops `guarantor_signature` (as before) AND `created_by`,
+    // and — crucially — fails closed for any future column. See
+    // LOAN_GUARANTORS_PUBLIC_COLS above.
+    guarantors: await tableRows(env.DB_LOANS_EXPENSES, 'loan_guarantors', REVERSE_MAPS.loan_guarantors, null, LOAN_GUARANTORS_PUBLIC_COLS),
     // `drive_path` is an INTERNAL Drive location ("Generated PDFs/Consents-Loaner/
     // 2026/Consent-CN...pdf") that the public site never renders — it was being
     // shipped to every anonymous visitor for no reason. The portal only needs
