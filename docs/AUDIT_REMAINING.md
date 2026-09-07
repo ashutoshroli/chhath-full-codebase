@@ -46,6 +46,35 @@ Launch date at the time of writing: **25 October 2026.** "Post-launch" below mea
 
 ---
 
+## Reconciliation — 2026-09 (after PRs #112–#122): the remainder addressed
+
+The whole "still deferred" list above was worked through in a batch of small,
+independently-reviewable PRs, each written to change **no live behaviour it could
+not verify**. Where the safe fix could not be defaulted-on (a live-data migration,
+or a change gated on production config), it ships as a **proven, ready-to-run recipe
+or a documented runbook** rather than a blind edit. See
+**`docs/POST_AUDIT_MANUAL_STEPS.md`** for exactly what an operator runs and when.
+
+| # | PR | What shipped | Live behaviour change? |
+|---|----|--------------|------------------------|
+| **Q-8** | #114 | Kept the fail-safe read-list; added an exported `EXPECTED_MUTATING_ACTIONS` + a drift-guard test so a new action can't be silently misclassified. Caught a real miss: `getSeoSettings` was a read not listed → added. | Tiny (one fewer needless revalidation). |
+| **L-13 / Q-4** | #115 | Behavioural **parity tests** pinning the deliberately-duplicated cross-Worker helpers (`isTruthyFlag`, `parseStoredDate`, `parseAmt`). | None (test-only). |
+| **M-34 / M-35** | #116 | FK + CHECK constraints shipped as **detection queries + BEFORE-INSERT trigger recipes + rebuild recipes**, all commented out (no-op as shipped). | None until an operator runs them. |
+| **M-33** | #117 | `REAL`→`INTEGER`/`TEXT` column **rebuild recipes** (incl. the phone/UTR identity columns), commented out. | None until an operator runs them. |
+| **H-16** | #118 | `restoreBackup` is now **incremental (one D1 binding per request)** and no longer builds a full second export in-request; operator acknowledges a fresh backup instead. | Yes — restore flow (Superadmin-only). |
+| **P-3** | #119 | Bulk PDF generation is now a **bounded-concurrency pool** (still one request per PDF, subrequest-safe). | Yes — bulk-generate is faster. |
+| **H-5** | #113 (slice) + #120 | #113 allowlisted the public `loan_guarantors` payload. #120 added an **additive `?action=summary`** aggregates endpoint (cache-safe); the destructive `portalData` split stays a documented follow-up needing live cache verification. | Public payload smaller; `portalData` unchanged. |
+| **M-10 / H-12** | #121 | **Not enabled** (prod-config-dependent outage risk). Added a health-check warning when `ALLOWED_ORIGINS` is unset + `docs/CORS_COOKIE_MIGRATION.md` runbook. | None (advisory only). |
+| **Q-1** | #122 | Zero-dependency, zod-shaped **`validate.js`** + adoption guide. No handler rewritten. | None (inert until adopted). |
+
+**Net:** every item on the deferred list now has either a shipped fix, a proven
+recipe an operator can run against live data on their own schedule, or a documented
+enablement runbook for the config-gated ones. Nothing was force-changed that
+couldn't be verified. The operator actions are collected in
+`docs/POST_AUDIT_MANUAL_STEPS.md`.
+
+---
+
 ## Deferred deliberately — the fix is riskier than the finding
 
 ### H-5 — the public portal ships the whole member + finance database
