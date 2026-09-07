@@ -124,7 +124,7 @@ export default function Loans({ year, users, committee, role, editable }) {
           ? guarantors.filter(g => (g['Loan ID'] || '').toString().trim() === loan['Loan ID'].toString().trim())
           : guarantors.filter(g => parseInt(g.Year) === parseInt(loan.Year) && g.Loaner === loan.Name);
         return (
-          <div className="glass-card" style={{ background: '#FFFBEB', borderColor: '#FCD34D' }} key={idx}>
+          <div className="glass-card" style={{ background: '#FFFBEB', borderColor: '#FCD34D' }} key={(loan['Loan ID'] || '').toString().trim() || loan.__rowIndex || idx}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
               <h3 style={{ color: '#92400E' }}>Surplus Loan {year === 'All' ? `(${loan.Year})` : ''}</h3>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>

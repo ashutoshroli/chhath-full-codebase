@@ -87,7 +87,7 @@ export default function LoginManagement({ users, role }) {
       </p>
       {(!data || data.length === 0) && <div className="glass-card" style={{ textAlign: 'center', padding: 20 }}>No logins have been added yet.</div>}
       {(data || []).map((r, i) => (
-        <div className="glass-card" style={{ padding: 15, marginBottom: 12, display: 'flex', gap: 15, alignItems: 'center' }} key={i}>
+        <div className="glass-card" style={{ padding: 15, marginBottom: 12, display: 'flex', gap: 15, alignItems: 'center' }} key={r.__rowIndex ?? i}>
           <div style={{ flexGrow: 1 }}>
             <strong>{r.personName}</strong>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{r.personVillage || 'N/A'}</div>
