@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { makeD1, schemaFor } from './helpers/stubs.mjs';
-import { runRetentionSweep, shouldSweepNow, SWEEP_MINUTE, RETENTION } from '../src/retention.js';
+import { runRetentionSweep, shouldSweepNow, SWEEP_MINUTE, SWEEP_WINDOW_MINUTES, RETENTION } from '../src/retention.js';
 
 const MIGRATION_DIR = new URL('../../db/migration/2026-09-05/', import.meta.url);
 const migrationFiles = () => readdirSync(MIGRATION_DIR).filter(f => f.endsWith('.sql')).sort();
@@ -262,18 +262,32 @@ test('M-38: the steady state is silent and cheap', async () => {
   assert.deepEqual(report, {}, 'with nothing to clean, the report must be empty so nothing is logged');
 });
 
-test('M-38: the sweep runs once an hour, not on all 1440 cron ticks', () => {
-  let sweeps = 0;
+test('M-38: the sweep runs EXACTLY once per hour on the real */3 cron cadence', () => {
+  // The cron runs every 3 minutes (see wrangler.toml): ticks at minute 0,3,6,...,57.
+  // Simulate ONLY those ticks (not all 60 minutes) and assert the window function
+  // fires exactly once per hour — never skipped, never doubled.
+  const CRON_STEP = 3;
   for (let h = 0; h < 24; h++) {
-    for (let m = 0; m < 60; m++) {
-      if (shouldSweepNow(new Date(Date.UTC(2026, 9, 25, h, m)))) sweeps++;
+    let sweepsThisHour = 0;
+    for (let m = 0; m < 60; m += CRON_STEP) {
+      if (shouldSweepNow(new Date(Date.UTC(2026, 9, 25, h, m)))) sweepsThisHour++;
     }
+    assert.equal(sweepsThisHour, 1, `hour ${h}: sweep must fire exactly once on the */3 cadence`);
   }
-  assert.equal(sweeps, 24, 'exactly once per hour');
-  assert.ok(shouldSweepNow(new Date(Date.UTC(2026, 9, 25, 3, SWEEP_MINUTE))));
-  assert.ok(!shouldSweepNow(new Date(Date.UTC(2026, 9, 25, 3, SWEEP_MINUTE + 1))));
+});
 
-  // Worst-case daily write cost must stay well inside D1's 100,000/day.
+test('M-38: the sweep window catches SWEEP_MINUTE and is bounded (< 1 hour so it cannot double-fire)', () => {
+  // The window [SWEEP_MINUTE, SWEEP_MINUTE + SWEEP_WINDOW_MINUTES) includes the
+  // configured minute...
+  assert.ok(shouldSweepNow(new Date(Date.UTC(2026, 9, 25, 3, SWEEP_MINUTE))));
+  // ...and excludes the minute just before it.
+  assert.ok(!shouldSweepNow(new Date(Date.UTC(2026, 9, 25, 3, SWEEP_MINUTE - 1))));
+  // The window must be far shorter than an hour, otherwise it could match twice in
+  // one hour. (This is what guarantees once-per-hour independent of the cron step.)
+  assert.ok(SWEEP_WINDOW_MINUTES < 30, 'window must be well under an hour');
+
+  // Worst-case daily write cost must stay well inside D1's 100,000/day even if the
+  // sweep somehow ran on several ticks per hour.
   const statements = 8;
   assert.ok(24 * statements * 200 < 100000, 'worst-case sweep writes must fit the budget');
 });
