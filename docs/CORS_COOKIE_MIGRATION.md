@@ -1,6 +1,21 @@
-# CORS preflight (M-10) + cookie session (H-12) — enablement runbook
+# CORS preflight (M-10) + cookie session (H-12) — IMPLEMENTED
 
-**Status: NOT enabled. Do not flip any of this without doing Step 0 first.**
+**Status: IMPLEMENTED (backward-compatible).** The backend now sets an HttpOnly
+`cpm_session` cookie + a readable `cpm_csrf` cookie on login, `withAuth` accepts
+either the body token OR the session cookie, and mutating requests that authenticate
+via the cookie must pass a double-submit CSRF check (`X-CSRF-Token` == `cpm_csrf`).
+The frontend sends `Content-Type: application/json`, `credentials: 'include'`, and
+the `X-CSRF-Token` header — while STILL sending the body token as a fallback.
+
+**Nothing breaks because the change is additive:** the body-token/localStorage path
+is unchanged and is never subject to the CSRF check (it is structurally CSRF-immune);
+the cookie path is the safer parallel. `ALLOWED_ORIGINS` MUST be set (it is — verified
+via `/?health=1`) because credentialed CORS cannot use a wildcard origin.
+
+The section below is retained as the original design/runbook and rollback reference.
+
+---
+
 
 These two audit items are deliberately *not* shipped as an automatic change, because
 both depend on production configuration that cannot be verified from CI, and getting

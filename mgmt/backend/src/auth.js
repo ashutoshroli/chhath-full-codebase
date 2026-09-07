@@ -3,6 +3,8 @@
 // Sessions live in Workers KV (see MIGRATION_NOTES.md for why), not D1.
 // Everything else (LOGIN table, LOCKED YEARS, MANUAL YEARS) lives in `core` D1.
 
+import { newCsrfToken } from './cookies.js'; // audit H-12: CSRF token minted with each session
+
 const SESSION_SHORT_MS = 8 * 60 * 60 * 1000;      // 8 hours (not "remember me") — matches Code.js exactly
 const SESSION_LONG_MS = 30 * 24 * 60 * 60 * 1000; // 30 days ("remember me") — matches Code.js exactly
 const MAX_LOGIN_ATTEMPTS = 5;
@@ -355,7 +357,11 @@ async function issueSession(env, loginRow, rememberMe, ip, deviceInfo, opts = {}
     success: true, reason: opts.reason || 'ok', ip, deviceInfo, locked: 0,
   });
 
-  return { success: true, token, name: actualName, role: loginRow.role, expiresAt };
+  // audit H-12: also mint a CSRF token so the router can set the cookie pair
+  // (cpm_session HttpOnly + cpm_csrf readable). `token` is STILL returned in the
+  // body so the existing localStorage/body-token path keeps working unchanged —
+  // the cookies are additive. `ttlMs` lets the router set Max-Age to match.
+  return { success: true, token, csrf: newCsrfToken(), ttlMs: ttl, name: actualName, role: loginRow.role, expiresAt };
 }
 
 // ---- Sign in with Google ----
@@ -742,7 +748,12 @@ export async function revokeUserSession(env, targetName, sessionId, user) {
 }
 
 export async function withAuth(env, req, fn) {
-  const user = await verifyToken(env, req.token);
+  // audit H-12: prefer the body token (the existing, CSRF-immune path — unchanged),
+  // and fall back to the HttpOnly session cookie the router extracted into
+  // req.__cookieSessionToken. So both the old localStorage clients and new
+  // cookie-only clients authenticate. The router enforces CSRF for the cookie path.
+  const token = req.token || req.__cookieSessionToken;
+  const user = await verifyToken(env, token);
   if (!user) throw AuthError('Session expired, please login again');
   return fn(user);
 }

@@ -6,6 +6,18 @@ const EXPIRY_KEY = 'cpm_token_expiry';
 const REMEMBER_KEY = 'cpm_remember';
 const USER_KEY = 'cpm_user';
 
+// audit H-12: read the readable CSRF cookie (cpm_csrf) the backend sets at login,
+// so call() can echo it in the X-CSRF-Token header (double-submit CSRF check). The
+// session cookie itself is HttpOnly and never readable here — only the backend
+// reads that. Returns '' if the cookie isn't present (e.g. cookies disabled), in
+// which case the body token still authenticates.
+function csrfFromCookie() {
+  try {
+    const m = document.cookie.match(/(?:^|;\s*)cpm_csrf=([^;]*)/);
+    return m ? decodeURIComponent(m[1]) : '';
+  } catch (e) { return ''; }
+}
+
 function activeStore() {
   return localStorage.getItem(REMEMBER_KEY) === '1' ? localStorage : sessionStorage;
 }
@@ -135,6 +147,7 @@ async function call(action, params = {}, requireAuth = true) {
   // service (api.ipify.org), delayed the first request of every page load, and was
   // discarded server-side in favour of the unspoofable CF-Connecting-IP.
   const body = { action, ...params, deviceId: getDeviceId(), deviceInfo: getDeviceInfo() };
+  // (csrfFromCookie is defined at module scope below)
   if (requireAuth) {
     const session = getSession();
     if (!session) {
@@ -145,9 +158,18 @@ async function call(action, params = {}, requireAuth = true) {
     body.token = session.token;
   }
   try {
+    // audit H-12/M-10: send JSON + credentials so the HttpOnly session cookie flows,
+    // and echo the readable cpm_csrf cookie in the X-CSRF-Token header (double-submit
+    // CSRF). We STILL send body.token (above) as a belt-and-suspenders fallback, so
+    // if a browser drops third-party cookies (Safari ITP etc.) auth keeps working.
+    const headers = { 'Content-Type': 'application/json' };
+    const csrf = csrfFromCookie();
+    if (csrf) headers['X-CSRF-Token'] = csrf;
     const res = await fetch(API_URL, {
       method: 'POST',
-      body: JSON.stringify(body), // text/plain content-type by default — avoids CORS preflight on Apps Script
+      credentials: 'include',
+      headers,
+      body: JSON.stringify(body),
     });
     let data;
     try {
