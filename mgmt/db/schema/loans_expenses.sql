@@ -28,7 +28,11 @@ CREATE TABLE loan_consents (
   verification_status TEXT,
   verification_remarks TEXT,
   verified_by TEXT,
-  verified_at TEXT
+  verified_at TEXT,
+  -- audit M-35: role is only ever 'loaner' or 'guarantor' (loans.js writes exactly
+  -- these two). CHECK allows NULL/'' for legacy rows but rejects any other value.
+  -- Unlike a FK, a CHECK IS reliably enforced by D1, so this is real, not advisory.
+  CHECK (role IS NULL OR role IN ('loaner', 'guarantor'))
 );
 CREATE INDEX idx_loan_consents_loan_id ON loan_consents(loan_id);
 CREATE INDEX idx_loan_consents_token ON loan_consents(token);
@@ -56,7 +60,9 @@ CREATE TABLE expenses (
   amount REAL,               -- stays REAL: fractional money (feeds SUM()).
   created_by TEXT,
   category TEXT,
-  discription_hindi TEXT
+  discription_hindi TEXT,
+  -- audit M-35: money is never negative. NULL allowed (legacy/blank).
+  CHECK (amount IS NULL OR amount >= 0)
 );
 CREATE INDEX idx_expenses_year ON expenses(year);
 CREATE INDEX idx_expenses_category ON expenses(category);
@@ -78,7 +84,9 @@ CREATE TABLE loans (
   loan_status TEXT,
   final_repayment_date TEXT,
   cash_amount REAL,          -- stays REAL: fractional money.
-  online_amount REAL         -- stays REAL: fractional money.
+  online_amount REAL,        -- stays REAL: fractional money.
+  -- audit M-35: money is never negative. NULL allowed (legacy/blank).
+  CHECK (amount IS NULL OR amount >= 0)
 );
 CREATE INDEX idx_loans_year ON loans(year);
 CREATE INDEX idx_loans_loan_id ON loans(loan_id);
