@@ -113,9 +113,28 @@ test('an unknown sheet is refused', async () => {
   await assert.rejects(() => importCsvRows(env, 'LOGIN', [{ Name: 'x' }], SUPERADMIN), /cannot be bulk-imported/i);
 });
 
-test('importableSheets lists exactly Users, Collections, Committee Members', () => {
+test('importableSheets lists Users, Collections, Committee Members, Expenses', () => {
   const keys = importableSheets().map(s => s.key).sort();
-  assert.deepEqual(keys, ['COLLECTIONS', 'COMMITEE MEMBERS', 'USERS']);
+  assert.deepEqual(keys, ['COLLECTIONS', 'COMMITEE MEMBERS', 'EXPENSES', 'USERS']);
+});
+
+test('imports Expenses rows', async () => {
+  const env = makeEnv();
+  const rows = [
+    { Year: '2026', Discription: 'Tent', Amount: '15000', Category: 'Decoration' },
+    { Year: '2026', Discription: '', Amount: '500' },        // missing required Discription -> skipped
+    { Year: '2026', Discription: 'Prasad', Amount: 'abc' },  // Amount not a number -> skipped
+  ];
+  const { report } = await importCsvRows(env, 'EXPENSES', rows, SUPERADMIN);
+  assert.equal(report.total, 3);
+  assert.equal(report.imported, 1);
+  assert.equal(report.skipped, 2);
+  const r = await env.DB_LOANS_EXPENSES.prepare("SELECT amount FROM expenses WHERE discription = 'Tent'").first();
+  assert.equal(Number(r.amount), 15000);
+  // The failure report identifies the bad Amount row by its description.
+  const badAmount = report.failures.find(f => f.name === 'Prasad');
+  assert.ok(badAmount, 'the bad-amount expense is reported with its description');
+  assert.match(badAmount.reason, /number/i);
 });
 
 // -------------------------------------------------------------- AUTH

@@ -11,6 +11,7 @@
 //   USERS             — people (name, village, mobile, ...). NOT login accounts.
 //   COLLECTIONS       — contributions (name, amount, contribution type, ...).
 //   COMMITEE MEMBERS  — committee roster (year, name, view role, ...).
+//   EXPENSES          — spend ledger (year, description, amount, category).
 //
 // DELIBERATELY EXCLUDED:
 //   LOANS — a loan is not a single row. saveLoanTransaction() requires exactly 3
@@ -18,8 +19,7 @@
 //   invitations in one transaction. A raw bulk insert of loan rows would create
 //   orphan loans with no guarantors/consents that can never be approved or repaid
 //   — an unrecoverable state. Loans must be entered through the Loans screen.
-//   LOGIN accounts, EXPENSES(*) and everything else are likewise out of scope
-//   here (expenses could be added later; kept minimal on purpose).
+//   LOGIN accounts and everything else are likewise out of scope here.
 
 import { saveRecord } from './crud.js';
 import { requireSuperadmin, ValidationError } from './auth.js';
@@ -45,6 +45,11 @@ const IMPORT_SHEETS = {
     label: 'Committee Members',
     required: ['Name'],
     known: ['Year', 'Name', 'View Role', 'View Role (Hindi)', 'WhatsApp'],
+  },
+  EXPENSES: {
+    label: 'Expenses',
+    required: ['Discription', 'Amount'], // note the schema's spelling "Discription"
+    known: ['Year', 'Discription', 'Discription (Hindi)', 'Amount', 'Category'],
   },
 };
 
@@ -72,7 +77,7 @@ export async function importCsvRows(env, sheetName, rows, user) {
 
   const sheetKey = resolveImportSheet(sheetName);
   if (!sheetKey) {
-    throw ValidationError('This section cannot be bulk-imported. Choose Users, Collections, or Committee Members.');
+    throw ValidationError('This section cannot be bulk-imported. Choose Users, Collections, Committee Members, or Expenses.');
   }
   if (!Array.isArray(rows)) throw ValidationError('No rows were provided.');
 
@@ -120,7 +125,9 @@ export async function importCsvRows(env, sheetName, rows, user) {
       report.skipped++;
       report.failures.push({
         row: rowNum,
-        name: (payload.Name || payload['Name'] || '').toString(),
+        // Best identifying label for the report: a person's Name, else the
+        // expense Description (Expenses has no Name column).
+        name: (payload.Name || payload.Discription || '').toString(),
         // saveRecord throws ValidationError/PermissionError with a human message
         // (e.g. "Mobile must be 10 digits", "Missing required field: Amount",
         // year locked, etc.). Surface that exact reason so the operator knows
