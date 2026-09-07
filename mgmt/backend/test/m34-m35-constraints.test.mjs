@@ -121,3 +121,42 @@ test('M-34/M-35: the migration files apply as a NO-OP against the live schema (t
     db.close();
   }
 });
+
+
+// ---------------------------------------------------------------------------
+// M-35 applied at the SCHEMA level: the CHECK constraints are now baked into
+// mgmt/db/schema/*.sql (not just trigger recipes), so they are enforced on EVERY
+// deployment without an operator step. These assert the live schema rejects bad
+// data and accepts good/legacy data. (SQLite enforces CHECK reliably — unlike FK,
+// which D1 does not enforce across requests, so FK stays a trigger recipe.)
+// ---------------------------------------------------------------------------
+test('M-35 (schema): loan_consents.role CHECK rejects a bad role, allows loaner/guarantor/NULL', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec(schemaFor('loans_expenses.sql'));
+  db.exec(`INSERT INTO loan_consents (consent_id, role) VALUES ('CN-1','loaner');`);
+  db.exec(`INSERT INTO loan_consents (consent_id, role) VALUES ('CN-2','guarantor');`);
+  db.exec(`INSERT INTO loan_consents (consent_id, role) VALUES ('CN-3', NULL);`); // legacy row, allowed
+  assert.throws(
+    () => db.exec(`INSERT INTO loan_consents (consent_id, role) VALUES ('CN-4','banana');`),
+    /constraint/i, 'a role outside loaner/guarantor must be rejected by the schema CHECK'
+  );
+  db.close();
+});
+
+test('M-35 (schema): amount CHECK rejects negative money on loans/expenses/collections', () => {
+  const le = new DatabaseSync(':memory:');
+  le.exec(schemaFor('loans_expenses.sql'));
+  le.exec(`INSERT INTO loans (loan_id, amount) VALUES ('LN-1', 0);`);      // zero ok
+  le.exec(`INSERT INTO loans (loan_id, amount) VALUES ('LN-2', 500.5);`);  // fractional ok
+  le.exec(`INSERT INTO loans (loan_id) VALUES ('LN-3');`);                 // NULL amount ok
+  assert.throws(() => le.exec(`INSERT INTO loans (loan_id, amount) VALUES ('LN-4', -1);`), /constraint/i);
+  le.exec(`INSERT INTO expenses (discription, amount) VALUES ('x', 10);`);
+  assert.throws(() => le.exec(`INSERT INTO expenses (discription, amount) VALUES ('y', -5);`), /constraint/i);
+  le.close();
+
+  const c = new DatabaseSync(':memory:');
+  c.exec(schemaFor('collections.sql'));
+  c.exec(`INSERT INTO collections (sl_no, amount) VALUES (1, 100);`);
+  assert.throws(() => c.exec(`INSERT INTO collections (sl_no, amount) VALUES (2, -100);`), /constraint/i);
+  c.close();
+});

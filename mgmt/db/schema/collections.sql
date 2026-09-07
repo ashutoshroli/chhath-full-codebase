@@ -18,7 +18,9 @@ CREATE TABLE collections (
   utr TEXT,                   -- audit M-33: was REAL. A UTR is a long identifier; REAL dropped leading zeros + precision.
   is_resell TEXT,
   announced TEXT,
-  announcedcount INTEGER      -- audit M-33: was REAL. Integer counter (COALESCE(...)+1).
+  announcedcount INTEGER,     -- audit M-33: was REAL. Integer counter (COALESCE(...)+1).
+  -- audit M-35: a contribution amount is never negative. NULL allowed (legacy/blank).
+  CHECK (amount IS NULL OR amount >= 0)
 );
 CREATE INDEX idx_collections_year ON collections(year);
 CREATE INDEX idx_collections_payment_mode ON collections(payment_mode);
