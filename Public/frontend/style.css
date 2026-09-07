@@ -40,6 +40,18 @@ body { background-color: var(--bg-offwhite); color: var(--text-main); padding-bo
 .glass-card { background: var(--card-white); border-radius: 12px; padding: 20px; box-shadow: var(--shadow); margin-bottom: 15px; border: 1px solid #eee; overflow-wrap: anywhere; }
 .budget-card { background: linear-gradient(135deg, #1F2937 0%, #111827 100%); color: white; }
 
+/* CLS fix (web-vitals): these containers start EMPTY and are filled by script.js
+   with innerHTML after the data loads. With no reserved height the page collapsed
+   to near-zero and then jumped down as rows were injected — a large Cumulative
+   Layout Shift (measured 0.32 = "poor"). Reserving a sensible minimum keeps the
+   layout stable while data arrives, so content fills the space instead of pushing
+   everything down. min-height only sets a FLOOR, so a longer list still grows
+   normally; a shorter one just shows a little whitespace briefly. No behaviour or
+   markup change. */
+#home-col-list, #exp-list, #com-list, #loans-dynamic-list, #dc-people-wrap, #dc-docs-wrap {
+  min-height: 200px;
+}
+
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
 .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
 .stat-box { background: #f3f4f6; padding: 15px; border-radius: 8px; border-left: 4px solid; }
