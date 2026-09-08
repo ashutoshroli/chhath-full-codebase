@@ -395,7 +395,18 @@ test('M-23: the D1 budget counter states why it cannot be atomic on the free tie
   const block = src.slice(src.indexOf('audit M-23'), src.indexOf('async function d1BudgetAdd'));
   assert.match(block, /no atomic increment/, 'KV cannot do this');
   assert.match(block, /Durable Objects/, 'and the primitive that can is paid-plan');
-  assert.match(block, /OVER-estimate/, 'so the guard is biased to under-serve, the safe direction');
+  // The counter now charges the ACTUAL rows read (countPayloadRows) instead of a
+  // fixed 60,000 over-estimate that made an idle deployment look ~75% consumed.
+  assert.match(block, /ACTUAL rows the build read|countPayloadRows/, 'the charge is the real row count, not a fixed over-estimate');
+});
+
+test('M-23: d1BudgetAdd charges the real row count (not a fixed 60000 over-estimate)', () => {
+  const src = readFileSync(new URL('../../../Public/backend/src/index.js', import.meta.url), 'utf8');
+  // The old flat over-estimate constant is gone.
+  assert.ok(!/const D1_ROWS_PER_BUILD\s*=\s*60000/.test(src), 'the fixed 60000 over-estimate must be removed');
+  // A floor keeps an empty build non-zero, and the payload row count is summed.
+  assert.match(src, /D1_BUILD_ROWS_FLOOR/, 'a per-build floor exists');
+  assert.match(src, /function countPayloadRows/, 'the build charges the summed payload row count');
 });
 
 // ============================ EVERY MIGRATION STAYS TEST-COVERED (CI job)
