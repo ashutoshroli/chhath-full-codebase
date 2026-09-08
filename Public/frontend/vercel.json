@@ -1,6 +1,20 @@
 {
   "headers": [
     {
+      "//": "OPTIMISATION (slow-connection repeat visits): cache the static CSS/JS at the browser + CDN so a returning visitor re-uses them instead of re-downloading. NOT 'immutable' and only 1 day, because these filenames are NOT content-hashed — a 1-day max-age + stale-while-revalidate means a deploy is picked up within a day while still serving instantly from cache in the meantime. This is Vercel/CDN caching for chhath.shaharpura.com static files ONLY; it is completely separate from and does not affect the public Worker's ?v= edge-cache scheme (different origin).",
+      "source": "/(script.js|style.css)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=86400, stale-while-revalidate=604800" }
+      ]
+    },
+    {
+      "//": "HTML pages must revalidate quickly: index.html is rebuilt on every deploy (SEO injection) and privacy/terms may change, so keep them short. A cheap conditional revalidation, not a full re-download, on repeat visits.",
+      "source": "/(.*)\\.html",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+      ]
+    },
+    {
       "source": "/(.*)",
       "headers": [
         {
