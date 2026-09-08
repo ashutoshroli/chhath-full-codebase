@@ -43,6 +43,9 @@ const SCHEMA_FOR_MIGRATION = {
   // nothing; proven by m33-column-types.test.mjs.
   '12-column-types-integer.sql': 'collections.sql',
   '13-column-types-text.sql': 'core.sql',
+  // rows_read burn — index the queue poll's (status, attempts) predicate so the
+  // 3-min cron drain stops full-scanning the fat collection_jobs table.
+  '14-collection-jobs-poll-index.sql': 'misc.sql',
 };
 
 // Migrations that legitimately do more than CREATE INDEX. Keep this list as short
@@ -91,6 +94,40 @@ test('H-10: the users.id_code index exists and is actually USED by the hot query
   assert.match(after, /idx_users_id_code/, `the planner must use the new index, got: ${after}`);
   assert.ok(!/SCAN TABLE users/i.test(after), 'and must no longer scan');
   db.close();
+});
+
+test('rows_read: the queue-drain poll uses idx_collection_jobs_status_attempts, not a full scan', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec(schemaFor('misc.sql'));
+
+  // The exact predicate processPendingJobs runs every 3 min / on every retry.
+  const POLL = `SELECT id, job_id, status, doc_type, year, record_id, is_new_entry,
+                       payload, file_name, created_by, attempts
+                  FROM collection_jobs
+                 WHERE attempts < ?
+                   AND (status = 'pending' OR (status = 'processing' AND (claimed_at IS NULL OR claimed_at < ?)))
+                 ORDER BY id ASC LIMIT ?`;
+
+  const planWith = db.prepare(`EXPLAIN QUERY PLAN ${POLL}`).all().map(r => r.detail).join(' | ');
+  // The OR is satisfied by an index range on each status branch; the planner must
+  // NOT fall back to scanning the (fat, filled_base64-bearing) table.
+  assert.match(planWith, /idx_collection_jobs_status_attempts/,
+    `the poll must use the composite index, got: ${planWith}`);
+  assert.ok(!/SCAN TABLE collection_jobs\b(?!.*USING)/i.test(planWith),
+    `the poll must not full-scan collection_jobs, got: ${planWith}`);
+  db.close();
+});
+
+test('rows_read: the poll query never SELECTs the fat filled_base64 blob', () => {
+  // Guard the code, not just the DB: the whole point is that the per-tick poll
+  // stays cheap. If someone reintroduces SELECT * or adds filled_base64 to the
+  // poll column list, this fails.
+  const src = readFileSync(new URL('../src/collectionQueue.js', import.meta.url), 'utf8');
+  const poll = src.slice(src.indexOf('WHERE attempts < ?'));
+  const pollSelect = src.slice(0, src.indexOf('WHERE attempts < ?')).lastIndexOf('SELECT');
+  const pollBlock = src.slice(pollSelect, src.indexOf('WHERE attempts < ?'));
+  assert.ok(!/SELECT\s+\*/i.test(pollBlock), 'the queue-drain poll must not use SELECT *');
+  assert.ok(!/filled_base64/i.test(pollBlock), 'the queue-drain poll must not select filled_base64');
 });
 
 test('H-10: the consent-flow lookups are index-backed too', () => {
