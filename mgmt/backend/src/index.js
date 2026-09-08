@@ -201,7 +201,15 @@ const RATE_LIMITED_ACTIONS = new Set([
   'logError', 'reportErrorToWhatsApp',
   'getConsentByToken', 'requestConsentOtp', 'verifyConsentOtp', 'respondConsent',
   'getDocxTemplatePublic', 'convertDocxToPdfPublic',
-  'verifyAnnouncementPin', 'getAnnouncementQueue', 'markAnnounced', 'reannounceAll',
+  // Announcements: only the PIN CHECK is rate-limited (it guards a 6-digit PIN on
+  // a WhatsApp-shared link against brute force). The post-unlock announce actions
+  // — getAnnouncementQueue / markAnnounced / reannounceAll — are deliberately NOT
+  // limited: they run only after the correct PIN is entered (a trusted operator on
+  // stage), and rapid-fire announcing legitimately fires them many times a minute.
+  // Capping them at 20/min produced spurious 429s mid-ceremony. They are still
+  // token-gated (a valid announce token is required) and their D1 cost is tiny
+  // (markAnnounced = 2 statements), so leaving them uncapped is safe here.
+  'verifyAnnouncementPin',
   'publicGetSeo',
 ]);
 
