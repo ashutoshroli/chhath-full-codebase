@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy | Navyuvak Chhath Puja Samiti, Shaharpura</title>
+  <meta name="description" content="Privacy Policy of the Navyuvak Chhath Puja Samiti, Shaharpura & Gardih internal portal — what data is collected and how it is used.">
+  <link rel="canonical" href="https://chhath.shaharpura.com/privacy.html">
+  <meta name="robots" content="index, follow">
+  <meta name="theme-color" content="#F97316">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* Static content page — scoped tweaks on top of the shared style.css. The
+       portal's body reserves 80px at the bottom for its app nav bar, which these
+       pages don't have, so reset it. */
+    body { padding: 0 0 40px; }
+    .doc-header { position: sticky; top: 0; z-index: 10; background: rgba(255,255,255,0.97);
+      backdrop-filter: blur(8px); border-bottom: 1px solid #eee; padding: 14px 16px;
+      display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .doc-header .brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .doc-header h1 { font-size: 1rem; line-height: 1.15; font-weight: 800; color: var(--text-main); }
+    .doc-header .sub { font-size: 0.7rem; color: var(--text-muted); }
+    .doc-wrap { max-width: 820px; margin: 0 auto; padding: 20px 16px; }
+    .doc-wrap h2 { font-size: 1.4rem; font-weight: 800; margin-bottom: 6px; color: var(--text-main); }
+    .doc-wrap .updated { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 18px; }
+    .doc-card { background: var(--card-white); border-radius: 12px; padding: 20px; box-shadow: var(--shadow);
+      border: 1px solid #eee; margin-bottom: 15px; }
+    .doc-card h3 { font-size: 1.05rem; font-weight: 700; color: var(--primary-saffron); margin-bottom: 8px; }
+    .doc-card p, .doc-card li { font-size: 0.92rem; line-height: 1.6; color: var(--text-main); }
+    .doc-card ul { margin: 8px 0 0 18px; }
+    .doc-card li { margin-bottom: 5px; }
+    .doc-card a { color: var(--primary-saffron); font-weight: 600; word-break: break-all; }
+    .lang-toggle { display: inline-flex; align-items: center; gap: 6px; background: #fff;
+      border: 1px solid #e5e7eb; border-radius: 999px; padding: 6px 12px; font-size: 0.8rem;
+      font-weight: 600; color: var(--text-main); cursor: pointer; flex-shrink: 0; }
+    .lang-toggle:hover { background: var(--saffron-light); }
+    .home-link { color: var(--primary-saffron); font-weight: 600; text-decoration: none; font-size: 0.85rem; }
+    .footer-note { text-align: center; font-size: 0.78rem; color: var(--text-muted); margin-top: 24px; }
+    /* Bilingual show/hide driven by <html lang>. Default (English) hides the
+       Hindi spans; when lang=hi, hide English and reveal Hindi. Uses `revert` so
+       an inline <span> stays inline and an <li> stays a list-item (no forced block). */
+    span[data-lang="hi"], li[data-lang="hi"] { display: none; }
+    html[lang="hi"] span[data-lang="en"], html[lang="hi"] li[data-lang="en"] { display: none; }
+    html[lang="hi"] span[data-lang="hi"] { display: inline; }
+    html[lang="hi"] li[data-lang="hi"] { display: list-item; }
+  </style>
+</head>
+<body>
+  <header class="doc-header">
+    <div class="brand">
+      <span class="material-icons-round" style="color:#F27A1A;">wb_sunny</span>
+      <div>
+        <h1><span data-lang="en">Navyuvak Chhath Puja Samiti</span><span data-lang="hi">नवयुवक छठ पूजा समिति</span></h1>
+        <span class="sub"><span data-lang="en">Shaharpura, Gardih</span><span data-lang="hi">शहरपुरा, गरडीह</span></span>
+      </div>
+    </div>
+    <button id="lang-toggle" class="lang-toggle" onclick="toggleLang()" aria-label="Change language" title="Change language / भाषा बदलें">
+      🌐 <span id="lang-toggle-label">हिंदी</span>
+    </button>
+  </header>
+
+  <main class="doc-wrap">
+    <a class="home-link" href="/">← <span data-lang="en">Home</span><span data-lang="hi">होम</span></a>
+
+    <h2 style="margin-top:14px;">
+      <span data-lang="en">Privacy Policy</span><span data-lang="hi">गोपनीयता नीति</span>
+    </h2>
+    <p class="updated">
+      <span data-lang="en">Navyuvak Chhath Puja Samiti, Shaharpura & Gardih — internal community portal</span>
+      <span data-lang="hi">नवयुवक छठ पूजा समिति, शहरपुरा एवं गरडीह — आंतरिक सामुदायिक पोर्टल</span>
+    </p>
+
+    <div class="doc-card">
+      <h3><span data-lang="en">Who this is for</span><span data-lang="hi">यह किसके लिए है</span></h3>
+      <p>
+        <span data-lang="en">This portal and its services are for the internal use of the members and community of <strong>Navyuvak Chhath Puja Samiti, Shaharpura & Gardih</strong> only. It is not a public service and is not intended for the general public.</span>
+        <span data-lang="hi">यह पोर्टल और इसकी सेवाएँ केवल <strong>नवयुवक छठ पूजा समिति, शहरपुरा एवं गरडीह</strong> के सदस्यों और समुदाय के आंतरिक उपयोग के लिए हैं। यह कोई सार्वजनिक सेवा नहीं है और आम जनता के लिए नहीं है।</span>
+      </p>
+    </div>
+
+    <div class="doc-card">
+      <h3><span data-lang="en">What data we collect</span><span data-lang="hi">हम कौन-सा डेटा एकत्र करते हैं</span></h3>
+      <p><span data-lang="en">To maintain the Samiti's records we may store:</span><span data-lang="hi">समिति के रिकॉर्ड रखने के लिए हम निम्न जानकारी संग्रहित कर सकते हैं:</span></p>
+      <ul>
+        <li><span data-lang="en">Name, father's name and village/address of members and contributors</span><span data-lang="hi">सदस्यों और चंदा देने वालों का नाम, पिता का नाम और गाँव/पता</span></li>
+        <li><span data-lang="en">Phone / WhatsApp number</span><span data-lang="hi">फ़ोन / व्हाट्सऐप नंबर</span></li>
+        <li><span data-lang="en">Donation and contribution (chanda) records</span><span data-lang="hi">दान एवं चंदा (योगदान) के रिकॉर्ड</span></li>
+        <li><span data-lang="en">Committee records, expenses and internal loan records</span><span data-lang="hi">समिति रिकॉर्ड, खर्च एवं आंतरिक ऋण रिकॉर्ड</span></li>
+        <li><span data-lang="en">Generated receipts / certificates (as PDF)</span><span data-lang="hi">जनरेट की गई रसीदें / प्रमाणपत्र (PDF के रूप में)</span></li>
+      </ul>
+    </div>
+
+    <div class="doc-card">
+      <h3><span data-lang="en">How we use it</span><span data-lang="hi">हम इसका उपयोग कैसे करते हैं</span></h3>
+      <p>
+        <span data-lang="en">This data is used <strong>only for the Samiti's internal record-keeping</strong> — recording chanda, generating receipts, and maintaining transparent accounts for the community. We do not use it for advertising or any purpose outside the Samiti.</span>
+        <span data-lang="hi">यह डेटा <strong>केवल समिति के आंतरिक रिकॉर्ड रखने</strong> के लिए उपयोग होता है — चंदा दर्ज करना, रसीद बनाना, और समुदाय के लिए पारदर्शी हिसाब रखना। हम इसका उपयोग विज्ञापन या समिति के बाहर किसी उद्देश्य के लिए नहीं करते।</span>
+      </p>
+    </div>
+
+    <div class="doc-card">
+      <h3><span data-lang="en">Sharing & third parties</span><span data-lang="hi">साझा करना एवं तृतीय पक्ष</span></h3>
+      <p>
+        <span data-lang="en">We <strong>do not sell or share</strong> your data with any third party. The only external service used is <strong>Google Drive</strong>, and it is used solely to store the PDF receipts/certificates generated by the portal. No personal data is shared for any other purpose.</span>
+        <span data-lang="hi">हम आपका डेटा किसी भी तृतीय पक्ष को <strong>न बेचते हैं न साझा करते हैं</strong>। एकमात्र बाहरी सेवा <strong>Google Drive</strong> है, जिसका उपयोग केवल पोर्टल द्वारा बनाई गई PDF रसीदें/प्रमाणपत्र संग्रहित करने के लिए होता है। किसी अन्य उद्देश्य के लिए कोई व्यक्तिगत डेटा साझा नहीं किया जाता।</span>
+      </p>
+    </div>
+
+    <div class="doc-card">
+      <h3><span data-lang="en">Data security & retention</span><span data-lang="hi">डेटा सुरक्षा एवं रखरखाव</span></h3>
+      <p>
+        <span data-lang="en">Records are kept for as long as needed for the Samiti's accounts. Access to the management portal is restricted to authorised Samiti members through login. You may request correction or removal of your information by contacting us.</span>
+        <span data-lang="hi">रिकॉर्ड तब तक रखे जाते हैं जब तक समिति के हिसाब के लिए आवश्यक हो। प्रबंधन पोर्टल तक पहुँच केवल अधिकृत समिति सदस्यों को लॉगिन के माध्यम से है। आप हमसे संपर्क करके अपनी जानकारी में सुधार या हटाने का अनुरोध कर सकते हैं।</span>
+      </p>
+    </div>
+
+    <div class="doc-card">
+      <h3><span data-lang="en">Contact</span><span data-lang="hi">संपर्क</span></h3>
+      <p>
+        <span data-lang="en">For any privacy question, contact:</span>
+        <span data-lang="hi">किसी भी गोपनीयता संबंधी प्रश्न के लिए संपर्क करें:</span>
+        <br><a href="mailto:shaharpura.815312@gmail.com">shaharpura.815312@gmail.com</a>
+      </p>
+    </div>
+
+    <p class="footer-note">
+      <a class="home-link" href="/terms.html"><span data-lang="en">Terms of Service</span><span data-lang="hi">सेवा की शर्तें</span></a>
+      &nbsp;·&nbsp; © <span id="yr"></span> Navyuvak Chhath Puja Samiti, Shaharpura
+    </p>
+  </main>
+
+  <script>
+    // Self-contained bilingual toggle — same idea as the portal's app.toggleLang
+    // (localStorage + <html lang>), but standalone so this page has no dependency
+    // on the data-fetching app script. CSS shows/hides [data-lang] by <html lang>.
+    var LANG_KEY = 'cpm_public_lang';
+    function applyLang(lang) {
+      document.documentElement.setAttribute('lang', lang);
+      var label = document.getElementById('lang-toggle-label');
+      if (label) label.textContent = lang === 'hi' ? 'English' : 'हिंदी';
+    }
+    function toggleLang() {
+      var next = document.documentElement.getAttribute('lang') === 'hi' ? 'en' : 'hi';
+      try { localStorage.setItem(LANG_KEY, next); } catch (e) {}
+      applyLang(next);
+    }
+    (function () {
+      var saved = 'en';
+      try { saved = localStorage.getItem(LANG_KEY) || 'en'; } catch (e) {}
+      applyLang(saved);
+      var y = document.getElementById('yr'); if (y) y.textContent = new Date().getFullYear();
+    })();
+  </script>
+</body>
+</html>
