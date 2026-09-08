@@ -92,3 +92,6 @@ CREATE TABLE IF NOT EXISTS collection_jobs (
 CREATE INDEX IF NOT EXISTS idx_collection_jobs_status ON collection_jobs(status);
 CREATE INDEX IF NOT EXISTS idx_collection_jobs_created_at ON collection_jobs(created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_collection_jobs_job_id ON collection_jobs(job_id);
+-- The queue-drain poll filters on (status, attempts); this index keeps it off a
+-- full scan of the (fat, filled_base64-bearing) table. See migration 2026-09-05/14.
+CREATE INDEX IF NOT EXISTS idx_collection_jobs_status_attempts ON collection_jobs(status, attempts);

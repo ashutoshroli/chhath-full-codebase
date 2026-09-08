@@ -284,8 +284,18 @@ export async function processPendingJobs(env) {
 
   // Eligible = still pending, OR marked processing but stale (a previous tick
   // died mid-flight). Cap attempts so a permanently-bad job doesn't loop.
+  //
+  // rows_read: we DELIBERATELY do NOT `SELECT *` here. Each row holds a ~700 KB
+  // base64 .docx in filled_base64, and this poll runs every 3 min (cron) plus on
+  // every retry/nudge — pulling that blob for every candidate row silently burned
+  // the D1 free-tier read budget (5M rows/day). We select only the small columns
+  // the claim + runOneJob need, then re-fetch filled_base64 by id for the ONE row
+  // we actually claim (below). Paired with idx_collection_jobs_status_attempts
+  // (migration 2026-09-05/14) the WHERE is index-served, not a full scan.
   const { results: jobs } = await db.prepare(
-    `SELECT * FROM collection_jobs
+    `SELECT id, job_id, status, doc_type, year, record_id, is_new_entry,
+            payload, file_name, created_by, attempts
+       FROM collection_jobs
       WHERE attempts < ?
         AND (status = 'pending' OR (status = 'processing' AND (claimed_at IS NULL OR claimed_at < ?)))
       ORDER BY id ASC LIMIT ?`
@@ -303,6 +313,15 @@ export async function processPendingJobs(env) {
     if (!claim || !claim.meta || claim.meta.changes === 0) continue; // someone else took it
 
     try {
+      // Now that THIS row is ours, load the heavy blob for just this one row.
+      // runOneJob only needs filled_base64 when there is a document to convert;
+      // fetching it here (single indexed point-read on the PK) keeps the poll above
+      // cheap while still giving runOneJob everything it used to get from SELECT *.
+      const blobRow = await db.prepare(
+        `SELECT filled_base64 FROM collection_jobs WHERE id = ?`
+      ).bind(job.id).first().catch(() => null);
+      job.filled_base64 = (blobRow && blobRow.filled_base64) || '';
+
       await runOneJob(env, job);
       await db.prepare(
         `UPDATE collection_jobs SET status = 'done', finished_at = ?, last_error = '' WHERE id = ?`
