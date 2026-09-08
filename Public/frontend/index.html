@@ -82,14 +82,15 @@
 
   <!-- Fonts loaded NON-render-blocking (media=print + onload swap), with a
        <noscript> fallback. This removes the render-blocking font fetch from the
-       critical path (helps LCP). `display=swap` on BOTH stylesheets keeps text/
-       icons visible with a fallback while the web font loads AND reduces the
-       layout shift (CLS) that happened when the icon font swapped in late — the
-       Material Icons link previously had no display=swap. -->
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" media="print" onload="this.media='all'">
+       critical path (helps LCP). `display=swap` keeps text/icons visible with a
+       fallback while the web font loads AND reduces layout shift (CLS).
+       Inter drops unused weight 800 (CSS only uses 400/600/700) to shrink the
+       font payload; zero visual change. (Icons not subset via &text= — that
+       breaks the ligature glyphs.) -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
   <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round&display=swap" media="print" onload="this.media='all'">
   <noscript>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap">
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round">
   </noscript>
 

@@ -10,7 +10,8 @@
   <meta name="theme-color" content="#F97316">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap">
+  <!-- OPTIMISATION: Inter without the unused weight 800 (headings use 700). -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap">
   <link rel="stylesheet" href="style.css">
   <style>
     /* Static content page — scoped tweaks on top of the shared style.css. The
@@ -21,10 +22,10 @@
       backdrop-filter: blur(8px); border-bottom: 1px solid #eee; padding: 14px 16px;
       display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .doc-header .brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
-    .doc-header h1 { font-size: 1rem; line-height: 1.15; font-weight: 800; color: var(--text-main); }
+    .doc-header h1 { font-size: 1rem; line-height: 1.15; font-weight: 700; color: var(--text-main); }
     .doc-header .sub { font-size: 0.7rem; color: var(--text-muted); }
     .doc-wrap { max-width: 820px; margin: 0 auto; padding: 20px 16px; }
-    .doc-wrap h2 { font-size: 1.4rem; font-weight: 800; margin-bottom: 6px; color: var(--text-main); }
+    .doc-wrap h2 { font-size: 1.4rem; font-weight: 700; margin-bottom: 6px; color: var(--text-main); }
     .doc-wrap .updated { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 18px; }
     .doc-card { background: var(--card-white); border-radius: 12px; padding: 20px; box-shadow: var(--shadow);
       border: 1px solid #eee; margin-bottom: 15px; }
