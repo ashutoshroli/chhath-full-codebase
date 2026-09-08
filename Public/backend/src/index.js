@@ -162,12 +162,15 @@ const PUB_RL_MAX = 60; // per IP per minute — generous for a real viewer, capp
 // Estimated D1 rows read per full portal build (8 table scans, sizes vary). We
 // budget on the free tier's 5,000,000/day, leaving headroom for mgmt admins.
 const D1_DAILY_BUDGET = 4000000;
-// A full getAllPortalData build does ~8 unbounded table scans. At 32k members
-// the users + collections scans ALONE are tens of thousands of rows, so the old
-// flat 2000 estimate wildly UNDER-counted and the budget guard would let far
-// more than 5M real reads through before tripping. Estimate conservatively high
-// (better to serve from cache slightly early than to blow the shared D1 quota).
-const D1_ROWS_PER_BUILD = 60000; // conservative over-estimate per full build (~32k users + collections + others)
+// Rows read per full portal build. This USED to be a flat 60,000 over-estimate,
+// which was wildly wrong at this project's real size (~a few hundred rows) — a
+// handful of cache-miss rebuilds (bots, link-preview crawlers, monitors, a deploy)
+// would each add 60,000 to the daily counter and trip a false "D1 ~75% used" alert
+// with essentially NO real traffic. We now count the ACTUAL rows the build read
+// (d1BudgetAdd takes the real count), which is correct at any scale — small today,
+// and still accurate if the member list grows to tens of thousands. A small floor
+// covers the per-query overhead so an empty DB still counts as non-zero.
+const D1_BUILD_ROWS_FLOOR = 200; // minimum charged per build (per-table query overhead)
 
 // KV WRITE DISCIPLINE (audit): this limiter used to do a KV PUT on EVERY allowed
 // request. KV free tier is ~1000 writes/day and is SHARED with the mgmt worker,
@@ -246,8 +249,9 @@ async function d1BudgetExceeded(env) {
 // So the guard is deliberately biased to UNDER-serve rather than over-spend, which
 // is the safe direction for a budget:
 //
-//   * D1_ROWS_PER_BUILD is a conservative OVER-estimate (60,000 for a build whose
-//     real cost varies), so the counter climbs faster than actual usage.
+//   * d1BudgetAdd now charges the ACTUAL rows the build read (countPayloadRows),
+//     with a small floor — so the counter tracks real usage instead of a fixed
+//     60,000 over-estimate that made an idle deployment look ~75% consumed.
 //   * D1_DAILY_BUDGET is 4,000,000 against a real free-tier limit of 5,000,000,
 //     leaving 1,000,000 rows of headroom for mgmt admins.
 //   * It is only called on a cache MISS that performed a full build, so concurrent
@@ -258,16 +262,31 @@ async function d1BudgetExceeded(env) {
 // the read and the write are counted once, not N times. With the over-estimate and
 // the 1,000,000-row headroom above, losing a few counts costs far less than the
 // margin already built in. Documented rather than silently accepted.
-async function d1BudgetAdd(env, ctx) {
+// `rowsRead` is the ACTUAL number of rows the build materialised (the caller passes
+// it from the payload it just assembled). Falls back to the floor when unknown, so
+// the counter reflects real usage instead of a fixed 60,000 over-estimate that made
+// idle deployments look ~75% consumed.
+async function d1BudgetAdd(env, ctx, rowsRead) {
   try {
     const kv = pubKv(env);
     if (!kv) return;
+    const add = Math.max(D1_BUILD_ROWS_FLOOR, parseInt(rowsRead, 10) || 0);
     const day = new Date().toISOString().slice(0, 10);
     const key = `pub:d1reads:${day}`;
     const used = parseInt((await kv.get(key)) || '0', 10) || 0;
-    const put = kv.put(key, String(used + D1_ROWS_PER_BUILD), { expirationTtl: 172800 });
+    const put = kv.put(key, String(used + add), { expirationTtl: 172800 });
     if (ctx && ctx.waitUntil) ctx.waitUntil(put); else await put;
   } catch (e) { /* best effort */ }
+}
+
+// Count the rows in a built portal payload (sum of every section's length), so
+// d1BudgetAdd charges the real cost of the D1 scans this build performed.
+function countPayloadRows(data) {
+  try {
+    let n = 0;
+    for (const v of Object.values(data || {})) if (Array.isArray(v)) n += v.length;
+    return n;
+  } catch (e) { return 0; }
 }
 
 // ---- Last-known-good snapshot (Option 1) ----
@@ -983,7 +1002,7 @@ export default {
           if (requestedV && requestedV === version) {
             return await edgeCached(request, ctx, async () => {
               const data = await getAllPortalData(env);
-              await d1BudgetAdd(env, ctx); // count this fresh D1 build toward today's budget
+              await d1BudgetAdd(env, ctx, countPayloadRows(data)); // count the REAL rows this build read
               await maybeSaveSnapshot(env, ctx, version, data); // last-known-good (only writes on version change)
               return new Response(JSON.stringify(data), {
                 headers: {
@@ -1009,7 +1028,7 @@ export default {
           // requests doesn't each run 8 full table scans and overwhelm D1.
           return await versionCached(ctx, 'portalData', version, async () => {
             const data = await getAllPortalData(env);
-            await d1BudgetAdd(env, ctx);
+            await d1BudgetAdd(env, ctx, countPayloadRows(data));
             await maybeSaveSnapshot(env, ctx, version, data);
             return new Response(JSON.stringify(data), {
               // fresh for 30s; then, for up to a day, the edge may serve this copy
