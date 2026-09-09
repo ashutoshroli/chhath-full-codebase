@@ -223,7 +223,17 @@ export async function getUserProfile(env, userId) {
   if (!user) throw ValidationError('User not found');
 
   const contributions = collectionRows
-    .map(r => ({ Year: parseInt(r.Year), Amount: parseAmt(r.Amount), 'Payment Mode': r['Payment Mode'] || '' }))
+    .map(r => ({
+      Year: parseInt(r.Year),
+      Amount: parseAmt(r.Amount),
+      'Payment Mode': r['Payment Mode'] || '',
+      // Contribution type (1=Cash, 2=Material/Samaan, 3=Service/Work) + its free-text
+      // detail, so non-cash rows (which carry ₹0 in `amount`) can show what was given
+      // instead of a meaningless ₹0. isResell marks a resell entry.
+      Type: (r['Contribution Type'] == null || r['Contribution Type'] === '') ? '1' : Math.floor(parseFloat(r['Contribution Type']) || 1).toString(),
+      Detail: r.Detail || '',
+      IsResell: r['Is Resell'] || '',
+    }))
     .sort((a, b) => b.Year - a.Year);
   const totalContributed = contributions.reduce((s, c) => s + c.Amount, 0);
 

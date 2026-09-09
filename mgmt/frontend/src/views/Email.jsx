@@ -392,7 +392,7 @@ function MailLog() {
     api.getEmailLog().then(setRows).catch(err => setError(err.message)).finally(() => setLoading(false));
     api.getStuckEmails(30).then(setStuck).catch(() => { /* banner is advisory only */ });
   }, []);
-  usePolling(() => load(true), 12000, [load]);
+  usePolling(() => load(true), 60000, [load]); // 60s: keep the email reads light on the D1 free tier
 
   const badgeClass = (status) => status === 'sent' ? 'badge-ok' : status === 'failed' ? 'badge-warn' : 'badge-pending';
   const stuckCount = stuck ? stuck.total : 0;
@@ -458,7 +458,7 @@ function EmailLog() {
   const load = useCallback(() => {
     api.getStuckEmails(30).then(setStuck).catch(err => setError(err.message));
   }, []);
-  usePolling(() => load(), 12000, [load]);
+  usePolling(() => load(), 60000, [load]); // 60s: light on D1
 
   const badgeClass = (status) => status === 'sent' ? 'badge-ok' : status === 'failed' ? 'badge-warn' : 'badge-pending';
   const resend = async (m) => {
@@ -505,7 +505,7 @@ export default function Email() {
 
   return (
     <>
-      <h2 style={{ marginBottom: 15 }}>✉️ Email</h2>
+      <h2 style={{ marginBottom: 15 }}>✉️ Mail (noreply)</h2>
 
       <div className="subtabs">
         <button className={`subtab-btn ${emailSection === 'template' ? 'active' : ''}`} onClick={() => setEmailSection('template')}>Collection</button>
