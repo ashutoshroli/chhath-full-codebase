@@ -147,3 +147,33 @@ CREATE INDEX IF NOT EXISTS idx_email_messages_to_email ON email_messages(to_emai
 CREATE INDEX IF NOT EXISTS idx_email_messages_status_attempts ON email_messages(status, attempts);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_email_messages_message_id ON email_messages(message_id);
 
+
+
+-- ============================================================================
+-- OFFICIAL MAILBOX (chhath@shaharpura.com) — a real inbox: outbound (sent/reply)
+-- AND inbound (received via the Resend receiving webhook). Lives in the same DB
+-- (DB_WHATSAPP_INDEX) so no new binding is needed. Distinct from email_messages
+-- (that is the one-way noreply@ notification QUEUE); this is the two-way mailbox.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS official_emails (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  message_id TEXT,              -- our own id (MSG...)
+  direction TEXT,               -- 'inbound' | 'outbound'
+  resend_id TEXT,               -- Resend's email id (sent id, or the received email_id)
+  from_addr TEXT,               -- "from" is a reserved word; use from_addr
+  to_addr TEXT,
+  cc_addr TEXT,
+  subject TEXT,
+  body_html TEXT,
+  body_text TEXT,
+  thread_id TEXT,               -- groups a conversation (root message_id/resend_id)
+  in_reply_to TEXT,             -- the id this message replies to
+  status TEXT,                  -- outbound: sent|failed ; inbound: received
+  remarks TEXT,
+  is_read INTEGER DEFAULT 0,    -- inbound unread flag (0/1)
+  created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_official_emails_direction ON official_emails(direction);
+CREATE INDEX IF NOT EXISTS idx_official_emails_thread ON official_emails(thread_id);
+CREATE INDEX IF NOT EXISTS idx_official_emails_created_at ON official_emails(created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_official_emails_message_id ON official_emails(message_id);

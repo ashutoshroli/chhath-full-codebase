@@ -21,6 +21,7 @@ const LockYears = lazy(() => import('./views/LockYears.jsx'));
 const StorageManagement = lazy(() => import('./views/StorageManagement.jsx'));
 const WhatsApp = lazy(() => import('./views/WhatsApp.jsx'));
 const Email = lazy(() => import('./views/Email.jsx'));
+const EmailOfficial = lazy(() => import('./views/EmailOfficial.jsx'));
 const ListManagement = lazy(() => import('./views/ListManagement.jsx'));
 const ConsentTemplates = lazy(() => import('./views/ConsentTemplates.jsx'));
 const ConsentReview = lazy(() => import('./views/ConsentReview.jsx'));
@@ -284,14 +285,7 @@ export default function App() {
         {tab === 'backup' && canAccessTab('backup') && <Backup />}
         {tab === 'whatsapp' && canAccessTab('whatsapp') && <WhatsApp />}
         {tab === 'email' && canAccessTab('email') && <Email />}
-        {tab === 'emailofficial' && canAccessTab('emailofficial') && (
-          <div style={{ padding: 20 }}>
-            <h2 style={{ marginBottom: 10 }}>✉️ Mail (official)</h2>
-            <div className="glass-card" style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)' }}>
-              The official mailbox for <strong>chhath@shaharpura.com</strong> (inbox, replies and compose) is coming soon.
-            </div>
-          </div>
-        )}
+        {tab === 'emailofficial' && canAccessTab('emailofficial') && <EmailOfficial />}
         {tab === 'lists' && canAccessTab('lists') && <ListManagement />}
         {tab === 'consenttemplates' && canAccessTab('consenttemplates') && <ConsentTemplates />}
         {tab === 'consentreview' && canAccessTab('consentreview') && <ConsentReview />}

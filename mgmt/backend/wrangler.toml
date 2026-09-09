@@ -68,10 +68,20 @@ GOOGLE_SIGNIN_CLIENT_ID = ""
 RESEND_FROM = "noreply@shaharpura.com"
 RESEND_REPLY_TO = "shaharpura.815312@gmail.com"
 
+# ---- Official mailbox (two-way, chhath@shaharpura.com) ----
+# OFFICIAL_FROM      the From/Reply-To for the official mailbox (send + reply).
+# RESEND_WEBHOOK_SECRET (secret, below) authenticates Resend's inbound receiving
+#   webhook. Point Resend's webhook at:
+#     https://<worker-host>/?inbound-email=<RESEND_WEBHOOK_SECRET>
+#   (or send it as an X-Webhook-Secret header). The Worker fetches each inbound
+#   email's body via Resend's Received Emails API using RESEND_API_KEY.
+OFFICIAL_FROM = "chhath@shaharpura.com"
+
 # ---- Secrets (set with `wrangler secret put NAME`, NOT here) ----
 # PASSWORD_SALT
 # WHATSAPP_QUEUE_API_KEY
-# RESEND_API_KEY          (Resend API key for src/email.js — set via `wrangler secret put RESEND_API_KEY`)
+# RESEND_API_KEY          (Resend API key for src/email.js + official mailbox — `wrangler secret put RESEND_API_KEY`)
+# RESEND_WEBHOOK_SECRET   (shared secret for the inbound-email webhook — `wrangler secret put RESEND_WEBHOOK_SECRET`)
 # DRIVE_FOLDER_ID         (used by account.js's uploadFileToDrive — popups, consent photos/signatures)
 # DRIVE_ROOT_FOLDER_ID    (used by docxTemplates.js — root folder that "DOCX Templates" and "Generated PDFs" live under)
 #
