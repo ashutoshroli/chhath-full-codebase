@@ -46,6 +46,11 @@ const SCHEMA_FOR_MIGRATION = {
   // rows_read burn — index the queue poll's (status, attempts) predicate so the
   // 3-min cron drain stops full-scanning the fat collection_jobs table.
   '14-collection-jobs-poll-index.sql': 'misc.sql',
+  // email channel (Resend): adds email_message_templates + email_messages to the
+  // whatsapp-index DB. Applies against the committed whatsapp_index.sql schema
+  // (which already contains both tables); the migration is CREATE IF NOT EXISTS
+  // so a second run is a no-op.
+  '15-email-channel.sql': 'whatsapp_index.sql',
 };
 
 // Migrations that legitimately do more than CREATE INDEX. Keep this list as short

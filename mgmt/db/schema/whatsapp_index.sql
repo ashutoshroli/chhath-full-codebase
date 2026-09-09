@@ -98,3 +98,52 @@ CREATE INDEX idx_person_messages_mobileno ON person_messages(mobileno);
 CREATE INDEX idx_person_messages_claimed_at ON person_messages(claimed_at);
 CREATE UNIQUE INDEX uq_person_messages_message_id ON person_messages(message_id);
 
+-- ============================================================================
+-- EMAIL channel (Resend). Mirrors the WhatsApp person template + queue, but the
+-- Worker sends directly via the Resend HTTP API (no external poller). Lives in
+-- the same DB (DB_WHATSAPP_INDEX) so no new binding is needed.
+-- ============================================================================
+
+-- Email message templates: same shape as person_message_templates, plus a
+-- `subject` column (email needs a subject line). Selected by contribution_type /
+-- doc_sub_type via templatesForContribution(), rendered with renderTemplateChecked().
+CREATE TABLE IF NOT EXISTS email_message_templates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  template_id TEXT,
+  subject TEXT,                 -- email subject line (supports {placeholders} too)
+  text TEXT,                    -- email body (supports {placeholders}); rendered as text/HTML
+  active TEXT,
+  created_at TEXT,
+  message_type TEXT,            -- normal | priority (kept for parity with WhatsApp)
+  contribution_type INTEGER,    -- 1-4, same meaning as the WhatsApp templates
+  file_link TEXT,               -- static attachment/link, OR '' to use the generated PDF
+  doc_sub_type TEXT,            -- Certificate vs Receipt refinement for type 3
+  file_doc_type TEXT            -- when set + matches the produced doc, attach the generated PDF link
+);
+CREATE INDEX IF NOT EXISTS idx_email_message_templates_contribution_type ON email_message_templates(contribution_type);
+
+-- Email queue: mirrors person_messages. The Worker itself drains this (Resend is
+-- a plain HTTPS API), so there is no apiKey-gated external poller — status moves
+-- pending -> sending -> sent/failed inside processPendingEmails().
+CREATE TABLE IF NOT EXISTS email_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  message_id TEXT,
+  to_email TEXT,        -- recipient (contributor's users.email)
+  subject TEXT,
+  body TEXT,
+  status TEXT,          -- pending | sending | resending | sent | failed
+  remarks TEXT,
+  created_at TEXT,
+  "from" TEXT,          -- From address (RESEND_FROM)
+  reply_to TEXT,        -- Reply-To address (RESEND_REPLY_TO)
+  message_type TEXT,
+  file_link TEXT,       -- optional attachment URL (the generated PDF link)
+  attempts INTEGER DEFAULT 0,
+  claimed_at TEXT,
+  sent_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_email_messages_status ON email_messages(status);
+CREATE INDEX IF NOT EXISTS idx_email_messages_to_email ON email_messages(to_email);
+CREATE INDEX IF NOT EXISTS idx_email_messages_status_attempts ON email_messages(status, attempts);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_email_messages_message_id ON email_messages(message_id);
+
