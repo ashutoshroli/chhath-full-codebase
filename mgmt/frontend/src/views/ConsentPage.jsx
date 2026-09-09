@@ -55,14 +55,31 @@ function fileToCompressedBase64(file, maxDim = 1000, quality = 0.7) {
   });
 }
 
+// Returns { ok: true, coords } on success, or { ok: false, reason } where reason
+// is 'unsupported' | 'denied' | 'timeout' | 'unavailable'. The old version
+// collapsed EVERY failure (including a slow GPS timeout) into null, so the UI
+// always blamed "permission not granted" even when permission WAS granted and
+// the fix was just slow. On mobile a cold GPS lock routinely takes >10s, and the
+// old maximumAge:60000 + 9s timeout made that the common case. Now: high
+// accuracy, no cached position, a generous 25s timeout, and the real reason is
+// surfaced so the message + retry make sense.
 function getGeoLocation() {
   return new Promise((resolve) => {
-    if (!navigator.geolocation) return resolve(null);
-    const timer = setTimeout(() => resolve(null), 10000);
+    if (!navigator.geolocation) return resolve({ ok: false, reason: 'unsupported' });
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    // Hard backstop slightly longer than the API timeout, so a wedged call still
+    // resolves instead of leaving the button stuck on "Getting location...".
+    const timer = setTimeout(() => finish({ ok: false, reason: 'timeout' }), 27000);
     navigator.geolocation.getCurrentPosition(
-      (pos) => { clearTimeout(timer); resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }); },
-      () => { clearTimeout(timer); resolve(null); },
-      { timeout: 9000, maximumAge: 60000 }
+      (pos) => { clearTimeout(timer); finish({ ok: true, coords: { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy } }); },
+      (err) => {
+        clearTimeout(timer);
+        // 1 = PERMISSION_DENIED, 2 = POSITION_UNAVAILABLE, 3 = TIMEOUT
+        const reason = err && err.code === 1 ? 'denied' : (err && err.code === 3 ? 'timeout' : 'unavailable');
+        finish({ ok: false, reason });
+      },
+      { enableHighAccuracy: true, timeout: 25000, maximumAge: 0 }
     );
   });
 }
@@ -173,7 +190,8 @@ export default function ConsentPage() {
   // Accept-path state
   const [photo, setPhoto] = useState(null);
   const [geo, setGeo] = useState(null);
-  const [geoState, setGeoState] = useState('idle'); // idle | requesting | granted | denied
+  const [geoState, setGeoState] = useState('idle'); // idle | requesting | granted | failed
+  const [geoReason, setGeoReason] = useState(''); // denied | timeout | unavailable | unsupported
   const [signatureBase64, setSignatureBase64] = useState(null);
   const [signatureError, setSignatureError] = useState('');
 
@@ -244,8 +262,8 @@ export default function ConsentPage() {
   const requestGeo = async () => {
     setGeoState('requesting');
     const result = await getGeoLocation();
-    if (result) { setGeo(result); setGeoState('granted'); }
-    else setGeoState('denied');
+    if (result && result.ok) { setGeo(result.coords); setGeoState('granted'); }
+    else { setGeoReason((result && result.reason) || 'unavailable'); setGeoState('failed'); }
   };
 
   const onSignatureFile = async (e) => {
@@ -400,12 +418,18 @@ export default function ConsentPage() {
                     <span className="badge badge-ok">✓ Location Captured</span>
                   ) : (
                     <button type="button" className="btn-submit" onClick={requestGeo} disabled={geoState === 'requesting'}>
-                      {geoState === 'requesting' ? 'Getting location...' : '📍 Allow Location'}
+                      {geoState === 'requesting' ? 'Getting location… (allow the prompt; a first fix can take up to 25s)' : (geoState === 'failed' ? '🔄 Try Location Again' : '📍 Allow Location')}
                     </button>
                   )}
-                  {geoState === 'denied' && (
+                  {geoState === 'failed' && (
                     <p style={{ color: 'var(--danger)', fontSize: '0.8rem', marginTop: 6 }}>
-                      Location permission was not granted. Please allow location access in your browser settings and try again.
+                      {geoReason === 'denied'
+                        ? 'Location permission was blocked. Allow location for this site in your browser settings, then tap "Try Location Again".'
+                        : geoReason === 'unsupported'
+                          ? 'This browser cannot share location. Please open the link in Chrome or Safari and try again.'
+                          : geoReason === 'timeout'
+                            ? 'Could not get a location fix in time. Make sure your phone\'s GPS/Location is ON, move near a window or outdoors, then tap "Try Location Again".'
+                            : 'Could not determine your location. Turn ON your phone\'s Location (GPS), then tap "Try Location Again".'}
                     </p>
                   )}
                 </div>
