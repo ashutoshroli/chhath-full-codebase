@@ -28,6 +28,8 @@ export const TABLE_REGISTRY = {
   'person_message_templates': { db: 'whatsapp_index', table: 'person_message_templates' },
   'group_messages': { db: 'whatsapp_index', table: 'group_messages' },
   'person_messages': { db: 'whatsapp_index', table: 'person_messages' },
+  'email_message_templates': { db: 'whatsapp_index', table: 'email_message_templates' },
+  'email_messages': { db: 'whatsapp_index', table: 'email_messages' },
   'manual years': { db: 'core', table: 'manual_years' },
   'activity log': { db: 'logs', table: 'activity_log' },
   'locked years': { db: 'core', table: 'locked_years' },

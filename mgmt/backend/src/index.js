@@ -18,6 +18,7 @@ import * as docx from './docxTemplates.js';
 import * as storage from './storage.js';
 import * as backup from './backup.js';
 import * as cq from './collectionQueue.js';
+import * as email from './email.js';
 import { bumpDataVersion, getDataVersion } from './dataVersion.js';
 import { healthCheck } from './config.js';
 import { runRetentionSweep, shouldSweepNow } from './retention.js';
@@ -63,6 +64,7 @@ export const READ_ONLY_ACTIONS = new Set([
   'getActivityLog', 'getLoginAttempts', 'getLockedAccounts', 'getMySessions', 'getUserSessions',
   'getLoanTemplates',
   'getPendingMessages', 'getStuckMessages',
+  'getEmailTemplates', 'getStuckEmails',
   'whatsappDiagnostic',
   'getAnnouncementLinks', 'getCustomAnnouncements', 'getAnnouncementQueue',
   'publicGetSeo', 'getSeoSettings',
@@ -106,6 +108,8 @@ export const EXPECTED_MUTATING_ACTIONS = new Set([
   'addPersonTemplate', 'updatePersonTemplate', 'deletePersonTemplate',
   'addLoanTemplate', 'updateLoanTemplate', 'deleteLoanTemplate',
   'resendMessage', 'updateMessageStatus',
+  // email (Resend) templates + queue
+  'addEmailTemplate', 'updateEmailTemplate', 'deleteEmailTemplate', 'resendEmail',
   // announcements
   'addCustomAnnouncement', 'updateCustomAnnouncement', 'deleteCustomAnnouncement',
   'generateAnnouncementLink', 'revokeAnnouncementLink',
@@ -630,6 +634,11 @@ export default {
       addPersonTemplate: () => withAuth(env, req, (user) => wa.addTemplate(env, 'PERSON_MESSAGE_TEMPLATES', req.text, req.messageType, req.contributionType, req.fileLink, req.docSubType, req.fileDocType, user)),
       updatePersonTemplate: () => withAuth(env, req, (user) => wa.updateTemplate(env, 'PERSON_MESSAGE_TEMPLATES', req.rowIndex, req.text, req.active, req.messageType, req.contributionType, req.fileLink, req.docSubType, req.fileDocType, user)),
       deletePersonTemplate: () => withAuth(env, req, (user) => wa.deleteTemplate(env, 'PERSON_MESSAGE_TEMPLATES', req.rowIndex, user)),
+      // ---- Email (Resend) templates ----
+      getEmailTemplates: () => withAuth(env, req, (user) => { requireSuperadmin(user); return getSheetDataAsJSON(env, 'EMAIL_MESSAGE_TEMPLATES'); }),
+      addEmailTemplate: () => withAuth(env, req, (user) => email.addEmailTemplate(env, req.subject, req.text, req.messageType, req.contributionType, req.fileLink, req.docSubType, req.fileDocType, user)),
+      updateEmailTemplate: () => withAuth(env, req, (user) => email.updateEmailTemplate(env, req.rowIndex, req.subject, req.text, req.active, req.messageType, req.contributionType, req.fileLink, req.docSubType, req.fileDocType, user)),
+      deleteEmailTemplate: () => withAuth(env, req, (user) => email.deleteEmailTemplate(env, req.rowIndex, user)),
       getGroupTemplates: () => withAuth(env, req, (user) => { requireSuperadmin(user); return getSheetDataAsJSON(env, 'GROUP_MESSAGE_TEMPLATES'); }),
       addGroupTemplate: () => withAuth(env, req, (user) => wa.addTemplate(env, 'GROUP_MESSAGE_TEMPLATES', req.text, req.messageType, req.contributionType, req.fileLink, req.docSubType, req.fileDocType, user)),
       updateGroupTemplate: () => withAuth(env, req, (user) => wa.updateTemplate(env, 'GROUP_MESSAGE_TEMPLATES', req.rowIndex, req.text, req.active, req.messageType, req.contributionType, req.fileLink, req.docSubType, req.fileDocType, user)),
@@ -852,7 +861,11 @@ export default {
       getStuckMessages: () => withAuth(env, req, (user) => { requireSuperadmin(user); return wa.getStuckMessages(env, req.olderThanMinutes); }),
       updateMessageStatus: () => withApiKey(env, req, () => wa.updateMessageStatus(env, req.type, req.message_id, req.status, req.remarks)),
       resendMessage: () => withAuth(env, req, (user) => wa.resendMessage(env, req.type, req.message_id, user)),
-      
+
+      // ---- Email (Resend) queue admin (Superadmin) ----
+      getStuckEmails: () => withAuth(env, req, (user) => { requireSuperadmin(user); return email.getStuckEmails(env, req.olderThanMinutes); }),
+      resendEmail: () => withAuth(env, req, (user) => email.resendEmail(env, req.message_id, user)),
+
       // ---- WhatsApp: Diagnostic endpoint (Superadmin only) ----
       whatsappDiagnostic: () => withAuth(env, req, async (user) => {
         // The comment above said "Superadmin only" but no check existed, so any
@@ -1086,6 +1099,16 @@ export default {
     ctx.waitUntil(
       cq.processPendingJobs(env).catch((err) =>
         logError(env, 'backend', 'scheduled:collectionQueue', err && err.message || String(err), err && err.stack || '', '')
+      )
+    );
+
+    // ---- Email queue drain (Resend) ----
+    // Unlike WhatsApp (drained by an external poller), email is sent by the Worker
+    // itself: claim pending email_messages rows and POST each to Resend. No-op when
+    // RESEND_API_KEY is unset. Never throws — logged if it does.
+    ctx.waitUntil(
+      email.processPendingEmails(env).catch((err) =>
+        logError(env, 'backend', 'scheduled:emailQueue', err && err.message || String(err), err && err.stack || '', '')
       )
     );
 

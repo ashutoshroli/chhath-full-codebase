@@ -25,6 +25,7 @@
 import { requireStaffRole, requireRole, requireYearUnlocked, requireYearAccess, requireSuperadmin, ValidationError, InternalError } from './auth.js';
 import { convertDocxToPdf } from './docxTemplates.js';
 import { triggerCollectionMessages } from './whatsapp.js';
+import { triggerCollectionEmail } from './email.js';
 import { logErrorAt, logWarn } from './logger.js';
 import { randomId } from './random.js';
 
@@ -397,6 +398,25 @@ async function runOneJob(env, job) {
       await logWarn(env, 'collection-queue', 'runOneJob',
         `No WhatsApp message queued for job ${job.job_id}.`,
         { jobId: job.job_id, recordId, warnings: (summary.warnings || []) });
+    }
+
+    // 3) Email (Resend) — same new-entry gate as WhatsApp, reusing the SAME
+    // generated PDF link (never regenerated). Isolated in its own try/catch so an
+    // email problem can never fail the job or affect the WhatsApp send above. The
+    // email is only queued here; the cron (processPendingEmails) actually sends it.
+    try {
+      const emailSummary = await triggerCollectionEmail(env, payload, docType || null, recordId, publicLink || '');
+      if (emailSummary && emailSummary.emailSent === false) {
+        await logWarn(env, 'collection-queue', 'runOneJob',
+          `No email queued for job ${job.job_id}.`,
+          { jobId: job.job_id, recordId, warnings: (emailSummary.warnings || []) });
+      }
+    } catch (e) {
+      // triggerCollectionEmail already swallows to error_log; this is a last-resort
+      // guard so nothing here can bubble up and fail the job.
+      await logWarn(env, 'collection-queue', 'runOneJob',
+        `Email trigger threw for job ${job.job_id} (ignored): ${e && e.message}`,
+        { jobId: job.job_id, recordId });
     }
   }
 }

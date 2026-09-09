@@ -303,6 +303,13 @@ export const api = {
   addGroupTemplate: (text, messageType, contributionType, fileLink, docSubType, fileDocType) => call('addGroupTemplate', { text, messageType, contributionType, fileLink, docSubType, fileDocType }),
   updateGroupTemplate: (rowIndex, text, active, messageType, contributionType, fileLink, docSubType, fileDocType) => call('updateGroupTemplate', { rowIndex, text, active, messageType, contributionType, fileLink, docSubType, fileDocType }),
   deleteGroupTemplate: (rowIndex) => call('deleteGroupTemplate', { rowIndex }),
+  // Email (Resend) templates + queue
+  getEmailTemplates: () => call('getEmailTemplates'),
+  addEmailTemplate: (subject, text, messageType, contributionType, fileLink, docSubType, fileDocType) => call('addEmailTemplate', { subject, text, messageType, contributionType, fileLink, docSubType, fileDocType }),
+  updateEmailTemplate: (rowIndex, subject, text, active, messageType, contributionType, fileLink, docSubType, fileDocType) => call('updateEmailTemplate', { rowIndex, subject, text, active, messageType, contributionType, fileLink, docSubType, fileDocType }),
+  deleteEmailTemplate: (rowIndex) => call('deleteEmailTemplate', { rowIndex }),
+  getStuckEmails: (olderThanMinutes) => call('getStuckEmails', { olderThanMinutes }),
+  resendEmail: (message_id) => call('resendEmail', { message_id }),
 
   // WhatsApp: Group Info
   getWhatsappGroups: () => call('getWhatsappGroups'),

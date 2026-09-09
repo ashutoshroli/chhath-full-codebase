@@ -56,9 +56,22 @@ R2_PUBLIC_BASE = "https://files-chhath.shaharpura.com"
 # https://mgmt-chhath.shaharpura.com. See GOOGLE_SIGNIN_SETUP.md.
 GOOGLE_SIGNIN_CLIENT_ID = ""
 
+# ---- Email (Resend) ----
+# Collection notifications are also sent by email via Resend (see src/email.js).
+# The Worker calls the Resend HTTPS API directly (no external poller). These two
+# are PUBLIC config, so they live in [vars]; the API key is a secret (below).
+#   RESEND_FROM      the verified sender ("From"). shaharpura.com is verified in
+#                    Resend, so noreply@shaharpura.com works out of the box.
+#   RESEND_REPLY_TO  where replies go (the committee's Gmail).
+# If RESEND_API_KEY is not set, email is simply skipped (rows stay 'pending');
+# nothing else is affected.
+RESEND_FROM = "noreply@shaharpura.com"
+RESEND_REPLY_TO = "shaharpura.815312@gmail.com"
+
 # ---- Secrets (set with `wrangler secret put NAME`, NOT here) ----
 # PASSWORD_SALT
 # WHATSAPP_QUEUE_API_KEY
+# RESEND_API_KEY          (Resend API key for src/email.js — set via `wrangler secret put RESEND_API_KEY`)
 # DRIVE_FOLDER_ID         (used by account.js's uploadFileToDrive — popups, consent photos/signatures)
 # DRIVE_ROOT_FOLDER_ID    (used by docxTemplates.js — root folder that "DOCX Templates" and "Generated PDFs" live under)
 #
