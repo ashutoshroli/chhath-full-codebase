@@ -255,6 +255,11 @@ test('M-38: logs, attempts, sessions and messages are all trimmed by their own w
     env.DB_WHATSAPP_INDEX.prepare(`INSERT INTO ${t} (message_id, message, status, created_at, sent_at) VALUES (?,?,?,?,?)`)
       .bind(`${t}-pending`, 'x', 'pending', isoAgo(400), null).run();
   }
+  // Email queue: one old delivered email (prune) + one never-sent (keep).
+  env.DB_WHATSAPP_INDEX.prepare('INSERT INTO email_messages (message_id, to_email, status, created_at, sent_at) VALUES (?,?,?,?,?)')
+    .bind('em-old', 'a@b.com', 'sent', isoAgo(400), isoAgo(RETENTION.emailDays + 5)).run();
+  env.DB_WHATSAPP_INDEX.prepare('INSERT INTO email_messages (message_id, to_email, status, created_at, sent_at) VALUES (?,?,?,?,?)')
+    .bind('em-pending', 'a@b.com', 'pending', isoAgo(400), null).run();
 
   const report = await runRetentionSweep(env);
   assert.equal(report.errorLogDeleted, 1);
@@ -263,6 +268,10 @@ test('M-38: logs, attempts, sessions and messages are all trimmed by their own w
   assert.equal(report.expiredSessionsDeleted, 1);
   assert.equal(report.person_messagesDeleted, 1);
   assert.equal(report.group_messagesDeleted, 1);
+  assert.equal(report.email_messagesDeleted, 1, 'an old delivered email is pruned');
+  // A never-sent email must survive (getStuckEmails / resendEmail need it).
+  const pendEmail = await env.DB_WHATSAPP_INDEX.prepare("SELECT message_id FROM email_messages WHERE status = 'pending'").first();
+  assert.equal(pendEmail.message_id, 'em-pending');
 
   // The survivors are the right ones.
   assert.equal((await env.DB_LOGS.prepare('SELECT error_id FROM error_log').first()).error_id, 'E-new');
@@ -334,7 +343,7 @@ test('M-38: the sweep window catches SWEEP_MINUTE and is bounded (< 1 hour so it
 
   // Worst-case daily write cost must stay well inside D1's 100,000/day even if the
   // sweep somehow ran on several ticks per hour.
-  const statements = 8;
+  const statements = 9; // blank + 8 deletes (incl. email_messages)
   assert.ok(24 * statements * 200 < 100000, 'worst-case sweep writes must fit the budget');
 });
 

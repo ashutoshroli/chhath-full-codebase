@@ -79,6 +79,10 @@ export const RETENTION = {
   expiredSessionDays: 30,
   // Delivery history for a whole season plus margin.
   messageDays: 180,
+  // Email delivery history (email_messages). Same window as WhatsApp — a whole
+  // season plus margin. Without this the table grows forever, and the Mails view +
+  // the cron poll read more rows over time (a rows_read drain on the free tier).
+  emailDays: 180,
 };
 
 // Bounded DELETE. Returns the number of rows removed (0 on any error).
@@ -169,6 +173,16 @@ export async function runRetentionSweep(env) {
       [messageCutoff], `${table}Deleted`, report
     );
   }
+
+  // 6) Delivered/failed EMAIL history (email_messages, same DB as WhatsApp). Same
+  //    rule: only terminal rows are pruned; pending/sending/resending stay so
+  //    getStuckEmails / resendEmail still see them. Stops the table (and therefore
+  //    the Mails-view reads + cron poll) from growing without bound.
+  await boundedDelete(
+    env.DB_WHATSAPP_INDEX, 'email_messages',
+    "status IN ('sent', 'failed') AND sent_at IS NOT NULL AND sent_at < ?",
+    [isoDaysAgo(RETENTION.emailDays)], 'email_messagesDeleted', report
+  );
 
   return report;
 }

@@ -474,9 +474,13 @@ export async function getLoanEmailTemplates(env, type) {
 // timestamps are what the log view needs. `recipient` is aliased for a uniform
 // shape with the WhatsApp log.
 export async function getEmailLog(env) {
+  // rows_read: only the most recent 50. The Mails view polls this, so a small
+  // page keeps each poll cheap (was 500, which — polled every few seconds against
+  // a growing table — was a real free-tier read drain). ORDER BY id DESC walks the
+  // PK backwards and stops at 50.
   const { results } = await env.DB_WHATSAPP_INDEX.prepare(
     `SELECT message_id, to_email, subject, status, remarks, created_at, "from", reply_to, message_type, file_link, attempts, sent_at
-       FROM ${EMAIL_QUEUE_TABLE} ORDER BY id DESC LIMIT 500`
+       FROM ${EMAIL_QUEUE_TABLE} ORDER BY id DESC LIMIT 50`
   ).all();
   return (results || []).map(m => ({ ...m, recipient: m.to_email }));
 }
@@ -484,9 +488,13 @@ export async function getEmailLog(env) {
 // Stuck emails — same idea as whatsapp getStuckMessages, one table.
 export async function getStuckEmails(env, olderThanMinutes) {
   const cutoff = new Date(Date.now() - (parseInt(olderThanMinutes) || 30) * 60000).toISOString();
+  // rows_read: use a POSITIVE status IN (...) list (the not-yet-terminal states)
+  // so idx_email_messages_status is usable — `status NOT IN (...)` is a negated
+  // predicate SQLite cannot serve from the index, forcing a scan. This is the
+  // exact complement of ('sent','failed').
   const { results } = await env.DB_WHATSAPP_INDEX.prepare(
     `SELECT message_id, to_email, status, attempts, created_at, claimed_at, remarks FROM ${EMAIL_QUEUE_TABLE}
-      WHERE status NOT IN ('sent', 'failed') AND created_at < ? ORDER BY created_at ASC LIMIT 200`
+      WHERE status IN ('pending', 'sending', 'resending') AND created_at < ? ORDER BY created_at ASC LIMIT 200`
   ).bind(cutoff).all();
   return { cutoff, emails: results || [], total: (results || []).length };
 }

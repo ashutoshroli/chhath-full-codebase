@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeD1, makeKV, schemaFor } from './helpers/stubs.mjs';
-import { saveLoanTransaction, markLoanDisbursed, availableLoanFund } from '../src/loans.js';
+import { saveLoanTransaction, markLoanDisbursed, availableLoanFund, setConsentVerification } from '../src/loans.js';
 
 const SUPERADMIN = { name: 'USER0001', role: 'Superadmin' };
 const ADMIN = { name: 'USER0010', role: 'Admin' };
@@ -138,4 +138,39 @@ test('markLoanDisbursed: total EXACTLY equal to the loan amount succeeds (cash+o
   await seedApprovedLoan(env, { loanId: 'LN-eq', amount: 3000 });
   const res = await markLoanDisbursed(env, 'LN-eq', 3000, 0, ADMIN);
   assert.equal(res.success, true);
+});
+
+// --------------------------------------------------- approve requires verify
+
+// Seed a loan whose consents are all ACCEPTED (but not yet verified), status Created.
+async function seedAcceptedLoan(env, loanId = 'LN-v') {
+  await env.DB_LOANS_EXPENSES.prepare('INSERT INTO loans (year, name, amount, loan_id, loan_status) VALUES (?,?,?,?,?)')
+    .bind(2026, 'USER0002', 3000, loanId, 'Created').run();
+  const people = [['USER0002', 'loaner'], ['USER0003', 'guarantor'], ['USER0004', 'guarantor'], ['USER0005', 'guarantor']];
+  for (let i = 0; i < people.length; i++) {
+    const [pid, role] = people[i];
+    await env.DB_LOANS_EXPENSES.prepare(
+      "INSERT INTO loan_consents (consent_id, loan_id, person_id, role, token, status, verification_status) VALUES (?,?,?,?,?,?,?)"
+    ).bind('CN-' + loanId + '-' + i, loanId, pid, role, 'tok-' + loanId + '-' + i, 'accepted', 'pending').run();
+  }
+  return loanId;
+}
+const loanStatus = (env, loanId) =>
+  env.DB_LOANS_EXPENSES.prepare('SELECT loan_status FROM loans WHERE loan_id = ?').bind(loanId).first().then(r => r && r.loan_status);
+
+test('a loan stays Created (NOT Approved) while consents are accepted but not verified', async () => {
+  const env = makeEnv();
+  const loanId = await seedAcceptedLoan(env, 'LN-v1');
+  // Verify only THREE of the four → still not all verified.
+  const { results } = await env.DB_LOANS_EXPENSES.prepare("SELECT consent_id FROM loan_consents WHERE loan_id = ?").bind('LN-v1').all();
+  for (const c of results.slice(0, 3)) await setConsentVerification(env, c.consent_id, 'verified', '', ADMIN);
+  assert.equal(await loanStatus(env, loanId), 'Created', 'not all verified yet → not Approved');
+});
+
+test('a loan becomes Approved only once ALL consents are verified (by an Admin)', async () => {
+  const env = makeEnv();
+  const loanId = await seedAcceptedLoan(env, 'LN-v2');
+  const { results } = await env.DB_LOANS_EXPENSES.prepare("SELECT consent_id FROM loan_consents WHERE loan_id = ?").bind('LN-v2').all();
+  for (const c of results) await setConsentVerification(env, c.consent_id, 'verified', '', ADMIN);
+  assert.equal(await loanStatus(env, loanId), 'Approved', 'all accepted + verified → Approved');
 });

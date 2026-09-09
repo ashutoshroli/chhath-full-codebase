@@ -497,9 +497,17 @@ async function createLoanConsents(env, loanId, loanPayload, guarantorPayloads, u
 }
 
 async function recomputeLoanStatus(env, loanId) {
-  const { results } = await env.DB_LOANS_EXPENSES.prepare("SELECT status FROM loan_consents WHERE loan_id = ? AND status != 'replaced'").bind(loanId).all();
-  const allAccepted = results.length > 0 && results.every(c => c.status === 'accepted');
-  if (!allAccepted) return;
+  // A loan is Approved ONLY when every active consent is BOTH accepted AND
+  // verified by an Admin/Superadmin. Previously it approved as soon as everyone
+  // accepted — so a loan showed "Approved" (and could be disbursed) before anyone
+  // verified the photo/signature/geo. Now the verification step gates approval.
+  const { results } = await env.DB_LOANS_EXPENSES.prepare(
+    "SELECT status, verification_status FROM loan_consents WHERE loan_id = ? AND status != 'replaced'"
+  ).bind(loanId).all();
+  const rows = results || [];
+  const allAcceptedAndVerified = rows.length > 0 &&
+    rows.every(c => c.status === 'accepted' && c.verification_status === 'verified');
+  if (!allAcceptedAndVerified) return;
   await env.DB_LOANS_EXPENSES.prepare("UPDATE loans SET loan_status = 'Approved' WHERE loan_id = ? AND loan_status = 'Created'").bind(loanId).run();
 }
 
@@ -1005,6 +1013,9 @@ async function notifyConsentVerified(env, consentId) {
     ).bind(consent.loan_id).all();
     const allVerified = allConsents.length > 0 && allConsents.every(c => c.verification_status === 'verified');
     if (allVerified) {
+      // Everyone is now accepted + verified — flip the loan to Approved (the
+      // accept step no longer does this; verification is the gate).
+      await recomputeLoanStatus(env, consent.loan_id);
       const loanerWa = waNumberOf(loanerU);
       const passedTpl = tpls.pick('loan_passed_personal');
       if (loanerWa && passedTpl) {
