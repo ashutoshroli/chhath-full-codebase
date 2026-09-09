@@ -97,7 +97,12 @@ input[type="checkbox"], input[type="radio"] {
 @keyframes spin { 100% { transform: rotate(360deg); } }
 .inline-spinner { text-align: center; padding: 30px; color: var(--text-muted); }
 
-.badge { padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
+/* white-space:nowrap keeps a short label like "Active" on ONE line — without it,
+   a badge placed in a narrow flex column gets squeezed and wraps letter-by-letter
+   ("A c t i v e"). flex-shrink:0 stops a flex sibling from squashing it, and
+   inline-block gives it a proper box in every context. Fixes all status badges
+   (Active/Inactive/Priority/etc.) portal-wide. */
+.badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; white-space: nowrap; flex-shrink: 0; }
 .badge-ok { background: #D1FAE5; color: #065F46; }
 .badge-warn { background: #FEE2E2; color: #991B1B; }
 .badge-pending { background: #FEF3C7; color: #92400E; }
