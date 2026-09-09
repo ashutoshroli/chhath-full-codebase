@@ -418,7 +418,7 @@ export default function ConsentPage() {
                     <span className="badge badge-ok">✓ Location Captured</span>
                   ) : (
                     <button type="button" className="btn-submit" onClick={requestGeo} disabled={geoState === 'requesting'}>
-                      {geoState === 'requesting' ? 'Getting location… (allow the prompt; a first fix can take up to 25s)' : (geoState === 'failed' ? '🔄 Try Location Again' : '📍 Allow Location')}
+                      {geoState === 'requesting' ? 'Getting location…' : (geoState === 'failed' ? '🔄 Try Location Again' : '📍 Allow Location')}
                     </button>
                   )}
                   {geoState === 'failed' && (

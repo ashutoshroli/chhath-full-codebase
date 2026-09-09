@@ -3,7 +3,7 @@ import { api } from '../api.js';
 import { invalidate } from '../cache.js';
 import Modal from './Modal.jsx';
 import SearchableSelect from './SearchableSelect.jsx';
-import { isSuperadmin } from '../permissions.js';
+import { isSuperadmin, isAdminOrAbove } from '../permissions.js';
 
 const STATUS_LABEL = { pending: 'Pending', accepted: 'Accepted', declined: 'Declined', replaced: 'Replaced' };
 const STATUS_BADGE = { pending: 'badge-warn', accepted: 'badge-ok', declined: 'badge-danger', replaced: 'badge-warn' };
@@ -72,7 +72,9 @@ export default function LoanConsentModal({ loan, open, onClose, role, contributo
   const disburse = async () => {
     const cash = parseFloat(cashAmount) || 0;
     const online = parseFloat(onlineAmount) || 0;
+    const amt = parseFloat(loan && (loan.Amount ?? loan['Amount'])) || 0;
     if (cash <= 0 && online <= 0) return alert('Please enter at least one amount — Cash or Online.');
+    if (Math.abs((cash + online) - amt) > 0.01) return alert(`Total (₹${cash + online}) must equal the loan amount ₹${amt}. Adjust the Cash / Online split.`);
     if (!confirm(`Disburse: Cash ₹${cash} + Online ₹${online} = Total ₹${cash + online}. Confirm?`)) return;
     setBusyId('disburse');
     setError('');
@@ -89,7 +91,14 @@ export default function LoanConsentModal({ loan, open, onClose, role, contributo
   };
 
   const allAccepted = (consents || []).filter(c => c.status !== 'replaced').every(c => c.status === 'accepted') && (consents || []).length > 0;
-  const canDisburse = isSuperadmin(role) && loan['Loan Status'] === 'Approved';
+  // Disbursing is now allowed for Admin and Superadmin (guarantor resend/replace
+  // above stays Superadmin-only).
+  const canDisburse = isAdminOrAbove(role) && loan['Loan Status'] === 'Approved';
+  // The total disbursed must EQUAL the sanctioned loan amount (backend enforces
+  // this hard; the UI mirrors it so the button is disabled until they match).
+  const loanAmount = parseFloat(loan && (loan.Amount ?? loan['Amount'])) || 0;
+  const disburseTotal = (parseFloat(cashAmount) || 0) + (parseFloat(onlineAmount) || 0);
+  const disburseMatches = Math.abs(disburseTotal - loanAmount) <= 0.01;
 
   return (
     <Modal open={open} onClose={onClose}>
@@ -156,13 +165,18 @@ export default function LoanConsentModal({ loan, open, onClose, role, contributo
 
       {canDisburse && showDisburseForm && (
         <div className="glass-card" style={{ padding: 12, marginTop: 10 }}>
+          <p style={{ fontSize: '0.85rem', marginTop: 0, marginBottom: 8 }}>
+            Sanctioned loan amount: <strong>₹{loanAmount}</strong> — Cash + Online must add up to exactly this.
+          </p>
           <label style={{ fontSize: '0.8rem' }}>Cash Amount (₹)</label>
           <input type="number" min="0" className="input-field" value={cashAmount} onChange={e => setCashAmount(e.target.value)} placeholder="0" />
           <label style={{ fontSize: '0.8rem', marginTop: 8, display: 'block' }}>Online Amount (₹)</label>
           <input type="number" min="0" className="input-field" value={onlineAmount} onChange={e => setOnlineAmount(e.target.value)} placeholder="0" />
-          <p style={{ fontSize: '0.8rem', marginTop: 6 }}>Total: ₹{(parseFloat(cashAmount) || 0) + (parseFloat(onlineAmount) || 0)}</p>
+          <p style={{ fontSize: '0.8rem', marginTop: 6, color: disburseMatches ? 'var(--text-main)' : 'var(--danger)' }}>
+            Total: ₹{disburseTotal}{disburseMatches ? ' ✓' : ` — must equal ₹${loanAmount}`}
+          </p>
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button className="btn-submit" style={{ width: 'auto' }} onClick={disburse} disabled={busyId === 'disburse'}>
+            <button className="btn-submit" style={{ width: 'auto' }} onClick={disburse} disabled={busyId === 'disburse' || !disburseMatches}>
               {busyId === 'disburse' ? 'Marking...' : 'Confirm Disburse'}
             </button>
             <button type="button" className="btn-submit" style={{ width: 'auto', background: '#e5e7eb', color: '#111' }} onClick={() => setShowDisburseForm(false)}>Cancel</button>

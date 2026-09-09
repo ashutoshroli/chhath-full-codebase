@@ -44,7 +44,7 @@ import { runRetentionSweep, shouldSweepNow } from './retention.js';
 // taking a default.
 export const READ_ONLY_ACTIONS = new Set([
   'logout',
-  'getYears', 'getUsers', 'getCommittee', 'getHome', 'getExpenses', 'getLoans',
+  'getYears', 'getUsers', 'getCommittee', 'getHome', 'getExpenses', 'getLoans', 'getLoanBudget',
   'getUserHistory', 'getUserProfile', 'getYearContributors', 'getLockedYears',
   'getLoginUsers',
   'getPersonTemplates', 'getGroupTemplates', 'getWhatsappGroups', 'getMessageLog',
@@ -550,6 +550,7 @@ export default {
       getHome: () => withAuth(env, req, () => getHomeData(env, req.year)),
       getExpenses: () => withAuth(env, req, () => getExpensesData(env, req.year)),
       getLoans: () => withAuth(env, req, () => getLoansData(env, req.year)),
+      getLoanBudget: () => withAuth(env, req, async () => ({ success: true, available: await loans.availableLoanFund(env, req.year) })),
       getUserHistory: () => withAuth(env, req, (user) => { requireStaffRole(user); return getUserHistory(env, req.userId); }),
       getUserProfile: () => withAuth(env, req, (user) => { requireStaffRole(user); return getUserProfile(env, req.userId); }),
       getYearContributors: () => withAuth(env, req, () => getYearContributors(env, req.year)),
