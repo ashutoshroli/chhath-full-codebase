@@ -4,6 +4,7 @@ import { toColumnPayload } from './tableRegistry.js';
 import { otpConsentSenderNumber } from './settings.js';
 import { getConsentPageTemplate } from './settings.js';
 import { pickRandomActive, renderTemplateChecked, queuePersonMessageDirect, queueGroupMessageDirect, isTruthyFlag as waTruthyFlag, MAX_GROUPS_PER_JOB } from './whatsapp.js';
+import { queueLoanEmail, loanEmailTemplateContext } from './email.js';
 import { uploadFileToDrive } from './account.js';
 import { r2Available, putToR2, keyForYear } from './r2.js';
 import { base64ToBytes, MAX_CONSENT_IMAGE_BYTES } from './base64.js';
@@ -377,6 +378,16 @@ async function createLoanConsents(env, loanId, loanPayload, guarantorPayloads, u
   // Personal — loaner.
   await trySend(env, 'createLoanConsents:loaner', async () => {
     const loanerWa = waNumberOf(loanerU);
+    const data = Object.assign({}, baseData, {
+      Name: loanerU.Name || loanPayload.Name, NameHindi: loanerU['Name (Hindi)'] || '',
+      FatherName: loanerU["Father's Name"] || '', FatherNameHindi: loanerU["Father's Name (Hindi)"] || '',
+      Village: loanerU.Village || '', VillageHindi: loanerU['Village (Hindi)'] || '',
+      ConsentLink: baseData.LoanerConsentLink,
+    });
+    // Email is an independent channel (its own template + address), attempted
+    // regardless of the WhatsApp template/number below. Never throws.
+    await queueLoanEmail(env, 'consent_personal_loaner', loanerU, data, { loanId, loanerId: loanPayload.Name });
+
     const tpl = tpls.pick('consent_personal_loaner');
     if (!tpl) {
       warnings.push('the consent_personal_loaner template is not active');
@@ -393,12 +404,6 @@ async function createLoanConsents(env, loanId, loanPayload, guarantorPayloads, u
         { loanId, loanerId: loanPayload.Name });
       return;
     }
-    const data = Object.assign({}, baseData, {
-      Name: loanerU.Name || loanPayload.Name, NameHindi: loanerU['Name (Hindi)'] || '',
-      FatherName: loanerU["Father's Name"] || '', FatherNameHindi: loanerU["Father's Name (Hindi)"] || '',
-      Village: loanerU.Village || '', VillageHindi: loanerU['Village (Hindi)'] || '',
-      ConsentLink: baseData.LoanerConsentLink,
-    });
     const message = await renderLoanTemplate(env, 'createLoanConsents:loaner', tpl, data, { loanId });
     await queuePersonMessageDirect(env, loanerWa, message, tpls.sender, tpl.message_type, tpl.file_link);
   }, { loanId, loanerId: loanPayload.Name });
@@ -418,6 +423,15 @@ async function createLoanConsents(env, loanId, loanPayload, guarantorPayloads, u
       const gWa = waNumberOf(gU);
       const tpl = tpls.pick('consent_personal_guarantor');
       if (!tpl) continue;
+      const data = Object.assign({}, baseData, {
+        Name: gU.Name || c.personId, NameHindi: gU['Name (Hindi)'] || '',
+        FatherName: gU["Father's Name"] || '', FatherNameHindi: gU["Father's Name (Hindi)"] || '',
+        Village: gU.Village || '', VillageHindi: gU['Village (Hindi)'] || '',
+        ConsentLink: consentLink(c.token),
+      });
+      // Email is an independent channel — attempt it even when the WhatsApp
+      // number is missing/invalid (a guarantor may have an email but no WhatsApp).
+      await queueLoanEmail(env, 'consent_personal_guarantor', gU, data, { loanId, consentId: c.consentId, personId: c.personId });
       if (!gWa) {
         warnings.push(`guarantor ${gU.Name || c.personId}'s WhatsApp number is invalid/missing`);
         await logWarn(env, 'whatsapp-loans', 'createLoanConsents:guarantors',
@@ -427,12 +441,6 @@ async function createLoanConsents(env, loanId, loanPayload, guarantorPayloads, u
           { loanId, consentId: c.consentId, personId: c.personId });
         continue;
       }
-      const data = Object.assign({}, baseData, {
-        Name: gU.Name || c.personId, NameHindi: gU['Name (Hindi)'] || '',
-        FatherName: gU["Father's Name"] || '', FatherNameHindi: gU["Father's Name (Hindi)"] || '',
-        Village: gU.Village || '', VillageHindi: gU['Village (Hindi)'] || '',
-        ConsentLink: consentLink(c.token),
-      });
       const message = await renderLoanTemplate(env, 'createLoanConsents:guarantors', tpl, data, { loanId, consentId: c.consentId });
       await queuePersonMessageDirect(env, gWa, message, tpls.sender, tpl.message_type, tpl.file_link);
     }
@@ -582,6 +590,11 @@ export async function requestConsentOtp(env, token) {
   const message = otpTpl
     ? await renderLoanTemplate(env, 'requestConsentOtp', otpTpl, { OTP: otp, Name: person ? person.Name : '' }, { consentId: rowObj.consent_id })
     : `Your loan consent verification OTP is: ${otp}. It will expire in ${Math.round(OTP_TTL_MS / 60000)} minutes. Do not share it with anyone.`;
+
+  // Email the OTP too (independent backup channel — if the WhatsApp number is
+  // wrong, the OTP can still arrive by email). Additive and never throws, so it
+  // cannot change the WhatsApp-failure behaviour below.
+  await queueLoanEmail(env, 'otp', person || {}, { OTP: otp, Name: person ? person.Name : '' }, { consentId: rowObj.consent_id });
 
   const res = await queuePersonMessageDirect(env, wa, message, tpls.sender, otpTpl ? otpTpl.message_type : 'normal', otpTpl ? otpTpl.file_link : '');
   if (!res || !res.success) {
@@ -799,18 +812,24 @@ async function notifyConsentAccepted(env, loanId, personId, role) {
       const message = await renderLoanTemplate(env, 'notifyConsentAccepted:loaner', loanerTpl, data, { loanId, personId });
       await queuePersonMessageDirect(env, loanerWa, message, tpls.sender, loanerTpl.message_type, loanerTpl.file_link);
     }
+    // Email mirror to the loaner (independent template + channel).
+    await queueLoanEmail(env, 'consent_accepted_loaner_personal', loanerU, data, { loanId, personId });
 
     if (role === 'guarantor') {
       const { results: guarantorConsents } = await env.DB_LOANS_EXPENSES.prepare(
         "SELECT status FROM loan_consents WHERE loan_id = ? AND role = 'guarantor' AND status != 'replaced'"
       ).bind(loanId).all();
       const allAccepted = guarantorConsents.length > 0 && guarantorConsents.every(c => c.status === 'accepted');
-      if (allAccepted && loanerWa) {
-        const readyTpl = tpls.pick('all_guarantors_accepted_loaner');
-        if (readyTpl) {
-          const message = await renderLoanTemplate(env, 'notifyConsentAccepted:allAccepted', readyTpl, data, { loanId });
-          await queuePersonMessageDirect(env, loanerWa, message, tpls.sender, readyTpl.message_type, readyTpl.file_link);
+      if (allAccepted) {
+        if (loanerWa) {
+          const readyTpl = tpls.pick('all_guarantors_accepted_loaner');
+          if (readyTpl) {
+            const message = await renderLoanTemplate(env, 'notifyConsentAccepted:allAccepted', readyTpl, data, { loanId });
+            await queuePersonMessageDirect(env, loanerWa, message, tpls.sender, readyTpl.message_type, readyTpl.file_link);
+          }
         }
+        // Email is independent of the WhatsApp number.
+        await queueLoanEmail(env, 'all_guarantors_accepted_loaner', loanerU, data, { loanId });
       }
     }
   }, { loanId, personId, role });
@@ -932,6 +951,7 @@ async function notifyConsentVerified(env, consentId) {
       const message = await renderLoanTemplate(env, 'notifyConsentVerified:person', verifiedTpl, data, { consentId });
       await queuePersonMessageDirect(env, personWa, message, tpls.sender, verifiedTpl.message_type, verifiedTpl.file_link);
     }
+    await queueLoanEmail(env, 'consent_verified_personal', person, data, { consentId });
 
     const { results: allConsents } = await env.DB_LOANS_EXPENSES.prepare(
       "SELECT verification_status FROM loan_consents WHERE loan_id = ? AND status != 'replaced'"
@@ -944,6 +964,7 @@ async function notifyConsentVerified(env, consentId) {
         const message = await renderLoanTemplate(env, 'notifyConsentVerified:loanPassed', passedTpl, data, { consentId, loanId: consent.loan_id });
         await queuePersonMessageDirect(env, loanerWa, message, tpls.sender, passedTpl.message_type, passedTpl.file_link);
       }
+      await queueLoanEmail(env, 'loan_passed_personal', loanerU, data, { consentId, loanId: consent.loan_id });
     }
   }, { consentId });
 }
@@ -973,6 +994,15 @@ export async function resendConsent(env, consentId, user) {
   const tpls = await loanTemplateContext(env);
   const tpl = tpls.pick(tplType);
 
+  // Email mirror first (independent channel + its own template + address), so a
+  // resend still reaches the person by email even if the WhatsApp template/number
+  // is missing. queueLoanEmail never throws.
+  const data2 = Object.assign(notificationData(loan, loanerU, person, rowObj.role, guarantorUsers), {
+    ConsentLink: consentLink(newToken),
+    LoanerConsentLink: consentLink(newToken),
+  });
+  await queueLoanEmail(env, tplType, person, data2, { consentId });
+
   if (!tpl) throw ValidationError(`There is no active "${tplType}" template — add one in the WhatsApp templates first.`);
   if (!wa) {
     await logWarn(env, 'whatsapp-loans', 'resendConsent',
@@ -981,10 +1011,6 @@ export async function resendConsent(env, consentId, user) {
     throw ValidationError('This person does not have a valid WhatsApp/Mobile number registered — please correct the number in USERS first.');
   }
 
-  const data2 = Object.assign(notificationData(loan, loanerU, person, rowObj.role, guarantorUsers), {
-    ConsentLink: consentLink(newToken),
-    LoanerConsentLink: consentLink(newToken),
-  });
   const message = await renderLoanTemplate(env, 'resendConsent', tpl, data2, { consentId });
   await queuePersonMessageDirect(env, wa, message, tpls.sender, tpl.message_type, tpl.file_link);
   return { success: true, sendCount: sendCount + 1 };
@@ -1037,6 +1063,14 @@ export async function replaceGuarantor(env, loanId, oldConsentId, newPersonId, u
   const wa = waNumberOf(newPerson);
   const tpls = await loanTemplateContext(env);
   const tpl = tpls.pick('consent_personal_guarantor');
+  const guarantorUsersR = guarantorIdsAfter.map(id => userMap[id] || {});
+  const tplData = Object.assign(notificationData(loan, loanerU, newPerson, 'guarantor', guarantorUsersR), {
+    ConsentLink: consentLink(token),
+  });
+
+  // Email mirror (independent channel), attempted regardless of the WhatsApp
+  // template/number below. Never throws.
+  await queueLoanEmail(env, 'consent_personal_guarantor', newPerson, tplData, { loanId, newConsentId: consentId });
 
   // The guarantor swap itself has already been committed, so don't throw — but
   // do make the "no invitation was sent" case visible instead of silent.
@@ -1055,10 +1089,6 @@ export async function replaceGuarantor(env, loanId, oldConsentId, newPersonId, u
     };
   }
 
-  const guarantorUsers = guarantorIdsAfter.map(id => userMap[id] || {});
-  const tplData = Object.assign(notificationData(loan, loanerU, newPerson, 'guarantor', guarantorUsers), {
-    ConsentLink: consentLink(token),
-  });
   const message = await renderLoanTemplate(env, 'replaceGuarantor', tpl, tplData, { loanId, newConsentId: consentId });
   await queuePersonMessageDirect(env, wa, message, tpls.sender, tpl.message_type, tpl.file_link);
   return { success: true, consentId };
@@ -1085,6 +1115,16 @@ export async function markLoanDisbursed(env, loanId, cashAmount, onlineAmount, u
     const wa = waNumberOf(loaner);
     const tpls = await loanTemplateContext(env);
     const tpl = tpls.pick('disbursement');
+    const guarantorUsers = guarantorIds.map(id => userMap[id] || {});
+    const tplData = Object.assign(
+      notificationData(
+        { Name: loanRow.name, Amount: loanRow.amount, Tenure: loanRow.tenure, 'Intrest Rate': loanRow.intrest_rate, Year: loanRow.year },
+        loaner, loaner, 'loaner', guarantorUsers
+      ),
+      { CashAmount: cash, OnlineAmount: online, TotalAmount: cash + online }
+    );
+    // Email the disbursement confirmation too (independent channel). Never throws.
+    await queueLoanEmail(env, 'disbursement', loaner, tplData, { loanId });
     if (!tpl) {
       await logWarn(env, 'whatsapp-loans', 'markLoanDisbursed',
         'No active "disbursement" template — the loaner got no disbursement confirmation.', { loanId });
@@ -1095,14 +1135,6 @@ export async function markLoanDisbursed(env, loanId, cashAmount, onlineAmount, u
         `Loaner ${loanRow.name} has no valid WhatsApp/Mobile number — disbursement confirmation not sent.`, { loanId });
       return { skipped: 'no-number' };
     }
-    const guarantorUsers = guarantorIds.map(id => userMap[id] || {});
-    const tplData = Object.assign(
-      notificationData(
-        { Name: loanRow.name, Amount: loanRow.amount, Tenure: loanRow.tenure, 'Intrest Rate': loanRow.intrest_rate, Year: loanRow.year },
-        loaner, loaner, 'loaner', guarantorUsers
-      ),
-      { CashAmount: cash, OnlineAmount: online, TotalAmount: cash + online }
-    );
     const message = await renderLoanTemplate(env, 'markLoanDisbursed', tpl, tplData, { loanId });
     await queuePersonMessageDirect(env, wa, message, tpls.sender, tpl.message_type, tpl.file_link);
     return { sent: true };

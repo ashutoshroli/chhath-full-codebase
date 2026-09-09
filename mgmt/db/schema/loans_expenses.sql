@@ -51,6 +51,26 @@ CREATE TABLE loan_message_templates (
   file_link TEXT
 );
 
+-- EMAIL channel for loan notifications (Resend). Mirrors loan_message_templates
+-- (same `type` system) plus a `subject` column, since email needs a subject.
+-- Personal loan notifications (consent link, OTP, accepted/verified, disbursed)
+-- are also emailed to the loaner/guarantor's users.email. The send side reuses
+-- the shared email_messages queue (in the whatsapp-index DB) drained by the
+-- Worker via Resend — see mgmt/backend/src/email.js. Group types are NOT emailed
+-- (email has no group concept); they are kept here only for parity/consistency.
+CREATE TABLE IF NOT EXISTS loan_email_templates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  template_id TEXT,
+  type TEXT,
+  subject TEXT,
+  text TEXT,
+  active TEXT,
+  created_at TEXT,
+  message_type TEXT,
+  file_link TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_loan_email_templates_type ON loan_email_templates(type);
+
 -- source sheet: "EXPENSES"
 DROP TABLE IF EXISTS expenses;
 CREATE TABLE expenses (

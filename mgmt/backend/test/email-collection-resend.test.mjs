@@ -14,7 +14,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeD1, schemaFor } from './helpers/stubs.mjs';
-import { triggerCollectionEmail, processPendingEmails } from '../src/email.js';
+import { triggerCollectionEmail, processPendingEmails, queueLoanEmail } from '../src/email.js';
 
 const PDF_LINK = 'https://drive.example/generated.pdf';
 
@@ -195,4 +195,83 @@ test('processPendingEmails is a no-op (no fetch) when RESEND_API_KEY is unset', 
 
   const row = await lastQueuedEmail(env);
   assert.equal(row.status, 'pending', 'row stays pending until a key is configured');
+});
+
+// ------------------------------------------------------------------ loan email
+
+function makeLoanEnv(overrides = {}) {
+  const loans = makeD1(schemaFor('loans_expenses.sql'));
+  const wa = makeD1(schemaFor('whatsapp_index.sql')); // email_messages queue lives here
+  return {
+    DB_LOANS_EXPENSES: loans,
+    DB_WHATSAPP_INDEX: wa,
+    DB_LOGS: makeD1(schemaFor('logs.sql')),
+    RESEND_API_KEY: 'test-key',
+    RESEND_FROM: 'noreply@shaharpura.com',
+    RESEND_REPLY_TO: 'shaharpura.815312@gmail.com',
+    ...overrides,
+  };
+}
+function seedLoanEmailTemplate(env, type, { subject = 'Loan: {LoanerName}', text = 'Hi {Name}, consent link: {ConsentLink}' } = {}) {
+  env.DB_LOANS_EXPENSES.prepare(
+    `INSERT INTO loan_email_templates (template_id, type, subject, text, active, created_at, message_type, file_link)
+     VALUES (?,?,?,?,?,?,?,?)`
+  ).bind('LE-' + type, type, subject, text, '1', '2026-01-01', 'normal', '').run();
+}
+async function lastLoanEmail(env) {
+  return env.DB_WHATSAPP_INDEX.prepare('SELECT * FROM email_messages ORDER BY id DESC LIMIT 1').first();
+}
+
+test('queueLoanEmail queues a rendered loan email to the recipient email', async () => {
+  const env = makeLoanEnv();
+  seedLoanEmailTemplate(env, 'consent_personal_loaner');
+  const recipient = { Name: 'Ramesh', Email: 'ramesh@example.com' };
+  const data = { Name: 'Ramesh', LoanerName: 'Ramesh', ConsentLink: 'https://consent/abc' };
+  const res = await queueLoanEmail(env, 'consent_personal_loaner', recipient, data, { loanId: 'L1' });
+  assert.equal(res.emailSent, true);
+  const row = await lastLoanEmail(env);
+  assert.equal(row.to_email, 'ramesh@example.com');
+  assert.equal(row.subject, 'Loan: Ramesh');
+  assert.equal(row.body, 'Hi Ramesh, consent link: https://consent/abc');
+  assert.equal(row.status, 'pending');
+  assert.equal(row.from, 'noreply@shaharpura.com');
+});
+
+test('queueLoanEmail (otp) queues the OTP email — the backup channel', async () => {
+  const env = makeLoanEnv();
+  seedLoanEmailTemplate(env, 'otp', { subject: 'Your OTP', text: 'OTP for {Name}: {OTP}' });
+  const res = await queueLoanEmail(env, 'otp', { Name: 'Sita', Email: 'sita@example.com' }, { Name: 'Sita', OTP: '123456' }, { consentId: 'C1' });
+  assert.equal(res.emailSent, true);
+  const row = await lastLoanEmail(env);
+  assert.equal(row.body, 'OTP for Sita: 123456');
+});
+
+test('queueLoanEmail skips when the recipient has no email', async () => {
+  const env = makeLoanEnv();
+  seedLoanEmailTemplate(env, 'disbursement');
+  const res = await queueLoanEmail(env, 'disbursement', { Name: 'NoEmail', Email: '' }, {}, { loanId: 'L2' });
+  assert.equal(res.emailSent, false);
+  assert.equal(res.reason, 'no-email');
+  assert.equal(await lastLoanEmail(env), null);
+});
+
+test('queueLoanEmail skips (no crash) when there is no active template of that type', async () => {
+  const env = makeLoanEnv(); // no template seeded
+  const res = await queueLoanEmail(env, 'consent_personal_guarantor', { Name: 'X', Email: 'x@example.com' }, {}, { loanId: 'L3' });
+  assert.equal(res.emailSent, false);
+  assert.equal(res.reason, 'no-template');
+});
+
+test('a loan email drains through processPendingEmails like any other email', async () => {
+  const env = makeLoanEnv();
+  seedLoanEmailTemplate(env, 'disbursement', { subject: 'Disbursed', text: '₹{TotalAmount} disbursed to {Name}' });
+  await queueLoanEmail(env, 'disbursement', { Name: 'Mohan', Email: 'mohan@example.com' }, { Name: 'Mohan', TotalAmount: 5000 }, { loanId: 'L4' });
+
+  stubFetch(async () => ({ ok: true, status: 200, json: async () => ({ id: 're_loan' }) }));
+  try {
+    const out = await processPendingEmails(env);
+    assert.equal(out.processed, 1);
+  } finally { restoreFetch(); }
+  const row = await lastLoanEmail(env);
+  assert.equal(row.status, 'sent');
 });

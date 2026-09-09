@@ -310,6 +310,11 @@ export const api = {
   deleteEmailTemplate: (rowIndex) => call('deleteEmailTemplate', { rowIndex }),
   getStuckEmails: (olderThanMinutes) => call('getStuckEmails', { olderThanMinutes }),
   resendEmail: (message_id) => call('resendEmail', { message_id }),
+  // Loan email (Resend) templates
+  getLoanEmailTemplates: (type) => call('getLoanEmailTemplates', { type }),
+  addLoanEmailTemplate: (type, subject, text, messageType, fileLink) => call('addLoanEmailTemplate', { type, subject, text, messageType, fileLink }),
+  updateLoanEmailTemplate: (rowIndex, subject, text, active, messageType, fileLink) => call('updateLoanEmailTemplate', { rowIndex, subject, text, active, messageType, fileLink }),
+  deleteLoanEmailTemplate: (rowIndex) => call('deleteLoanEmailTemplate', { rowIndex }),
 
   // WhatsApp: Group Info
   getWhatsappGroups: () => call('getWhatsappGroups'),
