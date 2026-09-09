@@ -358,6 +358,114 @@ export async function processPendingEmails(env) {
   return { processed, claimed: ids.length };
 }
 
+// ============================================================================
+// LOAN email (Resend) — the email mirror of the WhatsApp loan notifications in
+// loans.js. Personal loan notifications (consent link, OTP, accepted, verified,
+// disbursed, resend, replace-guarantor) are ALSO emailed to the loaner/guarantor
+// (users.email). Group notifications are NOT emailed (email has no group). All of
+// this reuses the same email_messages queue + processPendingEmails + Resend send.
+// ============================================================================
+
+const LOAN_EMAIL_TEMPLATE_TABLE = 'loan_email_templates';
+
+// Reads LOAN_EMAIL_TEMPLATES once and returns a picker, mirroring loans.js
+// loanTemplateContext (but there is no sender number — email uses RESEND_FROM).
+export async function loanEmailTemplateContext(env) {
+  const all = await getSheetDataAsJSON(env, 'LOAN_EMAIL_TEMPLATES');
+  return {
+    pick: (type) => pickRandomActive((all || []).filter(t => t.type === type)),
+    countFor: (type) => (all || []).filter(t => t.type === type).length,
+  };
+}
+
+// Queue ONE loan email of `type` to a recipient USERS row's email. Renders
+// subject + body from `data`. Never throws — logs and returns a summary so the
+// caller (loans.js, inside its own trySend) can keep going. Group types are not
+// emailed here; callers simply don't call this for group notifications.
+//
+// `ctxHelper` is an optional pre-loaded loanEmailTemplateContext (so a caller
+// that sends several emails in one operation reads the templates once).
+export async function queueLoanEmail(env, type, recipientUser, data, context, ctxHelper) {
+  try {
+    const toEmail = cleanEmail(recipientUser && recipientUser.Email);
+    if (!toEmail) {
+      await logWarn(env, 'email-loans', 'queueLoanEmail',
+        `No valid email for the recipient of a "${type}" loan email — skipped.`,
+        { type, ...(context || {}) });
+      return { emailSent: false, reason: 'no-email' };
+    }
+    const tpls = ctxHelper || await loanEmailTemplateContext(env);
+    const tpl = tpls.pick(type);
+    if (!tpl) {
+      await logWarn(env, 'email-loans', 'queueLoanEmail',
+        `No active "${type}" loan email template — no email queued.`, { type, ...(context || {}) });
+      return { emailSent: false, reason: 'no-template' };
+    }
+    const subjectR = renderTemplateChecked(tpl.subject, data);
+    const bodyR = renderTemplateChecked(tpl.text, data);
+    const missing = [...new Set([...subjectR.missing, ...bodyR.missing])];
+    if (missing.length) {
+      await logWarn(env, 'email-loans', 'queueLoanEmail',
+        `Loan email template ${tpl.template_id || '(unknown)'} [${type}] has unresolved placeholder(s): ${missing.join(', ')} — rendered blank.`,
+        { templateId: tpl.template_id, type, missing, ...(context || {}) });
+    }
+    const from = (env && env.RESEND_FROM) || '';
+    const replyTo = (env && env.RESEND_REPLY_TO) || '';
+    const res = await queueEmailDirect(env, toEmail, subjectR.text, bodyR.text, from, replyTo, tpl.message_type || 'normal', tpl.file_link || '');
+    return { emailSent: !!res.success, reason: res.reason };
+  } catch (err) {
+    // Loan email must NEVER break the loan/consent flow (nor the WhatsApp send).
+    await logErrorAt(env, 'email-loans', 'queueLoanEmail', err, { type, ...(context || {}) });
+    return { emailSent: false, reason: 'exception', error: err && err.message };
+  }
+}
+
+// ---- Loan email template CRUD (Superadmin) ----
+
+export async function addLoanEmailTemplate(env, type, subject, text, messageType, fileLink, user) {
+  requireSuperadmin(user);
+  if (!type || !type.toString().trim()) throw ValidationError('Template type required');
+  if (!subject || !subject.toString().trim()) throw ValidationError('Email subject required');
+  if (!text || !text.toString().trim()) throw ValidationError('Template body (text) required');
+  const id = randomId('LETPL');
+  await env.DB_LOANS_EXPENSES.prepare(
+    `INSERT INTO ${LOAN_EMAIL_TEMPLATE_TABLE} (template_id, type, subject, text, active, created_at, message_type, file_link)
+     VALUES (?, ?, ?, ?, '1', ?, ?, ?)`
+  ).bind(id, type.toString().trim(), subject.toString().trim(), text.toString().trim(), new Date().toISOString(), messageType || 'normal', fileLink || '').run();
+  return { success: true, template_id: id };
+}
+
+export async function updateLoanEmailTemplate(env, rowIndex, subject, text, active, messageType, fileLink, user) {
+  requireSuperadmin(user);
+  if (!rowIndex) throw ValidationError('rowIndex required');
+  const sets = []; const vals = [];
+  if (subject !== undefined) { sets.push('subject = ?'); vals.push(subject); }
+  if (text !== undefined) { sets.push('text = ?'); vals.push(text); }
+  if (active !== undefined) { sets.push('active = ?'); vals.push(active ? '1' : '0'); }
+  if (messageType !== undefined) { sets.push('message_type = ?'); vals.push(messageType); }
+  if (fileLink !== undefined) { sets.push('file_link = ?'); vals.push(fileLink); }
+  if (!sets.length) return { success: true };
+  vals.push(rowIndex);
+  await env.DB_LOANS_EXPENSES.prepare(`UPDATE ${LOAN_EMAIL_TEMPLATE_TABLE} SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
+  return { success: true };
+}
+
+export async function deleteLoanEmailTemplate(env, rowIndex, user) {
+  requireSuperadmin(user);
+  if (!rowIndex) throw ValidationError('rowIndex required');
+  await env.DB_LOANS_EXPENSES.prepare(`DELETE FROM ${LOAN_EMAIL_TEMPLATE_TABLE} WHERE id = ?`).bind(rowIndex).run();
+  return { success: true };
+}
+
+export async function getLoanEmailTemplates(env, type) {
+  const { results } = await env.DB_LOANS_EXPENSES.prepare(
+    `SELECT * FROM ${LOAN_EMAIL_TEMPLATE_TABLE} WHERE type = ? ORDER BY id ASC`
+  ).bind((type || '').toString()).all();
+  // Alias id -> __rowIndex so the frontend edit/delete/toggle (which use
+  // __rowIndex) work exactly like the WhatsApp/loan message templates do.
+  return (results || []).map(r => ({ ...r, __rowIndex: r.id }));
+}
+
 // ---------------------------------------------------------------- Admin views
 
 // Stuck emails — same idea as whatsapp getStuckMessages, one table.

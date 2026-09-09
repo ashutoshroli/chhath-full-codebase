@@ -524,6 +524,143 @@ function EmailTemplateList() {
   );
 }
 
+// ============ Loan Email Templates (Resend) ============
+// One list per loan template type (the same 10 types as the WhatsApp Loan tab),
+// with a Subject field. Sent to the loaner/guarantor's email; group types have
+// no email equivalent but are offered for parity.
+function LoanEmailTemplateList({ loanType }) {
+  const hint = LOAN_PLACEHOLDER_HINTS[loanType] || PLACEHOLDER_HINT;
+  const [rows, setRows] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [subject, setSubject] = useState('');
+  const [text, setText] = useState('');
+  const [messageType, setMessageType] = useState('normal');
+  const [hasFile, setHasFile] = useState(false);
+  const [fileLink, setFileLink] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    api.getLoanEmailTemplates(loanType).then(setRows).catch(err => setError(err.message)).finally(() => setLoading(false));
+  }, [loanType]);
+  useEffect(() => { load(); }, [load]);
+
+  const resetForm = () => { setSubject(''); setText(''); setMessageType('normal'); setHasFile(false); setFileLink(''); };
+  const closeModal = () => { setShowAdd(false); setEditing(null); resetForm(); };
+  const openEdit = (r) => {
+    setEditing(r);
+    setSubject(r.subject || '');
+    setText(r.text || '');
+    setMessageType(r.message_type === 'priority' ? 'priority' : 'normal');
+    setFileLink(r.file_link || '');
+    setHasFile(!!r.file_link);
+    setShowAdd(true);
+  };
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!subject.trim()) return alert('Please enter the email subject');
+    if (!text.trim()) return alert('Please enter the email body');
+    if (hasFile && !fileLink.trim()) return alert('Please enter the file link, or turn off "Attach a file link?"');
+    setSaving(true);
+    try {
+      const link = hasFile ? fileLink.trim() : '';
+      if (editing) await api.updateLoanEmailTemplate(editing.__rowIndex, subject.trim(), text.trim(), undefined, messageType, link);
+      else await api.addLoanEmailTemplate(loanType, subject.trim(), text.trim(), messageType, link);
+      closeModal();
+      load();
+    } catch (err) { alert(err.message); } finally { setSaving(false); }
+  };
+  const toggleActive = async (r) => {
+    try { await api.updateLoanEmailTemplate(r.__rowIndex, undefined, undefined, !(isTruthyFlag(r.active)), undefined, undefined); load(); }
+    catch (err) { alert(err.message); }
+  };
+  const cycleMessageType = async (r) => {
+    const next = (r.message_type === 'priority') ? 'normal' : 'priority';
+    try { await api.updateLoanEmailTemplate(r.__rowIndex, undefined, undefined, undefined, next, undefined); load(); }
+    catch (err) { alert(err.message); }
+  };
+  const remove = async (r) => {
+    if (!confirm('Delete this loan email template?')) return;
+    try { await api.deleteLoanEmailTemplate(r.__rowIndex); load(); } catch (err) { alert(err.message); }
+  };
+
+  if (loading) return <div className="inline-spinner">Loading loan email templates...</div>;
+  if (error) return <div className="error-banner">{error}</div>;
+
+  return (
+    <>
+      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 12 }}>{hint}</div>
+      {(!rows || rows.length === 0) && <div className="glass-card" style={{ textAlign: 'center', padding: 20 }}>No loan email templates yet for this type.</div>}
+      {(rows || []).map((r, i) => {
+        const isActive = isTruthyFlag(r.active);
+        const isPriority = r.message_type === 'priority';
+        return (
+          <div className="glass-card" style={{ padding: 15, marginBottom: 10 }} key={r.__rowIndex ?? i}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+              <div style={{ flexGrow: 1 }}>
+                <strong style={{ display: 'block', marginBottom: 4 }}>✉️ {r.subject}</strong>
+                <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{r.text}</p>
+              </div>
+              <span className={`badge ${isActive ? 'badge-ok' : 'badge-warn'} toggle-switch`} onClick={() => toggleActive(r)}>
+                {isActive ? 'Active' : 'Inactive'}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span className={`badge ${isPriority ? 'badge-warn' : 'badge-pending'}`} style={{ cursor: 'pointer' }} onClick={() => cycleMessageType(r)} title="Tap to toggle Normal/Priority">
+                {isPriority ? '⚡ Priority' : 'Normal'}
+              </span>
+              {r.file_link && <span className="badge" style={{ background: '#DBEAFE', color: '#1E40AF' }} title={r.file_link}>📎 File link</span>}
+            </div>
+            <div className="row-actions" style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+              <button type="button" className="icon-btn" title="Edit" onClick={() => openEdit(r)}>
+                <span className="material-icons-round" style={{ fontSize: 16 }}>edit</span>
+              </button>
+              <button type="button" className="icon-btn icon-danger" title="Delete" onClick={() => remove(r)}>
+                <span className="material-icons-round" style={{ fontSize: 16 }}>delete</span>
+              </button>
+            </div>
+          </div>
+        );
+      })}
+      <button className="fab" onClick={() => { setEditing(null); resetForm(); setShowAdd(true); }}><span className="material-icons-round">add</span></button>
+      <Modal open={showAdd} onClose={closeModal}>
+        <h3 style={{ marginBottom: 15 }}>{editing ? 'Edit' : 'New'} Loan Email Template</h3>
+        <form onSubmit={submit}>
+          <div className="form-group">
+            <label>Subject</label>
+            <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="e.g. Loan consent for {LoanerName}" style={{ width: '100%' }} />
+          </div>
+          <div className="form-group">
+            <label>Email Body</label>
+            <textarea rows={6} value={text} onChange={e => setText(e.target.value)} placeholder={hint} style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #ddd' }} />
+          </div>
+          <div className="form-group">
+            <label>Message Type</label>
+            <select value={messageType} onChange={e => setMessageType(e.target.value)}>
+              <option value="normal">Normal</option>
+              <option value="priority">Priority</option>
+            </select>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '10px 0', cursor: 'pointer' }}>
+            <input type="checkbox" checked={hasFile} onChange={e => setHasFile(e.target.checked)} />
+            Attach a file link?
+          </label>
+          {hasFile && (
+            <div className="form-group">
+              <label>File Link (public URL)</label>
+              <input value={fileLink} onChange={e => setFileLink(e.target.value)} placeholder="https://... any public link" />
+            </div>
+          )}
+          <button className="btn-submit" disabled={saving}>{saving ? 'Saving...' : (editing ? 'Update' : 'Save')}</button>
+        </form>
+      </Modal>
+    </>
+  );
+}
+
 // ============ Email queue monitor (stuck + resend) ============
 function EmailLog() {
   const [stuck, setStuck] = useState(null);
@@ -841,7 +978,8 @@ function WhatsAppSettings() {
 // ============ Root: WhatsApp tab with Template / Group Info / Message / Settings subtabs ============
 export default function WhatsApp() {
   const [section, setSection] = useState('template'); // template | groupinfo | message | email | settings
-  const [emailSection, setEmailSection] = useState('template'); // template | queue
+  const [emailSection, setEmailSection] = useState('template'); // template (collection) | loan | queue
+  const [loanEmailType, setLoanEmailType] = useState(LOAN_TEMPLATE_TYPES[0][0]);
   const [templateKind, setTemplateKind] = useState('person'); // person | group | loan
   const [loanTemplateType, setLoanTemplateType] = useState(LOAN_TEMPLATE_TYPES[0][0]);
 
@@ -888,10 +1026,22 @@ export default function WhatsApp() {
       {section === 'email' && (
         <>
           <div className="subtabs">
-            <button className={`subtab-btn ${emailSection === 'template' ? 'active' : ''}`} onClick={() => setEmailSection('template')}>Templates</button>
+            <button className={`subtab-btn ${emailSection === 'template' ? 'active' : ''}`} onClick={() => setEmailSection('template')}>Collection</button>
+            <button className={`subtab-btn ${emailSection === 'loan' ? 'active' : ''}`} onClick={() => setEmailSection('loan')}>Loan</button>
             <button className={`subtab-btn ${emailSection === 'queue' ? 'active' : ''}`} onClick={() => setEmailSection('queue')}>Queue</button>
           </div>
-          {emailSection === 'template' ? <EmailTemplateList /> : <EmailLog />}
+          {emailSection === 'template' && <EmailTemplateList />}
+          {emailSection === 'loan' && (
+            <>
+              <div className="subtabs" style={{ marginTop: 8 }}>
+                {LOAN_TEMPLATE_TYPES.map(([val, lbl]) => (
+                  <button key={val} className={`subtab-btn ${loanEmailType === val ? 'active' : ''}`} onClick={() => setLoanEmailType(val)}>{lbl}</button>
+                ))}
+              </div>
+              <LoanEmailTemplateList key={loanEmailType} loanType={loanEmailType} />
+            </>
+          )}
+          {emailSection === 'queue' && <EmailLog />}
         </>
       )}
 

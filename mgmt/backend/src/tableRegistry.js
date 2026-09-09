@@ -22,6 +22,7 @@ export const TABLE_REGISTRY = {
   'pdf_templates': { db: 'templates', table: 'pdf_templates' },
   'loan_consents': { db: 'loans_expenses', table: 'loan_consents' },
   'loan_message_templates': { db: 'loans_expenses', table: 'loan_message_templates' },
+  'loan_email_templates': { db: 'loans_expenses', table: 'loan_email_templates' },
   'dropdown_lists': { db: 'core', table: 'dropdown_lists' },
   'group_message_templates': { db: 'whatsapp_index', table: 'group_message_templates' },
   'whatsapp_groups': { db: 'whatsapp_index', table: 'whatsapp_groups' },

@@ -51,6 +51,10 @@ const SCHEMA_FOR_MIGRATION = {
   // (which already contains both tables); the migration is CREATE IF NOT EXISTS
   // so a second run is a no-op.
   '15-email-channel.sql': 'whatsapp_index.sql',
+  // loan email templates (Resend): adds loan_email_templates to the
+  // loans-expenses DB. CREATE IF NOT EXISTS, so idempotent against the committed
+  // loans_expenses.sql schema (which already contains the table).
+  '16-loan-email-templates.sql': 'loans_expenses.sql',
 };
 
 // Migrations that legitimately do more than CREATE INDEX. Keep this list as short

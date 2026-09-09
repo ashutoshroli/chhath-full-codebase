@@ -64,7 +64,7 @@ export const READ_ONLY_ACTIONS = new Set([
   'getActivityLog', 'getLoginAttempts', 'getLockedAccounts', 'getMySessions', 'getUserSessions',
   'getLoanTemplates',
   'getPendingMessages', 'getStuckMessages',
-  'getEmailTemplates', 'getStuckEmails',
+  'getEmailTemplates', 'getStuckEmails', 'getLoanEmailTemplates',
   'whatsappDiagnostic',
   'getAnnouncementLinks', 'getCustomAnnouncements', 'getAnnouncementQueue',
   'publicGetSeo', 'getSeoSettings',
@@ -110,6 +110,7 @@ export const EXPECTED_MUTATING_ACTIONS = new Set([
   'resendMessage', 'updateMessageStatus',
   // email (Resend) templates + queue
   'addEmailTemplate', 'updateEmailTemplate', 'deleteEmailTemplate', 'resendEmail',
+  'addLoanEmailTemplate', 'updateLoanEmailTemplate', 'deleteLoanEmailTemplate',
   // announcements
   'addCustomAnnouncement', 'updateCustomAnnouncement', 'deleteCustomAnnouncement',
   'generateAnnouncementLink', 'revokeAnnouncementLink',
@@ -639,6 +640,11 @@ export default {
       addEmailTemplate: () => withAuth(env, req, (user) => email.addEmailTemplate(env, req.subject, req.text, req.messageType, req.contributionType, req.fileLink, req.docSubType, req.fileDocType, user)),
       updateEmailTemplate: () => withAuth(env, req, (user) => email.updateEmailTemplate(env, req.rowIndex, req.subject, req.text, req.active, req.messageType, req.contributionType, req.fileLink, req.docSubType, req.fileDocType, user)),
       deleteEmailTemplate: () => withAuth(env, req, (user) => email.deleteEmailTemplate(env, req.rowIndex, user)),
+      // ---- Loan email (Resend) templates ----
+      getLoanEmailTemplates: () => withAuth(env, req, (user) => { requireSuperadmin(user); return email.getLoanEmailTemplates(env, req.type); }),
+      addLoanEmailTemplate: () => withAuth(env, req, (user) => email.addLoanEmailTemplate(env, req.type, req.subject, req.text, req.messageType, req.fileLink, user)),
+      updateLoanEmailTemplate: () => withAuth(env, req, (user) => email.updateLoanEmailTemplate(env, req.rowIndex, req.subject, req.text, req.active, req.messageType, req.fileLink, user)),
+      deleteLoanEmailTemplate: () => withAuth(env, req, (user) => email.deleteLoanEmailTemplate(env, req.rowIndex, user)),
       getGroupTemplates: () => withAuth(env, req, (user) => { requireSuperadmin(user); return getSheetDataAsJSON(env, 'GROUP_MESSAGE_TEMPLATES'); }),
       addGroupTemplate: () => withAuth(env, req, (user) => wa.addTemplate(env, 'GROUP_MESSAGE_TEMPLATES', req.text, req.messageType, req.contributionType, req.fileLink, req.docSubType, req.fileDocType, user)),
       updateGroupTemplate: () => withAuth(env, req, (user) => wa.updateTemplate(env, 'GROUP_MESSAGE_TEMPLATES', req.rowIndex, req.text, req.active, req.messageType, req.contributionType, req.fileLink, req.docSubType, req.fileDocType, user)),
