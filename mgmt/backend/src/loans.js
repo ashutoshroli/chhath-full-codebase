@@ -119,6 +119,35 @@ async function trySend(env, page, fn, context) {
   }
 }
 
+// How much money is still available to lend in a given festival year:
+//   surplus(year) − SUM(amount of loans already recorded in that year)
+// surplus = this-year collections + last-year loan returns (principal + the
+// same interest formula the Home screen uses) − this-year expenses. Kept in sync
+// with views.js getHomeData. `excludeLoanId` lets an EDIT of an existing loan
+// exclude its own current amount from the "already given" total.
+export async function availableLoanFund(env, year, excludeLoanId) {
+  const y = parseInt(year);
+  if (!Number.isFinite(y)) return Infinity; // no year -> no cap (shouldn't happen; Year is validated earlier)
+
+  const [colAgg, expAgg, retAgg, givenAgg] = await Promise.all([
+    env.DB_COLLECTIONS.prepare('SELECT COALESCE(SUM(amount),0) AS t FROM collections WHERE year = ?').bind(y).first(),
+    env.DB_LOANS_EXPENSES.prepare('SELECT COALESCE(SUM(amount),0) AS t FROM expenses WHERE year = ?').bind(y).first(),
+    // Last year's loans return this year with interest (principal + principal*rate/100*tenure).
+    env.DB_LOANS_EXPENSES.prepare(
+      `SELECT COALESCE(SUM(COALESCE(amount,0) + COALESCE(amount,0) * (COALESCE(intrest_rate,0)/100.0) * COALESCE(tenure,0)),0) AS t FROM loans WHERE year = ?`
+    ).bind(y - 1).first(),
+    // Loans already recorded THIS year (any status — a Created loan already
+    // commits the money), optionally excluding one loan (for edits).
+    excludeLoanId
+      ? env.DB_LOANS_EXPENSES.prepare('SELECT COALESCE(SUM(amount),0) AS t FROM loans WHERE year = ? AND loan_id != ?').bind(y, excludeLoanId.toString()).first()
+      : env.DB_LOANS_EXPENSES.prepare('SELECT COALESCE(SUM(amount),0) AS t FROM loans WHERE year = ?').bind(y).first(),
+  ]);
+
+  const surplus = (Number(colAgg && colAgg.t) || 0) + (Number(retAgg && retAgg.t) || 0) - (Number(expAgg && expAgg.t) || 0);
+  const alreadyGiven = Number(givenAgg && givenAgg.t) || 0;
+  return surplus - alreadyGiven;
+}
+
 // ---- Save / delete loan transaction ----
 
 export async function saveLoanTransaction(env, loanPayload, guarantorPayloads, user) {
@@ -135,6 +164,24 @@ export async function saveLoanTransaction(env, loanPayload, guarantorPayloads, u
   guarantorPayloads.forEach(g => {
     if (committee.includes(g.Guarantor)) throw ValidationError('Rule Violation: A Committee Member cannot be a Guarantor');
   });
+
+  // ---- Yearly loan-budget cap ----
+  // A new loan cannot exceed what is still available for lending THIS year:
+  //   available = yearly surplus − (sum of all loans already recorded this year)
+  // where surplus = this-year collections + last-year loan returns(principal+
+  // interest) − this-year expenses (the exact figure the Home screen shows, see
+  // views.js getHomeData). So if the year's surplus is ₹5000 and a ₹3000 loan
+  // already exists, the next loan can be at most ₹2000.
+  {
+    const newAmount = parseFloat(loanPayload.Amount) || 0;
+    const available = await availableLoanFund(env, loanPayload.Year);
+    if (newAmount > available + 0.01) {
+      throw ValidationError(
+        `This loan (₹${newAmount}) exceeds the amount still available for lending in ${loanPayload.Year}: ₹${Math.max(0, Math.round(available * 100) / 100)}. ` +
+        `The yearly budget is the surplus (collections + last year's loan returns − expenses) minus loans already given this year.`
+      );
+    }
+  }
 
   loanPayload['Created By'] = user.name;
   const loanId = generateLoanId();
@@ -1095,7 +1142,9 @@ export async function replaceGuarantor(env, loanId, oldConsentId, newPersonId, u
 }
 
 export async function markLoanDisbursed(env, loanId, cashAmount, onlineAmount, user) {
-  requireSuperadmin(user);
+  // Disbursing is an Admin-or-above action (was Superadmin-only). Verifying a
+  // consent is already Admin-or-above; guarantor edit/replace stays Superadmin.
+  requireAdminOrAbove(user);
   const cash = parseFloat(cashAmount) || 0;
   const online = parseFloat(onlineAmount) || 0;
   if (cash <= 0 && online <= 0) throw ValidationError('Enter at least one amount, either Cash or Online.');
@@ -1103,6 +1152,16 @@ export async function markLoanDisbursed(env, loanId, cashAmount, onlineAmount, u
   const loanRow = await env.DB_LOANS_EXPENSES.prepare('SELECT * FROM loans WHERE loan_id = ?').bind(loanId).first();
   if (!loanRow) throw ValidationError('Loan not found.');
   if (loanRow.loan_status !== 'Approved') throw ValidationError('The loan is not Approved yet — all consents must be accepted first.');
+
+  // The total disbursed must EQUAL the sanctioned loan amount — not more, not
+  // less. (Previously any amount was accepted, so a ₹100 loan could be marked
+  // disbursed for ₹58,823.) amount is a REAL column, so compare with a tiny
+  // epsilon to avoid float dust (e.g. 0.1+0.2 !== 0.3).
+  const loanAmount = parseFloat(loanRow.amount) || 0;
+  const total = cash + online;
+  if (Math.abs(total - loanAmount) > 0.01) {
+    throw ValidationError(`The total disbursed (₹${total}) must equal the sanctioned loan amount (₹${loanAmount}). Adjust the Cash / Online split so they add up to exactly ₹${loanAmount}.`);
+  }
 
   await env.DB_LOANS_EXPENSES.prepare(
     "UPDATE loans SET loan_status = 'Disbursed', cash_amount = ?, online_amount = ? WHERE loan_id = ?"

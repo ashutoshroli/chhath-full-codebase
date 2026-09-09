@@ -19,6 +19,15 @@ export default function Loans({ year, users, committee, role, editable }) {
   const [contribLoading, setContribLoading] = useState(false);
   const [editing, setEditing] = useState(null); // editing loan row — only Amount/Rate/Tenure are editable
   const [statusLoan, setStatusLoan] = useState(null); // loan whose consent/status modal is open
+  const [available, setAvailable] = useState(null); // ₹ still lendable this year (surplus − loans given)
+
+  // Load how much is still available to lend this year whenever the Add form
+  // opens for a NEW loan (not an edit — an edit's amount cap is handled server-side).
+  useEffect(() => {
+    if (!showAdd || editing) { setAvailable(null); return; }
+    const loanYear = year === 'All' ? new Date().getFullYear() : year;
+    api.getLoanBudget(loanYear).then(r => setAvailable(r && typeof r.available === 'number' ? r.available : null)).catch(() => setAvailable(null));
+  }, [showAdd, editing, year]);
 
   const userMap = useMemo(() => {
     const m = {};
@@ -76,6 +85,10 @@ export default function Loans({ year, users, committee, role, editable }) {
     if ([g1, g2, g3].some(g => committeeIds.has(g))) return alert('Rule Violation: A Committee Member cannot be a Guarantor');
     if (!Amount) return alert('Amount is required');
     if (!FinalRepaymentDate) return alert('Final Repayment Date is required');
+    // Yearly budget cap (backend enforces this hard; this is a friendly pre-check).
+    if (available !== null && (parseFloat(Amount) || 0) > available + 0.01) {
+      return alert(`This loan (₹${parseFloat(Amount) || 0}) exceeds what is still available to lend this year: ₹${Math.max(0, Math.round(available * 100) / 100)}.`);
+    }
     setSaving(true);
     try {
       const loanYear = year === 'All' ? new Date().getFullYear() : year;
@@ -195,6 +208,12 @@ export default function Loans({ year, users, committee, role, editable }) {
             <div className="form-group">
               <label>Amount</label>
               <input type="number" value={form.Amount} onChange={e => setForm({ ...form, Amount: e.target.value })} />
+              {!editing && available !== null && (
+                <div style={{ fontSize: '0.78rem', marginTop: 4, color: ((parseFloat(form.Amount) || 0) > available + 0.01) ? 'var(--danger)' : 'var(--text-muted)' }}>
+                  Available to lend this year: ₹{Math.max(0, Math.round(available * 100) / 100)}
+                  {(parseFloat(form.Amount) || 0) > available + 0.01 ? ' — this loan exceeds it' : ''}
+                </div>
+              )}
             </div>
             <div className="form-group">
               <label>Interest Rate (%)</label>

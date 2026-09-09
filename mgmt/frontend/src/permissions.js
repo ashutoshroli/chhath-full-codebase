@@ -15,6 +15,9 @@ export const can = (role, action) => (ROLE_PERMISSIONS[role] || []).includes(act
 export const canEdit = (role) => can(role, 'edit');
 export const canDelete = (role) => can(role, 'delete');
 export const isSuperadmin = (role) => role === 'Superadmin';
+// Admin or Superadmin. Used for actions Admins may now perform (verify a loan
+// consent, mark a loan disbursed) — guarantor edit/replace stays Superadmin-only.
+export const isAdminOrAbove = (role) => role === 'Superadmin' || role === 'Admin';
 
 // viewKey: 'home' (collections), 'expenses', 'loans', 'users', 'committee'
 export const canAddView = (role, viewKey) => {

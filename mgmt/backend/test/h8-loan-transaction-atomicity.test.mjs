@@ -23,14 +23,19 @@ const SUPERADMIN = { name: 'USER0001', role: 'Superadmin' };
 function makeEnv() {
   const core = makeD1(schemaFor('core.sql'));
   const le = makeD1(schemaFor('loans_expenses.sql'));
+  const collections = makeD1(schemaFor('collections.sql'));
   // Four members: the receiver and three guarantors.
   for (const [code, name] of [['USER0002', 'Ram'], ['USER0003', 'Shyam'], ['USER0004', 'Gita'], ['USER0005', 'Sita']]) {
     core.prepare('INSERT INTO users (id_code, name, mobile, whatsapp) VALUES (?,?,?,?)')
       .bind(code, name, 9800000001, 9800000001).run();
   }
+  // Enough 2026 collection surplus that a 50,000 loan is within the yearly
+  // budget cap (saveLoanTransaction enforces amount <= surplus − loans given).
+  collections.prepare('INSERT INTO collections (year, name, amount) VALUES (?,?,?)').bind(2026, 'USER0002', 1000000).run();
   return {
     DB_CORE: core,
     DB_LOANS_EXPENSES: le,
+    DB_COLLECTIONS: collections,
     DB_LOGS: makeD1(schemaFor('logs.sql')),
     DB_WHATSAPP_INDEX: makeD1(schemaFor('whatsapp_index.sql')),
     KV_SESSIONS: makeKV(),

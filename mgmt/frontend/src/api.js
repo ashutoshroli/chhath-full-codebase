@@ -253,6 +253,7 @@ export const api = {
   getHome: (year) => call('getHome', { year }),
   getExpenses: (year) => call('getExpenses', { year }),
   getLoans: (year) => call('getLoans', { year }),
+  getLoanBudget: (year) => call('getLoanBudget', { year }),
   getUserHistory: (userId) => call('getUserHistory', { userId }),
   getUserProfile: (userId) => call('getUserProfile', { userId }),
   getYearContributors: (year) => call('getYearContributors', { year }),
