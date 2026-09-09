@@ -19,6 +19,7 @@ import * as storage from './storage.js';
 import * as backup from './backup.js';
 import * as cq from './collectionQueue.js';
 import * as email from './email.js';
+import * as officialMail from './officialMail.js';
 import { bumpDataVersion, getDataVersion } from './dataVersion.js';
 import { healthCheck } from './config.js';
 import { runRetentionSweep, shouldSweepNow } from './retention.js';
@@ -65,6 +66,7 @@ export const READ_ONLY_ACTIONS = new Set([
   'getLoanTemplates',
   'getPendingMessages', 'getStuckMessages',
   'getEmailTemplates', 'getStuckEmails', 'getLoanEmailTemplates', 'getEmailLog',
+  'listOfficialEmails', 'getOfficialEmail',
   'whatsappDiagnostic',
   'getAnnouncementLinks', 'getCustomAnnouncements', 'getAnnouncementQueue',
   'publicGetSeo', 'getSeoSettings',
@@ -111,6 +113,8 @@ export const EXPECTED_MUTATING_ACTIONS = new Set([
   // email (Resend) templates + queue
   'addEmailTemplate', 'updateEmailTemplate', 'deleteEmailTemplate', 'resendEmail',
   'addLoanEmailTemplate', 'updateLoanEmailTemplate', 'deleteLoanEmailTemplate',
+  // official mailbox (send/reply/mark-read; inbound is the public webhook route above)
+  'sendOfficialEmail', 'replyOfficialEmail', 'markOfficialEmailRead',
   // announcements
   'addCustomAnnouncement', 'updateCustomAnnouncement', 'deleteCustomAnnouncement',
   'generateAnnouncementLink', 'revokeAnnouncementLink',
@@ -433,6 +437,26 @@ export default {
       ctx.waitUntil(logError(env, 'backend', 'router', 'Invalid JSON body: ' + (e && e.message), '', ''));
       return jsonOut({ success: false, message: 'Invalid JSON body' }, request, env, 400);
     }
+    // ---- PUBLIC inbound-email webhook (Resend receiving) ----
+    // Resend POSTs the 'email.received' event here. It is NOT an action call and
+    // carries no session — it is authenticated by a shared secret configured both
+    // in Resend's webhook URL and as RESEND_WEBHOOK_SECRET. Point Resend at
+    //   https://<worker>/?inbound-email=<RESEND_WEBHOOK_SECRET>
+    // (or send the secret in an X-Webhook-Secret header). Handled before the
+    // action router because the body shape is Resend's, not ours.
+    const reqUrl = new URL(request.url);
+    if (reqUrl.searchParams.has('inbound-email') || (req && (req.type === 'email.received' || req.event === 'email.received'))) {
+      const provided = reqUrl.searchParams.get('inbound-email') || request.headers.get('X-Webhook-Secret') || '';
+      const expected = env.RESEND_WEBHOOK_SECRET || '';
+      if (!expected || provided !== expected) {
+        ctx.waitUntil(logError(env, 'backend', 'inbound-email', 'Inbound webhook rejected: bad/missing secret', '', ''));
+        return jsonOut({ success: false, message: 'Unauthorized' }, request, env, 401);
+      }
+      const result = await officialMail.handleInboundEmailWebhook(env, req);
+      // Always 200 so Resend does not retry a stored message; failures are logged.
+      return jsonOut({ success: true, ...result }, request, env, 200);
+    }
+
     const action = req.action;
 
     // SECURITY (audit S7): overwrite the client-reported IP with the real
@@ -873,6 +897,13 @@ export default {
       getEmailLog: () => withAuth(env, req, (user) => { requireSuperadmin(user); return email.getEmailLog(env); }),
       getStuckEmails: () => withAuth(env, req, (user) => { requireSuperadmin(user); return email.getStuckEmails(env, req.olderThanMinutes); }),
       resendEmail: () => withAuth(env, req, (user) => email.resendEmail(env, req.message_id, user)),
+
+      // ---- Official mailbox (chhath@shaharpura.com) — Superadmin ----
+      listOfficialEmails: () => withAuth(env, req, (user) => officialMail.listOfficialEmails(env, req.box, { limit: req.limit }, user)),
+      getOfficialEmail: () => withAuth(env, req, (user) => officialMail.getOfficialEmail(env, req.message_id, user)),
+      sendOfficialEmail: () => withAuth(env, req, (user) => officialMail.sendOfficialEmail(env, { to: req.to, cc: req.cc, subject: req.subject, body: req.body }, user)),
+      replyOfficialEmail: () => withAuth(env, req, (user) => officialMail.replyOfficialEmail(env, { messageId: req.message_id, body: req.body }, user)),
+      markOfficialEmailRead: () => withAuth(env, req, (user) => officialMail.markOfficialEmailRead(env, req.message_id, user)),
 
       // ---- WhatsApp: Diagnostic endpoint (Superadmin only) ----
       whatsappDiagnostic: () => withAuth(env, req, async (user) => {

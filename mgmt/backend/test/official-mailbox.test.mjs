@@ -1,0 +1,139 @@
+// ============ Official mailbox (chhath@shaharpura.com) ============
+// send/reply store an outbound row; the inbound webhook fetches the body via the
+// Received Emails API and stores an inbound row; reads are Superadmin-only.
+
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { makeD1, schemaFor } from './helpers/stubs.mjs';
+import {
+  sendOfficialEmail, replyOfficialEmail, listOfficialEmails, getOfficialEmail,
+  handleInboundEmailWebhook,
+} from '../src/officialMail.js';
+
+const SUPER = { name: 'USER0001', role: 'Superadmin' };
+const ADMIN = { name: 'USER0010', role: 'Admin' };
+
+function makeEnv(overrides = {}) {
+  return {
+    DB_WHATSAPP_INDEX: makeD1(schemaFor('whatsapp_index.sql')),
+    DB_LOGS: makeD1(schemaFor('logs.sql')),
+    RESEND_API_KEY: 'test-key',
+    OFFICIAL_FROM: 'chhath@shaharpura.com',
+    ...overrides,
+  };
+}
+
+let realFetch;
+const stubFetch = (fn) => { realFetch = globalThis.fetch; globalThis.fetch = fn; };
+const restoreFetch = () => { if (realFetch) globalThis.fetch = realFetch; realFetch = undefined; };
+
+const last = (env, dir) =>
+  env.DB_WHATSAPP_INDEX.prepare(`SELECT * FROM official_emails WHERE direction = ? ORDER BY id DESC LIMIT 1`).bind(dir).first();
+
+// ---------------------------------------------------------------- send
+
+test('sendOfficialEmail POSTs to Resend (from chhath@) and stores an outbound row', async () => {
+  const env = makeEnv();
+  let body = null;
+  stubFetch(async (url, opts) => {
+    assert.equal(url, 'https://api.resend.com/emails');
+    body = JSON.parse(opts.body);
+    return { ok: true, status: 200, json: async () => ({ id: 're_1' }) };
+  });
+  try {
+    const res = await sendOfficialEmail(env, { to: 'x@example.com', subject: 'Hi', body: 'Hello there' }, SUPER);
+    assert.equal(res.success, true);
+  } finally { restoreFetch(); }
+  assert.equal(body.from, 'chhath@shaharpura.com');
+  assert.deepEqual(body.to, ['x@example.com']);
+  const row = await last(env, 'outbound');
+  assert.equal(row.status, 'sent');
+  assert.equal(row.to_addr, 'x@example.com');
+  assert.equal(row.resend_id, 're_1');
+});
+
+test('sendOfficialEmail rejects a bad recipient / missing subject / empty body', async () => {
+  const env = makeEnv();
+  await assert.rejects(() => sendOfficialEmail(env, { to: 'nope', subject: 's', body: 'b' }, SUPER), /valid recipient/i);
+  await assert.rejects(() => sendOfficialEmail(env, { to: 'a@b.com', subject: '', body: 'b' }, SUPER), /subject/i);
+  await assert.rejects(() => sendOfficialEmail(env, { to: 'a@b.com', subject: 's', body: '' }, SUPER), /body/i);
+});
+
+test('sendOfficialEmail is Superadmin-only', async () => {
+  const env = makeEnv();
+  await assert.rejects(() => sendOfficialEmail(env, { to: 'a@b.com', subject: 's', body: 'b' }, ADMIN));
+});
+
+// ---------------------------------------------------------------- inbound webhook
+
+test('inbound webhook fetches the body via the Received Emails API and stores an inbound row', async () => {
+  const env = makeEnv();
+  stubFetch(async (url, opts) => {
+    assert.match(url, /\/emails\/received\/rcv_123$/);
+    assert.equal(opts.headers.Authorization, 'Bearer test-key');
+    return { ok: true, status: 200, json: async () => ({ from: 'sender@x.com', to: 'chhath@shaharpura.com', subject: 'Question', html: '<p>Hi</p>', text: 'Hi' }) };
+  });
+  try {
+    const res = await handleInboundEmailWebhook(env, { type: 'email.received', data: { email_id: 'rcv_123', from: 'sender@x.com', to: 'chhath@shaharpura.com', subject: 'Question' } });
+    assert.equal(res.ok, true);
+  } finally { restoreFetch(); }
+  const row = await last(env, 'inbound');
+  assert.equal(row.from_addr, 'sender@x.com');
+  assert.equal(row.subject, 'Question');
+  assert.equal(row.body_html, '<p>Hi</p>');
+  assert.equal(row.status, 'received');
+  assert.equal(row.is_read, 0);
+});
+
+test('inbound webhook ignores non-received events', async () => {
+  const env = makeEnv();
+  let called = false;
+  stubFetch(async () => { called = true; return { ok: true, json: async () => ({}) }; });
+  try {
+    const res = await handleInboundEmailWebhook(env, { type: 'email.delivered', data: {} });
+    assert.equal(res.ignored, 'email.delivered');
+  } finally { restoreFetch(); }
+  assert.equal(called, false);
+});
+
+// ---------------------------------------------------------------- read + reply
+
+test('reply threads onto the original and opening marks an inbound message read', async () => {
+  const env = makeEnv();
+  // Seed an inbound message.
+  stubFetch(async () => ({ ok: true, json: async () => ({ from: 's@x.com', to: 'chhath@shaharpura.com', subject: 'Q', html: '<p>hi</p>', text: 'hi' }) }));
+  try {
+    await handleInboundEmailWebhook(env, { type: 'email.received', data: { email_id: 'rcv_9', from: 's@x.com', to: 'chhath@shaharpura.com', subject: 'Q' } });
+  } finally { restoreFetch(); }
+  const inbound = await last(env, 'inbound');
+  assert.equal(inbound.is_read, 0);
+
+  // Open it -> marked read, thread returned.
+  const opened = await getOfficialEmail(env, inbound.message_id, SUPER);
+  assert.equal(opened.message.message_id, inbound.message_id);
+  const afterOpen = await env.DB_WHATSAPP_INDEX.prepare('SELECT is_read FROM official_emails WHERE message_id = ?').bind(inbound.message_id).first();
+  assert.equal(afterOpen.is_read, 1, 'opening an inbound message marks it read');
+
+  // Reply -> outbound row in the SAME thread, addressed back to the sender.
+  stubFetch(async () => ({ ok: true, status: 200, json: async () => ({ id: 're_reply' }) }));
+  let reply;
+  try {
+    reply = await replyOfficialEmail(env, { messageId: inbound.message_id, body: 'Thanks!' }, SUPER);
+  } finally { restoreFetch(); }
+  assert.equal(reply.success, true);
+  const out = await last(env, 'outbound');
+  assert.equal(out.to_addr, 's@x.com', 'reply goes back to the inbound sender');
+  assert.equal(out.thread_id, inbound.thread_id, 'reply stays in the same thread');
+  assert.match(out.subject, /^Re:/);
+
+  // Inbox list shows 0 unread now; getOfficialEmail thread has 2 messages.
+  const list = await listOfficialEmails(env, 'inbox', {}, SUPER);
+  assert.equal(list.unread, 0);
+  const thread = await getOfficialEmail(env, inbound.message_id, SUPER);
+  assert.equal(thread.thread.length, 2);
+});
+
+test('listOfficialEmails is Superadmin-only', async () => {
+  const env = makeEnv();
+  await assert.rejects(() => listOfficialEmails(env, 'inbox', {}, ADMIN));
+});

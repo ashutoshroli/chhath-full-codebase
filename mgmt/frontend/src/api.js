@@ -312,6 +312,12 @@ export const api = {
   getStuckEmails: (olderThanMinutes) => call('getStuckEmails', { olderThanMinutes }),
   getEmailLog: () => call('getEmailLog'),
   resendEmail: (message_id) => call('resendEmail', { message_id }),
+  // Official mailbox (chhath@shaharpura.com)
+  listOfficialEmails: (box, limit) => call('listOfficialEmails', { box, limit }),
+  getOfficialEmail: (message_id) => call('getOfficialEmail', { message_id }),
+  sendOfficialEmail: (to, cc, subject, body) => call('sendOfficialEmail', { to, cc, subject, body }),
+  replyOfficialEmail: (message_id, body) => call('replyOfficialEmail', { message_id, body }),
+  markOfficialEmailRead: (message_id) => call('markOfficialEmailRead', { message_id }),
   // Loan email (Resend) templates
   getLoanEmailTemplates: (type) => call('getLoanEmailTemplates', { type }),
   addLoanEmailTemplate: (type, subject, text, messageType, fileLink) => call('addLoanEmailTemplate', { type, subject, text, messageType, fileLink }),

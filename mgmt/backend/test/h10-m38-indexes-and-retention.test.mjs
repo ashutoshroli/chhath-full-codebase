@@ -55,6 +55,9 @@ const SCHEMA_FOR_MIGRATION = {
   // loans-expenses DB. CREATE IF NOT EXISTS, so idempotent against the committed
   // loans_expenses.sql schema (which already contains the table).
   '16-loan-email-templates.sql': 'loans_expenses.sql',
+  // official mailbox: adds official_emails to the whatsapp-index DB (already in
+  // the committed schema); CREATE IF NOT EXISTS so a second run is a no-op.
+  '17-official-mailbox.sql': 'whatsapp_index.sql',
 };
 
 // Migrations that legitimately do more than CREATE INDEX. Keep this list as short
