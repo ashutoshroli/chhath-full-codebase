@@ -468,6 +468,19 @@ export async function getLoanEmailTemplates(env, type) {
 
 // ---------------------------------------------------------------- Admin views
 
+// Full email log (view-only, Superadmin) — the email equivalent of
+// whatsapp.js getMessageLog: every email row, newest first. `body` is excluded
+// from the list (it can be long); the recipient, subject, status, remarks and
+// timestamps are what the log view needs. `recipient` is aliased for a uniform
+// shape with the WhatsApp log.
+export async function getEmailLog(env) {
+  const { results } = await env.DB_WHATSAPP_INDEX.prepare(
+    `SELECT message_id, to_email, subject, status, remarks, created_at, "from", reply_to, message_type, file_link, attempts, sent_at
+       FROM ${EMAIL_QUEUE_TABLE} ORDER BY id DESC LIMIT 500`
+  ).all();
+  return (results || []).map(m => ({ ...m, recipient: m.to_email }));
+}
+
 // Stuck emails — same idea as whatsapp getStuckMessages, one table.
 export async function getStuckEmails(env, olderThanMinutes) {
   const cutoff = new Date(Date.now() - (parseInt(olderThanMinutes) || 30) * 60000).toISOString();

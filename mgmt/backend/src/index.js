@@ -64,7 +64,7 @@ export const READ_ONLY_ACTIONS = new Set([
   'getActivityLog', 'getLoginAttempts', 'getLockedAccounts', 'getMySessions', 'getUserSessions',
   'getLoanTemplates',
   'getPendingMessages', 'getStuckMessages',
-  'getEmailTemplates', 'getStuckEmails', 'getLoanEmailTemplates',
+  'getEmailTemplates', 'getStuckEmails', 'getLoanEmailTemplates', 'getEmailLog',
   'whatsappDiagnostic',
   'getAnnouncementLinks', 'getCustomAnnouncements', 'getAnnouncementQueue',
   'publicGetSeo', 'getSeoSettings',
@@ -869,6 +869,7 @@ export default {
       resendMessage: () => withAuth(env, req, (user) => wa.resendMessage(env, req.type, req.message_id, user)),
 
       // ---- Email (Resend) queue admin (Superadmin) ----
+      getEmailLog: () => withAuth(env, req, (user) => { requireSuperadmin(user); return email.getEmailLog(env); }),
       getStuckEmails: () => withAuth(env, req, (user) => { requireSuperadmin(user); return email.getStuckEmails(env, req.olderThanMinutes); }),
       resendEmail: () => withAuth(env, req, (user) => email.resendEmail(env, req.message_id, user)),
 

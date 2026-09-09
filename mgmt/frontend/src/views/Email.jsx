@@ -377,6 +377,79 @@ function LoanEmailTemplateList({ loanType }) {
 }
 
 // ============ Email queue monitor (stuck + resend) ============
+// ============ Mail log (view-only + resend, auto-refresh) ============
+// The email equivalent of the WhatsApp "Message" section: every sent/failed/
+// pending email, newest first, with a stuck-queue banner and a re-queue button.
+function MailLog() {
+  const [rows, setRows] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [stuck, setStuck] = useState(null);
+  const [resendingId, setResendingId] = useState(null);
+
+  const load = useCallback((silent) => {
+    if (!silent) setLoading(true);
+    api.getEmailLog().then(setRows).catch(err => setError(err.message)).finally(() => setLoading(false));
+    api.getStuckEmails(30).then(setStuck).catch(() => { /* banner is advisory only */ });
+  }, []);
+  usePolling(() => load(true), 12000, [load]);
+
+  const badgeClass = (status) => status === 'sent' ? 'badge-ok' : status === 'failed' ? 'badge-warn' : 'badge-pending';
+  const stuckCount = stuck ? stuck.total : 0;
+  const resend = async (m) => {
+    setResendingId(m.message_id);
+    try { await api.resendEmail(m.message_id); load(true); } catch (err) { alert(err.message); } finally { setResendingId(null); }
+  };
+
+  return (
+    <>
+      {stuckCount > 0 && (
+        <div style={{ background: '#FEE2E2', color: '#991B1B', borderRadius: 8, padding: '10px 12px', fontSize: '0.85rem', margin: '10px 0' }}>
+          🚨 <strong>{stuckCount} email{stuckCount === 1 ? '' : 's'}</strong> have been stuck in the queue for over 30 minutes —
+          this usually means <code>RESEND_API_KEY</code> is missing/invalid or the sending domain is not verified in Resend.
+        </div>
+      )}
+
+      {loading && <div className="inline-spinner">Loading emails...</div>}
+      {error && <div className="error-banner">{error}</div>}
+      {!loading && !error && (!rows || rows.length === 0) && (
+        <div className="glass-card" style={{ textAlign: 'center', padding: 20 }}>No emails have been sent yet.</div>
+      )}
+
+      {!loading && !error && (rows || []).map((m, i) => (
+        <div className="glass-card" style={{ padding: 15, marginBottom: 10 }} key={m.message_id || i}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, gap: 8, flexWrap: 'wrap' }}>
+            <strong>{m.to_email}</strong>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {m.message_type === 'priority' && <span className="badge badge-warn">⚡ Priority</span>}
+              <span className={`badge ${badgeClass(m.status)}`}>{m.status}</span>
+            </div>
+          </div>
+          {m.subject && <p style={{ margin: '0 0 4px', fontWeight: 600, fontSize: '0.9rem' }}>✉️ {m.subject}</p>}
+          {m.file_link && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>📎 <a href={m.file_link} target="_blank" rel="noreferrer">Attached link</a></div>}
+          {m.remarks && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Remarks: {m.remarks}</div>}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              {m.created_at}
+              {m.attempts > 0 && <> · {m.attempts} attempt{m.attempts === 1 ? '' : 's'}</>}
+              {m.sent_at && <> · finished {m.sent_at}</>}
+            </div>
+            {m.status !== 'sent' && (
+              <button
+                className="btn-submit" style={{ width: 'auto', padding: '4px 12px', fontSize: '0.8rem' }}
+                onClick={() => resend(m)} disabled={resendingId === m.message_id}
+              >
+                {resendingId === m.message_id ? 'Re-queuing...' : m.status === 'failed' ? 'Resend' : 'Re-queue'}
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+// ============ Email queue monitor (stuck only) ============
 function EmailLog() {
   const [stuck, setStuck] = useState(null);
   const [error, setError] = useState('');
@@ -425,7 +498,7 @@ function EmailLog() {
 }
 
 
-// ============ Root: Email tab (Collection / Loan / Queue) ============
+// ============ Root: Email tab (Collection / Loan / Mails / Queue) ============
 export default function Email() {
   const [emailSection, setEmailSection] = useState('template'); // template (collection) | loan | queue
   const [loanEmailType, setLoanEmailType] = useState(LOAN_TEMPLATE_TYPES[0][0]);
@@ -437,6 +510,7 @@ export default function Email() {
       <div className="subtabs">
         <button className={`subtab-btn ${emailSection === 'template' ? 'active' : ''}`} onClick={() => setEmailSection('template')}>Collection</button>
         <button className={`subtab-btn ${emailSection === 'loan' ? 'active' : ''}`} onClick={() => setEmailSection('loan')}>Loan</button>
+        <button className={`subtab-btn ${emailSection === 'mails' ? 'active' : ''}`} onClick={() => setEmailSection('mails')}>Mails</button>
         <button className={`subtab-btn ${emailSection === 'queue' ? 'active' : ''}`} onClick={() => setEmailSection('queue')}>Queue</button>
       </div>
 
@@ -451,6 +525,7 @@ export default function Email() {
           <LoanEmailTemplateList key={loanEmailType} loanType={loanEmailType} />
         </>
       )}
+      {emailSection === 'mails' && <MailLog />}
       {emailSection === 'queue' && <EmailLog />}
     </>
   );

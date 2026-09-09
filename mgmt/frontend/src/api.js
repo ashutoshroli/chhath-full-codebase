@@ -309,6 +309,7 @@ export const api = {
   updateEmailTemplate: (rowIndex, subject, text, active, messageType, contributionType, fileLink, docSubType, fileDocType) => call('updateEmailTemplate', { rowIndex, subject, text, active, messageType, contributionType, fileLink, docSubType, fileDocType }),
   deleteEmailTemplate: (rowIndex) => call('deleteEmailTemplate', { rowIndex }),
   getStuckEmails: (olderThanMinutes) => call('getStuckEmails', { olderThanMinutes }),
+  getEmailLog: () => call('getEmailLog'),
   resendEmail: (message_id) => call('resendEmail', { message_id }),
   // Loan email (Resend) templates
   getLoanEmailTemplates: (type) => call('getLoanEmailTemplates', { type }),
