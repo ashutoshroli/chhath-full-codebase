@@ -20,6 +20,7 @@ const LoginManagement = lazy(() => import('./views/LoginManagement.jsx'));
 const LockYears = lazy(() => import('./views/LockYears.jsx'));
 const StorageManagement = lazy(() => import('./views/StorageManagement.jsx'));
 const WhatsApp = lazy(() => import('./views/WhatsApp.jsx'));
+const Email = lazy(() => import('./views/Email.jsx'));
 const ListManagement = lazy(() => import('./views/ListManagement.jsx'));
 const ConsentTemplates = lazy(() => import('./views/ConsentTemplates.jsx'));
 const ConsentReview = lazy(() => import('./views/ConsentReview.jsx'));
@@ -55,6 +56,7 @@ const BASE_TABS = [
 const LOCK_TAB = { id: 'lock', label: 'Lock Data', icon: 'lock' };
 const LOGIN_MGMT_TAB = { id: 'loginmgmt', label: 'Login Management', icon: 'key' };
 const WHATSAPP_TAB = { id: 'whatsapp', label: 'WhatsApp', icon: 'chat' };
+const EMAIL_TAB = { id: 'email', label: 'Email', icon: 'mail' };
 const PDF_TAB = { id: 'pdfexport', label: 'PDF Export', icon: 'picture_as_pdf' };
 const LIST_TAB = { id: 'lists', label: 'List Management', icon: 'list_alt' };
 const CONSENT_TEMPLATES_TAB = { id: 'consenttemplates', label: 'Consent Templates', icon: 'gavel' };
@@ -80,7 +82,7 @@ const UPLOAD_CSV_TAB = { id: 'uploadcsvs', label: 'Upload CSVs', icon: 'upload_f
 const SUPERADMIN_TAB_GROUPS = [
   { title: '📄 Documents & Templates', tabs: [RECEIPT_TEMPLATES_TAB, CERTIFICATE_TEMPLATES_TAB, SAMAAN_TEMPLATES_TAB, DOCX_TEMPLATES_TAB, BULK_GENERATE_TAB, DOWNLOAD_CENTER_TAB, PDF_TAB] },
   { title: '🤝 Loan Consent', tabs: [CONSENT_TEMPLATES_TAB, CONSENT_REVIEW_TAB] },
-  { title: '💬 Communication', tabs: [WHATSAPP_TAB, POPUP_MGMT_TAB, ANNOUNCEMENT_TAB] },
+  { title: '💬 Communication', tabs: [WHATSAPP_TAB, EMAIL_TAB, POPUP_MGMT_TAB, ANNOUNCEMENT_TAB] },
   { title: '⚙️ Data & Settings', tabs: [LOCK_TAB, LIST_TAB, UPLOAD_CSV_TAB, STORAGE_TAB, BACKUP_TAB, QUEUE_MONITOR_TAB, ERROR_LOG_TAB, LOGIN_MGMT_TAB, SEO_TAB, AUDIT_TAB] },
 ];
 // Admin: a smaller subset — no data-editing/config tools (Templates, Lock Data,
@@ -280,6 +282,7 @@ export default function App() {
         {tab === 'storage' && canAccessTab('storage') && <StorageManagement />}
         {tab === 'backup' && canAccessTab('backup') && <Backup />}
         {tab === 'whatsapp' && canAccessTab('whatsapp') && <WhatsApp />}
+        {tab === 'email' && canAccessTab('email') && <Email />}
         {tab === 'lists' && canAccessTab('lists') && <ListManagement />}
         {tab === 'consenttemplates' && canAccessTab('consenttemplates') && <ConsentTemplates />}
         {tab === 'consentreview' && canAccessTab('consentreview') && <ConsentReview />}
