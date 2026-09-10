@@ -2,12 +2,30 @@ import { useEffect, useState } from 'react';
 import { api, reportClientError } from '../api.js';
 import { isTruthyFlag } from '../flags.js';
 import { prepareImageForUpload } from '../imagePrep.js';
+import Modal from '../components/Modal.jsx';
+import PopupSlideshow from '../components/PopupSlideshow.jsx';
 // Older rows may contain a Drive viewer-page URL or `uc?export=view` — neither
 // renders in the browser. driveUrl.js converts them all to the lh3 CDN form.
 import { driveImageUrl, driveImgOnError } from '../driveUrl.js';
 
 const ROLES = ['Superadmin', 'Admin', 'Subadmin', 'Public'];
-const BLANK_SLIDE = { imageUrl: '', text: '', linkUrl: '', linkText: '' };
+// durationMs = how long this slide stays on screen during auto-play (public
+// portal + login popup). Kept in ms internally (matches the backend column and
+// the API); the editor shows/edits it in whole SECONDS. Default 5000ms.
+const DEFAULT_DURATION_MS = 5000;
+const MIN_DURATION_MS = 1000;
+const MAX_DURATION_MS = 60000;
+const BLANK_SLIDE = { imageUrl: '', text: '', linkUrl: '', linkText: '', durationMs: DEFAULT_DURATION_MS };
+
+// Clamp identically to the backend (normalizeDurationMs) so what the editor sends
+// is exactly what gets stored and shown.
+function clampDurationMs(ms) {
+  const n = parseInt(ms, 10);
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_DURATION_MS;
+  if (n < MIN_DURATION_MS) return MIN_DURATION_MS;
+  if (n > MAX_DURATION_MS) return MAX_DURATION_MS;
+  return n;
+}
 // Each slide carries a stable client-side `_key` so React tracks it correctly
 // across reordering (moveSlide) — array-index keys made the wrong slide's fields
 // appear to jump on a move (audit L-20). The `_key` is UI-only and is stripped
@@ -82,6 +100,7 @@ export default function PopupManagement() {
   const [uploadingSlide, setUploadingSlide] = useState(null);
   const [preview, setPreview] = useState(null);       // "Preview as Public" result
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [showLivePreview, setShowLivePreview] = useState(false); // visual slideshow preview of the slides being edited
 
   const refresh = () => {
     api.getPopups().then(setPopups).catch(err => setError(err.message));
@@ -110,7 +129,7 @@ export default function PopupManagement() {
       // and save()'s `s.text.trim()` then threw a TypeError OUTSIDE its try/catch —
       // so the Save button silently did nothing at all.
       setSlides(existingSlides.length
-        ? existingSlides.map(s => newSlide({ imageUrl: str(s.image_url), text: str(s.text), linkUrl: str(s.link_url), linkText: str(s.link_text) }))
+        ? existingSlides.map(s => newSlide({ imageUrl: str(s.image_url), text: str(s.text), linkUrl: str(s.link_url), linkText: str(s.link_text), durationMs: clampDurationMs(s.duration_ms) }))
         : [newSlide()]);
     } catch (err) {
       setError(err.message);
@@ -189,6 +208,7 @@ export default function PopupManagement() {
           text: str(s.text),
           linkUrl: str(s.linkUrl),
           linkText: str(s.linkText),
+          durationMs: clampDurationMs(s.durationMs),
         }));
       if (!usable.length) throw new Error('At least one slide must have an image or text');
       if (!form.roles.length) throw new Error('Select at least one role, otherwise the popup will not be shown to anyone.');
@@ -370,6 +390,33 @@ export default function PopupManagement() {
                   <input value={slide.linkText} onChange={e => updateSlide(i, { linkText: e.target.value })} placeholder="e.g. More Info" />
                 </div>
               )}
+
+              {/* Per-slide auto-play duration. Edited in whole seconds, stored in
+                  ms. Only meaningful when the popup has 2+ slides (auto-play does
+                  not run for a single slide), so the hint says so. */}
+              <div className="form-group">
+                <label style={{ fontSize: '0.8rem' }}>Auto-play duration (seconds)</label>
+                <input
+                  type="number"
+                  min={MIN_DURATION_MS / 1000}
+                  max={MAX_DURATION_MS / 1000}
+                  step={1}
+                  value={Math.round((slide.durationMs ?? DEFAULT_DURATION_MS) / 1000)}
+                  onChange={e => {
+                    // Keep the raw seconds while typing; clamp to ms on blur so an
+                    // empty/partial value doesn't fight the user mid-edit.
+                    const secs = parseInt(e.target.value, 10);
+                    updateSlide(i, { durationMs: Number.isFinite(secs) ? secs * 1000 : '' });
+                  }}
+                  onBlur={() => updateSlide(i, { durationMs: clampDurationMs(slide.durationMs) })}
+                  style={{ maxWidth: 120 }}
+                />
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                  {slides.length > 1
+                    ? `Is slide ke baad agli slide par jaane se pehle itni der rukega (${MIN_DURATION_MS / 1000}-${MAX_DURATION_MS / 1000}s). Aakhri slide ke baad wapas pehli par loop hota hai.`
+                    : `Auto-play sirf tab chalta hai jab 2 ya zyada slides hon — abhi ek hi slide hai.`}
+                </div>
+              </div>
             </div>
           ))}
           <button type="button" className="btn-submit" style={{ width: 'auto', marginTop: 10, background: '#e5e7eb', color: '#111' }} onClick={addSlide}>
@@ -377,10 +424,30 @@ export default function PopupManagement() {
           </button>
         </div>
 
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn-submit" style={{ width: 'auto' }} onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+          <button
+            type="button" className="btn-submit"
+            style={{ width: 'auto', background: '#111827', color: '#fff' }}
+            onClick={() => setShowLivePreview(true)}
+          >👁 Live Preview</button>
           <button type="button" className="btn-submit" style={{ width: 'auto', background: '#e5e7eb', color: '#111' }} onClick={cancelEdit}>Cancel</button>
         </div>
+
+        {/* Visual live preview — renders the slides EXACTLY as the public portal
+            will (auto-play, loop, pause-on-hover), using the unsaved edits so the
+            author sees the real thing before saving. */}
+        {showLivePreview && (
+          <Modal open onClose={() => setShowLivePreview(false)}>
+            <h3 style={{ marginTop: 0, marginBottom: 6 }}>Live Preview</h3>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 0, marginBottom: 14 }}>
+              Bilkul waisa hi jaisa public portal par dikhega — auto-play + loop chal raha hai; mouse le jaane par ruk jaata hai.
+            </p>
+            <PopupSlideshow
+              slides={slides.filter(s => (s.imageUrl || (s.text || '').trim()))}
+            />
+          </Modal>
+        )}
       </>
     );
   }
