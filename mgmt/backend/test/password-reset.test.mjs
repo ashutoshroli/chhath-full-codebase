@@ -1,12 +1,16 @@
-// ============ Forgot / Reset Password — flow + the 6 security additions ============
+// ============ Forgot / Reset Password — flow + security additions ============
 //
 // Exercises passwordReset.js against the real login primitives (auth.js hashing +
-// session revocation) with SQLite/Map stubs. Covers the happy path and each of the
-// six extra security additions:
-//   (1) timing padding (>= ~100ms floor on every response)
-//   (2) per-account 3/hour request cap
+// session revocation) with SQLite/Map stubs. requestPasswordReset now returns
+// DISTINCT outcomes (team decision — not anti-enumeration):
+//   found + email        -> { success:true, sent:true, maskedEmail }
+//   found + no email     -> { success:false, code:'NO_EMAIL' }
+//   not found            -> { success:false, code:'NOT_FOUND' }
+//   per-account cap hit   -> { success:false, code:'RATE_LIMITED', retryAfterSeconds }
+// Covered here plus the retained additions:
+//   (1) timing padding (>= ~140ms floor on every response, 150–350ms target)
+//   (2) per-account 3/hour request cap (4th -> RATE_LIMITED + retryAfterSeconds)
 //   (3) notification email on a successful change (time + IP)
-//   (4) no-email account -> same generic message, no code minted
 //   (5) token binding — a code minted for one user cannot reset another
 //   (6) password strength by role (Superadmin 12+ upper/lower/digit; others 8+)
 
@@ -75,6 +79,9 @@ test('happy path: request a code, reset the password, sessions revoked, can log 
 
     const req = await requestPasswordReset(env, 'USER0002', IP);
     assert.equal(req.success, true);
+    assert.equal(req.sent, true, 'response says a code was sent');
+    assert.match(req.maskedEmail || '', /•/, 'masked email is returned (partially hidden)');
+    assert.ok(!/admin@b\.test/.test(req.maskedEmail || ''), 'the full email is NOT revealed');
     const code = codeFor(env, 'USER0002');
     assert.match(code, /^\d{6}$/, 'a 6-digit code was minted');
     assert.equal(sent.length, 1, 'a reset-code email was sent');
@@ -117,44 +124,63 @@ test('addition (5) token binding: a code minted for one user cannot reset anothe
   } finally { restore(); }
 });
 
-test('addition (4) no-email account: generic success, NO code minted', async () => {
+test('unknown identifier -> NOT_FOUND, no code, no email', async () => {
+  const env = await makeEnv();
+  const { sent, restore } = captureEmails();
+  try {
+    const res = await requestPasswordReset(env, 'NOBODY9999', IP);
+    assert.equal(res.success, false);
+    assert.equal(res.code, 'NOT_FOUND');
+    assert.match(res.message, /no account found/i);
+    assert.equal(sent.length, 0, 'no email sent for an unknown account');
+  } finally { restore(); }
+});
+
+test('found account WITHOUT email -> NO_EMAIL, no code, no email', async () => {
   const env = await makeEnv();
   const { sent, restore } = captureEmails();
   try {
     const res = await requestPasswordReset(env, 'USER0003', IP); // no email on file
-    assert.equal(res.success, true, 'still generic success (anti-enumeration)');
+    assert.equal(res.success, false);
+    assert.equal(res.code, 'NO_EMAIL');
+    assert.match(res.message, /committee admin/i);
     assert.equal(codeFor(env, 'USER0003'), null, 'no reset code stored');
     assert.equal(sent.length, 0, 'no email sent');
   } finally { restore(); }
 });
 
-test('anti-enumeration: an unknown identifier returns the SAME generic success, no code', async () => {
+test('found account WITH email -> code sent + masked email', async () => {
   const env = await makeEnv();
   const { sent, restore } = captureEmails();
   try {
-    const res = await requestPasswordReset(env, 'NOBODY9999', IP);
+    const res = await requestPasswordReset(env, 'super@b.test', IP); // by email
     assert.equal(res.success, true);
-    assert.equal(sent.length, 0);
-    // Its message matches the real-account message verbatim.
-    const real = await requestPasswordReset(env, 'USER0001', IP);
-    assert.equal(res.message, real.message, 'identical message for unknown vs real');
+    assert.equal(res.sent, true);
+    assert.match(res.maskedEmail, /•/, 'email is masked');
+    assert.ok(!res.maskedEmail.includes('super@b.test'), 'full email not revealed');
+    assert.equal(sent.length, 1, 'a reset-code email was sent');
+    assert.match(codeFor(env, 'USER0001'), /^\d{6}$/, 'a code was minted for the resolved account');
   } finally { restore(); }
 });
 
-test('addition (2) per-account cap: at most 3 requests per account per hour', async () => {
+test('addition (2) per-account cap: 4th request within the hour -> RATE_LIMITED + retryAfterSeconds', async () => {
   const env = await makeEnv();
   const { restore } = captureEmails();
   try {
     for (let i = 0; i < 3; i++) {
       const r = await requestPasswordReset(env, 'USER0002', IP);
-      assert.equal(r.success, true);
+      assert.equal(r.success, true, `request ${i + 1} allowed`);
+      assert.equal(r.sent, true);
       assert.ok(codeFor(env, 'USER0002'), `request ${i + 1} minted a code`);
     }
-    // 4th request within the hour: still generic success, but NO NEW code is minted
-    // (the previous code remains; the cap silently blocks a fresh one).
     const before = codeFor(env, 'USER0002');
+    // 4th request within the hour -> RATE_LIMITED, no new code minted.
     const fourth = await requestPasswordReset(env, 'USER0002', IP);
-    assert.equal(fourth.success, true, 'still generic (cap is silent)');
+    assert.equal(fourth.success, false);
+    assert.equal(fourth.code, 'RATE_LIMITED');
+    assert.ok(Number(fourth.retryAfterSeconds) > 0, 'retryAfterSeconds provided for a countdown');
+    assert.ok(fourth.retryAfterSeconds <= 3600, 'retryAfterSeconds within the 1-hour window');
+    assert.match(fourth.message, /try again in/i);
     assert.equal(codeFor(env, 'USER0002'), before, 'no new code minted past the 3/hour cap');
   } finally { restore(); }
 });
@@ -209,20 +235,20 @@ test('wrong code is rejected; the attempt cap (5) then burns the code', async ()
   } finally { restore(); }
 });
 
-test('addition (1) timing: every response takes at least ~100ms (constant-ish floor)', async () => {
+test('addition (1) timing: every response is padded to a ~150ms+ floor (found + not-found alike)', async () => {
   const env = await makeEnv();
   const { restore } = captureEmails();
   try {
-    // Valid account.
+    // Found account (with email).
     let t = Date.now();
     await requestPasswordReset(env, 'USER0001', IP);
-    const validMs = Date.now() - t;
-    // Unknown account.
+    const foundMs = Date.now() - t;
+    // Unknown account (NOT_FOUND) — must be padded the same way.
     t = Date.now();
     await requestPasswordReset(env, 'NOBODY9999', IP);
-    const unknownMs = Date.now() - t;
+    const notFoundMs = Date.now() - t;
 
-    assert.ok(validMs >= 90, `valid path padded (${validMs}ms)`);
-    assert.ok(unknownMs >= 90, `unknown path padded (${unknownMs}ms)`);
+    assert.ok(foundMs >= 140, `found path padded (${foundMs}ms)`);
+    assert.ok(notFoundMs >= 140, `not-found path padded (${notFoundMs}ms)`);
   } finally { restore(); }
 });

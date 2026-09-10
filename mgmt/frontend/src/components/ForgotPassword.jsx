@@ -24,13 +24,26 @@ export default function ForgotPassword({ initialName = '', onCancel, onDone }) {
     if (!name.trim()) return setError('Enter your username, mobile, or email.');
     setLoading(true);
     try {
+      // Distinct outcomes (team decision — not anti-enumeration):
+      //   success + sent -> advance to the code step, note the masked email.
+      //   NOT_FOUND / NO_EMAIL / RATE_LIMITED -> thrown as an error (see catch),
+      //   stay on the request step and show the specific message.
       const res = await api.requestPasswordReset(name.trim());
-      // Response is deliberately generic (anti-enumeration) — always advance to the
-      // code step and show the same message.
-      setInfo((res && res.message) || 'If an account matches, a reset code has been sent.');
+      setInfo((res && res.message) || 'A 6-digit reset code has been sent.');
       setStep('reset');
     } catch (err) {
-      setError(err.message || 'Could not start password reset.');
+      // The backend returns { success:false, code, message, retryAfterSeconds? }.
+      if (err && err.code === 'NOT_FOUND') {
+        setError('No account found with that username, mobile, or email.');
+      } else if (err && err.code === 'NO_EMAIL') {
+        setError('This account has no email on file. Contact a committee admin to reset your password.');
+      } else if (err && err.code === 'RATE_LIMITED') {
+        const secs = Number(err.retryAfterSeconds) || 0;
+        const mins = Math.max(1, Math.ceil(secs / 60));
+        setError(err.message || `Too many reset requests. Try again in ${mins} minute${mins === 1 ? '' : 's'}.`);
+      } else {
+        setError((err && err.message) || 'Could not start password reset.');
+      }
     } finally {
       setLoading(false);
     }
