@@ -143,6 +143,8 @@ const T = {
     doc_samaan: 'Material Receipt', doc_consent_loaner: 'Loan Consent (Loaner)', doc_consent_guarantor: 'Loan Consent (Guarantor)',
     dc_collections: 'Collections (Receipt / Certificate / Material)',
     dc_as_loaner: 'Loan Consent — As Loaner', dc_as_guarantor: 'Loan Consent — As Guarantor',
+    footer_copyright: 'Navyuvak Chhath Puja Samiti, Shaharpura. All rights reserved.',
+    footer_made_with: 'Made with', footer_made_for: 'for Shaharpura & Gardih',
   },
   hi: {
     app_title: 'छठ पूजा', app_subtitle: 'पारदर्शिता पोर्टल',
@@ -175,6 +177,8 @@ const T = {
     doc_samaan: 'सामग्री रसीद', doc_consent_loaner: 'ऋण सहमति (ऋणी)', doc_consent_guarantor: 'ऋण सहमति (गारंटर)',
     dc_collections: 'योगदान (रसीद / प्रमाण-पत्र / सामग्री)',
     dc_as_loaner: 'ऋण सहमति — ऋणी के रूप में', dc_as_guarantor: 'ऋण सहमति — गारंटर के रूप में',
+    footer_copyright: 'नवयुवक छठ पूजा समिति, शहरपुरा। सर्वाधिकार सुरक्षित।',
+    footer_made_with: 'बनाया गया', footer_made_for: 'शहरपुरा एवं गरडीह के लिए',
   },
 };
 
