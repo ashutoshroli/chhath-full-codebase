@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api.js';
 import { isTruthyFlag } from '../flags.js';
 import CleanupPanel from '../components/CleanupPanel.jsx';
+import AiFixModal from '../components/AiFixModal.jsx';
 
 // `stack` and `context` were stored in the table but NEVER rendered, so an admin
 // could never see a stack trace — only a one-line message. There was also no
@@ -20,7 +21,7 @@ function badgeStyle(source) {
   return { background: c.bg, color: c.fg };
 }
 
-function ErrorRow({ r, onReport, busy }) {
+function ErrorRow({ r, onReport, onAiFix, busy }) {
   const [open, setOpen] = useState(false);
   const hasDetails = !!(r.stack || r.context);
 
@@ -72,14 +73,24 @@ function ErrorRow({ r, onReport, busy }) {
             Old record (Ref missing) — cannot be reported
           </span>
         ) : (
-          <button
-            className="btn-submit"
-            style={{ width: 'auto', padding: '4px 10px', fontSize: '0.75rem' }}
-            onClick={() => onReport(r.error_id)}
-            disabled={busy}
-          >
-            {busy ? 'Sending...' : 'Report to WhatsApp'}
-          </button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              className="btn-submit"
+              style={{ width: 'auto', padding: '4px 10px', fontSize: '0.75rem', background: '#111827' }}
+              onClick={() => onAiFix(r)}
+              title="Generate a fix with AI and preview the diff"
+            >
+              🤖 Fix using AI
+            </button>
+            <button
+              className="btn-submit"
+              style={{ width: 'auto', padding: '4px 10px', fontSize: '0.75rem' }}
+              onClick={() => onReport(r.error_id)}
+              disabled={busy}
+            >
+              {busy ? 'Sending...' : 'Report to WhatsApp'}
+            </button>
+          </div>
         )}
       </div>
     </div>
@@ -91,6 +102,7 @@ export default function ErrorLog({ role }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState(null);
+  const [aiFixError, setAiFixError] = useState(null); // the error row a "Fix using AI" modal is open for
   const [query, setQuery] = useState('');
   const [sourceFilter, setSourceFilter] = useState('All');
   const [onlyUnreported, setOnlyUnreported] = useState(false);
@@ -195,8 +207,18 @@ export default function ErrorLog({ role }) {
       )}
 
       {!loading && filtered.map((r, i) => (
-        <ErrorRow key={r.error_id || `row-${r.id || i}`} r={r} onReport={report} busy={busyId === r.error_id} />
+        <ErrorRow
+          key={r.error_id || `row-${r.id || i}`}
+          r={r}
+          onReport={report}
+          onAiFix={setAiFixError}
+          busy={busyId === r.error_id}
+        />
       ))}
+
+      {aiFixError && (
+        <AiFixModal error={aiFixError} onClose={() => setAiFixError(null)} />
+      )}
     </>
   );
 }

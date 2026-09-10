@@ -67,6 +67,10 @@ const SCHEMA_FOR_MIGRATION = {
   // ALTER ships as a documented one-liner. Applies nothing, so it passes the
   // apply-twice idempotency check trivially.
   '19-popup-slide-duration.sql': 'misc.sql',
+  // ai_fixes table (AI auto-fix feature). CREATE TABLE/INDEX IF NOT EXISTS against
+  // the logs DB (schema/logs.sql already defines the table), so it applies cleanly
+  // on a fresh schema and a second run is a no-op — like 15/17.
+  '20-ai-fixes.sql': 'logs.sql',
 };
 
 // Migrations that legitimately do more than CREATE INDEX. Keep this list as short

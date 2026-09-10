@@ -391,6 +391,10 @@ export const api = {
   logError: (source, page, message, stack, context) => call('logError', { source, page, message, stack, context }, false),
   reportErrorToWhatsApp: (errorId) => call('reportErrorToWhatsApp', { errorId }, false),
   getErrorLog: (limit) => call('getErrorLog', { limit }),
+  // AI auto-fix (Superadmin-only). PR-1: generate a fix + preview.
+  generateAiFix: (errorId) => call('generateAiFix', { errorId }),
+  getAiFixes: (errorId) => call('getAiFixes', { errorId }),
+  getAiFix: (fixId) => call('getAiFix', { fixId }),
 
   // Loan Consent — Admin
   getLoanConsents: (loanId) => call('getLoanConsents', { loanId }),

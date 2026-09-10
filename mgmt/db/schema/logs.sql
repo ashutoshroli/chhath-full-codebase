@@ -31,3 +31,32 @@ CREATE TABLE activity_log (
 );
 CREATE INDEX idx_activity_log_name ON activity_log(name);
 
+-- AI auto-fix jobs. One row per "Fix using AI" run against an error_log entry.
+-- Tracks the whole lifecycle: pending -> fix_generated -> pr_created -> ci_running
+-- -> ci_passed / ci_failed (retry N/3) -> merged / needs_manual_review / failed.
+-- Lives in the logs DB next to error_log (the data it is about). No PII: it holds
+-- code diffs, PR metadata, and Claude token counts for cost tracking.
+CREATE TABLE IF NOT EXISTS ai_fixes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  fix_id TEXT,                 -- opaque id, e.g. 'AIF<hex>'
+  error_id TEXT,               -- the error_log.error_id this fix targets
+  status TEXT,                 -- pending | fix_generated | pr_created | ci_running | ci_passed | ci_failed | merged | needs_manual_review | failed
+  model TEXT,                  -- Claude model used
+  diff TEXT,                   -- the unified diff Claude proposed (latest attempt)
+  reasoning TEXT,              -- Claude's short summary of the fix
+  files_json TEXT,             -- JSON: [{ path, sha }] the files sent as context (paths only, never secrets)
+  branch TEXT,                 -- fix/error-<error_id>
+  pr_number INTEGER,           -- GitHub PR number (set in PR-2)
+  pr_url TEXT,                 -- GitHub PR html_url
+  attempts INTEGER,            -- CI retry attempts used (0..3), driven in PR-3
+  prompt_tokens INTEGER,       -- cumulative Claude input tokens (cost tracking)
+  completion_tokens INTEGER,   -- cumulative Claude output tokens
+  error_message TEXT,          -- last failure reason, if any
+  created_by TEXT,             -- Superadmin who triggered it
+  created_at TEXT,
+  updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ai_fixes_fix_id ON ai_fixes(fix_id);
+CREATE INDEX IF NOT EXISTS idx_ai_fixes_error_id ON ai_fixes(error_id);
+CREATE INDEX IF NOT EXISTS idx_ai_fixes_status ON ai_fixes(status);
+
