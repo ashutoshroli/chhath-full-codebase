@@ -143,8 +143,6 @@ const T = {
     doc_samaan: 'Material Receipt', doc_consent_loaner: 'Loan Consent (Loaner)', doc_consent_guarantor: 'Loan Consent (Guarantor)',
     dc_collections: 'Collections (Receipt / Certificate / Material)',
     dc_as_loaner: 'Loan Consent — As Loaner', dc_as_guarantor: 'Loan Consent — As Guarantor',
-    footer_copyright: 'Navyuvak Chhath Puja Samiti, Shaharpura. All rights reserved.',
-    footer_made_with: 'Made with', footer_made_for: 'for Shaharpura & Gardih',
   },
   hi: {
     app_title: 'छठ पूजा', app_subtitle: 'पारदर्शिता पोर्टल',
@@ -177,8 +175,6 @@ const T = {
     doc_samaan: 'सामग्री रसीद', doc_consent_loaner: 'ऋण सहमति (ऋणी)', doc_consent_guarantor: 'ऋण सहमति (गारंटर)',
     dc_collections: 'योगदान (रसीद / प्रमाण-पत्र / सामग्री)',
     dc_as_loaner: 'ऋण सहमति — ऋणी के रूप में', dc_as_guarantor: 'ऋण सहमति — गारंटर के रूप में',
-    footer_copyright: 'नवयुवक छठ पूजा समिति, शहरपुरा। सर्वाधिकार सुरक्षित।',
-    footer_made_with: 'बनाया गया', footer_made_for: 'शहरपुरा एवं गरडीह के लिए',
   },
 };
 
@@ -404,12 +400,16 @@ const app = {
         if (!popup.slides || !popup.slides.length) return;
         app.popupSlides = popup.slides;
         app.popupIndex = 0;
-        app.renderPopupSlide();
-        document.getElementById('popup-overlay').style.display = 'flex';
-        // Auto-play kicks in only when there is more than one slide. Hovering the
-        // card pauses it (so a visitor reading a slide isn't rushed); leaving
-        // resumes. renderPopupSlide() above already armed the timer for slide 0.
+        // Reset the pause flag on every fresh open. Without this, a pause left
+        // over from a previous popup session (a stray touch, or a cursor that
+        // happened to be over the card) would silently disable auto-play the next
+        // time the popup opened — one of the "kabhi chalta hai, kabhi nahi" cases.
+        app._popupPaused = false;
+        // Bind the hover/touch pause handlers BEFORE the first render, so the
+        // render's scheduleAutoAdvance() sees the correct (unpaused) state.
         app.setupPopupAutoPlayPause();
+        document.getElementById('popup-overlay').style.display = 'flex';
+        app.renderPopupSlide();
       })
       // The popup is non-critical, so we still never surface an error to the
       // visitor — but it IS reported now, instead of being discarded entirely.
@@ -475,19 +475,28 @@ const app = {
     }, ms);
   },
 
-  // Pause auto-play while the pointer is over the card; resume on leave. Bound
-  // once per open (guarded by a data flag) so repeated opens don't stack handlers.
+  // Pause auto-play while the visitor is actively interacting with the card, and
+  // RESUME as soon as they stop — so the popup never gets stuck. Bound once
+  // (guarded by a data flag) so repeated opens don't stack handlers.
+  //
+  // Previous bug: `touchstart` set a persistent pause with no matching resume on
+  // touch devices, so the very first tap (even an accidental one) killed
+  // auto-play for the whole session — the main "kabhi chalta hai, kabhi nahi"
+  // symptom on phones. Now touch pauses only while the finger is down and resumes
+  // on touchend/touchcancel, mirroring the desktop hover behaviour.
   setupPopupAutoPlayPause: () => {
     var card = document.querySelector('#popup-overlay .popup-card');
     if (!card || card.dataset.autoplayBound === '1') return;
     card.dataset.autoplayBound = '1';
     var pause = function () { app._popupPaused = true; app.clearAutoAdvance(); };
     var resume = function () { app._popupPaused = false; app.scheduleAutoAdvance(); };
+    // Desktop: pause while the pointer is over the card.
     card.addEventListener('mouseenter', pause);
     card.addEventListener('mouseleave', resume);
-    // Touch devices have no hover: a tap pauses, and auto-play resumes when the
-    // overlay is next shown (each open re-schedules from scratch).
+    // Touch: pause only for the duration of the touch, then resume.
     card.addEventListener('touchstart', pause, { passive: true });
+    card.addEventListener('touchend', resume, { passive: true });
+    card.addEventListener('touchcancel', resume, { passive: true });
   },
 
   popupPrevSlide: () => {
