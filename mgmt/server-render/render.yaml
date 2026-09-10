@@ -1,0 +1,31 @@
+# Render Blueprint for the Chhath mgmt offload service.
+# Deploy via Render dashboard → "New +" → "Blueprint" and point it at this repo,
+# OR create a Web Service manually with the settings below.
+#
+# The env vars below are declared but NOT given values here (sync: false) — set
+# their real values in the Render dashboard (Environment). See README.md.
+services:
+  - type: web
+    name: chhath-server-render
+    runtime: node
+    plan: free            # free tier spins down on inactivity; UptimeRobot keeps /health warm (see README)
+    rootDir: mgmt/server-render
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: false     # deploy manually / on a chosen branch; keep control
+    envVars:
+      - key: RENDER_API_KEY
+        sync: false       # Worker->Render shared secret (X-Render-Api-Key). Same value as the Worker's secret.
+      - key: RENDER_WEBHOOK_SECRET
+        sync: false       # Render->Worker shared secret. Same value as the Worker's secret. DISTINCT from RENDER_API_KEY.
+      - key: WORKER_WEBHOOK_URL
+        sync: false       # e.g. https://chhath-mgmt-api.shaharpura.workers.dev/?render-webhook=1
+      - key: GITHUB_TOKEN
+        sync: false       # fine-grained PAT scoped to the repo (Contents R/W, Pull requests R/W)
+      - key: GITHUB_REPO
+        sync: false       # "ashutoshroli/chhath-full-codebase"
+      - key: ANTHROPIC_API_KEY
+        sync: false       # Claude API key
+      - key: AI_FIX_MODEL
+        value: claude-sonnet-4-5-20250929

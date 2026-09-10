@@ -1,0 +1,17 @@
+{
+  "name": "chhath-server-render",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Offload worker for the Chhath mgmt portal: runs long-running AI fix generation + PR creation that would exceed the Cloudflare Worker's CPU/subrequest limits, and calls back to the Worker with the result.",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
