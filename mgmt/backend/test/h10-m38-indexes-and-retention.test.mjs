@@ -74,12 +74,16 @@ const SCHEMA_FOR_MIGRATION = {
   // ai_providers table (AI Management tab). Same idempotent CREATE ... IF NOT
   // EXISTS pattern against the logs DB.
   '21-ai-providers.sql': 'logs.sql',
+  // TOTP 2FA — adds five columns to login_users (core DB). Like 09 it is a real
+  // ADD COLUMN migration, so it is in SCHEMA_ONLY_MIGRATIONS below (a second run
+  // legitimately errors on the duplicate column) and asserted separately.
+  '22-login-users-totp.sql': 'core.sql',
 };
 
 // Migrations that legitimately do more than CREATE INDEX. Keep this list as short
 // as possible: everything on it opts out of the "cannot drop, delete, update or
 // alter" guarantee that makes the rest safe to run unattended.
-const SCHEMA_ONLY_MIGRATIONS = new Set(['09-error-log-client-ip.sql']);
+const SCHEMA_ONLY_MIGRATIONS = new Set(['09-error-log-client-ip.sql', '22-login-users-totp.sql']);
 
 const DAY = 86400000;
 const isoAgo = (d) => new Date(Date.now() - d * DAY).toISOString();

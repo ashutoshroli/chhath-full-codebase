@@ -24,6 +24,19 @@ CREATE TABLE login_users (
   updated_at TEXT,
   mobile TEXT,                -- audit M-33: was REAL. Phone number; compared as text in login lookup.
   email TEXT
+  -- ---- TOTP two-factor authentication (Superadmin) ----
+  -- The five 2FA columns (totp_enabled, totp_secret_enc, totp_pending_enc,
+  -- totp_backup_codes, totp_recovery_hash) are added by the ADD-COLUMN migration
+  -- 2026-09-05/22-login-users-totp.sql. As with error_log.client_ip (migration 09),
+  -- an ADD-COLUMN migration is applied ON TOP of this committed schema, so the
+  -- columns deliberately do NOT appear here — the migration is their source of
+  -- truth. Semantics:
+  --   totp_enabled       INTEGER 0/1 — when 1, login requires a second factor.
+  --   totp_secret_enc    TEXT — Base32 secret, AES-GCM encrypted ("v1:iv:ct"). Never plain.
+  --   totp_pending_enc   TEXT — in-progress enrollment secret (encrypted), promoted
+  --                             to totp_secret_enc only after a valid code proves possession.
+  --   totp_backup_codes  TEXT — JSON array of PBKDF2 hashes of 10 single-use codes.
+  --   totp_recovery_hash TEXT — PBKDF2 hash of the 32-char recovery key (shown once).
 );
 CREATE INDEX idx_login_users_name ON login_users(name);
 

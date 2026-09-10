@@ -1,4 +1,5 @@
-import { login, loginWithGoogle, doLogout, withAuth, withApiKey, verifyToken, requireSuperadmin, requireAdminOrAbove, requireStaffRole, getLockedYearsSet, lockYear, unlockYear, getMySessions, revokeSession, revokeAllOtherSessions, getUserSessions, revokeUserSession, getLoginAttempts, getLockedAccounts, revokeLock, revokeAllLocks } from './auth.js';
+import { login, loginWithGoogle, doLogout, withAuth, withApiKey, verifyToken, requireSuperadmin, requireAdminOrAbove, requireStaffRole, getLockedYearsSet, lockYear, unlockYear, getMySessions, revokeSession, revokeAllOtherSessions, getUserSessions, revokeUserSession, getLoginAttempts, getLockedAccounts, revokeLock, revokeAllLocks, issueSession } from './auth.js';
+import * as twoFactor from './twoFactor.js';
 import { getSheetDataAsJSON, saveRecord, updateRecordByIdx, deleteRecordByIdx } from './crud.js';
 import { importCsvRows } from './csvImport.js';
 import { parseCookies, buildSessionCookies, buildClearCookies, SESSION_COOKIE, CSRF_COOKIE, CSRF_HEADER } from './cookies.js';
@@ -72,6 +73,8 @@ export const READ_ONLY_ACTIONS = new Set([
   // writes no data (so it's read-only for the version-bump classifier).
   'getAiProviders', 'testAiProvider',
   'getActivityLog', 'getLoginAttempts', 'getLockedAccounts', 'getMySessions', 'getUserSessions',
+  // 2FA status read — touches no public-portal data.
+  'get2FAStatus',
   'getLoanTemplates',
   'getPendingMessages', 'getStuckMessages',
   'getEmailTemplates', 'getStuckEmails', 'getLoanEmailTemplates', 'getEmailLog',
@@ -95,6 +98,10 @@ export const EXPECTED_MUTATING_ACTIONS = new Set([
   'login', 'verifyGoogleLogin', 'changePassword', 'updateOwnProfile',
   'revokeSession', 'revokeAllOtherSessions', 'revokeUserSession',
   'revokeLock', 'revokeAllLocks',
+  // Two-Factor Authentication (TOTP). verify2FA issues a session; the rest write
+  // the login_users totp_* columns. get2FAStatus is the only read (READ_ONLY set).
+  'verify2FA', 'enroll2FA', 'confirm2FA', 'disable2FA', 'regenerate2FABackupCodes',
+  'disable2FAWithRecoveryKey', 'request2FARecovery', 'reset2FA',
   // login-user management
   'addLoginUser', 'updateLoginUser', 'deleteLoginUser',
   // years
@@ -231,6 +238,10 @@ const RATE_LIMITED_ACTIONS = new Set([
   // unauthenticated fallback for pre-login errors) needs the rate limit here.
   // logError's own per-IP check is inside errorLog.js (isLogErrorRateLimited).
   'reportErrorPublic', 'reportErrorToWhatsApp',
+  // 2FA pre-session actions (no login token yet). verify2FA also has a 2FA-specific
+  // 5/5min cap inside twoFactor.js; the recovery actions guard the recovery
+  // key/email/token brute-force surface.
+  'verify2FA', 'disable2FAWithRecoveryKey', 'request2FARecovery', 'reset2FA',
   'getConsentByToken', 'requestConsentOtp', 'verifyConsentOtp', 'respondConsent',
   'getDocxTemplatePublic', 'convertDocxToPdfPublic',
   // Announcements: only the PIN CHECK is rate-limited (it guards a 6-digit PIN on
@@ -578,7 +589,12 @@ export default {
     const cookieSession = cookies[SESSION_COOKIE] || '';
     if (cookieSession) req.__cookieSessionToken = cookieSession;
     const usingCookieAuth = !req.token && !!cookieSession;
-    const CSRF_EXEMPT = new Set(['login', 'verifyGoogleLogin']);
+    // 2FA pre-session actions are exempt like login: no session exists yet (or the
+    // stale cookie is irrelevant), so a double-submit CSRF token can't be present.
+    const CSRF_EXEMPT = new Set([
+      'login', 'verifyGoogleLogin',
+      'verify2FA', 'disable2FAWithRecoveryKey', 'request2FARecovery', 'reset2FA',
+    ]);
     if (usingCookieAuth && EXPECTED_MUTATING_ACTIONS.has(action) && !CSRF_EXEMPT.has(action)) {
       const headerToken = (request.headers.get(CSRF_HEADER) || '').trim();
       const cookieToken = (cookies[CSRF_COOKIE] || '').trim();
@@ -632,6 +648,34 @@ export default {
       // session a password login does. No auth token required to call it (like
       // `login`); rate-limited per IP via RATE_LIMITED_ACTIONS below.
       verifyGoogleLogin: () => loginWithGoogle(env, req.idToken, req.rememberMe, req.serverIp, req.deviceInfo),
+
+      // ---- Two-Factor Authentication (TOTP, Superadmin) ----
+      // verify2FA is the login SECOND step: it exchanges the short-lived tempToken
+      // (minted by login/verifyGoogleLogin when a Superadmin has 2FA on) plus a
+      // 6-digit TOTP or a single-use backup code for a REAL session — so it returns
+      // the exact issueSession shape and triggers the cookie set just like login.
+      // Pre-session (no token), so it is rate-limited per IP (RATE_LIMITED_ACTIONS)
+      // and CSRF-exempt. A 2FA-specific 5/5min cap is applied here as well.
+      verify2FA: async () => {
+        if (req.serverIp && await twoFactor.isVerifyRateLimited(env, req.serverIp)) {
+          return { success: false, message: 'Too many attempts. Please wait a few minutes and try again.' };
+        }
+        return twoFactor.verifyLoginTotp(env, req.tempToken, req.code, issueSession);
+      },
+      // Enrollment + management (authenticated; each enforces requireSuperadmin
+      // inside twoFactor.js). enroll2FA returns the secret/QR/backup codes/recovery
+      // key ONCE; confirm2FA verifies a code and turns it on.
+      get2FAStatus: () => withAuth(env, req, (user) => twoFactor.get2FAStatus(env, user)),
+      enroll2FA: () => withAuth(env, req, (user) => twoFactor.startEnroll(env, user)),
+      confirm2FA: () => withAuth(env, req, (user) => twoFactor.confirmEnroll(env, user, req.code, req.backupCodes, req.recoveryKey)),
+      disable2FA: () => withAuth(env, req, (user) => twoFactor.disable2FA(env, user, req.password)),
+      regenerate2FABackupCodes: () => withAuth(env, req, (user) => twoFactor.regenerateBackupCodes(env, user, req.password)),
+      // Recovery — pre-session (used when the phone/authenticator is lost).
+      // disableViaRecoveryKey: password + 32-char recovery key. request2FARecovery:
+      // emails a single-use reset token. reset2FA: consumes that token.
+      disable2FAWithRecoveryKey: () => twoFactor.disableViaRecoveryKey(env, req.name, req.password, req.recoveryKey),
+      request2FARecovery: () => twoFactor.requestRecoveryEmail(env, req.name),
+      reset2FA: () => twoFactor.resetViaRecoveryToken(env, req.recoveryToken),
 
       logout: () => withAuth(env, req, (user) => doLogout(env, req.token)),
 

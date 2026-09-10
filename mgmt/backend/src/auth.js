@@ -4,6 +4,7 @@
 // Everything else (LOGIN table, LOCKED YEARS, MANUAL YEARS) lives in `core` D1.
 
 import { newCsrfToken } from './cookies.js'; // audit H-12: CSRF token minted with each session
+import { beginLoginChallenge } from './twoFactor.js'; // 2FA login challenge (Superadmin TOTP)
 
 const SESSION_SHORT_MS = 8 * 60 * 60 * 1000;      // 8 hours (not "remember me") — matches Code.js exactly
 const SESSION_LONG_MS = 30 * 24 * 60 * 60 * 1000; // 30 days ("remember me") — matches Code.js exactly
@@ -399,6 +400,15 @@ export async function login(env, name, password, rememberMe, clientIp, deviceInf
     } catch (e) { /* non-fatal: login still succeeds, upgrade retried next time */ }
   }
 
+  // ---- 2FA gate (Superadmin) ----
+  // Password is correct. If this is a Superadmin with TOTP enabled, DO NOT issue a
+  // session yet — mint a short-lived challenge and return {requires2FA, tempToken}.
+  // The frontend then collects a 6-digit / backup code and calls verify2FA, which
+  // exchanges the tempToken for the real session (see twoFactor.verifyLoginTotp).
+  if ((user.role || '').toString().trim() === 'Superadmin' && Number(user.totp_enabled) === 1 && user.totp_secret_enc) {
+    return beginLoginChallenge(env, user, rememberMe, ip, deviceInfo);
+  }
+
   return issueSession(env, user, rememberMe, ip, deviceInfo, { identifier: name });
 }
 
@@ -414,7 +424,7 @@ export async function login(env, name, password, rememberMe, clientIp, deviceInf
 // `loginRow` is a login_users row (must have .name and .role). `opts.identifier`
 // is the raw value the user typed (for the login_attempts audit row) — for Google
 // it's the verified email.
-async function issueSession(env, loginRow, rememberMe, ip, deviceInfo, opts = {}) {
+export async function issueSession(env, loginRow, rememberMe, ip, deviceInfo, opts = {}) {
   const actualName = loginRow.name.trim();
   const token = crypto.randomUUID();
   const ttl = rememberMe ? SESSION_LONG_MS : SESSION_SHORT_MS;
@@ -521,6 +531,12 @@ export async function loginWithGoogle(env, idToken, rememberMe, clientIp, device
       identifier: email, name: null, success: false, reason: 'google_no_match', ip, deviceInfo, locked: 0,
     });
     throw ValidationError('No committee login is linked to this Google account. Ask a Superadmin to add your email to your login, or sign in with your password.');
+  }
+
+  // 2FA gate (Superadmin) — same as password login: a Superadmin with TOTP enabled
+  // must clear the second factor before a session is issued, even via Google.
+  if ((row.role || '').toString().trim() === 'Superadmin' && Number(row.totp_enabled) === 1 && row.totp_secret_enc) {
+    return beginLoginChallenge(env, row, rememberMe, ip, deviceInfo);
   }
 
   return issueSession(env, row, rememberMe, ip, deviceInfo, { identifier: email, reason: 'google' });
