@@ -17,6 +17,11 @@ import { generateMessageId } from './whatsapp.js';
 
 const TABLE = 'official_emails';
 const RESEND_SEND = 'https://api.resend.com/emails';
+// The retrieve-received-email endpoint is /emails/receiving/{id} (the SDK is
+// emails.receiving.get(id)). We previously used /emails/received/{id}, which
+// returned HTTP 405 (wrong path) so the body was never fetched. Keep the old path
+// as a fallback in case Resend routes both.
+const RESEND_RECEIVING = (id) => `https://api.resend.com/emails/receiving/${encodeURIComponent(id)}`;
 const RESEND_RECEIVED = (id) => `https://api.resend.com/emails/received/${encodeURIComponent(id)}`;
 
 function db(env) {
@@ -225,11 +230,15 @@ export async function handleInboundEmailWebhook(env, payload) {
     let attachments = null; // metadata only (filename/contentType/id) — bytes stay in Resend
 
     // Fetch the full body via the Received Emails API (webhook has metadata only).
+    // Correct path is /emails/receiving/{id}; the old /emails/received/{id} 405s,
+    // so try the right one first and fall back only if it isn't found.
     if (receivedId && env.RESEND_API_KEY) {
       try {
-        const resp = await fetch(RESEND_RECEIVED(receivedId), {
-          headers: { Authorization: `Bearer ${env.RESEND_API_KEY}` },
-        });
+        const authHeaders = { Authorization: `Bearer ${env.RESEND_API_KEY}` };
+        let resp = await fetch(RESEND_RECEIVING(receivedId), { headers: authHeaders });
+        if (!resp.ok && (resp.status === 404 || resp.status === 405)) {
+          resp = await fetch(RESEND_RECEIVED(receivedId), { headers: authHeaders });
+        }
         if (resp.ok) {
           const raw = await resp.json();
           // Resend responses are sometimes flat ({html,text,...}) and sometimes
