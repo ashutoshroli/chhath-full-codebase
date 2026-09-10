@@ -9,7 +9,7 @@ import { getFestivalDates, saveFestivalDates, getPortalSetting, setPortalSetting
 import * as seo from './seo.js';
 import * as wa from './whatsapp.js';
 import { logError, reportErrorToWhatsApp, getErrorLog } from './errorLog.js';
-import { logActivity, getActivityLog, logWarn } from './logger.js';
+import { logActivity, getActivityLog, logWarn, logErrorAt } from './logger.js';
 import * as popups from './popups.js';
 import * as announce from './announcements.js';
 import * as loans from './loans.js';
@@ -22,6 +22,7 @@ import * as email from './email.js';
 import * as officialMail from './officialMail.js';
 import { cleanupData, cleanupPreview } from './cleanup.js';
 import { generateAiFix, getAiFixes, getAiFix, createAiFixPr } from './aiFix.js';
+import { verifyGithubSignature, handleCheckSuiteEvent } from './aiFixCi.js';
 import { bumpDataVersion, getDataVersion } from './dataVersion.js';
 import { healthCheck } from './config.js';
 import { runRetentionSweep, shouldSweepNow } from './retention.js';
@@ -435,6 +436,42 @@ export default {
         return jsonOut(report, request, env, report.status === 'ok' ? 200 : 503);
       }
       return jsonOut({ status: 'ok', message: 'Chhath Puja Management API is live (Cloudflare Worker)' }, request, env);
+    }
+
+    // ---- PUBLIC GitHub webhook (AI auto-fix CI monitoring, PR-3) ----
+    // GitHub POSTs check_suite events here, signed with GITHUB_WEBHOOK_SECRET
+    // (X-Hub-Signature-256 over the RAW body). Handled BEFORE request.json()
+    // because HMAC must run on the raw bytes, and the payload shape is GitHub's,
+    // not ours. Point a repo webhook (content-type application/json, events:
+    // "Check suites") at:  https://<worker>/?github-webhook=1
+    {
+      const whUrl = new URL(request.url);
+      const eventType = request.headers.get('X-GitHub-Event') || '';
+      if (whUrl.searchParams.has('github-webhook') || eventType) {
+        const raw = await request.text();
+        const ok = await verifyGithubSignature(env, raw, request.headers.get('X-Hub-Signature-256'));
+        if (!ok) {
+          ctx.waitUntil(logError(env, 'backend', 'github-webhook', 'GitHub webhook rejected: bad/missing signature', '', ''));
+          return jsonOut({ success: false, message: 'Unauthorized' }, request, env, 401);
+        }
+        if (eventType === 'ping') {
+          return jsonOut({ success: true, pong: true }, request, env);
+        }
+        if (eventType !== 'check_suite') {
+          return jsonOut({ success: true, ignored: `event ${eventType}` }, request, env);
+        }
+        let payload;
+        try { payload = JSON.parse(raw); } catch (e) {
+          return jsonOut({ success: false, message: 'Invalid JSON' }, request, env, 400);
+        }
+        // Never make GitHub retry: run the (possibly slow) retry work in the
+        // background and ack immediately.
+        ctx.waitUntil(
+          handleCheckSuiteEvent(env, payload).catch(err =>
+            logErrorAt(env, 'backend', 'github-webhook', err, { branch: payload && payload.check_suite && payload.check_suite.head_branch }))
+        );
+        return jsonOut({ success: true, received: true }, request, env);
+      }
     }
 
     let req;
