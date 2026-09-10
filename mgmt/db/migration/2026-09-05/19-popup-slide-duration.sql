@@ -1,24 +1,24 @@
 -- ============================================================================
--- Per-slide auto-play duration — DB: chhath-misc
+-- popup_slides.duration_ms — 2026-09-05  ·  DB: chhath-misc
 --
---   wrangler d1 execute chhath-misc --remote --file=./migration/2026-09-05/19-popup-slide-duration.sql
+-- Adds a `duration_ms` column to popup_slides: how many MILLISECONDS a slide
+-- stays on screen during AUTO-PLAY (public portal + mgmt login popup). NULL /
+-- 0 / missing -> frontend default 5000ms (5s); values are clamped to
+-- 1000-60000ms so a stray 0 can never cause slide-flicker.
 --
--- KYUN: Popup me agar ek se zyada slide hain to ab wo AUTO-PLAY karti hain
--- (public portal + mgmt login popup dono me), aur har slide kitni der dikhegi
--- ye Superadmin mgmt portal me set kar sakta hai. Uske liye har slide ka apna
--- duration chahiye.
+-- WHY THIS FILE APPLIES NOTHING (comment-only, like migrations 10-13 and 18):
+-- SQLite has no `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, and the committed
+-- schema (schema/misc.sql) ALREADY defines `duration_ms` on popup_slides — so a
+-- fresh DB built from the schema needs no change, and running an ALTER here
+-- against that schema would fail "duplicate column name". To stay idempotent +
+-- CI-safe, this migration ships the exact one-line command as a comment; run it
+-- ONCE by hand against the LIVE database that predates this column. A second run
+-- harmlessly reports "duplicate column name: duration_ms".
 --
--- `duration_ms` = ek slide kitne MILLISECONDS tak dikhegi auto-play me.
--- NULL / 0 / missing hone par frontend default 5000ms (5s) maanta hai, aur
--- 1000ms (1s) se kam ko 1000ms tak clamp karta hai — taaki koi galti se '0'
--- daal de to slide-flicker na ho.
+-- RUN ONCE against the live DB:
+--   wrangler d1 execute chhath-misc --remote --command "ALTER TABLE popup_slides ADD COLUMN duration_ms INTEGER"
 --
--- IDEMPOTENT NOTE: D1/SQLite me "ADD COLUMN IF NOT EXISTS" nahi hai. Column
--- pehle se ho to `ALTER TABLE ... ADD COLUMN` "duplicate column name" error
--- deta hai — jo idempotent re-run par expected hai aur safe hai (koi data
--- delete nahi hota). Live DB par ye ek-baar chalaya ja chuka hai:
---   wrangler d1 execute chhath-misc --remote \
---     --command "ALTER TABLE popup_slides ADD COLUMN duration_ms INTEGER"
+-- (No index needed — duration_ms is read/written per-row, never filtered on.)
 -- ============================================================================
 
-ALTER TABLE popup_slides ADD COLUMN duration_ms INTEGER;
+-- (intentionally no executable statements — see the command above)
