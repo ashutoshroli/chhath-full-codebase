@@ -37,7 +37,10 @@ button, input, select { font: inherit; }
    the row (and the card) wider instead of wrapping. min-width:0 lets the cell
    shrink and its text wrap. Applied to the direct children of every data-row. */
 .data-row > * { min-width: 0; }
-.data-row > *:first-child { overflow-wrap: anywhere; }
+/* The first block (name/details) takes the free width so the badge + actions sit
+   flush at the right instead of leaving a gap in the middle of the card. */
+.data-row > *:first-child { overflow-wrap: anywhere; flex: 1 1 auto; }
+.data-row > *:last-child { flex: 0 0 auto; }
 
 .profile-box-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
 .profile-mini-box { background: #f3f4f6; border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
