@@ -318,6 +318,9 @@ export const api = {
   sendOfficialEmail: (to, cc, subject, body, attachments) => call('sendOfficialEmail', { to, cc, subject, body, attachments }),
   replyOfficialEmail: (message_id, body, attachments) => call('replyOfficialEmail', { message_id, body, attachments }),
   markOfficialEmailRead: (message_id) => call('markOfficialEmailRead', { message_id }),
+  // Data cleanup (Superadmin)
+  cleanupPreview: (target, mode, days) => call('cleanupPreview', { target, mode, days }),
+  cleanupData: (target, mode, days) => call('cleanupData', { target, mode, days }),
   // Loan email (Resend) templates
   getLoanEmailTemplates: (type) => call('getLoanEmailTemplates', { type }),
   addLoanEmailTemplate: (type, subject, text, messageType, fileLink) => call('addLoanEmailTemplate', { type, subject, text, messageType, fileLink }),

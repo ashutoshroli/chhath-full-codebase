@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, reportClientError } from '../api.js';
+import CleanupPanel from '../components/CleanupPanel.jsx';
 
 // Activity & Login Logs (Superadmin only).
 //
@@ -28,7 +29,7 @@ const REASON_LABEL = {
   locked_out: 'Locked out',
 };
 
-export default function AuditLogs() {
+export default function AuditLogs({ role }) {
   const [tab, setTab] = useState('logins'); // logins | locked | sessions
 
   return (
@@ -49,7 +50,12 @@ export default function AuditLogs() {
       </div>
 
       {tab === 'logins' && <LoginAttempts />}
-      {tab === 'activity' && <ActivityTrail />}
+      {tab === 'activity' && (
+        <>
+          <ActivityTrail />
+          <CleanupPanel target="activity_log" label="the Activity Log" role={role} />
+        </>
+      )}
       {tab === 'locked' && <LockedAccounts />}
       {tab === 'sessions' && <UserSessions />}
     </div>

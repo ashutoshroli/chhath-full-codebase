@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { api } from '../api.js';
 import { usePolling } from '../usePolling.js';
 import Modal from '../components/Modal.jsx';
+import CleanupPanel from '../components/CleanupPanel.jsx';
 import { isTruthyFlag } from '../flags.js';
 
 const PLACEHOLDER_HINT = 'Placeholders: {Name} {NameHindi} {Amount} {Year} {PaymentMethod} {Village} {VillageHindi} {FatherName} {FatherNameHindi} {Detail}';
@@ -589,7 +590,7 @@ function WhatsAppSettings() {
 }
 
 // ============ Root: WhatsApp tab with Template / Group Info / Message / Settings subtabs ============
-export default function WhatsApp() {
+export default function WhatsApp({ role }) {
   const [section, setSection] = useState('template'); // template | groupinfo | message | email | settings
   const [templateKind, setTemplateKind] = useState('person'); // person | group | loan
   const [loanTemplateType, setLoanTemplateType] = useState(LOAN_TEMPLATE_TYPES[0][0]);
@@ -631,7 +632,12 @@ export default function WhatsApp() {
 
       {section === 'groupinfo' && <GroupInfoList />}
 
-      {section === 'message' && <MessageLog />}
+      {section === 'message' && (
+        <>
+          <MessageLog />
+          <CleanupPanel target="whatsapp_messages" label="WhatsApp messages" role={role} hasStatus />
+        </>
+      )}
 
       {section === 'settings' && <WhatsAppSettings />}
     </>

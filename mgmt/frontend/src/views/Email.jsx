@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { api } from '../api.js';
 import { usePolling } from '../usePolling.js';
 import Modal from '../components/Modal.jsx';
+import CleanupPanel from '../components/CleanupPanel.jsx';
 import { isTruthyFlag } from '../flags.js';
 
 // ============ Shared template constants (email uses the same lists the WhatsApp
@@ -499,7 +500,7 @@ function EmailLog() {
 
 
 // ============ Root: Email tab (Collection / Loan / Mails / Queue) ============
-export default function Email() {
+export default function Email({ role }) {
   const [emailSection, setEmailSection] = useState('template'); // template (collection) | loan | queue
   const [loanEmailType, setLoanEmailType] = useState(LOAN_TEMPLATE_TYPES[0][0]);
 
@@ -525,7 +526,12 @@ export default function Email() {
           <LoanEmailTemplateList key={loanEmailType} loanType={loanEmailType} />
         </>
       )}
-      {emailSection === 'mails' && <MailLog />}
+      {emailSection === 'mails' && (
+        <>
+          <MailLog />
+          <CleanupPanel target="noreply_mails" label="noreply emails" role={role} hasStatus />
+        </>
+      )}
       {emailSection === 'queue' && <EmailLog />}
     </>
   );

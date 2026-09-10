@@ -281,14 +281,14 @@ export default function App() {
         {tab === 'lock' && canAccessTab('lock') && <LockYears years={years} lockedYears={lockedYearsSet} onChange={lockedYearsView.refresh} onYearAdded={refreshYears} />}
         {tab === 'storage' && canAccessTab('storage') && <StorageManagement />}
         {tab === 'backup' && canAccessTab('backup') && <Backup />}
-        {tab === 'whatsapp' && canAccessTab('whatsapp') && <WhatsApp />}
-        {tab === 'email' && canAccessTab('email') && <Email />}
+        {tab === 'whatsapp' && canAccessTab('whatsapp') && <WhatsApp role={user.role} />}
+        {tab === 'email' && canAccessTab('email') && <Email role={user.role} />}
         {tab === 'emailofficial' && canAccessTab('emailofficial') && <EmailOfficial />}
         {tab === 'lists' && canAccessTab('lists') && <ListManagement />}
         {tab === 'consenttemplates' && canAccessTab('consenttemplates') && <ConsentTemplates />}
         {tab === 'consentreview' && canAccessTab('consentreview') && <ConsentReview />}
 
-        {tab === 'errorlog' && canAccessTab('errorlog') && <ErrorLog />}
+        {tab === 'errorlog' && canAccessTab('errorlog') && <ErrorLog role={user.role} />}
         {tab === 'queuemonitor' && canAccessTab('queuemonitor') && <QueueMonitor />}
         {tab === 'loginmgmt' && canAccessTab('loginmgmt') && <LoginManagement users={usersView.data} role={user.role} />}
         {tab === 'docxtemplates' && canAccessTab('docxtemplates') && <DocxTemplates />}
@@ -298,7 +298,7 @@ export default function App() {
         {tab === 'announcementportal' && canAccessTab('announcementportal') && <AnnouncementPortal years={years} />}
         {tab === 'pdfexport' && canAccessTab('pdfexport') && <PdfExport />}
         {tab === 'seo' && canAccessTab('seo') && <SeoSettings />}
-        {tab === 'auditlogs' && canAccessTab('auditlogs') && <AuditLogs />}
+        {tab === 'auditlogs' && canAccessTab('auditlogs') && <AuditLogs role={user.role} />}
         {tab === 'uploadcsvs' && canAccessTab('uploadcsvs') && <UploadCsvs />}
         </Suspense>
         </ErrorBoundary>
