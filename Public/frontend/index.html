@@ -95,6 +95,18 @@
   </noscript>
 
   <link rel="stylesheet" href="style.css">
+  <!-- Footer language toggle lives INLINE here (not in style.css) on purpose:
+       style.css is cached for a day (max-age=86400), but this HTML is always
+       revalidated (max-age=0). Keeping the show/hide rule with the markup means
+       a fresh footer and its toggle rule always ship together, so the two can
+       never skew and show BOTH languages at once. Shows only the language that
+       matches <html lang> (set by app.applyStaticLang); default = English. -->
+  <style>
+    .site-footer [data-lang="hi"] { display: none; }
+    .site-footer [data-lang="en"] { display: inline; }
+    html[lang="hi"] .site-footer [data-lang="en"] { display: none; }
+    html[lang="hi"] .site-footer [data-lang="hi"] { display: inline; }
+  </style>
 
   <!-- Google Tag Manager — GA4 + Clarity are configured as tags inside GTM.
        PERFORMANCE: boots on window 'load' (after first paint) so analytics never
@@ -258,12 +270,12 @@
   <footer class="site-footer">
     <p class="site-footer-copy">
       © <span id="footer-yr"></span>
-      <span data-lang="en">Navyuvak Chhath Puja Samiti, Shaharpura. All rights reserved.</span>
-      <span data-lang="hi">नवयुवक छठ पूजा समिति, शहरपुरा। सर्वाधिकार सुरक्षित।</span>
+      <span data-lang="en">Navyuvak Chhath Puja Samiti, Shaharpura &amp; Gardih. All rights reserved.</span>
+      <span data-lang="hi">नवयुवक छठ पूजा समिति, शहरपुरा एवं गरडीह। सर्वाधिकार सुरक्षित।</span>
     </p>
     <p class="site-footer-made">
-      <span data-lang="en">Made with <span class="footer-heart" aria-label="love">🩷</span> for Shaharpura &amp; Gardih</span>
-      <span data-lang="hi"><span class="footer-heart" aria-label="प्रेम">🩷</span> से शहरपुरा एवं गरडीह के लिए बनाया गया</span>
+      <span data-lang="en">Made with <span class="footer-heart" aria-label="love">🩷</span></span>
+      <span data-lang="hi"><span class="footer-heart" aria-label="प्रेम">🩷</span> से बनाया गया</span>
     </p>
   </footer>
   <script>

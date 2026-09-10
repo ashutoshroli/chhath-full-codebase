@@ -24,10 +24,10 @@ export default function AppFooter({ compact = false }) {
       }}
     >
       <p style={{ margin: '4px 0' }}>
-        © {year} Navyuvak Chhath Puja Samiti, Shaharpura. All rights reserved.
+        © {year} Navyuvak Chhath Puja Samiti, Shaharpura &amp; Gardih. All rights reserved.
       </p>
       <p style={{ margin: '4px 0', opacity: 0.9 }}>
-        Made with <span style={{ verticalAlign: '-1px' }} aria-label="love">🩷</span> for Shaharpura &amp; Gardih
+        Made with <span style={{ verticalAlign: '-1px' }} aria-label="love">🩷</span>
       </p>
     </footer>
   );
