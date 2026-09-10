@@ -62,6 +62,11 @@ const SCHEMA_FOR_MIGRATION = {
   // committed schema; the live-DB ALTER ships as a documented one-liner. Applies
   // nothing, so it passes the apply-twice idempotency check trivially.
   '18-official-emails-attachments.sql': 'whatsapp_index.sql',
+  // popup_slides.duration_ms — comment-only (like 10-13 and 18): the per-slide
+  // auto-play duration column is in the committed misc.sql schema; the live-DB
+  // ALTER ships as a documented one-liner. Applies nothing, so it passes the
+  // apply-twice idempotency check trivially.
+  '19-popup-slide-duration.sql': 'misc.sql',
 };
 
 // Migrations that legitimately do more than CREATE INDEX. Keep this list as short

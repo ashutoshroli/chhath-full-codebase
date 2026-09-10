@@ -476,6 +476,17 @@ function parseStoredDate(v) {
   return isNaN(d.getTime()) ? null : d;
 }
 
+// Per-slide auto-play duration in ms. NULL/0/missing -> 5000ms; clamped to
+// 1000-60000ms so a stray 0 can't cause slide flicker. MUST stay identical to
+// normalizeDurationMs in mgmt/backend/src/popups.js.
+function normalizeSlideDurationMs(v) {
+  const n = parseInt(v, 10);
+  if (!Number.isFinite(n) || n <= 0) return 5000;
+  if (n < 1000) return 1000;
+  if (n > 60000) return 60000;
+  return n;
+}
+
 async function getActivePublicPopups(env) {
   if (!env.DB_MISC) return []; // binding not configured yet — fail closed, not open
   const now = new Date();
@@ -500,7 +511,7 @@ async function getActivePublicPopups(env) {
   });
   if (!popups.length) return [];
   const { results: allSlides } = await env.DB_MISC.prepare(
-    'SELECT slide_id, popup_id, slide_order, image_url, text, link_url, link_text FROM popup_slides ORDER BY slide_order ASC'
+    'SELECT slide_id, popup_id, slide_order, image_url, text, link_url, link_text, duration_ms FROM popup_slides ORDER BY slide_order ASC'
   ).all();
   return popups
     .map(p => ({
@@ -516,6 +527,10 @@ async function getActivePublicPopups(env) {
           text: s.text || '',
           link_url: s.link_url || '',
           link_text: s.link_text || '',
+          // Auto-play duration (ms). NULL/0/missing -> 5000ms default, clamped to
+          // 1000-60000ms. Kept identical to normalizeDurationMs in the mgmt
+          // Worker's popups.js so the two never disagree.
+          duration_ms: normalizeSlideDurationMs(s.duration_ms),
         })),
     }))
     .filter(p => p.slides.length > 0);

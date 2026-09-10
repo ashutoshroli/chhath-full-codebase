@@ -40,6 +40,22 @@ function popupOut(r) {
 // text/link_url/link_text = NULL. Handing a raw null to the frontend made
 // `slide.text.trim()` throw in PopupManagement's save() — outside its try/catch,
 // so the Save button silently did nothing. Coalesce to '' at the boundary.
+// Auto-play duration (ms) each slide stays on screen before advancing. The
+// column is nullable and legacy rows have NULL, so coalesce to a sane default.
+// Kept identical in the public Worker (getActivePublicPopups) and in the mgmt
+// frontend so the three can never disagree about how long a slide shows.
+const DEFAULT_SLIDE_DURATION_MS = 5000;
+const MIN_SLIDE_DURATION_MS = 1000;
+const MAX_SLIDE_DURATION_MS = 60000;
+
+function normalizeDurationMs(v) {
+  const n = parseInt(v, 10);
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_SLIDE_DURATION_MS;
+  if (n < MIN_SLIDE_DURATION_MS) return MIN_SLIDE_DURATION_MS;
+  if (n > MAX_SLIDE_DURATION_MS) return MAX_SLIDE_DURATION_MS;
+  return n;
+}
+
 function slideOut(r) {
   return {
     slide_id: r.slide_id,
@@ -49,6 +65,7 @@ function slideOut(r) {
     text: r.text || '',
     link_url: r.link_url || '',
     link_text: r.link_text || '',
+    duration_ms: normalizeDurationMs(r.duration_ms),
   };
 }
 
@@ -194,8 +211,8 @@ export async function savePopupSlides(env, popupId, slides, user) {
   list.forEach((s, i) => {
     const id = randomId('SLD');
     stmts.push(env.DB_MISC.prepare(
-      'INSERT INTO popup_slides (slide_id, popup_id, slide_order, image_url, text, link_url, link_text) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).bind(id, popupId, i + 1, s.imageUrl || '', s.text || '', s.linkUrl || '', s.linkText || ''));
+      'INSERT INTO popup_slides (slide_id, popup_id, slide_order, image_url, text, link_url, link_text, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).bind(id, popupId, i + 1, s.imageUrl || '', s.text || '', s.linkUrl || '', s.linkText || '', normalizeDurationMs(s.durationMs)));
   });
   await env.DB_MISC.batch(stmts);
 
@@ -337,7 +354,10 @@ export async function previewPublicPopups(env, user) {
     const rolesList = (p.roles || '').split(',').map(r => r.trim()).filter(Boolean);
     return rolesList.includes('Public');
   });
-  const allSlides = await slidesForPopups(env, popups.map(p => p.popup_id)); // audit M-20
+  // BUG FIX: this referenced `popups` (undefined here — the variable is
+  // `eligible`), so `previewPublicPopups` threw `popups is not defined` and the
+  // "Preview as Public" button always errored. It now uses `eligible`.
+  const allSlides = await slidesForPopups(env, eligible.map(p => p.popup_id)); // audit M-20
   const withSlides = eligible.map(p => ({
     popup_id: p.popup_id,
     title: p.title,

@@ -44,7 +44,8 @@ CREATE TABLE popup_slides (
   image_url TEXT,
   text TEXT,
   link_url TEXT,
-  link_text TEXT
+  link_text TEXT,
+  duration_ms INTEGER          -- auto-play: ms this slide stays on screen (NULL/0 -> 5000ms default, clamped 1000-60000). Migration 2026-09-05/19.
 );
 CREATE INDEX idx_popup_slides_popup_id ON popup_slides(popup_id);
 

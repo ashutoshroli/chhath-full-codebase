@@ -1,0 +1,24 @@
+-- ============================================================================
+-- popup_slides.duration_ms — 2026-09-05  ·  DB: chhath-misc
+--
+-- Adds a `duration_ms` column to popup_slides: how many MILLISECONDS a slide
+-- stays on screen during AUTO-PLAY (public portal + mgmt login popup). NULL /
+-- 0 / missing -> frontend default 5000ms (5s); values are clamped to
+-- 1000-60000ms so a stray 0 can never cause slide-flicker.
+--
+-- WHY THIS FILE APPLIES NOTHING (comment-only, like migrations 10-13 and 18):
+-- SQLite has no `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, and the committed
+-- schema (schema/misc.sql) ALREADY defines `duration_ms` on popup_slides — so a
+-- fresh DB built from the schema needs no change, and running an ALTER here
+-- against that schema would fail "duplicate column name". To stay idempotent +
+-- CI-safe, this migration ships the exact one-line command as a comment; run it
+-- ONCE by hand against the LIVE database that predates this column. A second run
+-- harmlessly reports "duplicate column name: duration_ms".
+--
+-- RUN ONCE against the live DB:
+--   wrangler d1 execute chhath-misc --remote --command "ALTER TABLE popup_slides ADD COLUMN duration_ms INTEGER"
+--
+-- (No index needed — duration_ms is read/written per-row, never filtered on.)
+-- ============================================================================
+
+-- (intentionally no executable statements — see the command above)
