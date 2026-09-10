@@ -3,6 +3,7 @@ import { api, getSession, clearSession } from './api.js';
 import { useViewData } from './useViewData.js';
 import { isSuperadmin } from './permissions.js';
 import Login from './components/Login.jsx';
+import AppFooter from './components/AppFooter.jsx';
 // PERFORMANCE (LCP): only the FIRST screen a logged-in user sees (Home) and the
 // small always-mounted UI (Login, ProfileMenu, SettingsModal, Modal, ErrorBoundary,
 // LoginPopups) are imported eagerly. Every OTHER tab/view is lazy-loaded, so the
@@ -346,6 +347,8 @@ export default function App() {
       </Modal>
 
       {freshLogin && <LoginPopups />}
+
+      <AppFooter />
     </>
   );
 }
