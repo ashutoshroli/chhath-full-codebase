@@ -252,6 +252,26 @@
     </div>
   </div>
 
+  <!-- Site footer — shown on every view (it sits outside the .page-view sections
+       that the SPA toggles). The year is filled by the inline script below so it
+       is always current with no rebuild. -->
+  <footer class="site-footer">
+    <p class="site-footer-copy">
+      © <span id="footer-yr"></span> <span data-i18n="footer_copyright">Navyuvak Chhath Puja Samiti, Shaharpura. All rights reserved.</span>
+    </p>
+    <p class="site-footer-made">
+      <span data-i18n="footer_made_with">Made with</span>
+      <span class="footer-heart" aria-label="love">🩷</span>
+      <span data-i18n="footer_made_for">for Shaharpura &amp; Gardih</span>
+    </p>
+  </footer>
+  <script>
+    // Self-contained year fill — independent of script.js so the footer is correct
+    // even if the app script fails to load. The two data-i18n spans are localized
+    // by app.applyStaticLang() (default English if the app script hasn't run).
+    (function () { var y = document.getElementById('footer-yr'); if (y) y.textContent = new Date().getFullYear(); })();
+  </script>
+
   <!-- `defer`: let the browser finish parsing the HTML (and paint the header +
        reserved content areas) before running the app script, instead of blocking
        on it. Improves LCP with no behaviour change — the script still runs before

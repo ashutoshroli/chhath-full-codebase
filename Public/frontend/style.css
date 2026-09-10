@@ -124,3 +124,28 @@ body { background-color: var(--bg-offwhite); color: var(--text-main); padding-bo
   font-size: 1.1rem; cursor: pointer; color: var(--primary-saffron);
 }
 .popup-slide-dots { font-size: 0.75rem; color: var(--text-muted); }
+
+
+/* Site footer — appears on every SPA view (it lives outside the .page-view
+   sections). Sits above the fixed .bottom-nav on mobile: body already reserves
+   80px at the bottom, and the footer adds its own bottom margin so the text is
+   never hidden behind the nav bar. */
+.site-footer {
+  max-width: 1000px;
+  margin: 40px auto 24px;
+  padding: 18px 15px 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  text-align: center;
+  color: var(--text-muted, #6b7280);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+.site-footer p { margin: 4px 0; }
+.site-footer-made { opacity: 0.9; }
+/* Keep the heart its natural pink even where the surrounding text is muted. */
+.footer-heart { font-size: 0.9rem; vertical-align: -1px; }
+@media (min-width: 768px) {
+  /* No fixed bottom-nav on desktop, so the extra bottom breathing room isn't
+     needed — pull the footer a little tighter to the content. */
+  .site-footer { margin-bottom: 32px; }
+}
