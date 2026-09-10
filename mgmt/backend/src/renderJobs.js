@@ -32,7 +32,7 @@ import { logErrorAt, logWarn } from './logger.js';
 
 const MAX_ATTEMPTS = 3;       // dispatch attempts before a job is parked 'failed'
 const STUCK_MINUTES = 10;     // a 'dispatched' row older than this is reconciled
-const KINDS = new Set(['ai_fix_generate', 'ai_pr_create']);
+const KINDS = new Set(['ai_fix_generate', 'ai_pr_create', 'ai_ci_retry']);
 
 const genJobId = () => randomId('RJOB');
 
@@ -172,15 +172,16 @@ export async function handleRenderCallback(env, body) {
 // ---- Domain side-effects: reflect a Render result onto the ai_fixes row. ----
 // Imported lazily to avoid an import cycle (aiFix.js will import renderJobs.js in
 // PR-C to dispatch). Only ai_* kinds touch ai_fixes; unknown kinds are no-ops.
+const AI_KINDS = new Set(['ai_fix_generate', 'ai_pr_create', 'ai_ci_retry']);
 async function applyResultSideEffect(env, jobRow, result) {
-  if (jobRow.kind !== 'ai_fix_generate' && jobRow.kind !== 'ai_pr_create') return;
+  if (!AI_KINDS.has(jobRow.kind)) return;
   const { applyRenderFixResult } = await import('./aiFix.js');
   if (typeof applyRenderFixResult === 'function') {
     await applyRenderFixResult(env, jobRow.kind, jobRow.ref_id, result);
   }
 }
 async function applyFailureSideEffect(env, jobRow, errorMsg) {
-  if (jobRow.kind !== 'ai_fix_generate' && jobRow.kind !== 'ai_pr_create') return;
+  if (!AI_KINDS.has(jobRow.kind)) return;
   const { applyRenderFixFailure } = await import('./aiFix.js');
   if (typeof applyRenderFixFailure === 'function') {
     await applyRenderFixFailure(env, jobRow.kind, jobRow.ref_id, errorMsg);

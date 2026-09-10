@@ -2,6 +2,7 @@ import express from 'express';
 import { requireRenderApiKey } from '../middleware/auth.js';
 import { runAiFixGenerate } from '../jobs/aiFixGenerate.js';
 import { runAiPrCreate } from '../jobs/aiPrCreate.js';
+import { runAiCiRetry } from '../jobs/aiCiRetry.js';
 import { postResult } from '../lib/callback.js';
 
 export const jobsRouter = express.Router();
@@ -9,8 +10,11 @@ export const jobsRouter = express.Router();
 const HANDLERS = {
   ai_fix_generate: runAiFixGenerate,
   ai_pr_create: runAiPrCreate,
-  // NOTE: ai_ci_retry is intentionally NOT here yet — the CI-retry loop is a
-  // future change (see README). Adding it is a separate PR.
+  // CI-retry: re-fix a CI failure and push a new commit to the same branch. The
+  // Worker still receives the GitHub check_suite webhook and does the light D1
+  // orchestration (branch match, attempt cap, escalation); only this heavy retry
+  // (log fetch + Claude + commits) runs here.
+  ai_ci_retry: runAiCiRetry,
 };
 
 // POST /jobs — accept a job, ack 202 IMMEDIATELY, then run it in the background

@@ -15,13 +15,10 @@
 // retry storms, so the route always returns 200 after acknowledging.
 // ============================================================================
 
-import { logError, logErrorAt, logWarn } from './logger.js';
+import { logWarn } from './logger.js';
 import { reportErrorToWhatsApp } from './errorLog.js';
-import { applyUnifiedDiff, pathsInDiff } from './diffApply.js';
-import {
-  gh, githubGetFile, callClaude, model, nowIso, updateFixRow, toBase64Utf8,
-  requireConfig, isBlockedPath, MAX_CI_ATTEMPTS,
-} from './aiFix.js';
+import { gh, updateFixRow, MAX_CI_ATTEMPTS } from './aiFix.js';
+import { createAndDispatchJob } from './renderJobs.js';
 
 // --- HMAC-SHA256 signature verification (X-Hub-Signature-256) ---------------
 // GitHub signs the RAW body with GITHUB_WEBHOOK_SECRET. Verify before trusting.
@@ -64,124 +61,13 @@ async function autoMerge(env, owner, repo, prNumber) {
   return gh(env, 'PUT', `/repos/${owner}/${repo}/pulls/${prNumber}/merge`, { merge_method: 'squash' });
 }
 
-// Fetch the failing job's log text (spec: GET .../actions/jobs/{job_id}/logs).
-// The logs endpoint 302-redirects to a plain-text blob; fetch follows it.
-async function fetchFailedJobLog(env, owner, repo, checkSuiteId) {
-  // 1) list the check runs of the suite, find a failing one, map to its Actions job.
-  const runsResp = await gh(env, 'GET', `/repos/${owner}/${repo}/check-suites/${checkSuiteId}/check-runs`);
-  const runs = (runsResp && runsResp.check_runs) || [];
-  const failing = runs.find(r => r.conclusion && r.conclusion !== 'success' && r.conclusion !== 'neutral' && r.conclusion !== 'skipped');
-  if (!failing) return { jobName: '', log: '' };
-
-  // A check_run's id IS the Actions job id for GitHub Actions checks.
-  const jobId = failing.id;
-  const url = `https://api.github.com/repos/${owner}/${repo}/actions/jobs/${jobId}/logs`;
-  const resp = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
-      Accept: 'application/vnd.github+json',
-      'User-Agent': 'chhath-ai-fix',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-    redirect: 'follow',
-  });
-  if (!resp.ok) return { jobName: failing.name || '', log: `(could not fetch job log: HTTP ${resp.status})` };
-  const full = await resp.text().catch(() => '');
-  // Keep the TAIL — failures and their stack are at the end. Cap for token cost.
-  const tail = full.length > 8000 ? full.slice(-8000) : full;
-  return { jobName: failing.name || '', log: tail };
-}
-
-// The core retry: re-ask Claude with the failure, apply, push a new commit to the
-// SAME branch. Returns { retried:true } or { retried:false, reason }.
-async function retryFix(env, fix, failure) {
-  const [owner, repo] = env.GITHUB_REPO.split('/');
-  const errorRow = await env.DB_LOGS.prepare('SELECT * FROM error_log WHERE error_id = ?').bind(fix.error_id).first();
-
-  // Gather current content of the files the LAST diff touched (they're on the branch now).
-  const paths = pathsInDiff(fix.diff).filter(p => !isBlockedPath(p));
-  const files = [];
-  const shaByPath = {};
-  const contentByPath = {};
-  for (const p of paths) {
-    const f = await githubGetFileOnBranch(env, owner, repo, p, fix.branch);
-    if (f && f.content != null) {
-      files.push({ path: p, content: f.content, sha: f.sha });
-      shaByPath[p] = f.sha; contentByPath[p] = f.content;
-    }
-  }
-
-  const extraContext =
-    `A PREVIOUS AI fix was committed to this branch but CI FAILED.\n\n`
-    + `PREVIOUS DIFF THAT WAS APPLIED:\n${fix.diff}\n\n`
-    + `CI FAILURE (${failure.jobName}):\n${failure.log}\n\n`
-    + `Fix the CI failure. The RELEVANT FILE(S) below already contain the previous fix (current branch state). `
-    + `Return a diff AGAINST THAT CURRENT STATE.`;
-
-  let result;
-  try {
-    result = await callClaude(env, { errorRow: errorRow || { message: '', stack: '', context: '' }, files, extraContext });
-  } catch (e) {
-    return { retried: false, reason: `Claude retry call failed: ${e && (e.userMessage || e.message)}` };
-  }
-
-  const applied = applyUnifiedDiff(result.diff, contentByPath);
-  if (!applied.ok) {
-    return { retried: false, reason: `retry diff did not apply: ${applied.reason}` };
-  }
-  // Re-check blocklist and commit to the SAME branch.
-  for (const f of applied.files) {
-    if (isBlockedPath(f.path)) return { retried: false, reason: `retry touched a protected path: ${f.path}` };
-  }
-  for (const f of applied.files) {
-    if (f.isDelete) {
-      if (shaByPath[f.path]) {
-        await gh(env, 'DELETE', `/repos/${owner}/${repo}/contents/${f.path}`, {
-          message: `fix(ai): retry — remove ${f.path} (attempt ${(fix.attempts || 0) + 1})`,
-          sha: shaByPath[f.path], branch: fix.branch,
-        });
-      }
-      continue;
-    }
-    await gh(env, 'PUT', `/repos/${owner}/${repo}/contents/${f.path}`, {
-      message: `fix(ai): retry ${f.path} after CI failure (attempt ${(fix.attempts || 0) + 1})`,
-      content: toBase64Utf8(f.content),
-      branch: fix.branch,
-      ...(shaByPath[f.path] ? { sha: shaByPath[f.path] } : {}),
-    });
-  }
-
-  // Persist the new diff + accumulated tokens; the push re-triggers CI.
-  await updateFixRow(env, fix.fix_id, {
-    status: 'ci_running',
-    diff: result.diff,
-    reasoning: result.reasoning,
-    attempts: (fix.attempts || 0) + 1,
-    prompt_tokens: (fix.prompt_tokens || 0) + (result.promptTokens || 0),
-    completion_tokens: (fix.completion_tokens || 0) + (result.completionTokens || 0),
-    error_message: `Retry ${(fix.attempts || 0) + 1}/${MAX_CI_ATTEMPTS} pushed after CI failure.`,
-  });
-  return { retried: true };
-}
-
-// Read a file's content+sha from a SPECIFIC branch (retry reads branch state).
-async function githubGetFileOnBranch(env, owner, repo, path, branch) {
-  if (isBlockedPath(path)) return null;
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${encodeURIComponent(branch)}`;
-  const resp = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
-      Accept: 'application/vnd.github+json',
-      'User-Agent': 'chhath-ai-fix',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-  });
-  if (!resp.ok) return null;
-  const json = await resp.json();
-  let content = '';
-  try { content = json.content ? atob(json.content.replace(/\n/g, '')) : ''; } catch (e) { content = ''; }
-  return { path, sha: json.sha, content };
-}
+// NOTE: the heavy CI-retry work — fetchFailedJobLog(), retryFix() (Claude call +
+// apply diff), and githubGetFileOnBranch() — used to live here and run in the
+// Worker. It is now OFFLOADED to the Render service (mgmt/server-render/src/jobs/
+// aiCiRetry.js), dispatched as an `ai_ci_retry` job below. The Worker keeps only
+// the light, D1-bound orchestration: match the branch, cap attempts, handle the
+// CI-pass / auto-merge case, and escalate to manual review. Render fetches the CI
+// log itself, so there is no extra GitHub subrequest on the Worker.
 
 // ============================================================================
 // Webhook entry point — called from index.js for a verified check_suite event.
@@ -230,6 +116,8 @@ export async function handleCheckSuiteEvent(env, payload) {
   }
 
   // ---- CI FAILED ----
+  // Attempt cap is checked HERE (light, D1) before spending a Render job. Once the
+  // cap is hit, escalate to manual review + WhatsApp — no retry is dispatched.
   const attempts = fix.attempts || 0;
   if (attempts >= MAX_CI_ATTEMPTS) {
     await updateFixRow(env, fix.fix_id, {
@@ -240,24 +128,37 @@ export async function handleCheckSuiteEvent(env, payload) {
     return { ok: true, action: 'gave_up_manual_review' };
   }
 
-  // Fetch the failure log and retry.
-  let failure;
-  try {
-    failure = await fetchFailedJobLog(env, owner, repo, suite.id);
-  } catch (e) {
-    failure = { jobName: '', log: `(could not fetch CI log: ${e && (e.userMessage || e.message)})` };
-  }
+  // OFFLOAD the retry to Render: it fetches the failed CI log itself, re-asks
+  // Claude against the current branch state, applies, and commits to the same
+  // branch (re-triggering CI). On the callback, applyRenderFixResult bumps the
+  // attempt/tokens (status 'ci_running'); a retry FAILURE callback increments the
+  // attempt and escalates to manual review at the cap (see aiFix.applyRenderFixFailure).
+  const errorRow = fix.error_id
+    ? await env.DB_LOGS.prepare('SELECT * FROM error_log WHERE error_id = ?').bind(fix.error_id).first().catch(() => null)
+    : null;
+  const dispatch = await createAndDispatchJob(env, 'ai_ci_retry', {
+    fixId: fix.fix_id,
+    branch: fix.branch,
+    prevDiff: fix.diff,
+    checkSuiteId: suite.id,
+    attempts,
+    errorRow: {
+      message: (errorRow && errorRow.message) || '',
+      stack: (errorRow && errorRow.stack) || '',
+      context: (errorRow && errorRow.context) || '',
+      source: (errorRow && errorRow.source) || '',
+      page: (errorRow && errorRow.page) || '',
+    },
+  }, { refId: fix.fix_id });
 
-  const res = await retryFix(env, fix, failure);
-  if (!res.retried) {
-    // Couldn't produce/apply a retry — count it as an attempt and, if that was the
-    // last one, escalate; otherwise leave it for the next signal.
+  if (!dispatch.success) {
+    // Could not even reach Render. Count the attempt; escalate at the cap.
     const newAttempts = attempts + 1;
     if (newAttempts >= MAX_CI_ATTEMPTS) {
       await updateFixRow(env, fix.fix_id, {
         status: 'needs_manual_review',
         attempts: newAttempts,
-        error_message: `AI fix failed after ${MAX_CI_ATTEMPTS} attempts (${res.reason}) — manual review needed.`,
+        error_message: `AI fix failed after ${MAX_CI_ATTEMPTS} attempts (could not dispatch retry) — manual review needed.`,
       });
       await notifyManualReview(env, fix);
       return { ok: true, action: 'gave_up_manual_review' };
@@ -265,10 +166,15 @@ export async function handleCheckSuiteEvent(env, payload) {
     await updateFixRow(env, fix.fix_id, {
       status: 'ci_failed',
       attempts: newAttempts,
-      error_message: `Retry ${newAttempts}/${MAX_CI_ATTEMPTS} could not be produced: ${res.reason}`,
+      error_message: `Retry ${newAttempts}/${MAX_CI_ATTEMPTS} could not be dispatched to the processing service.`,
     });
-    return { ok: true, action: 'retry_failed', reason: res.reason };
+    return { ok: true, action: 'retry_dispatch_failed' };
   }
 
-  return { ok: true, action: 'retried', attempt: (fix.attempts || 0) + 1 };
+  // Mark it in-flight; the Render callback finalizes the row.
+  await updateFixRow(env, fix.fix_id, {
+    status: 'ci_running',
+    error_message: `Retry ${attempts + 1}/${MAX_CI_ATTEMPTS} dispatched to the processing service.`,
+  });
+  return { ok: true, action: 'retry_dispatched', jobId: dispatch.jobId, attempt: attempts + 1 };
 }
