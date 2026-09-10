@@ -232,6 +232,7 @@ export default function App() {
     <>
       <header className="top-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <img src="/logo.svg" alt="Navyuvak Chhath Puja Samiti" width="34" height="34" style={{ width: 34, height: 34, flex: 'none' }} />
           <select className="year-selector" value={year} onChange={e => setYear(e.target.value)}>
             {/* Placeholder shown only for the brief moment before the years list
                 loads and the effect selects the latest year. Never selectable. */}
