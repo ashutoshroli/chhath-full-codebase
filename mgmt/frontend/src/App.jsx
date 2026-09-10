@@ -25,9 +25,7 @@ const EmailOfficial = lazy(() => import('./views/EmailOfficial.jsx'));
 const ListManagement = lazy(() => import('./views/ListManagement.jsx'));
 const ConsentTemplates = lazy(() => import('./views/ConsentTemplates.jsx'));
 const ConsentReview = lazy(() => import('./views/ConsentReview.jsx'));
-const ReceiptTemplates = lazy(() => import('./views/ReceiptTemplates.jsx'));
-const CertificateTemplates = lazy(() => import('./views/CertificateTemplates.jsx'));
-const SamaanTemplates = lazy(() => import('./views/SamaanTemplates.jsx'));
+
 const ErrorLog = lazy(() => import('./views/ErrorLog.jsx'));
 const QueueMonitor = lazy(() => import('./views/QueueMonitor.jsx'));
 const PopupManagement = lazy(() => import('./views/PopupManagement.jsx'));
@@ -63,9 +61,7 @@ const PDF_TAB = { id: 'pdfexport', label: 'PDF Export', icon: 'picture_as_pdf' }
 const LIST_TAB = { id: 'lists', label: 'List Management', icon: 'list_alt' };
 const CONSENT_TEMPLATES_TAB = { id: 'consenttemplates', label: 'Consent Templates', icon: 'gavel' };
 const CONSENT_REVIEW_TAB = { id: 'consentreview', label: 'Consent Review', icon: 'fact_check' };
-const RECEIPT_TEMPLATES_TAB = { id: 'receipttemplates', label: 'Receipt Templates', icon: 'receipt_long' };
-const CERTIFICATE_TEMPLATES_TAB = { id: 'certificatetemplates', label: 'Certificate Templates', icon: 'workspace_premium' };
-const SAMAAN_TEMPLATES_TAB = { id: 'samaantemplates', label: 'Material Templates', icon: 'redeem' };
+
 const ERROR_LOG_TAB = { id: 'errorlog', label: 'Error Log', icon: 'bug_report' };
 const DOCX_TEMPLATES_TAB = { id: 'docxtemplates', label: 'Document Templates', icon: 'description' };
 const BULK_GENERATE_TAB = { id: 'bulkgenerate', label: 'Generate PDFs', icon: 'auto_awesome_mosaic' };
@@ -82,7 +78,9 @@ const UPLOAD_CSV_TAB = { id: 'uploadcsvs', label: 'Upload CSVs', icon: 'upload_f
 // crowding the nav bar (there'd be 14 tabs otherwise). Grouped into categories
 // so the More menu is scannable instead of one long flat list.
 const SUPERADMIN_TAB_GROUPS = [
-  { title: '📄 Documents & Templates', tabs: [RECEIPT_TEMPLATES_TAB, CERTIFICATE_TEMPLATES_TAB, SAMAAN_TEMPLATES_TAB, DOCX_TEMPLATES_TAB, BULK_GENERATE_TAB, DOWNLOAD_CENTER_TAB, PDF_TAB] },
+  // Receipt/Certificate/Material HTML template tabs removed — the committee uses
+  // DOCX templates (Document Templates) for all documents.
+  { title: '📄 Documents & Templates', tabs: [DOCX_TEMPLATES_TAB, BULK_GENERATE_TAB, DOWNLOAD_CENTER_TAB, PDF_TAB] },
   { title: '🤝 Loan Consent', tabs: [CONSENT_TEMPLATES_TAB, CONSENT_REVIEW_TAB] },
   { title: '💬 Communication', tabs: [WHATSAPP_TAB, EMAIL_TAB, EMAIL_OFFICIAL_TAB, POPUP_MGMT_TAB, ANNOUNCEMENT_TAB] },
   { title: '⚙️ Data & Settings', tabs: [LOCK_TAB, LIST_TAB, UPLOAD_CSV_TAB, STORAGE_TAB, BACKUP_TAB, QUEUE_MONITOR_TAB, ERROR_LOG_TAB, LOGIN_MGMT_TAB, SEO_TAB, AUDIT_TAB] },
@@ -289,9 +287,7 @@ export default function App() {
         {tab === 'lists' && canAccessTab('lists') && <ListManagement />}
         {tab === 'consenttemplates' && canAccessTab('consenttemplates') && <ConsentTemplates />}
         {tab === 'consentreview' && canAccessTab('consentreview') && <ConsentReview />}
-        {tab === 'receipttemplates' && canAccessTab('receipttemplates') && <ReceiptTemplates />}
-        {tab === 'certificatetemplates' && canAccessTab('certificatetemplates') && <CertificateTemplates />}
-        {tab === 'samaantemplates' && canAccessTab('samaantemplates') && <SamaanTemplates />}
+
         {tab === 'errorlog' && canAccessTab('errorlog') && <ErrorLog />}
         {tab === 'queuemonitor' && canAccessTab('queuemonitor') && <QueueMonitor />}
         {tab === 'loginmgmt' && canAccessTab('loginmgmt') && <LoginManagement users={usersView.data} role={user.role} />}

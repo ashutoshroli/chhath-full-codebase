@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useDeferredValue, lazy, Suspense } from 'react';
+import { useState, useMemo, useEffect, useDeferredValue } from 'react';
 import { api, fmt, reportClientError } from '../api.js';
 import { safeImport } from '../chunkGuard.js';
 import { useViewData } from '../useViewData.js';
@@ -10,7 +10,7 @@ import RowActions from '../components/RowActions.jsx';
 import QueueStatus from '../components/QueueStatus.jsx';
 // Pulls in jsPDF + html2canvas — lazy so Home (a core, always-loaded tab)
 // doesn't ship those to every user on first load, only when Download is clicked.
-const ReceiptModal = lazy(() => import('../components/ReceiptModal.jsx'));
+
 import { canAddView } from '../permissions.js';
 import { useDropdownList } from '../useDropdownList.js';
 import { isTruthyFlag } from '../flags.js';
@@ -46,7 +46,7 @@ const AUTO_GENERATE_DOC_NO_KEY = { receipt: 'RECEIPT_NO', receipt_work: 'RECEIPT
 const DOC_TYPE_LABELS = { receipt: 'Receipt', receipt_work: 'Receipt — Work', certificate: 'Certificate', samaan: 'Material Receipt' };
 
 export default function Home({ year, users, onUserCreated, role, editable }) {
-  const [receiptRow, setReceiptRow] = useState(null);
+
   const { data, loading, error, refresh } = useViewData(`home:${year}`, () => api.getHome(year), [year]);
   const { options: paymentModeOptions, hindiOf: paymentModeHindiOf } = useDropdownList('Payment Mode');
   const [search, setSearch] = useState('');
@@ -416,16 +416,6 @@ export default function Home({ year, users, onUserCreated, role, editable }) {
                 {r['Payment Mode'] && <span className="badge" style={{ background: '#f3f4f6', color: '#374151' }}>{r['Payment Mode']}{paymentModeHindiOf(r['Payment Mode']) ? ` (${paymentModeHindiOf(r['Payment Mode'])})` : ''}</span>}
                 {r.UTR && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>UTR: {r.UTR}</span>}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  {!isResellRow && (
-                    <span
-                      className="material-icons-round"
-                      style={{ cursor: 'pointer', fontSize: '1.1rem', color: 'var(--primary-saffron)' }}
-                      title={(r['Contribution Type'] ?? '').toString() === '2' ? 'Download Material Receipt' : r['Certificate Or Receipt'] === 'Certificate' ? 'Download Certificate' : (r['Contribution Type'] ?? '').toString() === '3' ? 'Download Work Receipt' : 'Download Receipt'}
-                      onClick={() => setReceiptRow(r)}
-                    >
-                      download
-                    </span>
-                  )}
                   <RowActions role={role} disabled={!editable} onEdit={() => openEdit(r)} onDelete={() => remove(r)} />
                 </div>
               </div>
@@ -567,21 +557,6 @@ export default function Home({ year, users, onUserCreated, role, editable }) {
         onCreated={(id) => { onUserCreated(); setForm(f => ({ ...f, Name: id })); }}
       />
 
-      <Suspense fallback={null}>
-        <ReceiptModal
-          row={receiptRow}
-          year={receiptRow ? receiptRow.Year : year}
-          open={!!receiptRow}
-          onClose={() => setReceiptRow(null)}
-          docType={
-            receiptRow && receiptRow['Contribution Type'] === '2' ? 'samaan'
-            : receiptRow && receiptRow['Certificate Or Receipt'] === 'Certificate' ? 'certificate'
-            // Type 3 (Service/Work) + Receipt -> the work-receipt template.
-            : receiptRow && (receiptRow['Contribution Type'] || '').toString() === '3' ? 'receipt_work'
-            : 'receipt'
-          }
-        />
-      </Suspense>
     </>
   );
 }

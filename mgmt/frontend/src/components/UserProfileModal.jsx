@@ -23,6 +23,7 @@ export default function UserProfileModal({ userId, onClose }) {
         <>
           <h3 style={{ marginBottom: 10 }}>{data.user.Name}</h3>
           <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 18, lineHeight: 1.6 }}>
+            <div>User ID: {data.user.ID || userId || '-'}</div>
             <div>Village: {data.user.Village || '-'}</div>
             <div>Mobile: {data.user.Mobile || 'N/A'}</div>
             <div>Father's Name: {data.user["Father's Name"] || 'N/A'}</div>

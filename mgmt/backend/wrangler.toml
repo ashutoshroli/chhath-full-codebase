@@ -62,11 +62,13 @@ GOOGLE_SIGNIN_CLIENT_ID = ""
 # are PUBLIC config, so they live in [vars]; the API key is a secret (below).
 #   RESEND_FROM      the verified sender ("From"). shaharpura.com is verified in
 #                    Resend, so noreply@shaharpura.com works out of the box.
-#   RESEND_REPLY_TO  where replies go (the committee's Gmail).
+#   RESEND_REPLY_TO  where replies go (the official mailbox, chhath@shaharpura.com).
 # If RESEND_API_KEY is not set, email is simply skipped (rows stay 'pending');
 # nothing else is affected.
-RESEND_FROM = "noreply@shaharpura.com"
-RESEND_REPLY_TO = "shaharpura.815312@gmail.com"
+# Resend accepts a display name: "Name <email>". Replies to noreply mail now go
+# to the official mailbox (chhath@shaharpura.com) instead of the committee Gmail.
+RESEND_FROM = "Navyuvak Chhath Pooja Samiti <noreply@shaharpura.com>"
+RESEND_REPLY_TO = "chhath@shaharpura.com"
 
 # ---- Official mailbox (two-way, chhath@shaharpura.com) ----
 # OFFICIAL_FROM      the From/Reply-To for the official mailbox (send + reply).
@@ -75,7 +77,7 @@ RESEND_REPLY_TO = "shaharpura.815312@gmail.com"
 #     https://<worker-host>/?inbound-email=<RESEND_WEBHOOK_SECRET>
 #   (or send it as an X-Webhook-Secret header). The Worker fetches each inbound
 #   email's body via Resend's Received Emails API using RESEND_API_KEY.
-OFFICIAL_FROM = "chhath@shaharpura.com"
+OFFICIAL_FROM = "Chhath Shaharpura Official <chhath@shaharpura.com>"
 
 # ---- Secrets (set with `wrangler secret put NAME`, NOT here) ----
 # PASSWORD_SALT
