@@ -4,6 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
+  <!-- Site icon / favicon — the Samiti emblem. favicon.svg is a simplified
+       version that stays legible at 16-32px; logo.svg is the full badge (used
+       as the apple-touch icon and in the header). Kept OUTSIDE the SEO:START/END
+       block so build.mjs never overwrites them. -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="apple-touch-icon" href="/logo.svg">
+  <link rel="mask-icon" href="/favicon.svg" color="#F5972A">
+
   <!-- ==================================================================
        SEO / SOCIAL LINK PREVIEW
        ------------------------------------------------------------------
@@ -133,7 +141,7 @@
 
   <header class="top-header">
     <div style="display: flex; align-items: center; gap: 8px;">
-      <span class="material-icons-round text-saffron">wb_sunny</span>
+      <img src="/logo.svg" alt="Navyuvak Chhath Puja Samiti" width="40" height="40" style="width:40px;height:40px;flex:none;" decoding="async">
       <div>
         <h1 style="font-size: 1.1rem; line-height: 1;" data-i18n="app_title">Chhath Puja</h1>
         <span style="font-size: 0.7rem; color: var(--text-muted);" data-i18n="app_subtitle">Transparency Portal</span>

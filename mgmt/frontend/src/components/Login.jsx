@@ -107,7 +107,7 @@ export default function Login({ onLogin }) {
     <>
     <div style={{ maxWidth: 400, margin: '15vh auto 0', padding: '0 15px' }}>
       <div style={{ textAlign: 'center', marginBottom: 20 }}>
-        <span className="material-icons-round" style={{ fontSize: '3rem', color: 'var(--primary-saffron)' }}>admin_panel_settings</span>
+        <img src="/logo.svg" alt="Navyuvak Chhath Puja Samiti" width="88" height="88" style={{ width: 88, height: 88, display: 'block', margin: '0 auto 8px' }} />
         <h2>Committee Portal</h2>
       </div>
       <form className="glass-card" onSubmit={submit}>
