@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api, saveSession } from '../api.js';
+import AppFooter from './AppFooter.jsx';
 
 // The Google Cloud OAuth 2.0 Web client id, baked in at build time. Must match
 // GOOGLE_SIGNIN_CLIENT_ID on the Worker (that's what the server verifies the
@@ -103,6 +104,7 @@ export default function Login({ onLogin }) {
   }, [handleGoogleCredential]);
 
   return (
+    <>
     <div style={{ maxWidth: 400, margin: '15vh auto 0', padding: '0 15px' }}>
       <div style={{ textAlign: 'center', marginBottom: 20 }}>
         <span className="material-icons-round" style={{ fontSize: '3rem', color: 'var(--primary-saffron)' }}>admin_panel_settings</span>
@@ -147,5 +149,7 @@ export default function Login({ onLogin }) {
         )}
       </form>
     </div>
+    <AppFooter compact />
+    </>
   );
 }
