@@ -12,6 +12,40 @@ export { logError };
 
 // isTruthyFlag comes from the shared flags.js util (audit 6.1) — see import above.
 
+// ---- SECURITY: Sanitize user-supplied error log fields (Fix #3) ----
+// Strip HTML tags and dangerous characters from all string fields before storage.
+// Even though ErrorLog.jsx uses React's default escaping (no dangerouslySetInnerHTML),
+// defence-in-depth requires the stored data itself to be clean — a future renderer
+// or export could consume it naively.
+// Also rejects payloads containing active XSS patterns outright (Fix #3, rule 3).
+const XSS_PATTERN = /<script/i;
+const DANGEROUS_PATTERN = /javascript:|onerror\s*=|onload\s*=|onclick\s*=|on\w+\s*=/i;
+
+function sanitizeLogField(v, maxLen) {
+  if (v === undefined || v === null) return '';
+  const s = v.toString().slice(0, maxLen * 4); // rough pre-truncate before regex work
+  const stripped = s
+    .replace(/<[^>]*>/g, '')        // strip all HTML tags
+    .replace(/[<>"'`]/g, '');       // remove remaining dangerous chars
+  return stripped.slice(0, maxLen);
+}
+
+// Returns true if the raw (unsanitized) value contains an active XSS payload.
+function containsXss(v) {
+  if (!v) return false;
+  const s = v.toString();
+  return XSS_PATTERN.test(s) || DANGEROUS_PATTERN.test(s);
+}
+
+// ---- FIX #2: Field truncation limits ----
+// Enforced here (server side) regardless of whether the client truncated first.
+const FIELD_LIMITS = {
+  message: 500,
+  stack: 2000,
+  context: 1000,
+  deviceInfo: 200,
+};
+
 // ---- Abuse guard for the two PUBLIC error endpoints ----
 // logError and reportErrorToWhatsApp must stay callable without a session (the
 // Consent and Announce pages are no-login pages and ReportErrorButton lives on
@@ -19,6 +53,52 @@ export { logError };
 // 'priority' WhatsApp to EVERY Superadmin, repeatedly, with no rate limit at all.
 const REPORT_LIMIT_PER_HOUR = 10;
 const REPORT_LIMIT_KEY = 'errreport:count';
+
+// ---- FIX #2: Per-IP rate limit for logError / reportErrorPublic ----
+// Max 20 logError calls per IP per minute (matches RATE_LIMITED_ACTIONS in
+// index.js, but we add a hard second check here so the route-level guard being
+// absent never bypasses it). Uses the same KV key format as isRateLimited().
+const LOG_ERROR_RATE_LIMIT = 20;
+const LOG_ERROR_RATE_WINDOW_SECONDS = 60;
+
+export async function isLogErrorRateLimited(env, ip) {
+  if (!env || !env.KV_SESSIONS || !ip) return false;
+  try {
+    const bucket = Math.floor(Date.now() / (LOG_ERROR_RATE_WINDOW_SECONDS * 1000));
+    const key = `rl:logError:${ip}:${bucket}`;
+    const current = parseInt((await env.KV_SESSIONS.get(key)) || '0', 10) || 0;
+    if (current >= LOG_ERROR_RATE_LIMIT) return true;
+    await env.KV_SESSIONS.put(key, String(current + 1), { expirationTtl: LOG_ERROR_RATE_WINDOW_SECONDS + 5 });
+    return false;
+  } catch (e) { return false; } // fail open — KV hiccup never kills error reporting
+}
+
+// ---- FIX #1 EXCEPTION: reportErrorPublic ----
+// Unauthenticated logError for pages that have no session (Consent page, Announce
+// page, Login-page crashes). Subject to:
+//   (a) payload size limit enforced BEFORE this is called (index.js, Fix #2)
+//   (b) per-IP rate limit via isLogErrorRateLimited() above (Fix #2)
+//   (c) XSS detection and sanitization of all stored fields (Fix #3)
+//   (d) field truncation (Fix #2)
+export async function reportErrorPublic(env, source, page, message, stack, context, ip) {
+  // FIX #2: per-IP rate limit (second layer, index.js RATE_LIMITED_ACTIONS is first)
+  if (ip && await isLogErrorRateLimited(env, ip)) {
+    return { success: false, message: 'Too many requests' };
+  }
+
+  // FIX #3: reject active XSS payloads outright
+  if (containsXss(message) || containsXss(stack) || containsXss(context)) {
+    // Don't store, don't surface error details (don't help attacker tune payload)
+    return { success: false, message: 'Invalid payload' };
+  }
+
+  // FIX #3: sanitize + FIX #2: truncate before storage
+  const cleanMessage = sanitizeLogField(message, FIELD_LIMITS.message);
+  const cleanStack   = sanitizeLogField(stack,   FIELD_LIMITS.stack);
+  const cleanContext = sanitizeLogField(context, FIELD_LIMITS.context);
+
+  return logError(env, source, page, cleanMessage, cleanStack, cleanContext);
+}
 
 async function withinReportRateLimit(env) {
   if (!env.KV_SESSIONS) {
