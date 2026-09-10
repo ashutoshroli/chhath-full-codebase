@@ -22,8 +22,11 @@
 import { requireSuperadmin, ValidationError, InternalError } from './auth.js';
 import { randomId } from './random.js';
 import { logErrorAt, logWarn } from './logger.js';
-import { applyUnifiedDiff, pathsInDiff } from './diffApply.js';
+// diffApply (applyUnifiedDiff/pathsInDiff) is no longer used here — the PR-create
+// path that applied diffs is offloaded to Render. The CI-retry loop (aiFixCi.js)
+// imports diffApply directly, so the module is still in use repo-wide.
 import { resolveActiveProvider } from './aiConfig.js';
+import { createAndDispatchJob } from './renderJobs.js';
 
 const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -113,27 +116,10 @@ export async function githubGetFile(env, path) {
   return { path, sha: json.sha, content, truncated: false };
 }
 
-// --- Extract candidate file paths from a stack trace / context -------------
-// Pulls repo-relative paths like "mgmt/backend/src/loans.js" out of the stack
-// and context. Blocklisted paths are dropped here too (defence in depth).
-function extractPaths(stack, context) {
-  const text = `${stack || ''}\n${context || ''}`;
-  const found = new Set();
-  // Match paths ending in a source extension, optionally with :line:col.
-  const re = /([\w./-]+\.(?:js|jsx|mjs|ts|tsx|json|css|html|sql))(?::\d+(?::\d+)?)?/g;
-  let m;
-  while ((m = re.exec(text)) !== null) {
-    let p = m[1];
-    // Normalise: strip a leading slash and any "src/.../" absolute prefixes that
-    // are not repo-relative (best effort — GitHub fetch simply 404s on a wrong one).
-    p = p.replace(/^\/+/, '');
-    // Skip node_modules and dist.
-    if (/node_modules|\/dist\//.test(p)) continue;
-    if (isBlockedPath(p)) continue;
-    found.add(p);
-  }
-  return [...found].slice(0, MAX_CONTEXT_FILES);
-}
+// NOTE: extractPaths() used to live here (pull candidate file paths out of a stack
+// trace). The generate path that used it is now offloaded to Render, which owns
+// that logic (mgmt/server-render/src/jobs/aiFixGenerate.js). Removed here to avoid
+// dead code + drift.
 
 // --- Claude call ------------------------------------------------------------
 const AI_SYS_PROMPT =
@@ -280,8 +266,22 @@ async function insertFixRow(env, row) {
 // Public actions (wired into index.js)
 // ============================================================================
 
-// Generate a fix for an error and store it as a preview (status 'fix_generated').
-// Does NOT create a branch/PR — that is a separate confirmed step (PR-2).
+// Generate a fix for an error — now OFFLOADED to the Render service.
+//
+// Previously this ran the whole context-fetch + Claude call INLINE in the Worker
+// (steps A + B), which is exactly the CPU/subrequest-heavy work that can exceed
+// the Worker's limits. It now:
+//   1. creates the ai_fixes row as 'pending',
+//   2. dispatches an `ai_fix_generate` job to Render (passing the error row fields
+//      in the payload — Render can't read D1 — and fetching the repo files itself),
+//   3. returns the render job id for the frontend to poll (getRenderJobStatus).
+// Render calls back on completion and applyRenderFixResult() fills the diff and
+// flips the row to 'fix_generated'.
+//
+// NOTE: the callClaude / gh / githubGetFile / applyUnifiedDiff helpers below are
+// NOT removed — the CI-retry loop (aiFixCi.js), which stays in the Worker for now,
+// still uses them. Only THIS generate path (and createAiFixPr) stops running the
+// heavy work in-Worker; the duplicated compute lives in mgmt/server-render.
 export async function generateAiFix(env, errorId, user) {
   requireSuperadmin(user);
   if (!errorId) throw ValidationError('errorId required');
@@ -290,59 +290,51 @@ export async function generateAiFix(env, errorId, user) {
   const errorRow = await env.DB_LOGS.prepare('SELECT * FROM error_log WHERE error_id = ?').bind(errorId).first();
   if (!errorRow) throw ValidationError('Error record not found.');
 
-  // A — collect context.
-  const paths = extractPaths(errorRow.stack, errorRow.context);
-  const files = [];
-  for (const p of paths) {
-    try {
-      const f = await githubGetFile(env, p);
-      if (f) files.push(f);
-    } catch (e) {
-      await logWarn(env, 'backend-aiFix', 'generateAiFix',
-        `Could not fetch ${p} for context: ${e && e.message}`, { errorId, path: p }).catch(() => {});
-    }
-  }
-
-  // B — call Claude for a diff.
-  let result;
-  try {
-    result = await callClaude(env, { errorRow, files });
-  } catch (err) {
-    await logErrorAt(env, 'backend-aiFix', 'generateAiFix', err, { errorId });
-    throw err;
-  }
-
-  // C — persist the preview.
+  // Create the preview row up front as 'pending' so the UI has something to poll
+  // and history is complete even while Render is still working.
   const fixId = randomId('AIF');
   const ts = nowIso();
-  const filesMeta = files.map(f => ({ path: f.path, sha: f.sha }));
-  // Store the model ACTUALLY used (from the resolved provider), not a static guess.
-  const usedModel = result.model || model(env);
   await insertFixRow(env, {
     fix_id: fixId,
     error_id: errorId,
-    status: 'fix_generated',
-    model: usedModel,
-    diff: result.diff,
-    reasoning: result.reasoning,
-    files_json: JSON.stringify(filesMeta),
+    status: 'pending',
+    model: model(env),
+    diff: '',
+    reasoning: '',
+    files_json: '[]',
     attempts: 0,
-    prompt_tokens: result.promptTokens,
-    completion_tokens: result.completionTokens,
+    prompt_tokens: 0,
+    completion_tokens: 0,
     created_by: (user && user.name) || '',
     created_at: ts,
     updated_at: ts,
   });
 
+  // Dispatch to Render. Only references + the (small) error text travel in the
+  // payload — Render fetches the repo files itself.
+  const dispatch = await createAndDispatchJob(env, 'ai_fix_generate', {
+    errorId,
+    fixId,
+    errorRow: {
+      message: errorRow.message || '',
+      stack: errorRow.stack || '',
+      context: errorRow.context || '',
+      source: errorRow.source || '',
+      page: errorRow.page || '',
+    },
+  }, { refId: fixId, createdBy: (user && user.name) || '' });
+
+  if (!dispatch.success) {
+    await updateFixRow(env, fixId, { status: 'failed', error_message: 'Could not dispatch to the processing service.' }).catch(() => {});
+    throw ValidationError(dispatch.message || 'Could not start the AI fix. Please try again shortly.');
+  }
+
   return {
     success: true,
     fixId,
-    status: 'fix_generated',
-    diff: result.diff,
-    reasoning: result.reasoning,
-    files: filesMeta,
-    model: usedModel,
-    tokens: { prompt: result.promptTokens, completion: result.completionTokens },
+    jobId: dispatch.jobId,
+    status: 'pending',
+    message: 'AI fix generation started. This runs in the background — the preview will appear when it completes.',
   };
 }
 
@@ -417,6 +409,13 @@ export function toBase64Utf8(str) {
 // ============================================================================
 // createAiFixPr — Step D: branch + commit + PR from a stored fix.
 // ============================================================================
+// Create a branch + commit + PR from a stored fix — now OFFLOADED to Render.
+//
+// Previously this ran the whole apply-diff + many-GitHub-calls loop INLINE
+// (subrequest-count risk in a Worker). It now dispatches an `ai_pr_create` job to
+// Render, passing the stored diff + error info in the payload (Render fetches the
+// current file content itself and does the branch/commit/PR). Render calls back on
+// completion and applyRenderFixResult() records the PR number/url on the row.
 export async function createAiFixPr(env, fixId, user) {
   requireSuperadmin(user);
   if (!fixId) throw ValidationError('fixId required');
@@ -430,102 +429,72 @@ export async function createAiFixPr(env, fixId, user) {
   if (!fix.diff || !fix.diff.trim()) throw ValidationError('This fix has no diff to apply.');
 
   const errorRow = await env.DB_LOGS.prepare('SELECT * FROM error_log WHERE error_id = ?').bind(fix.error_id).first();
-  const [owner, repo] = env.GITHUB_REPO.split('/');
 
-  try {
-    // 1) Which files does the diff touch? Re-check the blocklist (defence in depth).
-    const paths = pathsInDiff(fix.diff);
-    if (!paths.length) throw ValidationError('The diff does not name any file to change.');
-    for (const p of paths) {
-      if (isBlockedPath(p)) throw ValidationError(`Refusing to modify a protected path: ${p}`);
-    }
+  const dispatch = await createAndDispatchJob(env, 'ai_pr_create', {
+    fixId,
+    errorId: fix.error_id,
+    diff: fix.diff,
+    reasoning: fix.reasoning || '',
+    model: fix.model || model(env),
+    errorRow: {
+      message: (errorRow && errorRow.message) || '',
+      source: (errorRow && errorRow.source) || '',
+      page: (errorRow && errorRow.page) || '',
+      stack: (errorRow && errorRow.stack) || '',
+    },
+  }, { refId: fixId, createdBy: (user && user.name) || '' });
 
-    // 2) Fetch current content + sha for each touched file.
-    const contentByPath = {};
-    const shaByPath = {};
-    for (const p of paths) {
-      const f = await githubGetFile(env, p);
-      if (f && f.content != null) { contentByPath[p] = f.content; shaByPath[p] = f.sha; }
-      else if (f && f.truncated) throw ValidationError(`File too large to patch safely: ${p}`);
-      // A new-file diff has no current content — that's fine (applyUnifiedDiff handles isNew).
-    }
+  if (!dispatch.success) {
+    await updateFixRow(env, fixId, { error_message: 'Could not dispatch PR creation to the processing service.' }).catch(() => {});
+    throw ValidationError(dispatch.message || 'Could not start PR creation. Please try again shortly.');
+  }
 
-    // 3) Apply the diff. STRICT — a context mismatch aborts here (no bad commit).
-    const applied = applyUnifiedDiff(fix.diff, contentByPath);
-    if (!applied.ok) {
-      await updateFixRow(env, fixId, { status: 'fix_generated', error_message: `Diff did not apply cleanly: ${applied.reason}` });
-      throw ValidationError(
-        `The AI diff could not be applied cleanly (${applied.reason}). `
-        + 'The file may have changed since the fix was generated — re-generate the fix.'
-      );
-    }
+  return {
+    success: true,
+    fixId,
+    jobId: dispatch.jobId,
+    status: 'pr_pending',
+    message: 'PR creation started. This runs in the background — the PR link will appear when it completes.',
+  };
+}
 
-    // 4) Resolve the default branch + its head commit sha.
-    const repoInfo = await gh(env, 'GET', `/repos/${owner}/${repo}`);
-    const baseBranch = repoInfo.default_branch || 'main';
-    const baseRef = await gh(env, 'GET', `/repos/${owner}/${repo}/git/ref/heads/${baseBranch}`);
-    const baseSha = baseRef.object.sha;
-
-    // 5) Create the fix branch off the base head. If it already exists, reuse it.
-    const branch = `fix/error-${fix.error_id}`;
-    try {
-      await gh(env, 'POST', `/repos/${owner}/${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: baseSha });
-    } catch (e) {
-      // 422 = ref already exists (a retry) — reuse it.
-      if (!/already exists|Reference already exists|422/.test(e.userMessage || e.message || '')) throw e;
-    }
-
-    // 6) Commit each changed file to the branch via the Contents API.
-    let committed = 0;
-    for (const f of applied.files) {
-      if (f.isDelete) {
-        if (shaByPath[f.path]) {
-          await gh(env, 'DELETE', `/repos/${owner}/${repo}/contents/${f.path}`, {
-            message: `fix(ai): remove ${f.path} for error ${fix.error_id}`,
-            sha: shaByPath[f.path], branch,
-          });
-          committed++;
-        }
-        continue;
-      }
-      await gh(env, 'PUT', `/repos/${owner}/${repo}/contents/${f.path}`, {
-        message: `fix(ai): ${f.path} for error ${fix.error_id}`,
-        content: toBase64Utf8(f.content),
-        branch,
-        ...(shaByPath[f.path] ? { sha: shaByPath[f.path] } : {}),
-      });
-      committed++;
-    }
-    if (!committed) throw ValidationError('No files were committed (nothing to change).');
-
-    // 7) Open the PR into the default branch, with error details + AI reasoning.
-    const title = `fix(ai): ${(errorRow && errorRow.message ? errorRow.message : 'error ' + fix.error_id).slice(0, 60)}`;
-    const bodyMd =
-      `## 🤖 AI-generated fix\n\n`
-      + `**Error Ref:** \`${fix.error_id}\`\n`
-      + `**Source:** ${errorRow ? errorRow.source : '?'} · **Page:** ${errorRow ? (errorRow.page || '-') : '-'}\n\n`
-      + `### Original error\n\`\`\`\n${((errorRow && errorRow.message) || '').slice(0, 500)}\n\`\`\`\n\n`
-      + (errorRow && errorRow.stack ? `<details><summary>Stack trace</summary>\n\n\`\`\`\n${errorRow.stack.slice(0, 2000)}\n\`\`\`\n</details>\n\n` : '')
-      + `### AI reasoning\n${fix.reasoning || '(none)'}\n\n`
-      + `### Files changed\n${applied.files.map(f => `- \`${f.path}\`${f.isNew ? ' (new)' : ''}${f.isDelete ? ' (deleted)' : ''}`).join('\n')}\n\n`
-      + `---\n_Generated by the Error Log "Fix using AI" tool (model: ${fix.model}). Review before merging._`;
-
-    const pr = await gh(env, 'POST', `/repos/${owner}/${repo}/pulls`, {
-      title, head: branch, base: baseBranch, body: bodyMd,
-    });
-
+// ============================================================================
+// Render callback side-effects (called by renderJobs.handleRenderCallback)
+// ============================================================================
+// These reflect a completed/failed Render job onto the ai_fixes row. renderJobs.js
+// imports them lazily; keeping them here (next to the schema helpers) means all
+// ai_fixes writes stay in one module.
+export async function applyRenderFixResult(env, kind, fixId, result) {
+  if (!fixId || !result) return;
+  if (kind === 'ai_fix_generate') {
+    await updateFixRow(env, fixId, {
+      status: 'fix_generated',
+      diff: (result.diff || '').toString(),
+      reasoning: (result.reasoning || '').toString().slice(0, 1000),
+      files_json: JSON.stringify(result.files || []),
+      model: (result.model || '').toString(),
+      prompt_tokens: (result.tokens && result.tokens.prompt) || 0,
+      completion_tokens: (result.tokens && result.tokens.completion) || 0,
+      error_message: '',
+    }).catch(() => {});
+  } else if (kind === 'ai_pr_create') {
     await updateFixRow(env, fixId, {
       status: 'pr_created',
-      branch,
-      pr_number: pr.number,
-      pr_url: pr.html_url,
+      branch: (result.branch || '').toString(),
+      pr_number: result.prNumber || null,
+      pr_url: (result.prUrl || '').toString(),
       error_message: '',
-    });
-
-    return { success: true, prNumber: pr.number, prUrl: pr.html_url, branch, filesChanged: applied.files.map(f => f.path) };
-  } catch (err) {
-    await logErrorAt(env, 'backend-aiFix', 'createAiFixPr', err, { fixId, errorId: fix.error_id });
-    await updateFixRow(env, fixId, { error_message: (err.userMessage || err.message || 'PR creation failed').slice(0, 500) }).catch(() => {});
-    throw err;
+    }).catch(() => {});
   }
+}
+
+export async function applyRenderFixFailure(env, kind, fixId, errorMsg) {
+  if (!fixId) return;
+  const msg = (errorMsg || 'processing failed').toString().slice(0, 500);
+  // A generate failure has no usable preview; a PR-create failure leaves the fix
+  // re-tryable (its diff is still valid), so only the error_message changes.
+  const fields = kind === 'ai_fix_generate'
+    ? { status: 'failed', error_message: msg }
+    : { error_message: msg };
+  await updateFixRow(env, fixId, fields).catch(() => {});
 }
