@@ -1,0 +1,24 @@
+-- ============================================================================
+-- Per-slide auto-play duration — DB: chhath-misc
+--
+--   wrangler d1 execute chhath-misc --remote --file=./migration/2026-09-05/19-popup-slide-duration.sql
+--
+-- KYUN: Popup me agar ek se zyada slide hain to ab wo AUTO-PLAY karti hain
+-- (public portal + mgmt login popup dono me), aur har slide kitni der dikhegi
+-- ye Superadmin mgmt portal me set kar sakta hai. Uske liye har slide ka apna
+-- duration chahiye.
+--
+-- `duration_ms` = ek slide kitne MILLISECONDS tak dikhegi auto-play me.
+-- NULL / 0 / missing hone par frontend default 5000ms (5s) maanta hai, aur
+-- 1000ms (1s) se kam ko 1000ms tak clamp karta hai — taaki koi galti se '0'
+-- daal de to slide-flicker na ho.
+--
+-- IDEMPOTENT NOTE: D1/SQLite me "ADD COLUMN IF NOT EXISTS" nahi hai. Column
+-- pehle se ho to `ALTER TABLE ... ADD COLUMN` "duplicate column name" error
+-- deta hai — jo idempotent re-run par expected hai aur safe hai (koi data
+-- delete nahi hota). Live DB par ye ek-baar chalaya ja chuka hai:
+--   wrangler d1 execute chhath-misc --remote \
+--     --command "ALTER TABLE popup_slides ADD COLUMN duration_ms INTEGER"
+-- ============================================================================
+
+ALTER TABLE popup_slides ADD COLUMN duration_ms INTEGER;
