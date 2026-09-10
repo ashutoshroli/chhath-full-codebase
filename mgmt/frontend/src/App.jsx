@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, Suspense, lazy } from 'react';
 import { api, getSession, clearSession } from './api.js';
 import { useViewData } from './useViewData.js';
+import { setDataVersion } from './cache.js';
 import { isSuperadmin } from './permissions.js';
 import Login from './components/Login.jsx';
 import AppFooter from './components/AppFooter.jsx';
@@ -179,6 +180,49 @@ export default function App() {
 
   // Committee (all years) — needed by Loans view to block committee members as guarantors.
   const committeeAllView = useViewData('committee:All', () => api.getCommittee('All'), [user]);
+
+  // Data-version gate (mgmt caching, mirrors the Public portal's ?v= idea).
+  //
+  // cache.js optimistically hydrated the in-memory cache from localStorage at
+  // module load, so on a browser refresh the shell (years/lockedYears/users/
+  // committee) rendered INSTANTLY from the last-known-good copy. Here we fetch
+  // the authoritative server data-version ONCE and reconcile:
+  //   - version matches what we hydrated  -> cache is valid, nothing refetches
+  //     (a refresh then costs ~1 tiny getDataVersion call instead of 4 full
+  //     table scans of users + all-committee).
+  //   - version changed (someone saved)   -> setDataVersion() cleared the stale
+  //     cache; we refresh the shell views so they pull fresh data.
+  // Fails safe: any error just refreshes everything (old behaviour).
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    api.getDataVersion()
+      .then(res => {
+        if (cancelled) return;
+        const v = res && res.v != null ? res.v.toString() : null;
+        const stillValid = setDataVersion(v);
+        if (!stillValid) {
+          // Stale (or first-ever) cache was cleared — pull fresh shell data.
+          refreshYears();
+          lockedYearsView.refresh();
+          usersView.refresh();
+          committeeAllView.refresh();
+        }
+      })
+      .catch(() => {
+        // Couldn't confirm the version — don't trust a possibly-stale mirror.
+        // Clearing + refetching is exactly the pre-cache behaviour, so this is
+        // strictly safe.
+        setDataVersion(null);
+        refreshYears();
+        lockedYearsView.refresh();
+        usersView.refresh();
+        committeeAllView.refresh();
+      });
+    return () => { cancelled = true; };
+    // Only when the user (session) becomes known, i.e. once per load/login.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   // Which years the logged-in user themselves was a Committee member in — used
   // to gate add/edit/delete for Admin/Subadmin (rule: they can only touch years

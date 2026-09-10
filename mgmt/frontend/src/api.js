@@ -248,6 +248,8 @@ export const api = {
   verifyGoogleLogin: (idToken, rememberMe) => call('verifyGoogleLogin', { idToken, rememberMe }, false),
   logout: () => call('logout'),
   getYears: () => call('getYears'),
+  // Tiny call used to decide whether the localStorage cache is still current.
+  getDataVersion: () => call('getDataVersion'),
   getUsers: () => call('getUsers'),
   getCommittee: (year) => call('getCommittee', { year }),
   getHome: (year) => call('getHome', { year }),
