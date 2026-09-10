@@ -47,6 +47,7 @@ import { runRetentionSweep, shouldSweepNow } from './retention.js';
 export const READ_ONLY_ACTIONS = new Set([
   'logout',
   'getYears', 'getUsers', 'getCommittee', 'getHome', 'getExpenses', 'getLoans', 'getLoanBudget',
+  'getDataVersion',
   'getUserHistory', 'getUserProfile', 'getYearContributors', 'getLockedYears',
   'getLoginUsers',
   'getPersonTemplates', 'getGroupTemplates', 'getWhatsappGroups', 'getMessageLog',
@@ -562,6 +563,12 @@ export default {
       revokeLock: () => withAuth(env, req, (user) => revokeLock(env, req.lockKey, req.targetName, req.ip, user)),
       revokeAllLocks: () => withAuth(env, req, (user) => revokeAllLocks(env, user)),
       getYears: () => withAuth(env, req, () => getYears(env)),
+      // Tiny read the SPA calls once on load to decide whether its localStorage
+      // cache is still current: if the version is unchanged since the copy was
+      // saved, the shell (users/committee/years) is served from localStorage and
+      // NO heavy re-fetch happens. Same counter the Public portal uses for its
+      // ETag; a staff session is required (withAuth) like every other read.
+      getDataVersion: () => withAuth(env, req, (user) => { requireStaffRole(user); return getDataVersion(env).then(v => ({ v: (v || '0').toString() })); }),
       // SECURITY (audit H-1, scoped): these three returned member PII and full
       // financial history to ANY caller holding a valid session, with no role check
       // whatsoever. Broad read access for the three staff roles is intentional in
