@@ -97,6 +97,9 @@ AI_FIX_MODEL = "claude-sonnet-4-5-20250929"
 # GITHUB_TOKEN            (fine-grained PAT scoped to GITHUB_REPO ONLY — Contents R/W,
 #                          Pull requests R/W, Actions: Read, Checks: Read — `wrangler secret put GITHUB_TOKEN`)
 # GITHUB_WEBHOOK_SECRET   (verifies GitHub check_suite webhook signatures — used in the CI-retry step)
+# AI_CONFIG_SECRET        (AES-GCM key for encrypting AI-provider API keys stored in the AI Management tab —
+#                          `wrangler secret put AI_CONFIG_SECRET`, any strong random string.
+#                          ⚠️ If lost/rotated, previously-saved provider keys can't be decrypted and must be re-entered.)
 # PASSWORD_SALT
 # WHATSAPP_QUEUE_API_KEY
 # RESEND_API_KEY          (Resend API key for src/email.js + official mailbox — `wrangler secret put RESEND_API_KEY`)

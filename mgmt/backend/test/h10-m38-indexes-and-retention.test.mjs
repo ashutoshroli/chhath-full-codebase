@@ -71,6 +71,9 @@ const SCHEMA_FOR_MIGRATION = {
   // the logs DB (schema/logs.sql already defines the table), so it applies cleanly
   // on a fresh schema and a second run is a no-op — like 15/17.
   '20-ai-fixes.sql': 'logs.sql',
+  // ai_providers table (AI Management tab). Same idempotent CREATE ... IF NOT
+  // EXISTS pattern against the logs DB.
+  '21-ai-providers.sql': 'logs.sql',
 };
 
 // Migrations that legitimately do more than CREATE INDEX. Keep this list as short

@@ -23,6 +23,7 @@ import { requireSuperadmin, ValidationError, InternalError } from './auth.js';
 import { randomId } from './random.js';
 import { logErrorAt, logWarn } from './logger.js';
 import { applyUnifiedDiff, pathsInDiff } from './diffApply.js';
+import { resolveActiveProvider } from './aiConfig.js';
 
 const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -62,10 +63,10 @@ function isBlockedPath(path) {
 export { isBlockedPath };
 
 // --- Config guards ----------------------------------------------------------
+// The AI *model* config is validated by resolveActiveProvider() at call time
+// (default provider -> ANTHROPIC_API_KEY secret -> none). Here we only require
+// what the GITHUB side needs, so a run fails early with a clear message.
 export function requireConfig(env) {
-  if (!env.ANTHROPIC_API_KEY) {
-    throw ValidationError('AI fix is not configured: ANTHROPIC_API_KEY secret is missing on the Worker.');
-  }
   if (!env.GITHUB_TOKEN) {
     throw ValidationError('AI fix is not configured: GITHUB_TOKEN secret is missing on the Worker.');
   }
@@ -135,71 +136,128 @@ function extractPaths(stack, context) {
 }
 
 // --- Claude call ------------------------------------------------------------
-// Asks for STRICT JSON: { reasoning, diff }. `diff` is a unified diff the PR-2
-// step will apply. We instruct Claude to change as little as possible.
-export async function callClaude(env, { errorRow, files, extraContext }) {
-  const sys =
-    'You are a senior engineer fixing a production bug in a Cloudflare Workers + React repo. '
-    + 'You are given an error and the current content of the relevant file(s). '
-    + 'Produce the SMALLEST change that fixes the root cause. '
-    + 'Respond with STRICT JSON only, no prose, no markdown fences, exactly: '
-    + '{"reasoning": "<=80 words on the root cause and the fix", "diff": "<a valid unified git diff>"}. '
-    + 'The diff MUST use repo-relative paths (a/<path> and b/<path>), include correct @@ hunk headers, '
-    + 'and touch only what is necessary. Never invent files you were not shown. '
-    + 'Never include secrets, credentials, or .env content.';
+const AI_SYS_PROMPT =
+  'You are a senior engineer fixing a production bug in a Cloudflare Workers + React repo. '
+  + 'You are given an error and the current content of the relevant file(s). '
+  + 'Produce the SMALLEST change that fixes the root cause. '
+  + 'Respond with STRICT JSON only, no prose, no markdown fences, exactly: '
+  + '{"reasoning": "<=80 words on the root cause and the fix", "diff": "<a valid unified git diff>"}. '
+  + 'The diff MUST use repo-relative paths (a/<path> and b/<path>), include correct @@ hunk headers, '
+  + 'and touch only what is necessary. Never invent files you were not shown. '
+  + 'Never include secrets, credentials, or .env content.';
 
+function buildUserMsg({ errorRow, files, extraContext }) {
   const fileBlocks = files
     .filter(f => f && f.content != null)
     .map(f => `FILE: ${f.path}\n----- BEGIN ${f.path} -----\n${f.content}\n----- END ${f.path} -----`)
     .join('\n\n');
-
-  const userMsg =
-    `ERROR MESSAGE:\n${errorRow.message || ''}\n\n`
+  return `ERROR MESSAGE:\n${errorRow.message || ''}\n\n`
     + `SOURCE: ${errorRow.source || ''}   PAGE: ${errorRow.page || ''}\n\n`
     + `STACK TRACE:\n${(errorRow.stack || '(none)').slice(0, 6000)}\n\n`
     + `CONTEXT:\n${(errorRow.context || '(none)').slice(0, 2000)}\n\n`
     + (extraContext ? `ADDITIONAL CONTEXT (e.g. previous attempt / CI failure):\n${extraContext}\n\n` : '')
     + `RELEVANT FILE(S):\n${fileBlocks || '(no file content could be fetched — infer the fix from the stack trace)'}\n\n`
     + 'Return the STRICT JSON described in the system prompt.';
+}
 
+// Parse the strict JSON a model returns, tolerating an accidental markdown fence.
+function parseModelJson(text, providerLabel) {
+  let parsed;
+  try {
+    const cleaned = (text || '').replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+    parsed = JSON.parse(cleaned);
+  } catch (e) {
+    throw InternalError('The AI model did not return valid JSON.', `Unparseable output from ${providerLabel}: ${(text || '').slice(0, 300)}`);
+  }
+  if (!parsed || typeof parsed.diff !== 'string' || !parsed.diff.trim()) {
+    throw InternalError('The AI model returned no usable diff.', `No diff from ${providerLabel}: ${(text || '').slice(0, 300)}`);
+  }
+  return { diff: parsed.diff, reasoning: (parsed.reasoning || '').toString().slice(0, 1000) };
+}
+
+// --- Native Anthropic protocol ---------------------------------------------
+async function callAnthropic(provider, sys, userMsg) {
   const resp = await fetch(ANTHROPIC_ENDPOINT, {
     method: 'POST',
     headers: {
-      'x-api-key': env.ANTHROPIC_API_KEY,
+      'x-api-key': provider.apiKey,
       'anthropic-version': ANTHROPIC_VERSION,
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      model: model(env),
+      model: provider.model,
       max_tokens: MAX_OUTPUT_TOKENS,
       system: sys,
       messages: [{ role: 'user', content: userMsg }],
     }),
   });
-
   if (!resp.ok) {
     const body = await resp.text().catch(() => '');
-    throw InternalError(`Claude API call failed (${resp.status})`, `Anthropic ${resp.status}: ${body.slice(0, 300)}`);
+    throw InternalError(`Anthropic API call failed (${resp.status})`, `Anthropic ${resp.status}: ${body.slice(0, 300)}`);
   }
   const data = await resp.json();
   const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('').trim();
   const usage = data.usage || {};
-  const promptTokens = usage.input_tokens || 0;
-  const completionTokens = usage.output_tokens || 0;
-
-  // Parse the strict JSON. Be tolerant of an accidental markdown fence.
-  let parsed;
-  try {
-    const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
-    parsed = JSON.parse(cleaned);
-  } catch (e) {
-    throw InternalError('Claude did not return valid JSON.', `Unparseable Claude output: ${text.slice(0, 300)}`);
-  }
-  if (!parsed || typeof parsed.diff !== 'string' || !parsed.diff.trim()) {
-    throw InternalError('Claude returned no usable diff.', `No diff in Claude output: ${text.slice(0, 300)}`);
-  }
-  return { diff: parsed.diff, reasoning: (parsed.reasoning || '').toString().slice(0, 1000), promptTokens, completionTokens };
+  return { text, promptTokens: usage.input_tokens || 0, completionTokens: usage.output_tokens || 0 };
 }
+
+// --- OpenAI-compatible protocol (OpenAI, OpenRouter, Groq, DeepSeek, Together,
+//     Gemini's OpenAI endpoint, local vLLM, ...) --------------------------------
+async function callOpenAiCompatible(provider, sys, userMsg) {
+  const base = (provider.baseUrl || '').replace(/\/+$/, '');
+  const url = `${base}/chat/completions`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${provider.apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: provider.model,
+      max_tokens: MAX_OUTPUT_TOKENS,
+      messages: [
+        { role: 'system', content: sys },
+        { role: 'user', content: userMsg },
+      ],
+    }),
+  });
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    throw InternalError(`AI API call failed (${resp.status})`, `OpenAI-compatible ${resp.status}: ${body.slice(0, 300)}`);
+  }
+  const data = await resp.json();
+  const text = ((data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '').trim();
+  const usage = data.usage || {};
+  return { text, promptTokens: usage.prompt_tokens || 0, completionTokens: usage.completion_tokens || 0 };
+}
+
+// Ask the ACTIVE provider (default -> ANTHROPIC secret -> none) for a fix.
+// Returns { diff, reasoning, promptTokens, completionTokens, model, providerLabel }.
+export async function callAiModel(env, { errorRow, files, extraContext }) {
+  const provider = await resolveActiveProvider(env);
+  if (!provider) {
+    throw ValidationError(
+      'AI is not configured: add a provider in the AI Management tab, or set the ANTHROPIC_API_KEY secret on the Worker.'
+    );
+  }
+  const userMsg = buildUserMsg({ errorRow, files, extraContext });
+  const raw = provider.type === 'openai-compatible'
+    ? await callOpenAiCompatible(provider, AI_SYS_PROMPT, userMsg)
+    : await callAnthropic(provider, AI_SYS_PROMPT, userMsg);
+  const { diff, reasoning } = parseModelJson(raw.text, provider.sourceLabel);
+  return {
+    diff,
+    reasoning,
+    promptTokens: raw.promptTokens,
+    completionTokens: raw.completionTokens,
+    model: provider.model,
+    providerLabel: provider.sourceLabel,
+  };
+}
+
+// Back-compat alias: aiFixCi.js and generateAiFix() call callClaude(); it now
+// routes through the active provider (Anthropic remains the fallback).
+export const callClaude = callAiModel;
 
 // --- State table helpers ----------------------------------------------------
 export function nowIso() { return new Date().toISOString(); }
@@ -258,11 +316,13 @@ export async function generateAiFix(env, errorId, user) {
   const fixId = randomId('AIF');
   const ts = nowIso();
   const filesMeta = files.map(f => ({ path: f.path, sha: f.sha }));
+  // Store the model ACTUALLY used (from the resolved provider), not a static guess.
+  const usedModel = result.model || model(env);
   await insertFixRow(env, {
     fix_id: fixId,
     error_id: errorId,
     status: 'fix_generated',
-    model: model(env),
+    model: usedModel,
     diff: result.diff,
     reasoning: result.reasoning,
     files_json: JSON.stringify(filesMeta),
@@ -281,7 +341,7 @@ export async function generateAiFix(env, errorId, user) {
     diff: result.diff,
     reasoning: result.reasoning,
     files: filesMeta,
-    model: model(env),
+    model: usedModel,
     tokens: { prompt: result.promptTokens, completion: result.completionTokens },
   };
 }

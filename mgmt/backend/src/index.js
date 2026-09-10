@@ -23,6 +23,7 @@ import * as officialMail from './officialMail.js';
 import { cleanupData, cleanupPreview } from './cleanup.js';
 import { generateAiFix, getAiFixes, getAiFix, createAiFixPr } from './aiFix.js';
 import { verifyGithubSignature, handleCheckSuiteEvent } from './aiFixCi.js';
+import { getAiProviders, saveAiProvider, deleteAiProvider, setDefaultAiProvider, testAiProvider } from './aiConfig.js';
 import { bumpDataVersion, getDataVersion } from './dataVersion.js';
 import { healthCheck } from './config.js';
 import { runRetentionSweep, shouldSweepNow } from './retention.js';
@@ -67,6 +68,9 @@ export const READ_ONLY_ACTIONS = new Set([
   'getPopups', 'getPopupWithSlides', 'getActivePopups', 'previewPublicPopups',
   'logError', 'reportErrorToWhatsApp', 'getErrorLog',
   'getAiFixes', 'getAiFix',
+  // AI Management: getAiProviders reads; testAiProvider makes an external ping but
+  // writes no data (so it's read-only for the version-bump classifier).
+  'getAiProviders', 'testAiProvider',
   'getActivityLog', 'getLoginAttempts', 'getLockedAccounts', 'getMySessions', 'getUserSessions',
   'getLoanTemplates',
   'getPendingMessages', 'getStuckMessages',
@@ -125,6 +129,8 @@ export const EXPECTED_MUTATING_ACTIONS = new Set([
   // opens a PR and updates the row. Both are writes (getAiFixes/getAiFix are
   // reads in READ_ONLY_ACTIONS).
   'generateAiFix', 'createAiFixPr',
+  // AI Management: these write the ai_providers table.
+  'saveAiProvider', 'deleteAiProvider', 'setDefaultAiProvider',
   // announcements
   'addCustomAnnouncement', 'updateCustomAnnouncement', 'deleteCustomAnnouncement',
   'generateAnnouncementLink', 'revokeAnnouncementLink',
@@ -935,6 +941,12 @@ export default {
       getAiFixes: () => withAuth(env, req, (user) => getAiFixes(env, user, req.errorId)),
       getAiFix: () => withAuth(env, req, (user) => getAiFix(env, user, req.fixId)),
       createAiFixPr: () => withAuth(env, req, (user) => createAiFixPr(env, req.fixId, user)),
+      // AI Management tab — multi-provider config (Superadmin-only inside each).
+      getAiProviders: () => withAuth(env, req, (user) => getAiProviders(env, user)),
+      saveAiProvider: () => withAuth(env, req, (user) => saveAiProvider(env, req, user)),
+      deleteAiProvider: () => withAuth(env, req, (user) => deleteAiProvider(env, req.providerId, user)),
+      setDefaultAiProvider: () => withAuth(env, req, (user) => setDefaultAiProvider(env, req.providerId, user)),
+      testAiProvider: () => withAuth(env, req, (user) => testAiProvider(env, req.providerId, user)),
 
       // ---- Loan message templates (Superadmin) — fully ported, see loans.js ----
       getLoanTemplates: () => withAuth(env, req, (user) => { requireSuperadmin(user); return loans.getLoanTemplates(env, req.type); }),

@@ -396,6 +396,12 @@ export const api = {
   getAiFixes: (errorId) => call('getAiFixes', { errorId }),
   getAiFix: (fixId) => call('getAiFix', { fixId }),
   createAiFixPr: (fixId) => call('createAiFixPr', { fixId }),
+  // AI Management (multi-provider config, Superadmin-only)
+  getAiProviders: () => call('getAiProviders'),
+  saveAiProvider: (p) => call('saveAiProvider', p), // { providerId?, name, type, baseUrl, model, apiKey? }
+  deleteAiProvider: (providerId) => call('deleteAiProvider', { providerId }),
+  setDefaultAiProvider: (providerId) => call('setDefaultAiProvider', { providerId }),
+  testAiProvider: (providerId) => call('testAiProvider', { providerId }),
 
   // Loan Consent — Admin
   getLoanConsents: (loanId) => call('getLoanConsents', { loanId }),
