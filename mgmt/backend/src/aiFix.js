@@ -27,6 +27,8 @@ import { applyUnifiedDiff, pathsInDiff } from './diffApply.js';
 const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
 const DEFAULT_MODEL = 'claude-sonnet-4-5-20250929';
+// Hard cap on CI-driven retries (spec §5: never an infinite loop).
+export const MAX_CI_ATTEMPTS = 3;
 // Hard ceilings so one run can never send a huge payload to Claude (cost) or
 // pull a giant file from GitHub.
 const MAX_FILE_BYTES = 200 * 1024;      // 200 KB per file of context
@@ -60,7 +62,7 @@ function isBlockedPath(path) {
 export { isBlockedPath };
 
 // --- Config guards ----------------------------------------------------------
-function requireConfig(env) {
+export function requireConfig(env) {
   if (!env.ANTHROPIC_API_KEY) {
     throw ValidationError('AI fix is not configured: ANTHROPIC_API_KEY secret is missing on the Worker.');
   }
@@ -71,13 +73,13 @@ function requireConfig(env) {
     throw ValidationError('AI fix is not configured: GITHUB_REPO var must be "owner/repo".');
   }
 }
-function model(env) { return (env.AI_FIX_MODEL || DEFAULT_MODEL).toString(); }
+export function model(env) { return (env.AI_FIX_MODEL || DEFAULT_MODEL).toString(); }
 
 // --- GitHub raw file fetch --------------------------------------------------
 // Reads a file's content + blob sha from the repo's default branch. Returns null
 // (not throwing) for a 404 / blocked path so a missing "related" file never
 // aborts the whole run.
-async function githubGetFile(env, path) {
+export async function githubGetFile(env, path) {
   if (isBlockedPath(path)) {
     await logWarn(env, 'backend-aiFix', 'githubGetFile',
       `Refused to fetch a blocklisted path for AI context: ${path}`, { path }).catch(() => {});
@@ -135,7 +137,7 @@ function extractPaths(stack, context) {
 // --- Claude call ------------------------------------------------------------
 // Asks for STRICT JSON: { reasoning, diff }. `diff` is a unified diff the PR-2
 // step will apply. We instruct Claude to change as little as possible.
-async function callClaude(env, { errorRow, files, extraContext }) {
+export async function callClaude(env, { errorRow, files, extraContext }) {
   const sys =
     'You are a senior engineer fixing a production bug in a Cloudflare Workers + React repo. '
     + 'You are given an error and the current content of the relevant file(s). '
@@ -200,7 +202,7 @@ async function callClaude(env, { errorRow, files, extraContext }) {
 }
 
 // --- State table helpers ----------------------------------------------------
-function nowIso() { return new Date().toISOString(); }
+export function nowIso() { return new Date().toISOString(); }
 
 async function insertFixRow(env, row) {
   await env.DB_LOGS.prepare(
@@ -306,7 +308,7 @@ export async function getAiFix(env, user, fixId) {
   return row;
 }
 
-async function updateFixRow(env, fixId, fields) {
+export async function updateFixRow(env, fixId, fields) {
   const cols = Object.keys(fields);
   if (!cols.length) return;
   const set = cols.map(c => `${c} = ?`).join(', ');
@@ -319,7 +321,7 @@ async function updateFixRow(env, fixId, fields) {
 // GitHub write helpers (PR-2). All go through one small fetch wrapper.
 // ============================================================================
 
-async function gh(env, method, path, body) {
+export async function gh(env, method, path, body) {
   const url = `https://api.github.com${path}`;
   const resp = await fetch(url, {
     method,
@@ -345,7 +347,7 @@ async function gh(env, method, path, body) {
 }
 
 // btoa for UTF-8 content (Workers' btoa is latin1-only). Encode to bytes first.
-function toBase64Utf8(str) {
+export function toBase64Utf8(str) {
   const bytes = new TextEncoder().encode(str);
   let bin = '';
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);

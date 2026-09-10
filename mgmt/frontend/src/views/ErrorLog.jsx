@@ -21,7 +21,30 @@ function badgeStyle(source) {
   return { background: c.bg, color: c.fg };
 }
 
-function ErrorRow({ r, onReport, onAiFix, busy }) {
+// Human-friendly label + colour for an ai_fixes lifecycle status (spec §4).
+const AI_STATUS = {
+  pending: { label: 'AI: pending', bg: '#F3F4F6', fg: '#374151' },
+  fix_generated: { label: 'AI: fix generated', bg: '#DBEAFE', fg: '#1E40AF' },
+  pr_created: { label: 'AI: PR created', bg: '#E0E7FF', fg: '#3730A3' },
+  ci_running: { label: 'AI: CI running', bg: '#FEF3C7', fg: '#92400E' },
+  ci_passed: { label: 'AI: CI passed — ready to merge', bg: '#DCFCE7', fg: '#166534' },
+  ci_failed: { label: 'AI: CI failed (retrying)', bg: '#FEE2E2', fg: '#991B1B' },
+  merged: { label: 'AI: merged', bg: '#DCFCE7', fg: '#166534' },
+  needs_manual_review: { label: 'AI: needs manual review', bg: '#FEE2E2', fg: '#991B1B' },
+  failed: { label: 'AI: failed', bg: '#FEE2E2', fg: '#991B1B' },
+};
+
+function AiStatusBadge({ fix }) {
+  if (!fix || !fix.status) return null;
+  const s = AI_STATUS[fix.status] || { label: `AI: ${fix.status}`, bg: '#F3F4F6', fg: '#374151' };
+  const attempts = fix.attempts ? ` (${fix.attempts}/3)` : '';
+  const content = <span className="badge" style={{ background: s.bg, color: s.fg }}>{s.label}{attempts}</span>;
+  return fix.pr_url
+    ? <a href={fix.pr_url} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }} title={`PR #${fix.pr_number || ''}`}>{content}</a>
+    : content;
+}
+
+function ErrorRow({ r, onReport, onAiFix, busy, aiFix }) {
   const [open, setOpen] = useState(false);
   const hasDetails = !!(r.stack || r.context);
 
@@ -62,7 +85,10 @@ function ErrorRow({ r, onReport, onAiFix, busy }) {
       )}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, gap: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Ref: {r.error_id || '(missing)'}</span>
+        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          Ref: {r.error_id || '(missing)'}
+          <AiStatusBadge fix={aiFix} />
+        </span>
         {isTruthyFlag(r.reported) ? (
           <span style={{ fontSize: '0.75rem', color: 'var(--success)' }}>✓ Reported</span>
         ) : !r.error_id ? (
@@ -103,6 +129,7 @@ export default function ErrorLog({ role }) {
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState(null);
   const [aiFixError, setAiFixError] = useState(null); // the error row a "Fix using AI" modal is open for
+  const [aiFixByError, setAiFixByError] = useState({}); // error_id -> latest ai_fixes row (status badge)
   const [query, setQuery] = useState('');
   const [sourceFilter, setSourceFilter] = useState('All');
   const [onlyUnreported, setOnlyUnreported] = useState(false);
@@ -118,6 +145,19 @@ export default function ErrorLog({ role }) {
   };
 
   useEffect(() => { load(limit); /* eslint-disable-next-line */ }, [limit]);
+
+  // Load AI-fix status for the status badge (spec §4). Best-effort: if the AI
+  // feature isn't configured the call just fails and no badges show.
+  const loadAiFixes = () => {
+    api.getAiFixes()
+      .then(list => {
+        const map = {};
+        (list || []).forEach(f => { if (f.error_id && !map[f.error_id]) map[f.error_id] = f; });
+        setAiFixByError(map);
+      })
+      .catch(() => { /* AI fix not configured / no rows — no badges */ });
+  };
+  useEffect(() => { loadAiFixes(); }, []);
 
   const report = async (errorId) => {
     setBusyId(errorId);
@@ -213,11 +253,15 @@ export default function ErrorLog({ role }) {
           onReport={report}
           onAiFix={setAiFixError}
           busy={busyId === r.error_id}
+          aiFix={aiFixByError[r.error_id]}
         />
       ))}
 
       {aiFixError && (
-        <AiFixModal error={aiFixError} onClose={() => setAiFixError(null)} />
+        <AiFixModal
+          error={aiFixError}
+          onClose={() => { setAiFixError(null); loadAiFixes(); }}
+        />
       )}
     </>
   );
