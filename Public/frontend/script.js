@@ -286,89 +286,178 @@ const app = {
         return response.json();
       })
       .then(res => {
-        app.data = res;
-        app.data.generatedFiles = app.data.generatedFiles || [];
-        app.data.loanConsents = app.data.loanConsents || [];
+        // Guard against a 200 that is actually a soft failure object
+        // ({status:false}) or an empty shell with no real data: prefer this
+        // browser's saved copy over rendering an empty portal. A genuine payload
+        // is an object that carries at least one of the data arrays.
+        const looksReal = res && typeof res === 'object' && res.status !== false &&
+          (Array.isArray(res.collections) || Array.isArray(res.committee) ||
+           Array.isArray(res.loans) || Array.isArray(res.expenses) || Array.isArray(res.users));
+        if (!looksReal) throw new Error('portalData returned no usable data');
 
-        (res.users || []).forEach(u => {
-          if (u.ID) app.userMap[u.ID.toString().trim()] = u;
-        });
-
-        app.getUser = (id) => {
-          const uid = (id || '').toString().trim();
-          return app.userMap[uid] || {
-            Name: 'Unknown User',
-            Village: '-',
-            Designation: '-',
-            Mobile: '-'
-          };
-        };
-
-        let years = new Set();
-
-        // audit L-18: these three were unguarded while `users`, `generatedFiles` and
-        // `loanConsents` right above are defaulted. The last-known-good snapshot
-        // path (Public Worker, pub:snapshot:*) can serve a payload built before a
-        // key existed, and an older/partial deployment omits others — either way
-        // this threw "Cannot read properties of undefined (reading 'forEach')" and
-        // took the WHOLE public portal to a blank page, on the one code path whose
-        // entire purpose is to keep the portal up when things are already wrong.
-        app.data.collections = app.data.collections || [];
-        app.data.loans = app.data.loans || [];
-        app.data.committee = app.data.committee || [];
-        app.data.expenses = app.data.expenses || [];
-
-        (res.collections || []).forEach(r => {
-          if (r.Year) years.add(parseInt(r.Year));
-        });
-
-        (res.loans || []).forEach(r => {
-          if (r.Year) years.add(parseInt(r.Year));
-        });
-
-        (res.committee || []).forEach(r => {
-          if (r.Year) years.add(parseInt(r.Year));
-        });
-
-        let yearArr = Array.from(years).sort((a, b) => b - a);
-
-        if (yearArr.length === 0)
-          yearArr = [new Date().getFullYear()];
-
-        const sel = document.getElementById('global-year');
-        // The "All Years" option was removed; the dropdown now shows only real
-        // years and defaults to the latest (yearArr is sorted newest-first). The
-        // `isAll` code paths below are kept as harmless dead branches so nothing
-        // that referenced them breaks.
-        sel.innerHTML = yearArr.map(y => `<option value="${y}">${y}</option>`).join('');
-        sel.value = yearArr[0];
-
-        // Apply the saved language to the static labels + toggle button now that
-        // the DOM strings exist. The render calls below already read app.lang, so
-        // we don't want applyLang()'s re-render loop here — just the static bits.
-        app.applyStaticLang();
-
-        app.refreshData();
-        app.renderDownloadVillages();
-        app.checkRecordVerification();
-        // Restore the section from the URL hash on load, so a REFRESH keeps the
-        // user on the section they were viewing instead of snapping to Home.
-        // Skipped when a QR ?record= is present (that opens the 'verify' view via
-        // checkRecordVerification above and must win).
-        app.restoreViewFromHash();
-
-        document.getElementById('loader').style.display = 'none';
+        // Render the fresh data, then persist it as the last-known-good copy in
+        // this browser. On any future load where EVERY network path fails (the
+        // Cloudflare edge cache is cold AND the Worker can't be invoked because a
+        // free-tier quota is exhausted), applyPortalData() below is called with
+        // this saved copy so the visitor still sees a fully working portal instead
+        // of the "Failed To Load" banner. This is the client-side counterpart to
+        // the server's KV snapshot — a second, independent safety net.
+        app.applyPortalData(res, { fromCache: false });
+        app.saveLocalSnapshot(res);
       })
       .catch(error => {
         console.error(error);
-        // Was console.error + a dead-end banner, never reported anywhere.
         reportPublicError('Public portal data load failed: ' + (error && error.message), error, {});
-        document.getElementById('loader').innerHTML = `
-            <h2>Failed To Load Data</h2>
-            <p>Please Try Again Later</p>
-            <button onclick="location.reload()" style="margin-top:12px;padding:8px 18px;border:none;border-radius:8px;cursor:pointer;">Retry</button>
-          `;
+        // NEVER dead-end. Try this browser's last-known-good copy first; the
+        // portal then works offline / through a total backend outage / after the
+        // free tier is exhausted. Only if there is genuinely nothing cached (a
+        // brand-new visitor on their very first, failed load) do we show a
+        // friendly fallback that still names the committee — not a bare error.
+        const cached = app.loadLocalSnapshot();
+        if (cached) {
+          try {
+            app.applyPortalData(cached.data, { fromCache: true, savedAt: cached.savedAt });
+            return;
+          } catch (e) {
+            reportPublicError('Public portal cached-render failed: ' + (e && e.message), e, {});
+          }
+        }
+        app.renderColdFailureFallback();
       });
+  },
+
+  // ---- Render + local last-known-good snapshot (offline / quota-proofing) ----
+
+  // localStorage key holding the last successfully-loaded portalData payload for
+  // THIS browser. Versioned so a future format change can bump it cleanly.
+  LOCAL_SNAPSHOT_KEY: 'cpm_public_portalData_v1',
+
+  // Persist the freshly-loaded payload. Best-effort: private mode / quota-full
+  // localStorage just no-ops (the site still worked this load). Wrapped in a size
+  // guard so a very large payload can't throw and can't blow the ~5MB origin
+  // localStorage budget — if it doesn't fit we simply keep the previous copy.
+  saveLocalSnapshot: (res) => {
+    try {
+      const payload = JSON.stringify({ savedAt: Date.now(), data: res });
+      // ~4MB ceiling (localStorage is ~5MB/origin; leave headroom). Skip if bigger.
+      if (payload.length > 4000000) return;
+      localStorage.setItem(app.LOCAL_SNAPSHOT_KEY, payload);
+    } catch (e) { /* private mode or quota — non-critical, ignore */ }
+  },
+
+  // Read the last-known-good copy. Returns { data, savedAt } or null.
+  loadLocalSnapshot: () => {
+    try {
+      const raw = localStorage.getItem(app.LOCAL_SNAPSHOT_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || !parsed.data) return null;
+      return { data: parsed.data, savedAt: parsed.savedAt || 0 };
+    } catch (e) { return null; }
+  },
+
+  // Render a portalData payload into the UI. Shared by the live success path and
+  // the cached-fallback path, so both go through the SAME defaulting/derivation
+  // (an older snapshot may predate some keys — every array is coalesced to []).
+  // `opts.fromCache` shows a small non-blocking "showing saved data" note.
+  applyPortalData: (res, opts) => {
+    opts = opts || {};
+    res = res || {};
+    app.data = res;
+    app.data.generatedFiles = app.data.generatedFiles || [];
+    app.data.loanConsents = app.data.loanConsents || [];
+
+    app.userMap = {};
+    (res.users || []).forEach(u => {
+      if (u.ID) app.userMap[u.ID.toString().trim()] = u;
+    });
+
+    app.getUser = (id) => {
+      const uid = (id || '').toString().trim();
+      return app.userMap[uid] || {
+        Name: 'Unknown User',
+        Village: '-',
+        Designation: '-',
+        Mobile: '-'
+      };
+    };
+
+    let years = new Set();
+
+    // audit L-18: coalesce every array — the snapshot (server KV OR this browser's
+    // localStorage) can be a payload built before a key existed, and a partial
+    // deployment omits others. Without this, `.forEach` on undefined blanked the
+    // whole portal on the one path whose entire purpose is to keep it up.
+    app.data.collections = app.data.collections || [];
+    app.data.loans = app.data.loans || [];
+    app.data.committee = app.data.committee || [];
+    app.data.expenses = app.data.expenses || [];
+
+    (res.collections || []).forEach(r => { if (r.Year) years.add(parseInt(r.Year)); });
+    (res.loans || []).forEach(r => { if (r.Year) years.add(parseInt(r.Year)); });
+    (res.committee || []).forEach(r => { if (r.Year) years.add(parseInt(r.Year)); });
+
+    let yearArr = Array.from(years).sort((a, b) => b - a);
+    if (yearArr.length === 0) yearArr = [new Date().getFullYear()];
+
+    const sel = document.getElementById('global-year');
+    sel.innerHTML = yearArr.map(y => `<option value="${y}">${y}</option>`).join('');
+    sel.value = yearArr[0];
+
+    // Static labels + <html lang> now that the DOM strings exist.
+    app.applyStaticLang();
+
+    app.refreshData();
+    app.renderDownloadVillages();
+    app.checkRecordVerification();
+    app.restoreViewFromHash();
+
+    // Non-blocking banner when we're showing this browser's saved copy because the
+    // network/backend was unreachable. The portal is fully usable; this only tells
+    // the visitor the figures may be slightly out of date.
+    app.renderStaleNotice(opts.fromCache ? opts.savedAt : null);
+
+    document.getElementById('loader').style.display = 'none';
+  },
+
+  // Small dismissible-looking strip shown ONLY when rendering cached data.
+  renderStaleNotice: (savedAt) => {
+    const existing = document.getElementById('stale-data-notice');
+    if (!savedAt) { if (existing) existing.remove(); return; }
+    if (existing) return;
+    let when = '';
+    try { when = new Date(savedAt).toLocaleString(); } catch (e) { when = ''; }
+    const bar = document.createElement('div');
+    bar.id = 'stale-data-notice';
+    bar.setAttribute('role', 'status');
+    bar.style.cssText = 'background:#FEF3C7;color:#92400E;text-align:center;font-size:0.8rem;padding:6px 12px;line-height:1.4;';
+    const en = 'You are viewing saved data — live figures could not be loaded right now.' + (when ? ' (saved: ' + when + ')' : '');
+    const hi = 'आप सहेजा हुआ डेटा देख रहे हैं — अभी ताज़ा आँकड़े लोड नहीं हो सके।' + (when ? ' (सहेजा: ' + when + ')' : '');
+    bar.textContent = app.lang === 'hi' ? hi : en;
+    document.body.insertBefore(bar, document.body.firstChild);
+  },
+
+  // Absolute last resort: EVERY network path failed AND this browser has no saved
+  // copy (a brand-new visitor's first-ever load during a full outage). Instead of
+  // a bare "Failed To Load", show a friendly card that still names the committee
+  // and offers a retry — the page is never a dead end.
+  renderColdFailureFallback: () => {
+    const loader = document.getElementById('loader');
+    if (!loader) return;
+    const isHi = app.lang === 'hi';
+    const title = isHi ? 'नवयुवक छठ पूजा समिति, शहरपुरा एवं गरडीह' : 'Navyuvak Chhath Puja Samiti, Shaharpura & Gardih';
+    const msg = isHi
+      ? 'अभी डेटा लोड नहीं हो पा रहा। कृपया थोड़ी देर बाद पुनः प्रयास करें।'
+      : 'Data could not be loaded right now. Please try again in a little while.';
+    const retry = isHi ? 'पुनः प्रयास करें' : 'Retry';
+    loader.innerHTML =
+      '<div style="text-align:center;padding:24px 16px;max-width:420px;margin:0 auto;">' +
+      '<img src="/logo.svg" alt="" width="72" height="72" style="width:72px;height:72px;margin-bottom:12px;">' +
+      '<h2 style="margin:0 0 6px;font-size:1.05rem;">' + escapeHtml(title) + '</h2>' +
+      '<p style="color:#6b7280;font-size:0.9rem;margin:0 0 16px;">' + escapeHtml(msg) + '</p>' +
+      '<button onclick="location.reload()" style="padding:9px 20px;border:none;border-radius:8px;background:var(--primary-saffron,#F97316);color:#fff;font-weight:600;cursor:pointer;">' + escapeHtml(retry) + '</button>' +
+      '</div>';
+    loader.style.display = 'flex';
   },
 
   // ---- Popup (mgmt Popup Management, popups tagged role "Public") ----
