@@ -1,6 +1,7 @@
 import { login, loginWithGoogle, doLogout, withAuth, withApiKey, verifyToken, requireSuperadmin, requireAdminOrAbove, requireStaffRole, getLockedYearsSet, lockYear, unlockYear, getMySessions, revokeSession, revokeAllOtherSessions, getUserSessions, revokeUserSession, getLoginAttempts, getLockedAccounts, revokeLock, revokeAllLocks, issueSession } from './auth.js';
 import * as twoFactor from './twoFactor.js';
 import * as passwordReset from './passwordReset.js';
+import * as renderJobs from './renderJobs.js';
 import { getSheetDataAsJSON, saveRecord, updateRecordByIdx, deleteRecordByIdx } from './crud.js';
 import { importCsvRows } from './csvImport.js';
 import { parseCookies, buildSessionCookies, buildClearCookies, SESSION_COOKIE, CSRF_COOKIE, CSRF_HEADER } from './cookies.js';
@@ -69,7 +70,7 @@ export const READ_ONLY_ACTIONS = new Set([
   'getCollectionQueueStatus', 'getQueueJobsForSuperadmin',
   'getPopups', 'getPopupWithSlides', 'getActivePopups', 'previewPublicPopups',
   'reportErrorToWhatsApp', 'reportErrorPublic', 'getErrorLog',
-  'getAiFixes', 'getAiFix',
+  'getAiFixes', 'getAiFix', 'getRenderJobStatus',
   // AI Management: getAiProviders reads; testAiProvider makes an external ping but
   // writes no data (so it's read-only for the version-bump classifier).
   'getAiProviders', 'testAiProvider',
@@ -568,6 +569,27 @@ export default {
       return jsonOut({ success: true, ...result }, request, env, 200);
     }
 
+    // ---- PUBLIC Render offload callback webhook ----
+    // The external Render service POSTs a job RESULT here when long-running AI work
+    // finishes. It carries no session — authenticated by RENDER_WEBHOOK_SECRET,
+    // supplied either as ?render-webhook=<secret> or an X-Render-Signature header,
+    // compared CONSTANT-TIME (renderJobs.verifyRenderWebhookSecret). Handled before
+    // the action router because the body shape is Render's, not ours. Acks 200 fast
+    // (result save runs in waitUntil) so Render never retries a stored result.
+    if (reqUrl.searchParams.has('render-webhook') || (req && req.action === undefined && req.jobId && req.status && (req.result !== undefined || req.error !== undefined))) {
+      const provided = reqUrl.searchParams.get('render-webhook') || request.headers.get('X-Render-Signature') || '';
+      const ok = await renderJobs.verifyRenderWebhookSecret(env, provided);
+      if (!ok) {
+        ctx.waitUntil(logError(env, 'backend', 'render-webhook', 'Render callback rejected: bad/missing secret', '', ''));
+        return jsonOut({ success: false, message: 'Unauthorized' }, request, env, 401);
+      }
+      ctx.waitUntil(
+        renderJobs.handleRenderCallback(env, req).catch((err) =>
+          logError(env, 'backend', 'render-webhook', err && err.message || String(err), err && err.stack || '', ''))
+      );
+      return jsonOut({ success: true, received: true }, request, env, 200);
+    }
+
     const action = req.action;
 
     // SECURITY (audit S7): overwrite the client-reported IP with the real
@@ -1064,6 +1086,9 @@ export default {
       getAiFixes: () => withAuth(env, req, (user) => getAiFixes(env, user, req.errorId)),
       getAiFix: () => withAuth(env, req, (user) => getAiFix(env, user, req.fixId)),
       createAiFixPr: () => withAuth(env, req, (user) => createAiFixPr(env, req.fixId, user)),
+      // Render offload job status (Superadmin-only inside renderJobs). The frontend
+      // polls this after generateAiFix/createAiFixPr dispatch a job to Render.
+      getRenderJobStatus: () => withAuth(env, req, (user) => renderJobs.getRenderJobStatus(env, req.jobId, user)),
       // AI Management tab — multi-provider config (Superadmin-only inside each).
       getAiProviders: () => withAuth(env, req, (user) => getAiProviders(env, user)),
       saveAiProvider: () => withAuth(env, req, (user) => saveAiProvider(env, req, user)),
@@ -1345,6 +1370,17 @@ export default {
     ctx.waitUntil(
       email.processPendingEmails(env).catch((err) =>
         logError(env, 'backend', 'scheduled:emailQueue', err && err.message || String(err), err && err.stack || '', '')
+      )
+    );
+
+    // ---- Render offload reconciliation (backstop) ----
+    // A render_jobs row stuck in 'dispatched' past the timeout means Render likely
+    // crashed / was spun down / the callback was lost — re-dispatch or time it out
+    // so no job hangs forever. This is NOT a keep-alive: Render is kept warm by an
+    // external monitor (UptimeRobot) pinging /health, not by the Worker.
+    ctx.waitUntil(
+      renderJobs.reconcileStuckJobs(env).catch((err) =>
+        logError(env, 'backend', 'scheduled:renderReconcile', err && err.message || String(err), err && err.stack || '', '')
       )
     );
 

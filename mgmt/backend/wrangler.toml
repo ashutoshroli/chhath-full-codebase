@@ -92,6 +92,13 @@ AUTO_MERGE_ENABLED = "false"
 # a code change. Falls back to a valid Sonnet default in src/aiFix.js.
 AI_FIX_MODEL = "claude-sonnet-4-5-20250929"
 
+# ---- Render offload (long-running AI fix generation + PR creation) ----
+# The Worker POSTs jobs to this Render service and Render calls back with the
+# result. NON-secret (it's just a URL), so it lives here. Replace with your real
+# Render service URL after deploying mgmt/server-render (see its README).
+# The two shared secrets are set with `wrangler secret put` (below), never here.
+RENDER_SERVICE_URL = "https://chhath-server-render.onrender.com"
+
 # ---- Secrets (set with `wrangler secret put NAME`, NOT here) ----
 # ANTHROPIC_API_KEY       (Claude API key for src/aiFix.js — `wrangler secret put ANTHROPIC_API_KEY`)
 # GITHUB_TOKEN            (fine-grained PAT scoped to GITHUB_REPO ONLY — Contents R/W,
@@ -104,6 +111,10 @@ AI_FIX_MODEL = "claude-sonnet-4-5-20250929"
 # WHATSAPP_QUEUE_API_KEY
 # RESEND_API_KEY          (Resend API key for src/email.js + official mailbox — `wrangler secret put RESEND_API_KEY`)
 # RESEND_WEBHOOK_SECRET   (shared secret for the inbound-email webhook — `wrangler secret put RESEND_WEBHOOK_SECRET`)
+# RENDER_API_KEY          (shared secret Worker->Render; sent as X-Render-Api-Key on every job POST.
+#                          Same value must be set in the Render service's env — `wrangler secret put RENDER_API_KEY`)
+# RENDER_WEBHOOK_SECRET   (shared secret Render->Worker; Render sends it and the ?render-webhook route verifies it
+#                          constant-time. DISTINCT from RENDER_API_KEY — `wrangler secret put RENDER_WEBHOOK_SECRET`)
 # DRIVE_FOLDER_ID         (used by account.js's uploadFileToDrive — popups, consent photos/signatures)
 # DRIVE_ROOT_FOLDER_ID    (used by docxTemplates.js — root folder that "DOCX Templates" and "Generated PDFs" live under)
 #
