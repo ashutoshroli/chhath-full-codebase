@@ -1,5 +1,6 @@
 import { login, loginWithGoogle, doLogout, withAuth, withApiKey, verifyToken, requireSuperadmin, requireAdminOrAbove, requireStaffRole, getLockedYearsSet, lockYear, unlockYear, getMySessions, revokeSession, revokeAllOtherSessions, getUserSessions, revokeUserSession, getLoginAttempts, getLockedAccounts, revokeLock, revokeAllLocks, issueSession } from './auth.js';
 import * as twoFactor from './twoFactor.js';
+import * as passwordReset from './passwordReset.js';
 import { getSheetDataAsJSON, saveRecord, updateRecordByIdx, deleteRecordByIdx } from './crud.js';
 import { importCsvRows } from './csvImport.js';
 import { parseCookies, buildSessionCookies, buildClearCookies, SESSION_COOKIE, CSRF_COOKIE, CSRF_HEADER } from './cookies.js';
@@ -102,6 +103,9 @@ export const EXPECTED_MUTATING_ACTIONS = new Set([
   // the login_users totp_* columns. get2FAStatus is the only read (READ_ONLY set).
   'verify2FA', 'enroll2FA', 'confirm2FA', 'disable2FA', 'regenerate2FABackupCodes',
   'disable2FAWithRecoveryKey', 'request2FARecovery', 'reset2FA',
+  // Forgot/Reset Password. requestPasswordReset mints a KV challenge (a write);
+  // resetPassword updates login_users.password and revokes sessions.
+  'requestPasswordReset', 'resetPassword',
   // login-user management
   'addLoginUser', 'updateLoginUser', 'deleteLoginUser',
   // years
@@ -242,6 +246,9 @@ const RATE_LIMITED_ACTIONS = new Set([
   // 5/5min cap inside twoFactor.js; the recovery actions guard the recovery
   // key/email/token brute-force surface.
   'verify2FA', 'disable2FAWithRecoveryKey', 'request2FARecovery', 'reset2FA',
+  // Forgot/Reset Password (pre-session). Per-IP 20/min here; passwordReset.js adds
+  // a per-ACCOUNT 3/hr cap and constant-ish response timing on top.
+  'requestPasswordReset', 'resetPassword',
   'getConsentByToken', 'requestConsentOtp', 'verifyConsentOtp', 'respondConsent',
   'getDocxTemplatePublic', 'convertDocxToPdfPublic',
   // Announcements: only the PIN CHECK is rate-limited (it guards a 6-digit PIN on
@@ -594,6 +601,8 @@ export default {
     const CSRF_EXEMPT = new Set([
       'login', 'verifyGoogleLogin',
       'verify2FA', 'disable2FAWithRecoveryKey', 'request2FARecovery', 'reset2FA',
+      // Forgot/Reset Password run before any session/CSRF cookie exists.
+      'requestPasswordReset', 'resetPassword',
     ]);
     if (usingCookieAuth && EXPECTED_MUTATING_ACTIONS.has(action) && !CSRF_EXEMPT.has(action)) {
       const headerToken = (request.headers.get(CSRF_HEADER) || '').trim();
@@ -676,6 +685,16 @@ export default {
       disable2FAWithRecoveryKey: () => twoFactor.disableViaRecoveryKey(env, req.name, req.password, req.recoveryKey),
       request2FARecovery: () => twoFactor.requestRecoveryEmail(env, req.name),
       reset2FA: () => twoFactor.resetViaRecoveryToken(env, req.recoveryToken),
+
+      // ---- Forgot / Reset Password (login page, no session) ----
+      // requestPasswordReset emails a single-use 6-digit code (anti-enumeration,
+      // per-account 3/hr + per-IP rate-limited, timing-padded). resetPassword
+      // verifies the code (bound to the exact user), enforces role-based password
+      // strength, writes the new hash, revokes ALL sessions, and emails a "your
+      // password was changed" notification with time + IP. No auto-login — the
+      // user returns to the login screen so a Superadmin's 2FA is still enforced.
+      requestPasswordReset: () => passwordReset.requestPasswordReset(env, req.name, req.serverIp),
+      resetPassword: () => passwordReset.resetPassword(env, req.name, req.code, req.newPassword, req.serverIp),
 
       logout: () => withAuth(env, req, (user) => doLogout(env, req.token)),
 

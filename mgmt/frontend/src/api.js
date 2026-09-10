@@ -302,6 +302,12 @@ export const api = {
   disable2FAWithRecoveryKey: (name, password, recoveryKey) => call('disable2FAWithRecoveryKey', { name, password, recoveryKey }, false),
   request2FARecovery: (name) => call('request2FARecovery', { name }, false),
   reset2FA: (recoveryToken) => call('reset2FA', { recoveryToken }, false),
+
+  // ---- Forgot / Reset Password (login page, no session) ----
+  // requestPasswordReset emails a 6-digit code; resetPassword verifies it and sets
+  // the new password (no auto-login — the user then signs in normally).
+  requestPasswordReset: (name) => call('requestPasswordReset', { name }, false),
+  resetPassword: (name, code, newPassword) => call('resetPassword', { name, code, newPassword }, false),
   logout: () => call('logout'),
   getYears: () => call('getYears'),
   // Tiny call used to decide whether the localStorage cache is still current.

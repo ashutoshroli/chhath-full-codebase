@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { api, saveSession } from '../api.js';
 import AppFooter from './AppFooter.jsx';
 import TwoFactorInput from './TwoFactorInput.jsx';
+import ForgotPassword from './ForgotPassword.jsx';
 
 // The Google Cloud OAuth 2.0 Web client id, baked in at build time. Must match
 // GOOGLE_SIGNIN_CLIENT_ID on the Worker (that's what the server verifies the
@@ -55,6 +56,10 @@ export default function Login({ onLogin }) {
   const [twoFA, setTwoFA] = useState(null);      // { tempToken, remember } | null
   const [twoFAError, setTwoFAError] = useState('');
   const [twoFAResetKey, setTwoFAResetKey] = useState(0);
+
+  // ---- Forgot password state ----
+  const [forgot, setForgot] = useState(false);   // showing the reset flow?
+  const [resetDone, setResetDone] = useState(''); // success banner after a reset
 
   // Finish a login once we have a real session object (from login or verify2FA).
   const completeLogin = (res, rememberNow) => {
@@ -154,7 +159,17 @@ export default function Login({ onLogin }) {
         <h2>Committee Portal</h2>
       </div>
 
-      {twoFA ? (
+      {forgot ? (
+        <ForgotPassword
+          initialName={name}
+          onCancel={() => setForgot(false)}
+          onDone={(msg) => {
+            setForgot(false);
+            setResetDone(msg || 'Your password has been reset. Please sign in.');
+            setPassword('');
+          }}
+        />
+      ) : twoFA ? (
         <div className="glass-card">
           <h3 style={{ marginTop: 0 }}>Two-Factor Authentication</h3>
           <TwoFactorInput
@@ -174,6 +189,11 @@ export default function Login({ onLogin }) {
         </div>
       ) : (
       <form className="glass-card" onSubmit={submit}>
+        {resetDone && (
+          <div style={{ background: 'rgba(22,163,74,0.08)', border: '1px solid #16a34a33', borderRadius: 8, padding: '8px 10px', fontSize: '0.85rem', marginBottom: 12 }}>
+            {resetDone}
+          </div>
+        )}
         {error && <div className="error-banner">{error}</div>}
         <div className="form-group">
           <label>Username / Mobile / Email</label>
@@ -191,6 +211,14 @@ export default function Login({ onLogin }) {
         </div>
         <button className="btn-submit" type="submit" disabled={loading || googleLoading}>
           {loading ? 'Signing in...' : 'Secure Login'}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => { setForgot(true); setError(''); setResetDone(''); }}
+          style={{ display: 'block', margin: '12px auto 0', background: 'none', border: 'none', color: 'var(--accent, #2563eb)', cursor: 'pointer', fontSize: '0.85rem' }}
+        >
+          Forgot password?
         </button>
 
         {GOOGLE_CLIENT_ID && (
