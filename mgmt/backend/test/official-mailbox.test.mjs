@@ -87,7 +87,7 @@ test('sendOfficialEmail is Superadmin-only', async () => {
 test('inbound webhook fetches the body via the Received Emails API and stores an inbound row', async () => {
   const env = makeEnv();
   stubFetch(async (url, opts) => {
-    assert.match(url, /\/emails\/received\/rcv_123$/);
+    assert.match(url, /\/emails\/receiving\/rcv_123$/);
     assert.equal(opts.headers.Authorization, 'Bearer test-key');
     return { ok: true, status: 200, json: async () => ({ from: 'sender@x.com', to: 'chhath@shaharpura.com', subject: 'Question', html: '<p>Hi</p>', text: 'Hi' }) };
   });
@@ -118,6 +118,24 @@ test('inbound webhook stores attachment metadata (filename/type/id), not bytes',
   assert.equal(att[0].filename, 'invoice.pdf');
   assert.equal(att[0].contentType, 'application/pdf');
   assert.equal(att[0].id, 'att_1');
+});
+
+test('inbound webhook falls back to /emails/received when /emails/receiving 405s', async () => {
+  const env = makeEnv();
+  const urls = [];
+  stubFetch(async (url) => {
+    urls.push(url);
+    if (/\/emails\/receiving\//.test(url)) return { ok: false, status: 405, json: async () => ({}) };
+    // the fallback /received path returns the body
+    return { ok: true, status: 200, json: async () => ({ from: 'f@x.com', to: 'chhath@shaharpura.com', subject: 'FB', html: '<p>fb</p>', text: 'fb' }) };
+  });
+  try {
+    await handleInboundEmailWebhook(env, { type: 'email.received', data: { email_id: 'rcv_fb' } });
+  } finally { restoreFetch(); }
+  assert.ok(urls.some(u => /\/emails\/receiving\//.test(u)), 'tries /receiving first');
+  assert.ok(urls.some(u => /\/emails\/received\//.test(u)), 'falls back to /received on 405');
+  const row = await last(env, 'inbound');
+  assert.equal(row.body_html, '<p>fb</p>', 'body still stored via the fallback');
 });
 
 test('inbound webhook parses a WRAPPED {data:{...}} Received-Emails response', async () => {
