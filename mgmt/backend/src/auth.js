@@ -10,6 +10,55 @@ const SESSION_LONG_MS = 30 * 24 * 60 * 60 * 1000; // 30 days ("remember me") —
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_SECONDS = 900; // 15 min — matches Code.js exactly
 
+// FIX #5: exponential backoff — instead of a single hard 5-attempt cliff, each
+// failed attempt (keyed per IP+identifier) imposes a growing minimum delay before
+// the next attempt is accepted. This slows brute force far more smoothly than a
+// hard lockout, and — combined with the per-IP+identifier key — a legitimate user
+// is never fully locked out by someone else guessing their username.
+// Tiers are checked from the top down; the first threshold the fail-count meets
+// or exceeds wins.
+//   >=3 attempts  -> 30 sec
+//   >=5 attempts  -> 2 min
+//   >=8 attempts  -> 10 min
+//   >=15 attempts -> 1 hour
+const BACKOFF_TIERS = [
+  { attempts: 15, delaySeconds: 3600 },
+  { attempts: 8,  delaySeconds: 600 },
+  { attempts: 5,  delaySeconds: 120 },
+  { attempts: 3,  delaySeconds: 30 },
+];
+// TTL for the failure counter — long enough to hold the largest backoff tier so
+// the counter doesn't reset before the delay it implies has elapsed.
+const LOGIN_FAIL_TTL_SECONDS = 3600;
+
+// FIX #5: global per-IP login rate limit — at most 30 login attempts per IP per
+// 15 minutes, regardless of which identifier is targeted. This caps a single IP
+// spraying many usernames (which the per-identifier backoff alone would not stop).
+const LOGIN_IP_RATE_MAX = 30;
+const LOGIN_IP_RATE_WINDOW_SECONDS = 15 * 60;
+
+function backoffDelayFor(fails) {
+  for (const tier of BACKOFF_TIERS) {
+    if (fails >= tier.attempts) return tier.delaySeconds;
+  }
+  return 0;
+}
+
+// Returns true if this IP has exceeded the global login rate limit (Fix #5).
+// Best-effort: fails OPEN on any KV problem so a KV hiccup can never lock the
+// whole portal's login out.
+async function isLoginIpRateLimited(env, ip) {
+  if (!env || !env.KV_SESSIONS || !ip) return false;
+  try {
+    const bucket = Math.floor(Date.now() / (LOGIN_IP_RATE_WINDOW_SECONDS * 1000));
+    const key = `loginip:${ip}:${bucket}`;
+    const current = parseInt((await env.KV_SESSIONS.get(key)) || '0', 10) || 0;
+    if (current >= LOGIN_IP_RATE_MAX) return true;
+    await env.KV_SESSIONS.put(key, String(current + 1), { expirationTtl: LOGIN_IP_RATE_WINDOW_SECONDS + 5 });
+    return false;
+  } catch (e) { return false; }
+}
+
 export function AuthError(message) {
   const e = new Error(message);
   e.authError = true;
@@ -253,27 +302,62 @@ async function findLoginRowByIdentifier(env, identifier) {
   return row || null;
 }
 
+// The single generic failure message returned for EVERY login failure — wrong
+// password, unknown user, and (Fix #4) rate/backoff throttling alike. Returning
+// different messages for "invalid user" vs "locked out" let an attacker enumerate
+// which usernames exist and which are locked; a single string closes that.
+const GENERIC_LOGIN_FAILURE = 'Invalid credentials';
+
 export async function login(env, name, password, rememberMe, clientIp, deviceInfo) {
   if (!name || !password) return { success: false, message: 'Name and password required' };
   name = name.toString().trim();
 
-  // SECURITY (audit 1.1): the lockout counter used to key on the raw supplied
-  // identifier ALONE ('loginfail:' + name). That let an attacker lock any known
-  // user out for 15 min just by sending 5 bad attempts against their
-  // name/mobile/email (an account-lockout DoS). Keying on identifier + edge IP
-  // means an attacker's bad guesses only lock out THEIR OWN IP, never a
-  // legitimate user's login, while a real user hammering their own password from
-  // one device is still throttled. The per-IP request rate limit in index.js is
-  // the second layer against distributed guessing. (Falls back to the old
-  // identifier-only key if the edge IP is somehow unavailable.)
   const ip = (clientIp || '').toString().trim();
+
+  // FIX #5: global per-IP login rate limit — a single IP spraying many different
+  // usernames is capped at 30 attempts / 15 min. Returns the SAME generic message
+  // (Fix #4) so the throttle doesn't reveal anything either. Recorded in the audit
+  // trail for Superadmin visibility.
+  if (ip && await isLoginIpRateLimited(env, ip)) {
+    await recordLoginAttempt(env, { identifier: name, name: null, success: false, reason: 'ip_rate_limited', ip, deviceInfo, locked: 0 });
+    return { success: false, message: GENERIC_LOGIN_FAILURE };
+  }
+
+  // SECURITY (audit 1.1): the lockout counter keys on identifier + edge IP, so an
+  // attacker's bad guesses only throttle THEIR OWN IP, never lock out a legitimate
+  // user (account-lockout DoS). (Falls back to the identifier-only key if the edge
+  // IP is somehow unavailable.)
+  //
+  // FIX #5: instead of a hard 5-attempt cliff, apply EXPONENTIAL BACKOFF. Each
+  // failed attempt stores both the running count AND the timestamp of the last
+  // failure; the required minimum delay grows with the count (see BACKOFF_TIERS).
+  // If the caller retries before that delay elapses, the attempt is refused with
+  // the SAME generic message (Fix #4) — no separate "locked out" state is exposed.
   const lockKey = ip ? `loginfail:${name}:${ip}` : `loginfail:${name}`;
-  const fails = parseInt((await env.KV_SESSIONS.get(lockKey)) || '0');
-  if (fails >= MAX_LOGIN_ATTEMPTS) {
-    // `lockedOut` lets index.js log ONLY the lockout instead of every wrong
-    // password (see isExpectedError there).
-    await recordLoginAttempt(env, { identifier: name, name: null, success: false, reason: 'locked_out', ip, deviceInfo, locked: 1 });
-    return { success: false, lockedOut: true, message: 'Too many attempts. Try again in a few minutes.' };
+  const rawState = await env.KV_SESSIONS.get(lockKey);
+  let fails = 0, lastFailAt = 0;
+  if (rawState) {
+    try {
+      const parsed = JSON.parse(rawState);
+      fails = parseInt(parsed.f, 10) || 0;
+      lastFailAt = parseInt(parsed.t, 10) || 0;
+    } catch (e) {
+      // Backward-compat: an old plain-number counter from before this change.
+      fails = parseInt(rawState, 10) || 0;
+      lastFailAt = 0;
+    }
+  }
+
+  // FIX #5: enforce the backoff delay for the CURRENT fail-count before doing any
+  // work. Do NOT reveal remaining time or that the account is throttled — same
+  // generic message as any other failure (Fix #4).
+  const requiredDelaySec = backoffDelayFor(fails);
+  if (requiredDelaySec > 0 && lastFailAt > 0) {
+    const elapsedSec = (Date.now() - lastFailAt) / 1000;
+    if (elapsedSec < requiredDelaySec) {
+      await recordLoginAttempt(env, { identifier: name, name: null, success: false, reason: 'backoff_throttled', ip, deviceInfo, locked: fails >= MAX_LOGIN_ATTEMPTS ? 1 : 0 });
+      return { success: false, message: GENERIC_LOGIN_FAILURE };
+    }
   }
 
   const user = await findLoginRowByIdentifier(env, name);
@@ -285,15 +369,22 @@ export async function login(env, name, password, rememberMe, clientIp, deviceInf
 
   if (!user || !ok) {
     const newFails = fails + 1;
-    await env.KV_SESSIONS.put(lockKey, String(newFails), { expirationTtl: LOGIN_LOCKOUT_SECONDS });
+    // Store both count and last-failure timestamp so the next attempt can compute
+    // its backoff. TTL covers the largest backoff tier.
+    await env.KV_SESSIONS.put(
+      lockKey,
+      JSON.stringify({ f: newFails, t: Date.now() }),
+      { expirationTtl: LOGIN_FAIL_TTL_SECONDS }
+    );
     // `unknown_user` vs `bad_password` is for the Superadmin audit view only —
-    // the message returned to the client stays generic (no user enumeration).
+    // the message returned to the client stays generic (Fix #4: no user
+    // enumeration, no lockout-state disclosure).
     await recordLoginAttempt(env, {
       identifier: name, name: user ? user.name.trim() : null,
       success: false, reason: user ? 'bad_password' : 'unknown_user',
       ip, deviceInfo, locked: newFails >= MAX_LOGIN_ATTEMPTS ? 1 : 0,
     });
-    return { success: false, message: 'Invalid Username/Mobile/Email or Password' };
+    return { success: false, message: GENERIC_LOGIN_FAILURE };
   }
   await env.KV_SESSIONS.delete(lockKey);
 
@@ -683,7 +774,14 @@ export async function getLockedAccounts(env, user) {
   do {
     const res = await env.KV_SESSIONS.list({ prefix: 'loginfail:', cursor });
     for (const k of res.keys || []) {
-      const count = parseInt((await env.KV_SESSIONS.get(k.name)) || '0', 10) || 0;
+      // FIX #5: the counter is now stored as JSON {f:<fails>,t:<lastFailAtMs>};
+      // still accept a legacy plain-integer value written before this change.
+      const raw = (await env.KV_SESSIONS.get(k.name)) || '';
+      let count = 0;
+      if (raw) {
+        try { count = parseInt(JSON.parse(raw).f, 10) || 0; }
+        catch (e) { count = parseInt(raw, 10) || 0; }
+      }
       if (count >= MAX_LOGIN_ATTEMPTS) {
         // key = loginfail:<name>[:<ip>]  — name may itself contain no ':'.
         const rest = k.name.slice('loginfail:'.length);

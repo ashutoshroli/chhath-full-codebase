@@ -56,7 +56,9 @@ export function clearSession() {
 // COMPLETELY invisible: zero brute-force visibility. The backend now logs login
 // failures itself (see index.js), so the client still skips it to avoid a
 // duplicate row, but the event is no longer lost.
-const NO_AUTOLOG_ACTIONS = ['logError', 'reportErrorToWhatsApp', 'login', 'verifyGoogleLogin'];
+// FIX #1: logError is now authenticated; reportErrorPublic is the unauthenticated
+// fallback. Both are excluded from auto-logging to avoid recursive log loops.
+const NO_AUTOLOG_ACTIONS = ['logError', 'reportErrorPublic', 'reportErrorToWhatsApp', 'login', 'verifyGoogleLogin'];
 
 // Noise produced by browser extensions and by the browser itself — never our bug.
 // The live log had "Failed to connect to MetaMask" rows from a crypto wallet
@@ -105,8 +107,18 @@ export function flushBufferedLogs() {
     if (!buf.length) return;
     sessionStorage.removeItem(PENDING_LOG_KEY);
   } catch (e) { return; }
+  // Each buffered body already contains either:
+  //   action:'logError' + token (authenticated, from a logged-in session), or
+  //   action:'reportErrorPublic' (unauthenticated, no token — login/consent pages).
+  // We flush them as-is with a proper Content-Type header so the Worker's JSON
+  // parser accepts them.
   buf.forEach(body => {
-    fetch(API_URL, { method: 'POST', body: JSON.stringify(body) }).catch(() => bufferLog(body));
+    fetch(API_URL, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).catch(() => bufferLog(body));
   });
 }
 
@@ -114,6 +126,11 @@ if (typeof window !== 'undefined') {
   window.addEventListener('online', flushBufferedLogs);
 }
 
+// FIX #1: fireAndForgetLogError now routes based on session state:
+//   - Logged-in  → action:'logError' with token (authenticated, per security fix)
+//   - No session → action:'reportErrorPublic' (unauthenticated fallback, for
+//     Login page crashes, Consent page errors, Announce page errors).
+// Both paths are fire-and-forget (non-blocking) and buffer on network failure.
 function fireAndForgetLogError(source, message, stack, context) {
   try {
     if (isIgnorableClientError(message)) return;
@@ -125,20 +142,44 @@ function fireAndForgetLogError(source, message, stack, context) {
       lastTransportReportAt = now;
       message = `Network/transport failure — could not connect to the server (${message})`;
     }
-    const body = {
-      action: 'logError',
-      source,
-      page: window.location.pathname,
-      message,
-      stack: stack || '',
-      // Was hardcoded ''. The backend folds deviceId/deviceInfo/clientIp in on its
-      // side; anything the caller knows goes here so "which admin, which device"
-      // is finally answerable from the Error Log screen.
-      context: context ? (typeof context === 'string' ? context : JSON.stringify(context)) : '',
-      deviceId: getDeviceId(),
-      deviceInfo: getDeviceInfo(),
-    };
-    fetch(API_URL, { method: 'POST', body: JSON.stringify(body) }).catch(() => bufferLog(body));
+
+    const session = getSession();
+    const contextStr = context ? (typeof context === 'string' ? context : JSON.stringify(context)) : '';
+
+    let body;
+    if (session && session.token) {
+      // Authenticated path — logError (requires valid session token).
+      body = {
+        action: 'logError',
+        token: session.token,
+        source,
+        page: window.location.pathname,
+        message,
+        stack: stack || '',
+        context: contextStr,
+        deviceId: getDeviceId(),
+        deviceInfo: getDeviceInfo(),
+      };
+    } else {
+      // Unauthenticated fallback — reportErrorPublic (pre-login errors only).
+      body = {
+        action: 'reportErrorPublic',
+        source,
+        page: window.location.pathname,
+        message,
+        stack: stack || '',
+        context: contextStr,
+        deviceId: getDeviceId(),
+        deviceInfo: getDeviceInfo(),
+      };
+    }
+
+    fetch(API_URL, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).catch(() => bufferLog(body));
   } catch (e) { /* never let logging break anything */ }
 }
 
@@ -388,7 +429,11 @@ export const api = {
   getReceiptData: (rowIndex, year) => call('getReceiptData', { rowIndex, year }),
 
   // Error Log + WhatsApp Report
-  logError: (source, page, message, stack, context) => call('logError', { source, page, message, stack, context }, false),
+  // FIX #1: logError now uses requireAuth=true — token is attached automatically.
+  // reportErrorPublic (unauthenticated fallback) is called directly by
+  // fireAndForgetLogError when no session exists; it is not exposed as api.* since
+  // callers should go through fireAndForgetLogError / reportClientError.
+  logError: (source, page, message, stack, context) => call('logError', { source, page, message, stack, context }, true),
   reportErrorToWhatsApp: (errorId) => call('reportErrorToWhatsApp', { errorId }, false),
   getErrorLog: (limit) => call('getErrorLog', { limit }),
   // AI auto-fix (Superadmin-only). PR-1: generate a fix + preview.

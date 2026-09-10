@@ -8,7 +8,7 @@ import { getDropdownList, getAllDropdownLists, addDropdownListItem, updateDropdo
 import { getFestivalDates, saveFestivalDates, getPortalSetting, setPortalSetting, getConsentPageTemplate, updateConsentPageTemplate } from './settings.js';
 import * as seo from './seo.js';
 import * as wa from './whatsapp.js';
-import { logError, reportErrorToWhatsApp, getErrorLog } from './errorLog.js';
+import { logError, reportErrorToWhatsApp, getErrorLog, reportErrorPublic, isLogErrorRateLimited } from './errorLog.js';
 import { logActivity, getActivityLog, logWarn, logErrorAt } from './logger.js';
 import * as popups from './popups.js';
 import * as announce from './announcements.js';
@@ -66,7 +66,7 @@ export const READ_ONLY_ACTIONS = new Set([
   'exportBackup',
   'getCollectionQueueStatus', 'getQueueJobsForSuperadmin',
   'getPopups', 'getPopupWithSlides', 'getActivePopups', 'previewPublicPopups',
-  'logError', 'reportErrorToWhatsApp', 'getErrorLog',
+  'reportErrorToWhatsApp', 'reportErrorPublic', 'getErrorLog',
   'getAiFixes', 'getAiFix',
   // AI Management: getAiProviders reads; testAiProvider makes an external ping but
   // writes no data (so it's read-only for the version-bump classifier).
@@ -129,6 +129,10 @@ export const EXPECTED_MUTATING_ACTIONS = new Set([
   // opens a PR and updates the row. Both are writes (getAiFixes/getAiFix are
   // reads in READ_ONLY_ACTIONS).
   'generateAiFix', 'createAiFixPr',
+  // logError is now authenticated (Fix #1 security hardening) and writes to
+  // error_log; it belongs here. The unauthenticated public variant is
+  // reportErrorPublic in READ_ONLY_ACTIONS.
+  'logError',
   // AI Management: these write the ai_providers table.
   'saveAiProvider', 'deleteAiProvider', 'setDefaultAiProvider',
   // announcements
@@ -223,7 +227,10 @@ async function mgmtCachePut(env, action, param, version, result) {
 // dedicated attempt caps in auth.js / loans.js.
 const RATE_LIMITED_ACTIONS = new Set([
   'login', 'verifyGoogleLogin',
-  'logError', 'reportErrorToWhatsApp',
+  // FIX #1: logError is now authenticated; only reportErrorPublic (the
+  // unauthenticated fallback for pre-login errors) needs the rate limit here.
+  // logError's own per-IP check is inside errorLog.js (isLogErrorRateLimited).
+  'reportErrorPublic', 'reportErrorToWhatsApp',
   'getConsentByToken', 'requestConsentOtp', 'verifyConsentOtp', 'respondConsent',
   'getDocxTemplatePublic', 'convertDocxToPdfPublic',
   // Announcements: only the PIN CHECK is rate-limited (it guards a 6-digit PIN on
@@ -366,6 +373,22 @@ function summarizePayload(sheet, payload, extra) {
   } catch (e) { return (sheet || '').toString(); }
 }
 
+// FIX #3: Sanitize user-supplied log fields to prevent stored XSS.
+// Strips HTML tags and dangerous characters. Used in the logError handler.
+function sanitizeForLog(v, maxLen) {
+  if (v === undefined || v === null) return '';
+  return v.toString()
+    .replace(/<[^>]*>/g, '')      // strip HTML tags
+    .replace(/[<>"'`]/g, '')      // remove remaining dangerous characters
+    .slice(0, maxLen);
+}
+// Detect active XSS payloads before they reach storage.
+function hasXss(v) {
+  if (!v) return false;
+  const s = v.toString();
+  return /<script/i.test(s) || /javascript:|onerror\s*=|onload\s*=|on\w+\s*=/i.test(s);
+}
+
 // The error_log table has no columns for actor/device/IP, and api.js was already
 // computing all three on every request only to throw them away. They're folded
 // into the existing `context` column so "which admin, on which device" is finally
@@ -402,7 +425,7 @@ function buildLogContext(req) {
 
 // Actions whose failures must NOT be auto-logged server-side, to avoid a
 // recursive log-of-the-log loop.
-const NO_SERVER_AUTOLOG = new Set(['logError', 'reportErrorToWhatsApp', 'getErrorLog']);
+const NO_SERVER_AUTOLOG = new Set(['logError', 'reportErrorPublic', 'reportErrorToWhatsApp', 'getErrorLog']);
 
 // Errors that are normal operation, not defects: an expired session, a permission
 // refusal, a user-facing validation message.
@@ -482,7 +505,25 @@ export default {
 
     let req;
     try {
-      req = await request.json();
+      // FIX #2: reject oversized payloads before parsing. The Content-Length header
+      // can be absent or spoofed, so we check the actual body size after reading.
+      // 4096 bytes for logError/reportErrorPublic; 10 MB for everything else
+      // (file uploads go through this too — docx/pdf/image uploads are legitimately large).
+      const MAX_LOGERROR_BODY = 4096;
+      const MAX_GENERAL_BODY = 10 * 1024 * 1024;
+      const rawBody = await request.text();
+      // Detect if this looks like an error-log call BEFORE we parse (check action
+      // in raw body as a fast pre-filter — full check after parse).
+      const looksLikeLogError = rawBody.includes('"logError"') || rawBody.includes('"reportErrorPublic"');
+      if (looksLikeLogError && rawBody.length > MAX_LOGERROR_BODY) {
+        const earlyIp = request.headers.get('CF-Connecting-IP') || 'unknown';
+        ctx.waitUntil(logError(env, 'backend', 'router', `logError payload too large: ${rawBody.length} bytes from ${earlyIp}`, '', ''));
+        return jsonOut({ success: false, message: 'Payload too large' }, request, env, 413);
+      }
+      if (rawBody.length > MAX_GENERAL_BODY) {
+        return jsonOut({ success: false, message: 'Payload too large' }, request, env, 413);
+      }
+      req = JSON.parse(rawBody);
     } catch (e) {
       // Was returned with nothing persisted, so a bot or a broken client hammering
       // the API was completely invisible.
@@ -574,20 +615,16 @@ export default {
       // excluded 'login' from auto-logging — so there was zero brute-force
       // visibility. The identifier is recorded; the password never is.
       login: async () => {
-        // Pass the server-observed edge IP so the lockout is keyed on
-        // identifier + IP (audit 1.1) — an attacker can no longer lock out a
-        // real user by guessing against their username.
+        // Pass the server-observed edge IP so the lockout/backoff is keyed on
+        // identifier + IP (audit 1.1, Fix #5) — an attacker can no longer lock out
+        // a real user by guessing against their username.
         const res = await login(env, req.name, req.password, req.rememberMe, req.serverIp, req.deviceInfo);
-        // Only the LOCKOUT is logged, not every wrong password. Logging each
-        // failed attempt flooded the log while telling nobody anything; the
-        // lockout is the actual security signal worth a Superadmin's attention.
-        if (res && res.success === false && res.lockedOut) {
-          ctx.waitUntil(logError(
-            env, 'auth', 'login',
-            `Login LOCKED OUT after repeated failures for "${(req.name || '').toString().slice(0, 60)}"`,
-            '', buildLogContext(req)
-          ));
-        }
+        // FIX #4: the login response no longer carries a `lockedOut` flag or a
+        // distinct "locked out" message (that let attackers enumerate valid /
+        // locked usernames). Brute-force / throttling signal now comes from the
+        // login_attempts audit trail (reason='backoff_throttled' / 'ip_rate_limited'),
+        // which auth.js records — visible to a Superadmin on the Audit Logs screen —
+        // rather than from the client-facing response.
         return res;
       },
       // Sign in with Google. Verifies the Google ID token server-side and maps
@@ -927,12 +964,35 @@ export default {
       previewPublicPopups: () => withAuth(env, req, (user) => popups.previewPublicPopups(env, user)),
 
       // ---- Error Log ----
-      // logError stays intentionally unauthenticated: the Consent and Announce
-      // pages are no-login pages and must be able to report their own failures.
-      // The abuse surface is now closed by (a) de-duplication inside logger.js so
-      // a flood collapses into one row, and (b) the hourly cap inside
-      // reportErrorToWhatsApp so nobody can spam every Superadmin's WhatsApp.
-      logError: () => logError(env, req.source, req.page, req.message, req.stack, buildLogContext(req)),
+      // FIX #1 (Security): logError now requires authentication. The unauthenticated
+      // fallback for pre-login errors (Login page crashes, Consent page, Announce
+      // page) uses reportErrorPublic — a separate, rate-limited, sanitized action.
+      // BEFORE this fix: anyone could POST {action:"logError"} with no token and
+      // inject fake error rows (log poisoning, D1 bill inflation).
+      logError: () => withAuth(env, req, (user) => {
+        // FIX #3: sanitize + truncate all user-supplied fields before storage.
+        const cleanMsg  = sanitizeForLog(req.message, 500);
+        const cleanStk  = sanitizeForLog(req.stack,   2000);
+        const cleanCtx  = sanitizeForLog(req.context, 1000);
+        if (hasXss(req.message) || hasXss(req.stack) || hasXss(req.context)) {
+          return { success: false, message: 'Invalid payload' };
+        }
+        return logError(env, req.source, req.page, cleanMsg, cleanStk, buildLogContext({ ...req, message: cleanMsg, stack: cleanStk, context: cleanCtx }));
+      }),
+
+      // FIX #1 EXCEPTION: unauthenticated error reporting for pages with no session.
+      // Covers: Login page crashes, Consent page errors, Announce page errors.
+      // Protected by: (a) RATE_LIMITED_ACTIONS per-IP rate limit (20/min, index.js),
+      //               (b) per-IP rate limit inside errorLog.js (isLogErrorRateLimited),
+      //               (c) 4096-byte body size limit (enforced above before JSON.parse),
+      //               (d) XSS detection and HTML sanitization inside reportErrorPublic.
+      reportErrorPublic: () => reportErrorPublic(
+        env,
+        req.source, req.page, req.message, req.stack,
+        typeof req.context === 'string' ? req.context : (req.context ? JSON.stringify(req.context) : ''),
+        edgeIp
+      ),
+
       reportErrorToWhatsApp: () => reportErrorToWhatsApp(env, req.errorId),
       getErrorLog: () => withAuth(env, req, (user) => getErrorLog(env, user, req.limit)),
       // AI auto-fix (Superadmin-only; enforced inside each handler). PR-1 scope:
