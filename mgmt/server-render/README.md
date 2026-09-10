@@ -7,6 +7,11 @@ CPU / request-duration / subrequest limits:
 - **`ai_fix_generate`** — fetch the relevant repo files from GitHub and ask Claude
   for a unified-diff fix.
 - **`ai_pr_create`** — apply a stored diff and open a GitHub PR.
+- **`ai_ci_retry`** — after a PR's CI fails, fetch the failed job log, re-ask Claude
+  against the current branch state, apply the corrected diff, and commit it to the
+  same branch (re-triggering CI). The Worker still receives the GitHub check_suite
+  webhook and does the light D1 orchestration (branch match, attempt cap,
+  CI-pass/auto-merge, manual-review escalation); only this heavy retry runs here.
 
 The Worker stays the **single source of truth** for job state (its `render_jobs`
 table in D1). This service only **computes** and **calls back** — it never touches
@@ -20,10 +25,9 @@ Worker  ◀─POST /?render-webhook (result, X-Render-Signature)── Render
 Worker  saves the result in D1 (render_jobs + ai_fixes)
 ```
 
-> **CI-retry loop is NOT in this service (yet).** The GitHub check-suite CI-retry
-> loop (`aiFixCi.js` in the Worker) is intentionally out of scope for this initial
-> rollout and will be offloaded in a **future PR** (a new `ai_ci_retry` job kind).
-> Do not wire it in here.
+> The Worker (`aiFixCi.js`) still owns the GitHub check_suite webhook (HMAC verify)
+> and the light D1 orchestration; it dispatches the heavy retry here as an
+> `ai_ci_retry` job. It never touches D1 from this service.
 
 ## Endpoints
 

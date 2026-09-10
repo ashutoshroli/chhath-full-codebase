@@ -260,6 +260,24 @@ test('getRenderJobStatus: Superadmin-only; returns parsed status', async () => {
   await assert.rejects(() => getRenderJobStatus(env, jobId, { name: 'x', role: 'Admin' }), /Superadmin/);
 });
 
+test('createAndDispatchJob accepts the ai_ci_retry kind and dispatches it', async () => {
+  const env = makeEnv();
+  const { calls, restore } = stubRenderFetch('ok');
+  try {
+    const res = await createAndDispatchJob(env, 'ai_ci_retry', {
+      fixId: 'AIF9', branch: 'fix/error-ERR9', prevDiff: 'diff', checkSuiteId: 123, attempts: 0,
+    }, { refId: 'AIF9' });
+    assert.equal(res.success, true);
+    assert.equal(res.status, 'dispatched');
+    const sent = JSON.parse(calls[0].body);
+    assert.equal(sent.kind, 'ai_ci_retry');
+    assert.equal(sent.payload.branch, 'fix/error-ERR9');
+    const row = await rowFor(env, res.jobId);
+    assert.equal(row.status, 'dispatched');
+    assert.equal(row.ref_id, 'AIF9');
+  } finally { restore(); }
+});
+
 test('applies the migration idempotently on top of the committed schema', () => {
   // The migration is CREATE ... IF NOT EXISTS, so running it against the schema
   // (which already has render_jobs) must be a no-op, not an error.

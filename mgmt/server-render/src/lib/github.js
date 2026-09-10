@@ -58,6 +58,44 @@ export async function githubGetFile(path) {
   return { path, sha: json.sha, content, truncated: false };
 }
 
+// Read a file's content + sha from a SPECIFIC branch (the CI-retry reads the
+// current branch state, which already contains the previous fix). Returns null on
+// 404 / blocked path. Ported from the Worker's githubGetFileOnBranch.
+export async function githubGetFileOnBranch(path, branch) {
+  if (isBlockedPath(path)) return null;
+  const [owner, repo] = config.githubRepo.split('/');
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path).replace(/%2F/g, '/')}?ref=${encodeURIComponent(branch)}`;
+  const resp = await fetch(url, { headers: ghHeaders(false) });
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  let content = '';
+  try {
+    content = json.content ? Buffer.from(json.content.replace(/\n/g, ''), 'base64').toString('utf8') : '';
+  } catch (e) { content = ''; }
+  return { path, sha: json.sha, content };
+}
+
+// Fetch the failing job's log text for a check_suite. Finds a failing check run,
+// maps it to its Actions job, and fetches the (302-redirecting) plain-text log,
+// keeping the TAIL (failures are at the end) capped for token cost. Ported from
+// the Worker's fetchFailedJobLog. Returns { jobName, log }.
+export async function fetchFailedJobLog(checkSuiteId) {
+  const [owner, repo] = config.githubRepo.split('/');
+  const runsResp = await gh('GET', `/repos/${owner}/${repo}/check-suites/${checkSuiteId}/check-runs`);
+  const runs = (runsResp && runsResp.check_runs) || [];
+  const failing = runs.find(r => r.conclusion && r.conclusion !== 'success' && r.conclusion !== 'neutral' && r.conclusion !== 'skipped');
+  if (!failing) return { jobName: '', log: '' };
+
+  // A check_run's id IS the Actions job id for GitHub Actions checks.
+  const jobId = failing.id;
+  const url = `https://api.github.com/repos/${owner}/${repo}/actions/jobs/${jobId}/logs`;
+  const resp = await fetch(url, { headers: ghHeaders(false), redirect: 'follow' });
+  if (!resp.ok) return { jobName: failing.name || '', log: `(could not fetch job log: HTTP ${resp.status})` };
+  const full = await resp.text().catch(() => '');
+  const tail = full.length > 8000 ? full.slice(-8000) : full;
+  return { jobName: failing.name || '', log: tail };
+}
+
 // UTF-8 safe base64 (for the Contents API PUT).
 export function toBase64Utf8(str) {
   return Buffer.from(str, 'utf8').toString('base64');

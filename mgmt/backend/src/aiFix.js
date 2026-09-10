@@ -485,12 +485,58 @@ export async function applyRenderFixResult(env, kind, fixId, result) {
       pr_url: (result.prUrl || '').toString(),
       error_message: '',
     }).catch(() => {});
+  } else if (kind === 'ai_ci_retry') {
+    // Render re-fixed the CI failure and pushed a new commit to the branch (which
+    // re-triggers CI). Record the new diff + accumulated tokens; status goes to
+    // 'ci_running' while the fresh CI run is in flight. attempts is the count
+    // Render just performed (payload.attempts + 1), passed back as result.attempt.
+    const row = await env.DB_LOGS.prepare('SELECT attempts, prompt_tokens, completion_tokens FROM ai_fixes WHERE fix_id = ?').bind(fixId).first().catch(() => null);
+    const prevAttempts = (row && row.attempts) || 0;
+    const attempts = result.attempt != null ? result.attempt : prevAttempts + 1;
+    await updateFixRow(env, fixId, {
+      status: 'ci_running',
+      diff: (result.newDiff || '').toString(),
+      reasoning: (result.reasoning || '').toString().slice(0, 1000),
+      attempts,
+      prompt_tokens: ((row && row.prompt_tokens) || 0) + ((result.tokens && result.tokens.prompt) || 0),
+      completion_tokens: ((row && row.completion_tokens) || 0) + ((result.tokens && result.tokens.completion) || 0),
+      error_message: `Retry ${attempts}/${MAX_CI_ATTEMPTS} pushed after CI failure.`,
+    }).catch(() => {});
   }
 }
 
 export async function applyRenderFixFailure(env, kind, fixId, errorMsg) {
   if (!fixId) return;
   const msg = (errorMsg || 'processing failed').toString().slice(0, 500);
+
+  if (kind === 'ai_ci_retry') {
+    // Render could not produce/apply a retry. Count the attempt; if that was the
+    // last one, escalate to manual review + WhatsApp-notify the Superadmins (the
+    // same escalation the Worker used to do inline). Otherwise leave it 'ci_failed'
+    // for the next CI signal.
+    const row = await env.DB_LOGS.prepare('SELECT * FROM ai_fixes WHERE fix_id = ?').bind(fixId).first().catch(() => null);
+    const newAttempts = ((row && row.attempts) || 0) + 1;
+    if (newAttempts >= MAX_CI_ATTEMPTS) {
+      await updateFixRow(env, fixId, {
+        status: 'needs_manual_review',
+        attempts: newAttempts,
+        error_message: `AI fix failed after ${MAX_CI_ATTEMPTS} attempts (${msg}) — manual review needed.`,
+      }).catch(() => {});
+      // Reuse the existing WhatsApp escalation keyed on the original error row.
+      if (row && row.error_id) {
+        const { reportErrorToWhatsApp } = await import('./errorLog.js');
+        await reportErrorToWhatsApp(env, row.error_id).catch(() => {});
+      }
+    } else {
+      await updateFixRow(env, fixId, {
+        status: 'ci_failed',
+        attempts: newAttempts,
+        error_message: `Retry ${newAttempts}/${MAX_CI_ATTEMPTS} could not be produced: ${msg}`,
+      }).catch(() => {});
+    }
+    return;
+  }
+
   // A generate failure has no usable preview; a PR-create failure leaves the fix
   // re-tryable (its diff is still valid), so only the error_message changes.
   const fields = kind === 'ai_fix_generate'
