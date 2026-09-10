@@ -21,7 +21,7 @@ import * as cq from './collectionQueue.js';
 import * as email from './email.js';
 import * as officialMail from './officialMail.js';
 import { cleanupData, cleanupPreview } from './cleanup.js';
-import { generateAiFix, getAiFixes, getAiFix } from './aiFix.js';
+import { generateAiFix, getAiFixes, getAiFix, createAiFixPr } from './aiFix.js';
 import { bumpDataVersion, getDataVersion } from './dataVersion.js';
 import { healthCheck } from './config.js';
 import { runRetentionSweep, shouldSweepNow } from './retention.js';
@@ -120,9 +120,10 @@ export const EXPECTED_MUTATING_ACTIONS = new Set([
   // official mailbox (send/reply/mark-read; inbound is the public webhook route above)
   'sendOfficialEmail', 'replyOfficialEmail', 'markOfficialEmailRead',
   'cleanupData',
-  // AI auto-fix — generateAiFix inserts an ai_fixes row (a write), so it must be
-  // here (getAiFixes/getAiFix are reads in READ_ONLY_ACTIONS).
-  'generateAiFix',
+  // AI auto-fix — generateAiFix inserts an ai_fixes row; createAiFixPr commits +
+  // opens a PR and updates the row. Both are writes (getAiFixes/getAiFix are
+  // reads in READ_ONLY_ACTIONS).
+  'generateAiFix', 'createAiFixPr',
   // announcements
   'addCustomAnnouncement', 'updateCustomAnnouncement', 'deleteCustomAnnouncement',
   'generateAnnouncementLink', 'revokeAnnouncementLink',
@@ -896,6 +897,7 @@ export default {
       generateAiFix: () => withAuth(env, req, (user) => generateAiFix(env, req.errorId, user)),
       getAiFixes: () => withAuth(env, req, (user) => getAiFixes(env, user, req.errorId)),
       getAiFix: () => withAuth(env, req, (user) => getAiFix(env, user, req.fixId)),
+      createAiFixPr: () => withAuth(env, req, (user) => createAiFixPr(env, req.fixId, user)),
 
       // ---- Loan message templates (Superadmin) — fully ported, see loans.js ----
       getLoanTemplates: () => withAuth(env, req, (user) => { requireSuperadmin(user); return loans.getLoanTemplates(env, req.type); }),

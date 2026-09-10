@@ -14,6 +14,8 @@ export default function AiFixModal({ error, onClose }) {
   const [loading, setLoading] = useState(true);
   const [errMsg, setErrMsg] = useState('');
   const [result, setResult] = useState(null); // { fixId, diff, reasoning, files, model, tokens }
+  const [creating, setCreating] = useState(false);
+  const [pr, setPr] = useState(null); // { prNumber, prUrl, branch } once the PR is created
 
   useEffect(() => {
     let cancelled = false;
@@ -67,23 +69,55 @@ export default function AiFixModal({ error, onClose }) {
             </span>
           </div>
 
-          {/* PR-2 will replace this note with a real "Confirm & create PR" action. */}
-          <div style={{ background: '#FEF3C7', color: '#92400E', borderRadius: 8, padding: '8px 10px', fontSize: '0.78rem', marginBottom: 12 }}>
-            Review the diff above. Creating the branch + pull request from this fix is the next step
-            (coming in the follow-up update). The generated fix has been saved (Ref: {result.fixId}).
-          </div>
+          {pr ? (
+            <div style={{ background: '#dcfce7', color: '#166534', borderRadius: 8, padding: '10px 12px', fontSize: '0.82rem', marginBottom: 12 }}>
+              ✅ Pull request <strong>#{pr.prNumber}</strong> created on branch <code>{pr.branch}</code>.
+              {' '}<a href={pr.prUrl} target="_blank" rel="noreferrer" style={{ color: '#166534', fontWeight: 700 }}>Open PR on GitHub →</a>
+              <div style={{ marginTop: 4, fontSize: '0.72rem' }}>Review the CI checks there before merging.</div>
+            </div>
+          ) : (
+            <div style={{ background: '#FEF3C7', color: '#92400E', borderRadius: 8, padding: '8px 10px', fontSize: '0.78rem', marginBottom: 12 }}>
+              Review the diff above. On <strong>Confirm</strong>, a branch <code>fix/error-{error.error_id}</code> is created,
+              the change is committed, and a pull request is opened for review. Nothing is merged automatically.
+            </div>
+          )}
         </>
       )}
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        {!loading && result && !pr && (
+          <button
+            type="button" className="btn-submit"
+            style={{ width: 'auto' }}
+            onClick={confirmCreatePr}
+            disabled={creating}
+          >
+            {creating ? 'Creating PR…' : 'Confirm & create PR'}
+          </button>
+        )}
         <button
           type="button" className="btn-submit"
           style={{ width: 'auto', background: '#e5e7eb', color: '#111' }}
           onClick={onClose}
         >
-          Close
+          {pr ? 'Done' : 'Close'}
         </button>
       </div>
     </Modal>
   );
+
+  function confirmCreatePr() {
+    if (!result) return;
+    setCreating(true);
+    setErrMsg('');
+    api.createAiFixPr(result.fixId)
+      .then(res => {
+        setPr({ prNumber: res.prNumber, prUrl: res.prUrl, branch: res.branch });
+      })
+      .catch(err => {
+        setErrMsg(err.message || 'Failed to create the pull request.');
+        reportClientError('AiFixModal', 'createAiFixPr failed', err, { fixId: result.fixId });
+      })
+      .finally(() => setCreating(false));
+  }
 }

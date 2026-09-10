@@ -22,6 +22,7 @@
 import { requireSuperadmin, ValidationError, InternalError } from './auth.js';
 import { randomId } from './random.js';
 import { logErrorAt, logWarn } from './logger.js';
+import { applyUnifiedDiff, pathsInDiff } from './diffApply.js';
 
 const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -303,4 +304,166 @@ export async function getAiFix(env, user, fixId) {
   const row = await env.DB_LOGS.prepare('SELECT * FROM ai_fixes WHERE fix_id = ?').bind(fixId).first();
   if (!row) throw ValidationError('AI fix not found.');
   return row;
+}
+
+async function updateFixRow(env, fixId, fields) {
+  const cols = Object.keys(fields);
+  if (!cols.length) return;
+  const set = cols.map(c => `${c} = ?`).join(', ');
+  const vals = cols.map(c => fields[c]);
+  await env.DB_LOGS.prepare(`UPDATE ai_fixes SET ${set}, updated_at = ? WHERE fix_id = ?`)
+    .bind(...vals, nowIso(), fixId).run();
+}
+
+// ============================================================================
+// GitHub write helpers (PR-2). All go through one small fetch wrapper.
+// ============================================================================
+
+async function gh(env, method, path, body) {
+  const url = `https://api.github.com${path}`;
+  const resp = await fetch(url, {
+    method,
+    headers: {
+      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'chhath-ai-fix',
+      'X-GitHub-Api-Version': '2022-11-28',
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  const text = await resp.text().catch(() => '');
+  let json = null;
+  try { json = text ? JSON.parse(text) : null; } catch (e) { /* non-JSON */ }
+  if (!resp.ok) {
+    throw InternalError(
+      `GitHub ${method} ${path} failed (${resp.status})`,
+      `GitHub ${resp.status}: ${(json && json.message) || text.slice(0, 200)}`
+    );
+  }
+  return json;
+}
+
+// btoa for UTF-8 content (Workers' btoa is latin1-only). Encode to bytes first.
+function toBase64Utf8(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
+// ============================================================================
+// createAiFixPr — Step D: branch + commit + PR from a stored fix.
+// ============================================================================
+export async function createAiFixPr(env, fixId, user) {
+  requireSuperadmin(user);
+  if (!fixId) throw ValidationError('fixId required');
+  requireConfig(env);
+
+  const fix = await env.DB_LOGS.prepare('SELECT * FROM ai_fixes WHERE fix_id = ?').bind(fixId).first();
+  if (!fix) throw ValidationError('AI fix not found.');
+  if (fix.pr_number) {
+    return { success: true, alreadyCreated: true, prNumber: fix.pr_number, prUrl: fix.pr_url, branch: fix.branch };
+  }
+  if (!fix.diff || !fix.diff.trim()) throw ValidationError('This fix has no diff to apply.');
+
+  const errorRow = await env.DB_LOGS.prepare('SELECT * FROM error_log WHERE error_id = ?').bind(fix.error_id).first();
+  const [owner, repo] = env.GITHUB_REPO.split('/');
+
+  try {
+    // 1) Which files does the diff touch? Re-check the blocklist (defence in depth).
+    const paths = pathsInDiff(fix.diff);
+    if (!paths.length) throw ValidationError('The diff does not name any file to change.');
+    for (const p of paths) {
+      if (isBlockedPath(p)) throw ValidationError(`Refusing to modify a protected path: ${p}`);
+    }
+
+    // 2) Fetch current content + sha for each touched file.
+    const contentByPath = {};
+    const shaByPath = {};
+    for (const p of paths) {
+      const f = await githubGetFile(env, p);
+      if (f && f.content != null) { contentByPath[p] = f.content; shaByPath[p] = f.sha; }
+      else if (f && f.truncated) throw ValidationError(`File too large to patch safely: ${p}`);
+      // A new-file diff has no current content — that's fine (applyUnifiedDiff handles isNew).
+    }
+
+    // 3) Apply the diff. STRICT — a context mismatch aborts here (no bad commit).
+    const applied = applyUnifiedDiff(fix.diff, contentByPath);
+    if (!applied.ok) {
+      await updateFixRow(env, fixId, { status: 'fix_generated', error_message: `Diff did not apply cleanly: ${applied.reason}` });
+      throw ValidationError(
+        `The AI diff could not be applied cleanly (${applied.reason}). `
+        + 'The file may have changed since the fix was generated — re-generate the fix.'
+      );
+    }
+
+    // 4) Resolve the default branch + its head commit sha.
+    const repoInfo = await gh(env, 'GET', `/repos/${owner}/${repo}`);
+    const baseBranch = repoInfo.default_branch || 'main';
+    const baseRef = await gh(env, 'GET', `/repos/${owner}/${repo}/git/ref/heads/${baseBranch}`);
+    const baseSha = baseRef.object.sha;
+
+    // 5) Create the fix branch off the base head. If it already exists, reuse it.
+    const branch = `fix/error-${fix.error_id}`;
+    try {
+      await gh(env, 'POST', `/repos/${owner}/${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: baseSha });
+    } catch (e) {
+      // 422 = ref already exists (a retry) — reuse it.
+      if (!/already exists|Reference already exists|422/.test(e.userMessage || e.message || '')) throw e;
+    }
+
+    // 6) Commit each changed file to the branch via the Contents API.
+    let committed = 0;
+    for (const f of applied.files) {
+      if (f.isDelete) {
+        if (shaByPath[f.path]) {
+          await gh(env, 'DELETE', `/repos/${owner}/${repo}/contents/${f.path}`, {
+            message: `fix(ai): remove ${f.path} for error ${fix.error_id}`,
+            sha: shaByPath[f.path], branch,
+          });
+          committed++;
+        }
+        continue;
+      }
+      await gh(env, 'PUT', `/repos/${owner}/${repo}/contents/${f.path}`, {
+        message: `fix(ai): ${f.path} for error ${fix.error_id}`,
+        content: toBase64Utf8(f.content),
+        branch,
+        ...(shaByPath[f.path] ? { sha: shaByPath[f.path] } : {}),
+      });
+      committed++;
+    }
+    if (!committed) throw ValidationError('No files were committed (nothing to change).');
+
+    // 7) Open the PR into the default branch, with error details + AI reasoning.
+    const title = `fix(ai): ${(errorRow && errorRow.message ? errorRow.message : 'error ' + fix.error_id).slice(0, 60)}`;
+    const bodyMd =
+      `## 🤖 AI-generated fix\n\n`
+      + `**Error Ref:** \`${fix.error_id}\`\n`
+      + `**Source:** ${errorRow ? errorRow.source : '?'} · **Page:** ${errorRow ? (errorRow.page || '-') : '-'}\n\n`
+      + `### Original error\n\`\`\`\n${((errorRow && errorRow.message) || '').slice(0, 500)}\n\`\`\`\n\n`
+      + (errorRow && errorRow.stack ? `<details><summary>Stack trace</summary>\n\n\`\`\`\n${errorRow.stack.slice(0, 2000)}\n\`\`\`\n</details>\n\n` : '')
+      + `### AI reasoning\n${fix.reasoning || '(none)'}\n\n`
+      + `### Files changed\n${applied.files.map(f => `- \`${f.path}\`${f.isNew ? ' (new)' : ''}${f.isDelete ? ' (deleted)' : ''}`).join('\n')}\n\n`
+      + `---\n_Generated by the Error Log "Fix using AI" tool (model: ${fix.model}). Review before merging._`;
+
+    const pr = await gh(env, 'POST', `/repos/${owner}/${repo}/pulls`, {
+      title, head: branch, base: baseBranch, body: bodyMd,
+    });
+
+    await updateFixRow(env, fixId, {
+      status: 'pr_created',
+      branch,
+      pr_number: pr.number,
+      pr_url: pr.html_url,
+      error_message: '',
+    });
+
+    return { success: true, prNumber: pr.number, prUrl: pr.html_url, branch, filesChanged: applied.files.map(f => f.path) };
+  } catch (err) {
+    await logErrorAt(env, 'backend-aiFix', 'createAiFixPr', err, { fixId, errorId: fix.error_id });
+    await updateFixRow(env, fixId, { error_message: (err.userMessage || err.message || 'PR creation failed').slice(0, 500) }).catch(() => {});
+    throw err;
+  }
 }

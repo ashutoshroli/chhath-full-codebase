@@ -395,6 +395,7 @@ export const api = {
   generateAiFix: (errorId) => call('generateAiFix', { errorId }),
   getAiFixes: (errorId) => call('getAiFixes', { errorId }),
   getAiFix: (fixId) => call('getAiFix', { fixId }),
+  createAiFixPr: (fixId) => call('createAiFixPr', { fixId }),
 
   // Loan Consent — Admin
   getLoanConsents: (loanId) => call('getLoanConsents', { loanId }),
