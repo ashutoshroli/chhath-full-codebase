@@ -1,41 +1,79 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 import Modal from './Modal.jsx';
 import { driveImageUrl, driveImgOnError } from '../driveUrl.js';
+
+const DEFAULT_DURATION_MS = 5000;
+function clampDurationMs(ms) {
+  const n = parseInt(ms, 10);
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_DURATION_MS;
+  if (n < 1000) return 1000;
+  if (n > 60000) return 60000;
+  return n;
+}
 
 export default function LoginPopups() {
   const [popups, setPopups] = useState(null);
   const [popupIndex, setPopupIndex] = useState(0);
   const [slideIndex, setSlideIndex] = useState(0);
+  // Auto-play pauses while the pointer is over the card (mirrors the public
+  // portal), and re-arms when the shown slide changes.
+  const pausedRef = useRef(false);
+  const timerRef = useRef(null);
 
   useEffect(() => {
     api.getActivePopups().then(setPopups).catch(() => setPopups([]));
   }, []);
 
-  if (!popups || popups.length === 0 || popupIndex >= popups.length) return null;
+  const valid = popups && popups.length > 0 && popupIndex < popups.length;
+  const popup = valid ? popups[popupIndex] : null;
+  const slideCount = popup ? popup.slides.length : 0;
 
-  const popup = popups[popupIndex];
+  useEffect(() => {
+    // Within a popup, auto-advance through its slides on each slide's own
+    // duration and LOOP back to the first slide (login popups don't auto-jump to
+    // the NEXT popup — the visitor uses Skip/Next Announcement for that, matching
+    // the previous manual behaviour). No timer for a single-slide popup or while
+    // paused. Cleanup clears the timer so they never stack.
+    if (!popup || slideCount <= 1 || pausedRef.current) return undefined;
+    const ms = clampDurationMs(popup.slides[slideIndex] && popup.slides[slideIndex].duration_ms);
+    timerRef.current = setTimeout(() => {
+      setSlideIndex((i) => (i + 1) % slideCount);
+    }, ms);
+    return () => { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; } };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slideIndex, slideCount, popupIndex]);
+
+  if (!valid) return null;
+
   const slide = popup.slides[slideIndex];
-  const isLastSlide = slideIndex === popup.slides.length - 1;
+  const isLastSlide = slideIndex === slideCount - 1;
   const isLastPopup = popupIndex === popups.length - 1;
 
+  const clearTimer = () => { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; } };
+
   const goNextPopup = () => {
+    clearTimer();
     if (isLastPopup) {
       setPopups([]); // done — closes for good this session
     } else {
-      setPopupIndex(i => i + 1);
+      setPopupIndex((i) => i + 1);
       setSlideIndex(0);
     }
   };
 
   const next = () => {
-    if (!isLastSlide) setSlideIndex(i => i + 1);
+    if (!isLastSlide) setSlideIndex((i) => i + 1);
     else goNextPopup();
   };
 
   return (
     <Modal open={true} onClose={goNextPopup}>
-      <div style={{ textAlign: 'center' }}>
+      <div
+        style={{ textAlign: 'center' }}
+        onMouseEnter={() => { pausedRef.current = true; clearTimer(); }}
+        onMouseLeave={() => { pausedRef.current = false; setSlideIndex((i) => i); }}
+      >
         {slide.image_url && (
           <img
             src={driveImageUrl(slide.image_url)}
@@ -68,7 +106,7 @@ export default function LoginPopups() {
           </a>
         )}
 
-        {popup.slides.length > 1 && (
+        {slideCount > 1 && (
           <div style={{ display: 'flex', justifyContent: 'center', gap: 6, margin: '10px 0' }}>
             {popup.slides.map((_, i) => (
               <span
