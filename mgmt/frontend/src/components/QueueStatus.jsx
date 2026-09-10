@@ -3,9 +3,16 @@ import { api } from '../api.js';
 import { usePolling } from '../usePolling.js';
 
 // Compact Collection-Queue status strip, shown on Home for every staff role.
-// Polls getCollectionQueueStatus every 10s (and on a `refreshKey` bump, e.g.
-// right after a save) so admins can see background PDF/WhatsApp jobs draining.
+// Polls getCollectionQueueStatus (and on a `refreshKey` bump, e.g. right after a
+// save) so admins can see background PDF/WhatsApp jobs draining.
 // It fails silently — a status hiccup must never disturb the Home screen.
+//
+// Poll interval is 20s (was 10s): Home is the default tab that every staff user
+// lands on, so this poll runs the most of any in the app and reads D1 each tick.
+// 20s halves those idle reads on the shared free-tier D1 budget while still
+// feeling live; the 1.5s re-poll on `refreshKey` (below) keeps it snappy right
+// after a save, which is the only moment sub-20s freshness actually matters.
+const QUEUE_POLL_MS = 20000;
 export default function QueueStatus({ refreshKey }) {
   const [counts, setCounts] = useState(null);
   const [open, setOpen] = useState(false);
@@ -35,7 +42,7 @@ export default function QueueStatus({ refreshKey }) {
   };
 
   // audit P-8: polls only while the tab is VISIBLE, and refreshes once on return.
-  usePolling(load, 10000);
+  usePolling(load, QUEUE_POLL_MS);
 
   // Re-poll shortly after a save so the new job shows up quickly.
   useEffect(() => {
