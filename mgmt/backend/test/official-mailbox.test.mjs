@@ -120,6 +120,34 @@ test('inbound webhook stores attachment metadata (filename/type/id), not bytes',
   assert.equal(att[0].id, 'att_1');
 });
 
+test('inbound webhook parses a WRAPPED {data:{...}} Received-Emails response', async () => {
+  const env = makeEnv();
+  // Resend sometimes wraps the retrieve response in { data: {...} }.
+  stubFetch(async () => ({ ok: true, status: 200, json: async () => ({
+    data: { from: 'w@x.com', to: 'chhath@shaharpura.com', subject: 'Wrapped', html: '<p>body here</p>', text: 'body here' },
+  }) }));
+  try {
+    await handleInboundEmailWebhook(env, { type: 'email.received', data: { email_id: 'rcv_wrap' } });
+  } finally { restoreFetch(); }
+  const row = await last(env, 'inbound');
+  assert.equal(row.from_addr, 'w@x.com', 'from unwrapped from data{}');
+  assert.equal(row.subject, 'Wrapped');
+  assert.equal(row.body_html, '<p>body here</p>', 'body unwrapped from data{}');
+});
+
+test('inbound webhook accepts alternate body field names (body_html/body_text)', async () => {
+  const env = makeEnv();
+  stubFetch(async () => ({ ok: true, status: 200, json: async () => ({
+    from: 'a@b.com', to: 'chhath@shaharpura.com', subject: 'Alt', body_html: '<b>hi</b>', body_text: 'hi',
+  }) }));
+  try {
+    await handleInboundEmailWebhook(env, { type: 'email.received', data: { email_id: 'rcv_alt' } });
+  } finally { restoreFetch(); }
+  const row = await last(env, 'inbound');
+  assert.equal(row.body_html, '<b>hi</b>');
+  assert.equal(row.body_text, 'hi');
+});
+
 test('inbound webhook ignores non-received events', async () => {
   const env = makeEnv();
   let called = false;
