@@ -174,3 +174,30 @@ test('a loan becomes Approved only once ALL consents are verified (by an Admin)'
   for (const c of results) await setConsentVerification(env, c.consent_id, 'verified', '', ADMIN);
   assert.equal(await loanStatus(env, loanId), 'Approved', 'all accepted + verified → Approved');
 });
+
+test('a wrongly-Approved loan (not all verified) is DEMOTED back to Created on the next verify event', async () => {
+  const env = makeEnv();
+  // Simulate old buggy data: loan already stamped 'Approved' but consents only
+  // accepted, not verified.
+  const loanId = await seedAcceptedLoan(env, 'LN-demote');
+  await env.DB_LOANS_EXPENSES.prepare("UPDATE loans SET loan_status = 'Approved' WHERE loan_id = ?").bind('LN-demote').run();
+  assert.equal(await loanStatus(env, loanId), 'Approved', 'precondition: wrongly Approved');
+
+  const { results } = await env.DB_LOANS_EXPENSES.prepare("SELECT consent_id FROM loan_consents WHERE loan_id = ?").bind('LN-demote').all();
+  // Verify just ONE (still not all verified) → recompute must DEMOTE it.
+  await setConsentVerification(env, results[0].consent_id, 'verified', '', ADMIN);
+  assert.equal(await loanStatus(env, loanId), 'Created', 'not all verified → demoted back to Created');
+
+  // Verify the rest → now it re-promotes to Approved.
+  for (const c of results.slice(1)) await setConsentVerification(env, c.consent_id, 'verified', '', ADMIN);
+  assert.equal(await loanStatus(env, loanId), 'Approved', 'all verified → Approved again');
+});
+
+test('a Disbursed loan is never demoted by recompute', async () => {
+  const env = makeEnv();
+  const loanId = await seedAcceptedLoan(env, 'LN-disb');
+  await env.DB_LOANS_EXPENSES.prepare("UPDATE loans SET loan_status = 'Disbursed' WHERE loan_id = ?").bind('LN-disb').run();
+  const { results } = await env.DB_LOANS_EXPENSES.prepare("SELECT consent_id FROM loan_consents WHERE loan_id = ?").bind('LN-disb').all();
+  await setConsentVerification(env, results[0].consent_id, 'verified', '', ADMIN); // triggers recompute
+  assert.equal(await loanStatus(env, loanId), 'Disbursed', 'money already went out — status untouched');
+});
