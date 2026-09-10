@@ -257,18 +257,21 @@
        is always current with no rebuild. -->
   <footer class="site-footer">
     <p class="site-footer-copy">
-      © <span id="footer-yr"></span> <span data-i18n="footer_copyright">Navyuvak Chhath Puja Samiti, Shaharpura. All rights reserved.</span>
+      © <span id="footer-yr"></span>
+      <span data-lang="en">Navyuvak Chhath Puja Samiti, Shaharpura. All rights reserved.</span>
+      <span data-lang="hi">नवयुवक छठ पूजा समिति, शहरपुरा। सर्वाधिकार सुरक्षित।</span>
     </p>
     <p class="site-footer-made">
-      <span data-i18n="footer_made_with">Made with</span>
-      <span class="footer-heart" aria-label="love">🩷</span>
-      <span data-i18n="footer_made_for">for Shaharpura &amp; Gardih</span>
+      <span data-lang="en">Made with <span class="footer-heart" aria-label="love">🩷</span> for Shaharpura &amp; Gardih</span>
+      <span data-lang="hi"><span class="footer-heart" aria-label="प्रेम">🩷</span> से शहरपुरा एवं गरडीह के लिए बनाया गया</span>
     </p>
   </footer>
   <script>
     // Self-contained year fill — independent of script.js so the footer is correct
-    // even if the app script fails to load. The two data-i18n spans are localized
-    // by app.applyStaticLang() (default English if the app script hasn't run).
+    // even if the app script fails to load. The bilingual text uses data-lang
+    // spans toggled purely by CSS on <html lang> (see style.css), so it does NOT
+    // depend on the JS i18n dictionary — this avoids showing raw keys when a
+    // stale-cached script.js and a fresh index.html briefly disagree.
     (function () { var y = document.getElementById('footer-yr'); if (y) y.textContent = new Date().getFullYear(); })();
   </script>
 

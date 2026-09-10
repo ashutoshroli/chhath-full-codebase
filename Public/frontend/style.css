@@ -144,6 +144,14 @@ body { background-color: var(--bg-offwhite); color: var(--text-main); padding-bo
 .site-footer-made { opacity: 0.9; }
 /* Keep the heart its natural pink even where the surrounding text is muted. */
 .footer-heart { font-size: 0.9rem; vertical-align: -1px; }
+
+/* Bilingual footer: show the language matching <html lang>. Default (no lang or
+   lang="en") shows English; lang="hi" shows Hindi. The SPA sets <html lang> in
+   applyStaticLang(). CSS-only so it never shows raw i18n keys. */
+.site-footer [data-lang="hi"] { display: none; }
+.site-footer [data-lang="en"] { display: inline; }
+html[lang="hi"] .site-footer [data-lang="en"] { display: none; }
+html[lang="hi"] .site-footer [data-lang="hi"] { display: inline; }
 @media (min-width: 768px) {
   /* No fixed bottom-nav on desktop, so the extra bottom breathing room isn't
      needed — pull the footer a little tighter to the content. */
