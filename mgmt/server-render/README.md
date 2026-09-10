@@ -55,7 +55,8 @@ The service **fails fast at boot** (clear log message) if any required var is mi
 1. **Create the service.** New + → *Blueprint* and select this repo (uses
    `mgmt/server-render/render.yaml`), **or** New + → *Web Service* with:
    - Root directory: `mgmt/server-render`
-   - Build command: `npm ci`
+   - Build command: `npm install --omit=dev --no-audit --no-fund`
+     (there's no committed `package-lock.json`, so `npm ci` would fail — use `npm install`)
    - Start command: `npm start`
    - Health check path: `/health`
    - Plan: Free (see keep-alive below)

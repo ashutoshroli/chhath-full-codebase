@@ -10,7 +10,9 @@ services:
     runtime: node
     plan: free            # free tier spins down on inactivity; UptimeRobot keeps /health warm (see README)
     rootDir: mgmt/server-render
-    buildCommand: npm ci
+    # `npm install`, not `npm ci`: this package has no committed package-lock.json
+    # (a single dependency, express), and `npm ci` HARD-FAILS without a lockfile.
+    buildCommand: npm install --omit=dev --no-audit --no-fund
     startCommand: npm start
     healthCheckPath: /health
     autoDeploy: false     # deploy manually / on a chosen branch; keep control
