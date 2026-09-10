@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api.js';
 import { isTruthyFlag } from '../flags.js';
+import CleanupPanel from '../components/CleanupPanel.jsx';
 
 // `stack` and `context` were stored in the table but NEVER rendered, so an admin
 // could never see a stack trace — only a one-line message. There was also no
@@ -85,7 +86,7 @@ function ErrorRow({ r, onReport, busy }) {
   );
 }
 
-export default function ErrorLog() {
+export default function ErrorLog({ role }) {
   const [rows, setRows] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -155,6 +156,8 @@ export default function ErrorLog() {
         </button>
       </div>
       {error && <div className="error-banner">{error}</div>}
+
+      <CleanupPanel target="error_log" label="the Error Log" role={role} onDone={() => load(limit)} />
 
       <div className="glass-card" style={{ padding: 12, marginBottom: 12 }}>
         <input

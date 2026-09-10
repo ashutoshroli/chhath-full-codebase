@@ -20,6 +20,7 @@ import * as backup from './backup.js';
 import * as cq from './collectionQueue.js';
 import * as email from './email.js';
 import * as officialMail from './officialMail.js';
+import { cleanupData, cleanupPreview } from './cleanup.js';
 import { bumpDataVersion, getDataVersion } from './dataVersion.js';
 import { healthCheck } from './config.js';
 import { runRetentionSweep, shouldSweepNow } from './retention.js';
@@ -66,7 +67,7 @@ export const READ_ONLY_ACTIONS = new Set([
   'getLoanTemplates',
   'getPendingMessages', 'getStuckMessages',
   'getEmailTemplates', 'getStuckEmails', 'getLoanEmailTemplates', 'getEmailLog',
-  'listOfficialEmails', 'getOfficialEmail',
+  'listOfficialEmails', 'getOfficialEmail', 'cleanupPreview',
   'whatsappDiagnostic',
   'getAnnouncementLinks', 'getCustomAnnouncements', 'getAnnouncementQueue',
   'publicGetSeo', 'getSeoSettings',
@@ -115,6 +116,7 @@ export const EXPECTED_MUTATING_ACTIONS = new Set([
   'addLoanEmailTemplate', 'updateLoanEmailTemplate', 'deleteLoanEmailTemplate',
   // official mailbox (send/reply/mark-read; inbound is the public webhook route above)
   'sendOfficialEmail', 'replyOfficialEmail', 'markOfficialEmailRead',
+  'cleanupData',
   // announcements
   'addCustomAnnouncement', 'updateCustomAnnouncement', 'deleteCustomAnnouncement',
   'generateAnnouncementLink', 'revokeAnnouncementLink',
@@ -904,6 +906,10 @@ export default {
       sendOfficialEmail: () => withAuth(env, req, (user) => officialMail.sendOfficialEmail(env, { to: req.to, cc: req.cc, subject: req.subject, body: req.body, attachments: req.attachments }, user)),
       replyOfficialEmail: () => withAuth(env, req, (user) => officialMail.replyOfficialEmail(env, { messageId: req.message_id, body: req.body, attachments: req.attachments }, user)),
       markOfficialEmailRead: () => withAuth(env, req, (user) => officialMail.markOfficialEmailRead(env, req.message_id, user)),
+
+      // ---- Data cleanup (Superadmin) ----
+      cleanupPreview: () => withAuth(env, req, (user) => cleanupPreview(env, req.target, req.mode, req.days, user)),
+      cleanupData: () => withAuth(env, req, (user) => cleanupData(env, req.target, req.mode, req.days, user)),
 
       // ---- WhatsApp: Diagnostic endpoint (Superadmin only) ----
       whatsappDiagnostic: () => withAuth(env, req, async (user) => {
