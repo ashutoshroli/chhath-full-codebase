@@ -377,6 +377,11 @@ const app = {
   // the page is refreshed, not just once per browser.
   popupSlides: [],
   popupIndex: 0,
+  // Auto-play state. `_popupTimer` holds the pending setTimeout id (null = none).
+  // `_popupPaused` is set while the visitor is interacting (hovering the card or
+  // pressing an arrow) so the slide does not jump out from under them.
+  _popupTimer: null,
+  _popupPaused: false,
 
   loadPopup: (baseApiUrl, version) => {
     // Version-keyed URL so activePopups is served from the edge cache too; falls
@@ -397,6 +402,10 @@ const app = {
         app.popupIndex = 0;
         app.renderPopupSlide();
         document.getElementById('popup-overlay').style.display = 'flex';
+        // Auto-play kicks in only when there is more than one slide. Hovering the
+        // card pauses it (so a visitor reading a slide isn't rushed); leaving
+        // resumes. renderPopupSlide() above already armed the timer for slide 0.
+        app.setupPopupAutoPlayPause();
       })
       // The popup is non-critical, so we still never surface an error to the
       // visitor — but it IS reported now, instead of being discarded entirely.
@@ -424,6 +433,57 @@ const app = {
     } else {
       navEl.style.display = 'none';
     }
+    // Re-arm the auto-play countdown for whatever slide is now shown. This makes a
+    // manual arrow press also reset the timer (the new slide gets its full time),
+    // and it is what advances the loop after each auto-transition.
+    app.scheduleAutoAdvance();
+  },
+
+  // ---- Auto-play (loops through the slides on a per-slide timer) ----
+  // The duration comes from mgmt (popup_slides.duration_ms). Backend already
+  // coalesces NULL/0 to 5000ms and clamps 1000-60000ms, but we re-clamp here so a
+  // stale cached payload from before that logic can't stall or flicker the popup.
+  clampSlideDuration: (ms) => {
+    var n = parseInt(ms, 10);
+    if (!isFinite(n) || n <= 0) return 5000;
+    if (n < 1000) return 1000;
+    if (n > 60000) return 60000;
+    return n;
+  },
+
+  clearAutoAdvance: () => {
+    if (app._popupTimer) { clearTimeout(app._popupTimer); app._popupTimer = null; }
+  },
+
+  // (Re)arm the timer for the CURRENT slide. Called after every render, so each
+  // slide is shown for its own duration. Does nothing for a single-slide popup or
+  // while paused (hover). The modulo in popupNextSlide gives the loop.
+  scheduleAutoAdvance: () => {
+    app.clearAutoAdvance();
+    if (app.popupSlides.length <= 1 || app._popupPaused) return;
+    var slide = app.popupSlides[app.popupIndex];
+    var ms = app.clampSlideDuration(slide && slide.duration_ms);
+    app._popupTimer = setTimeout(function () {
+      app._popupTimer = null;
+      // advance() = next slide + re-arm; wraps to 0 after the last (loop).
+      app.popupIndex = (app.popupIndex + 1) % app.popupSlides.length;
+      app.renderPopupSlide();
+    }, ms);
+  },
+
+  // Pause auto-play while the pointer is over the card; resume on leave. Bound
+  // once per open (guarded by a data flag) so repeated opens don't stack handlers.
+  setupPopupAutoPlayPause: () => {
+    var card = document.querySelector('#popup-overlay .popup-card');
+    if (!card || card.dataset.autoplayBound === '1') return;
+    card.dataset.autoplayBound = '1';
+    var pause = function () { app._popupPaused = true; app.clearAutoAdvance(); };
+    var resume = function () { app._popupPaused = false; app.scheduleAutoAdvance(); };
+    card.addEventListener('mouseenter', pause);
+    card.addEventListener('mouseleave', resume);
+    // Touch devices have no hover: a tap pauses, and auto-play resumes when the
+    // overlay is next shown (each open re-schedules from scratch).
+    card.addEventListener('touchstart', pause, { passive: true });
   },
 
   popupPrevSlide: () => {
@@ -437,6 +497,7 @@ const app = {
   },
 
   closePopup: () => {
+    app.clearAutoAdvance();
     document.getElementById('popup-overlay').style.display = 'none';
   },
 
