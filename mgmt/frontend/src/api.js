@@ -315,8 +315,8 @@ export const api = {
   // Official mailbox (chhath@shaharpura.com)
   listOfficialEmails: (box, limit) => call('listOfficialEmails', { box, limit }),
   getOfficialEmail: (message_id) => call('getOfficialEmail', { message_id }),
-  sendOfficialEmail: (to, cc, subject, body) => call('sendOfficialEmail', { to, cc, subject, body }),
-  replyOfficialEmail: (message_id, body) => call('replyOfficialEmail', { message_id, body }),
+  sendOfficialEmail: (to, cc, subject, body, attachments) => call('sendOfficialEmail', { to, cc, subject, body, attachments }),
+  replyOfficialEmail: (message_id, body, attachments) => call('replyOfficialEmail', { message_id, body, attachments }),
   markOfficialEmailRead: (message_id) => call('markOfficialEmailRead', { message_id }),
   // Loan email (Resend) templates
   getLoanEmailTemplates: (type) => call('getLoanEmailTemplates', { type }),

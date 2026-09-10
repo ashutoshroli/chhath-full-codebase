@@ -1,0 +1,22 @@
+-- ============================================================================
+-- official_emails.attachments — 2026-09-05  ·  DB: chhath-whatsapp-index
+--
+-- Adds an `attachments` column to official_emails (JSON array of attachment
+-- metadata: outbound [{filename}], inbound [{filename, contentType, id}]).
+--
+-- WHY THIS FILE APPLIES NOTHING (comment-only, like migrations 10-13):
+-- SQLite has no `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, and the committed
+-- schema (schema/whatsapp_index.sql) ALREADY defines `attachments` on
+-- official_emails — so a fresh DB built from the schema needs no change, and
+-- running an ALTER here against that schema would fail "duplicate column name".
+-- To stay idempotent + CI-safe, this migration ships the exact one-line command
+-- as a comment; run it ONCE by hand against the LIVE database that predates this
+-- column. A second run harmlessly reports "duplicate column name: attachments".
+--
+-- RUN ONCE against the live DB:
+--   wrangler d1 execute chhath-whatsapp-index --remote --command "ALTER TABLE official_emails ADD COLUMN attachments TEXT"
+--
+-- (No index needed — attachments is read/written per-row, never filtered on.)
+-- ============================================================================
+
+-- (intentionally no executable statements — see the command above)
