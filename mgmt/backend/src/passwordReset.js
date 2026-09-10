@@ -3,26 +3,31 @@
 //
 // Flow (decisions confirmed with the team):
 //   1. requestPasswordReset(name): the user types their identifier (name / mobile
-//      / email). If it resolves to a login with an email on file, we email a
-//      single-use 6-digit CODE (not a link — a scanner-following link could burn
-//      the code before the user sees it). The response is ALWAYS generic
-//      (anti-enumeration).
+//      / email). We FIND it against the Login Management list (login_users) and
+//      return a DISTINCT outcome:
+//        * found + has email        -> a 6-digit code is emailed; {sent:true,
+//                                       maskedEmail} is returned.
+//        * found + NO email on file -> {code:'NO_EMAIL'} ("contact committee admin").
+//        * not found                -> {code:'NOT_FOUND'} ("no account found").
+//        * per-account cap exceeded -> {code:'RATE_LIMITED', retryAfterSeconds}.
+//      NOTE: this is intentionally NOT anti-enumeration — the team asked for clear,
+//      distinct feedback so a real user immediately knows whether their account
+//      exists / can receive a code. Brute-force is still bounded by the per-account
+//      3/hour cap, the per-IP 20/min cap (index.js), and the timing floor below.
 //   2. resetPassword(name, code, newPassword): verify the code (bound to that
 //      exact user), enforce password strength by role, write the new PBKDF2 hash,
 //      revoke ALL sessions, and email a "your password was changed" notification.
 //      We do NOT auto-log-in — the user returns to the login screen, so a
 //      Superadmin's 2FA is still enforced on the next login.
 //
-// Six extra security additions layered on top of the base flow:
-//   (1) TIMING: every response is padded to a random 100–300 ms floor so valid vs
-//       invalid identifiers are indistinguishable by response time.
+// Security additions layered on top of the base flow:
+//   (1) TIMING: every response is padded to a random 150–350 ms floor (the
+//       not-found path included) so response time doesn't leak extra signal.
 //   (2) PER-ACCOUNT RATE LIMIT: max 3 reset requests / account / hour (KV), in
-//       addition to the per-IP 20/min cap enforced by index.js.
+//       addition to the per-IP 20/min cap enforced by index.js. When exceeded we
+//       return RATE_LIMITED + retryAfterSeconds for a client-side countdown.
 //   (3) NOTIFICATION EMAIL: on a successful change, a second email is sent with
 //       the time + IP and a "if this wasn't you, contact the committee admin" note.
-//   (4) NO-EMAIL HANDLING: an account with no email on file cannot receive a code;
-//       we still return the SAME generic message (no enumeration) — the person is
-//       told out-of-band to contact an admin.
 //   (5) TOKEN BINDING: the KV challenge stores the login row's id; resetPassword
 //       requires BOTH the code AND the matching identifier, and re-checks the
 //       resolved row id === the bound id, so a code minted for one user can never
@@ -50,26 +55,37 @@ const PER_ACCOUNT_WINDOW_SECONDS = 60 * 60;
 const MIN_PASSWORD_LENGTH = 8;                 // matches account.js
 const SUPERADMIN_MIN_LENGTH = 12;              // addition (6)
 
-// One generic message for BOTH request outcomes (exists / doesn't / no email) so
-// nothing about the account can be inferred (additions 4 + timing 1).
-const GENERIC_REQUEST_MESSAGE =
-  'If an account matches and has an email on file, a 6-digit reset code has been sent. '
-  + 'If you have no email on file, contact a committee admin to reset your password.';
-
 // ---- addition (1): constant-ish timing ----
-// Pad every response to at least a random 100–300 ms floor. Combined with the fact
-// that we still do the DB lookup on the not-found path, valid and invalid
-// identifiers become indistinguishable by timing.
+// Pad every response to at least a random 150–350 ms floor (the not-found path
+// included) so response time doesn't leak extra signal.
 function randomDelayMs() {
   const buf = new Uint32Array(1);
   crypto.getRandomValues(buf);
-  return 100 + (buf[0] % 201); // 100..300 ms
+  return 150 + (buf[0] % 201); // 150..350 ms
 }
 async function withMinDelay(startedAt, result) {
   const target = randomDelayMs();
   const elapsed = Date.now() - startedAt;
   if (elapsed < target) await new Promise(r => setTimeout(r, target - elapsed));
   return result;
+}
+
+// Masks an email for display: "superadmin@gmail.com" -> "s••••••••n@g•••.com".
+// Enough to confirm which address received the code without revealing it in full.
+function maskEmail(email) {
+  const e = (email || '').toString().trim();
+  const at = e.indexOf('@');
+  if (at < 1) return '••••';
+  const local = e.slice(0, at);
+  const domain = e.slice(at + 1);
+  const maskPart = (s, keepStart, keepEnd) => {
+    if (s.length <= keepStart + keepEnd) return s[0] ? s[0] + '•••' : '•••';
+    return s.slice(0, keepStart) + '•'.repeat(Math.max(3, s.length - keepStart - keepEnd)) + s.slice(s.length - keepEnd);
+  };
+  const dot = domain.lastIndexOf('.');
+  const domName = dot > 0 ? domain.slice(0, dot) : domain;
+  const tld = dot > 0 ? domain.slice(dot) : '';
+  return `${maskPart(local, 1, 1)}@${maskPart(domName, 1, 0)}${tld}`;
 }
 
 // ---- addition (6): role-based password policy ----
@@ -92,18 +108,25 @@ export function validatePasswordForRole(role, password) {
 }
 
 // ---- addition (2): per-account request cap (3/hour) ----
-// Fixed-window counter keyed on the resolved login name. Fails OPEN on KV trouble
-// so a KV hiccup can never permanently block a legitimate reset.
+// Fixed-window counter keyed on the resolved login name. Returns
+// { allowed, retryAfterSeconds } — when blocked, retryAfterSeconds is how long
+// until the current hour bucket rolls over (for a client-side countdown). Fails
+// OPEN on KV trouble so a KV hiccup can never permanently block a legitimate reset.
 async function accountRequestAllowed(env, name) {
-  if (!env || !env.KV_SESSIONS) return true;
+  if (!env || !env.KV_SESSIONS) return { allowed: true, retryAfterSeconds: 0 };
   try {
-    const bucket = Math.floor(Date.now() / (PER_ACCOUNT_WINDOW_SECONDS * 1000));
+    const nowMs = Date.now();
+    const windowMs = PER_ACCOUNT_WINDOW_SECONDS * 1000;
+    const bucket = Math.floor(nowMs / windowMs);
     const key = `${PER_ACCOUNT_PREFIX}${name}:${bucket}`;
     const current = parseInt((await env.KV_SESSIONS.get(key)) || '0', 10) || 0;
-    if (current >= PER_ACCOUNT_MAX_PER_HOUR) return false;
+    if (current >= PER_ACCOUNT_MAX_PER_HOUR) {
+      const retryAfterSeconds = Math.max(1, Math.ceil(((bucket + 1) * windowMs - nowMs) / 1000));
+      return { allowed: false, retryAfterSeconds };
+    }
     await env.KV_SESSIONS.put(key, String(current + 1), { expirationTtl: PER_ACCOUNT_WINDOW_SECONDS + 5 });
-    return true;
-  } catch (e) { return true; }
+    return { allowed: true, retryAfterSeconds: 0 };
+  } catch (e) { return { allowed: true, retryAfterSeconds: 0 }; }
 }
 
 // hex of the ASCII bytes of a short string, so digit codes can go through the
@@ -120,23 +143,47 @@ function asciiHex(str) {
 // ============================================================================
 export async function requestPasswordReset(env, name, ip) {
   const startedAt = Date.now();
-  const generic = { success: true, message: GENERIC_REQUEST_MESSAGE };
 
-  if (!name || !name.toString().trim()) return withMinDelay(startedAt, generic);
+  if (!name || !name.toString().trim()) {
+    return withMinDelay(startedAt, {
+      success: false, code: 'NOT_FOUND',
+      message: 'Enter your username, mobile, or email.',
+    });
+  }
   const identifier = name.toString().trim();
 
+  // FIND against the Login Management list (login_users). name / 10-digit mobile /
+  // email are all resolved here (email COLLATE NOCASE).
   const row = await findLoginRowByIdentifier(env, identifier);
 
-  // addition (4): unknown account OR account with no email -> same generic path.
-  // Still fall through the delay so timing doesn't reveal the difference.
-  if (!row || !row.email || !row.email.toString().trim()) {
-    return withMinDelay(startedAt, generic);
+  // Not found -> distinct NOT_FOUND (team decision: clear feedback, not anti-enum).
+  if (!row) {
+    return withMinDelay(startedAt, {
+      success: false, code: 'NOT_FOUND',
+      message: 'No account found with that username, mobile, or email.',
+    });
   }
 
-  // addition (2): per-account cap. Silently succeed (generic) when exceeded so an
-  // attacker can't tell they hit the cap.
-  if (!(await accountRequestAllowed(env, row.name.toString().trim()))) {
-    return withMinDelay(startedAt, generic);
+  const loginName = row.name.toString().trim();
+
+  // Found but NO email on file -> can't email a code; tell them to contact an admin.
+  if (!row.email || !row.email.toString().trim()) {
+    return withMinDelay(startedAt, {
+      success: false, code: 'NO_EMAIL',
+      message: 'This account has no email on file. Contact a committee admin to reset your password.',
+    });
+  }
+
+  // addition (2): per-account cap (3/hour). When exceeded, return RATE_LIMITED with
+  // retryAfterSeconds for a client-side countdown.
+  const cap = await accountRequestAllowed(env, loginName);
+  if (!cap.allowed) {
+    const mins = Math.max(1, Math.ceil(cap.retryAfterSeconds / 60));
+    return withMinDelay(startedAt, {
+      success: false, code: 'RATE_LIMITED',
+      retryAfterSeconds: cap.retryAfterSeconds,
+      message: `Too many reset requests. Try again in ${mins} minute${mins === 1 ? '' : 's'}.`,
+    });
   }
 
   // addition (5): token binding — the challenge is stored under the login NAME and
@@ -144,12 +191,12 @@ export async function requestPasswordReset(env, name, ip) {
   const code = randomOtp(); // CSPRNG 6-digit
   const challenge = {
     userId: row.id,
-    name: row.name.toString().trim(),
+    name: loginName,
     role: row.role,
     attempts: 0,
     createdAt: Date.now(),
   };
-  const key = RESET_PREFIX + row.name.toString().trim();
+  const key = RESET_PREFIX + loginName;
   await env.KV_SESSIONS.put(
     key,
     JSON.stringify({ ...challenge, code }),
@@ -163,11 +210,15 @@ export async function requestPasswordReset(env, name, ip) {
     `Enter it on the "Forgot password" screen along with your new password.\n\n` +
     `If you did NOT request this, ignore this email — your password is unchanged.`;
 
-  // Best-effort send; generic response returned regardless (can't distinguish send
-  // success/failure either).
+  // Best-effort send (never throws).
   await sendViaResend(env, { to: row.email.toString().trim(), subject, body }).catch(() => {});
 
-  return withMinDelay(startedAt, generic);
+  return withMinDelay(startedAt, {
+    success: true,
+    sent: true,
+    maskedEmail: maskEmail(row.email),
+    message: `A 6-digit reset code has been sent to ${maskEmail(row.email)}.`,
+  });
 }
 
 // ============================================================================
