@@ -78,6 +78,10 @@ const SCHEMA_FOR_MIGRATION = {
   // ADD COLUMN migration, so it is in SCHEMA_ONLY_MIGRATIONS below (a second run
   // legitimately errors on the duplicate column) and asserted separately.
   '22-login-users-totp.sql': 'core.sql',
+  // render_jobs table (Render offload). CREATE TABLE/INDEX IF NOT EXISTS against
+  // the misc DB (schema/misc.sql already defines it), so it applies on a fresh
+  // schema and a second run is a no-op — like 15/17/20/21.
+  '23-render-jobs.sql': 'misc.sql',
 };
 
 // Migrations that legitimately do more than CREATE INDEX. Keep this list as short

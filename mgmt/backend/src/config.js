@@ -30,6 +30,10 @@ const FEATURE_SECRETS = [
   'WHATSAPP_QUEUE_API_KEY',
   'DRIVE_FOLDER_ID', 'DRIVE_ROOT_FOLDER_ID',
   'DRIVE_OAUTH_CLIENT_ID', 'DRIVE_OAUTH_CLIENT_SECRET', 'DRIVE_OAUTH_REFRESH_TOKEN',
+  // Render offload (AI fix generation + PR creation). Warn-only: the portal runs
+  // without them; only the "Fix using AI" feature degrades until they're set.
+  // RENDER_SERVICE_URL is a non-secret var, checked separately below.
+  'RENDER_API_KEY', 'RENDER_WEBHOOK_SECRET',
 ];
 const REQUIRED_VARS = ['CONSENT_BASE_URL'];
 
@@ -69,6 +73,13 @@ export function checkConfig(env) {
       'frontend origin(s) BEFORE enabling M-10 preflight or H-12 cookie auth, or those changes ' +
       'will take the whole app offline. See docs/CORS_COOKIE_MIGRATION.md)'
     );
+  }
+
+  // Render offload service URL (non-secret var). Warn-only — without it the AI-fix
+  // dispatch has nowhere to send jobs, but the rest of the portal is unaffected.
+  const renderUrl = (env && env.RENDER_SERVICE_URL ? env.RENDER_SERVICE_URL.toString() : '').trim();
+  if (!renderUrl) {
+    featureWarnings.push('RENDER_SERVICE_URL (unset — AI fix generation/PR creation cannot be dispatched to Render until set)');
   }
 
   const ok = missing.d1.length === 0 && missing.bindings.length === 0 &&

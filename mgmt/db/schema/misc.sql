@@ -96,3 +96,38 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_collection_jobs_job_id ON collection_jobs(j
 -- The queue-drain poll filters on (status, attempts); this index keeps it off a
 -- full scan of the (fat, filled_base64-bearing) table. See migration 2026-09-05/14.
 CREATE INDEX IF NOT EXISTS idx_collection_jobs_status_attempts ON collection_jobs(status, attempts);
+
+
+-- source: app feature (Render offload) — see migration/2026-09-05/23-render-jobs.sql
+-- Generic job queue for work OFFLOADED to the external Render service (long-running
+-- AI fix generation + PR creation that would hit the Worker's CPU/subrequest
+-- limits). The Worker is the single source of truth for job STATE; Render only
+-- computes and calls back. Lifecycle:
+--   pending -> dispatched -> completed | failed
+-- The Worker INSERTs a 'pending' row, POSTs the job to Render (X-Render-Api-Key),
+-- marks it 'dispatched'; Render calls back on completion (X-Render-Signature) and
+-- the Worker saves the result and marks 'completed'/'failed'. A reconciliation
+-- cron re-dispatches or times out rows stuck in 'dispatched'. `job_id` is the
+-- idempotency key (a duplicate callback for a finished job is a no-op).
+CREATE TABLE IF NOT EXISTS render_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id TEXT,                       -- Worker-generated unique id (idempotency key)
+  kind TEXT NOT NULL,                -- 'ai_fix_generate' | 'ai_pr_create' (extensible)
+  status TEXT NOT NULL DEFAULT 'pending', -- pending | dispatched | completed | failed
+  payload TEXT,                      -- JSON input sent to Render (references only, no big blobs)
+  result TEXT,                       -- JSON result from Render's callback
+  error TEXT,                        -- failure reason (dispatch failure / Render error / timeout)
+  render_job_id TEXT,                -- Render's own id, if it returns one (cross-ref)
+  ref_id TEXT,                       -- domain reference (e.g. the ai_fixes.fix_id this job drives)
+  attempts INTEGER DEFAULT 0,
+  max_attempts INTEGER DEFAULT 3,
+  created_by TEXT,
+  created_at TEXT,
+  dispatched_at TEXT,
+  finished_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_render_jobs_job_id ON render_jobs(job_id);
+CREATE INDEX IF NOT EXISTS idx_render_jobs_status ON render_jobs(status);
+-- The reconciliation cron scans (status, dispatched_at) for stuck 'dispatched' rows.
+CREATE INDEX IF NOT EXISTS idx_render_jobs_status_dispatched ON render_jobs(status, dispatched_at);
+CREATE INDEX IF NOT EXISTS idx_render_jobs_ref_id ON render_jobs(ref_id);
