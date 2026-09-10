@@ -292,7 +292,9 @@ function detectLoginIdentifierType(v) {
   return 'name';
 }
 
-async function findLoginRowByIdentifier(env, identifier) {
+// Resolves a typed identifier (name / 10-digit mobile / email) to its login_users
+// row. Exported so the password-reset flow can resolve the same way login does.
+export async function findLoginRowByIdentifier(env, identifier) {
   const type = detectLoginIdentifierType(identifier);
   const val = identifier.toString().trim();
   const col = type === 'mobile' ? 'mobile' : type === 'email' ? 'email' : 'name';
