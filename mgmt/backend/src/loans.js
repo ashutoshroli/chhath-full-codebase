@@ -507,8 +507,17 @@ async function recomputeLoanStatus(env, loanId) {
   const rows = results || [];
   const allAcceptedAndVerified = rows.length > 0 &&
     rows.every(c => c.status === 'accepted' && c.verification_status === 'verified');
-  if (!allAcceptedAndVerified) return;
-  await env.DB_LOANS_EXPENSES.prepare("UPDATE loans SET loan_status = 'Approved' WHERE loan_id = ? AND loan_status = 'Created'").bind(loanId).run();
+  if (allAcceptedAndVerified) {
+    // Promote once everyone is accepted + verified.
+    await env.DB_LOANS_EXPENSES.prepare("UPDATE loans SET loan_status = 'Approved' WHERE loan_id = ? AND loan_status = 'Created'").bind(loanId).run();
+  } else {
+    // Self-heal: if a loan is sitting at 'Approved' but the consents are NOT all
+    // accepted+verified (e.g. it was approved by the old buggy code, or a consent
+    // was later reset/replaced), demote it back to 'Created' so it can't be
+    // disbursed until verification actually completes. A 'Disbursed' loan is left
+    // alone (money already went out).
+    await env.DB_LOANS_EXPENSES.prepare("UPDATE loans SET loan_status = 'Created' WHERE loan_id = ? AND loan_status = 'Approved'").bind(loanId).run();
+  }
 }
 
 async function findConsentRowByToken(env, token) {
@@ -982,6 +991,13 @@ export async function setConsentVerification(env, consentId, status, remarks, us
     'UPDATE loan_consents SET verification_status = ?, verification_remarks = ?, verified_by = ?, verified_at = ? WHERE consent_id = ?'
   ).bind(status, remarks || '', user.name, new Date().toISOString(), consentId).run();
   if (!result.meta.changes) throw ValidationError('Consent record not found.');
+  // Re-evaluate the loan's Approved gate on EVERY verification change (verify or
+  // reject): promotes to Approved once all consents are accepted+verified, and
+  // demotes a wrongly-Approved loan back to Created otherwise. (notifyConsentVerified
+  // also recomputes, but only in its all-verified branch — this covers partial
+  // verifies + rejects too.)
+  const consentRow = await env.DB_LOANS_EXPENSES.prepare('SELECT loan_id FROM loan_consents WHERE consent_id = ?').bind(consentId).first().catch(() => null);
+  if (consentRow && consentRow.loan_id) await recomputeLoanStatus(env, consentRow.loan_id);
   if (status === 'verified') await notifyConsentVerified(env, consentId);
   return { success: true };
 }
