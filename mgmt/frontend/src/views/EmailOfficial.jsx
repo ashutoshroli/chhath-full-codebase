@@ -17,11 +17,14 @@ function fmtDate(s) {
 
 // Render a stored message body safely: prefer sanitized HTML, else text→<br>.
 function BodyView({ html, text }) {
-  if (html) {
+  if (html && html.trim()) {
     const clean = DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
     return <div style={{ fontSize: '0.9rem', lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: clean }} />;
   }
-  return <div style={{ fontSize: '0.9rem', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{text || ''}</div>;
+  if (text && text.trim()) {
+    return <div style={{ fontSize: '0.9rem', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{text}</div>;
+  }
+  return <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>(No message body — the email had no text/HTML content, or its body could not be retrieved.)</div>;
 }
 
 export default function EmailOfficial() {

@@ -231,18 +231,32 @@ export async function handleInboundEmailWebhook(env, payload) {
           headers: { Authorization: `Bearer ${env.RESEND_API_KEY}` },
         });
         if (resp.ok) {
-          const full = await resp.json();
-          from = (Array.isArray(full.from) ? full.from[0] : full.from) || from;
-          to = (Array.isArray(full.to) ? full.to[0] : full.to) || to;
+          const raw = await resp.json();
+          // Resend responses are sometimes flat ({html,text,...}) and sometimes
+          // wrapped ({data:{...}}). Unwrap `data` if present, tolerate both.
+          const full = (raw && raw.data && typeof raw.data === 'object') ? raw.data : raw;
+          const pickAddr = (v) => Array.isArray(v) ? (v[0] || '') : (v || '');
+          from = pickAddr(full.from) || from;
+          to = pickAddr(full.to) || to;
           subject = full.subject || subject;
-          bodyHtml = full.html || '';
-          bodyText = full.text || '';
-          if (Array.isArray(full.attachments) && full.attachments.length) {
-            attachments = full.attachments.slice(0, 20).map(a => ({
+          // Field names have varied across Resend's inbound rollout — accept the
+          // common variants so the body is never silently dropped.
+          bodyHtml = full.html || full.body_html || full.htmlBody || (full.body && full.body.html) || '';
+          bodyText = full.text || full.body_text || full.textBody || (full.body && full.body.text) || '';
+          const attList = full.attachments || (full.data && full.data.attachments);
+          if (Array.isArray(attList) && attList.length) {
+            attachments = attList.slice(0, 20).map(a => ({
               filename: (a && (a.filename || a.name) || 'attachment').toString().slice(0, 200),
               contentType: (a && (a.content_type || a.contentType) || '').toString().slice(0, 100),
               id: (a && a.id != null) ? a.id.toString() : '',
             }));
+          }
+          // If the API returned neither html nor text, keep a visible note instead
+          // of a blank message, and log the shape so we can see what came back.
+          if (!bodyHtml && !bodyText) {
+            await logWarn(env, 'official-mail', 'inbound:emptyBody',
+              `Received-emails API returned no html/text for ${receivedId}. Keys: ${Object.keys(full || {}).join(',')}`,
+              { receivedId });
           }
         } else {
           await logWarn(env, 'official-mail', 'inbound:fetchBody',
