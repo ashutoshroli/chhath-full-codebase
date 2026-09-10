@@ -58,6 +58,10 @@ const SCHEMA_FOR_MIGRATION = {
   // official mailbox: adds official_emails to the whatsapp-index DB (already in
   // the committed schema); CREATE IF NOT EXISTS so a second run is a no-op.
   '17-official-mailbox.sql': 'whatsapp_index.sql',
+  // official_emails.attachments — comment-only (like 10-13): the column is in the
+  // committed schema; the live-DB ALTER ships as a documented one-liner. Applies
+  // nothing, so it passes the apply-twice idempotency check trivially.
+  '18-official-emails-attachments.sql': 'whatsapp_index.sql',
 };
 
 // Migrations that legitimately do more than CREATE INDEX. Keep this list as short

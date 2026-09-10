@@ -52,6 +52,24 @@ test('sendOfficialEmail POSTs to Resend (from chhath@) and stores an outbound ro
   assert.equal(row.resend_id, 're_1');
 });
 
+test('sendOfficialEmail forwards attachments to Resend and stores their filenames (not bytes)', async () => {
+  const env = makeEnv();
+  let body = null;
+  stubFetch(async (url, opts) => { body = JSON.parse(opts.body); return { ok: true, status: 200, json: async () => ({ id: 're_att' }) }; });
+  try {
+    await sendOfficialEmail(env, {
+      to: 'x@example.com', subject: 'Doc', body: 'see attached',
+      attachments: [{ filename: 'note.txt', content: 'aGVsbG8=' }],
+    }, SUPER);
+  } finally { restoreFetch(); }
+  assert.equal(body.attachments.length, 1);
+  assert.equal(body.attachments[0].filename, 'note.txt');
+  assert.equal(body.attachments[0].content, 'aGVsbG8=', 'base64 bytes go to Resend');
+  const row = await last(env, 'outbound');
+  const stored = JSON.parse(row.attachments || '[]');
+  assert.deepEqual(stored, [{ filename: 'note.txt' }], 'only the filename is stored in D1, never the bytes');
+});
+
 test('sendOfficialEmail rejects a bad recipient / missing subject / empty body', async () => {
   const env = makeEnv();
   await assert.rejects(() => sendOfficialEmail(env, { to: 'nope', subject: 's', body: 'b' }, SUPER), /valid recipient/i);
@@ -83,6 +101,23 @@ test('inbound webhook fetches the body via the Received Emails API and stores an
   assert.equal(row.body_html, '<p>Hi</p>');
   assert.equal(row.status, 'received');
   assert.equal(row.is_read, 0);
+});
+
+test('inbound webhook stores attachment metadata (filename/type/id), not bytes', async () => {
+  const env = makeEnv();
+  stubFetch(async () => ({ ok: true, status: 200, json: async () => ({
+    from: 's@x.com', to: 'chhath@shaharpura.com', subject: 'With file', html: '<p>hi</p>', text: 'hi',
+    attachments: [{ filename: 'invoice.pdf', content_type: 'application/pdf', id: 'att_1' }],
+  }) }));
+  try {
+    await handleInboundEmailWebhook(env, { type: 'email.received', data: { email_id: 'rcv_att' } });
+  } finally { restoreFetch(); }
+  const row = await last(env, 'inbound');
+  const att = JSON.parse(row.attachments || '[]');
+  assert.equal(att.length, 1);
+  assert.equal(att[0].filename, 'invoice.pdf');
+  assert.equal(att[0].contentType, 'application/pdf');
+  assert.equal(att[0].id, 'att_1');
 });
 
 test('inbound webhook ignores non-received events', async () => {

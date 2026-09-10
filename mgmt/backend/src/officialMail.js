@@ -40,12 +40,18 @@ function textToHtml(text) {
   return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#222">${escapeHtml(text).replace(/\r?\n/g, '<br>')}</div>`;
 }
 
+// Total base64 attachment payload cap. A D1 row is ~1 MB and the Worker request
+// body is limited; keep outbound attachments modest (a few small docs/images).
+const MAX_ATTACH_BASE64 = 3 * 1024 * 1024; // ~3 MB of base64 (~2.2 MB of bytes)
+
 // One Resend send. Returns { ok, id?, error? }. Never throws.
-async function resendSend(env, { to, cc, subject, html, replyToBody }) {
+// `attachments` (optional): [{ filename, content }] where content is base64.
+async function resendSend(env, { to, cc, subject, html, attachments }) {
   const apiKey = env && env.RESEND_API_KEY;
   if (!apiKey) return { ok: false, error: 'RESEND_API_KEY not configured' };
   const payload = { from: officialFrom(env), to: [to], subject: subject || '(no subject)', html };
   if (cc) payload.cc = [cc];
+  if (attachments && attachments.length) payload.attachments = attachments;
   // Replies go back to the official address so the thread stays with the mailbox.
   payload.reply_to = officialFrom(env);
   try {
@@ -64,21 +70,42 @@ async function resendSend(env, { to, cc, subject, html, replyToBody }) {
 
 async function insertRow(env, row) {
   const messageId = row.message_id || generateMessageId();
+  // attachments is a small JSON metadata array (filenames etc.) — never the bytes.
+  const attachmentsJson = row.attachments ? JSON.stringify(row.attachments).slice(0, 4000) : '';
   await db(env).prepare(
     `INSERT INTO ${TABLE} (message_id, direction, resend_id, from_addr, to_addr, cc_addr, subject,
-       body_html, body_text, thread_id, in_reply_to, status, remarks, is_read, created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+       body_html, body_text, thread_id, in_reply_to, status, remarks, is_read, attachments, created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(
     messageId, row.direction, row.resend_id || '', row.from_addr || '', row.to_addr || '', row.cc_addr || '',
     row.subject || '', row.body_html || '', row.body_text || '', row.thread_id || messageId,
-    row.in_reply_to || '', row.status || '', row.remarks || '', row.is_read ? 1 : 0, new Date().toISOString()
+    row.in_reply_to || '', row.status || '', row.remarks || '', row.is_read ? 1 : 0, attachmentsJson, new Date().toISOString()
   ).run();
   return messageId;
 }
 
+// Validate + normalise the compose/reply attachments the frontend sends:
+// [{ filename, content(base64) }]. Returns { attachments, meta } or throws.
+function prepareOutboundAttachments(list) {
+  if (!Array.isArray(list) || !list.length) return { attachments: null, meta: null };
+  let total = 0;
+  const attachments = [];
+  const meta = [];
+  for (const a of list) {
+    const filename = (a && a.filename ? a.filename.toString() : '').trim().slice(0, 200);
+    const content = a && a.content ? a.content.toString() : '';
+    if (!filename || !content) continue;
+    total += content.length;
+    if (total > MAX_ATTACH_BASE64) throw ValidationError('Attachments are too large (max ~2 MB total).');
+    attachments.push({ filename, content });
+    meta.push({ filename });
+  }
+  return { attachments: attachments.length ? attachments : null, meta: meta.length ? meta : null };
+}
+
 // ------------------------------------------------------------------ SEND / REPLY
 
-export async function sendOfficialEmail(env, { to, cc, subject, body }, user) {
+export async function sendOfficialEmail(env, { to, cc, subject, body, attachments }, user) {
   requireSuperadmin(user);
   const toAddr = cleanEmail(to);
   if (!toAddr) throw ValidationError('A valid recipient email is required.');
@@ -86,11 +113,12 @@ export async function sendOfficialEmail(env, { to, cc, subject, body }, user) {
   if (!body || !body.toString().trim()) throw ValidationError('Message body is required.');
   const ccAddr = cc ? cleanEmail(cc) : '';
   const html = textToHtml(body);
+  const { attachments: att, meta: attMeta } = prepareOutboundAttachments(attachments);
 
-  const res = await resendSend(env, { to: toAddr, cc: ccAddr, subject, html });
+  const res = await resendSend(env, { to: toAddr, cc: ccAddr, subject, html, attachments: att });
   const messageId = await insertRow(env, {
     direction: 'outbound', resend_id: res.id || '', from_addr: officialFrom(env), to_addr: toAddr,
-    cc_addr: ccAddr, subject, body_html: html, body_text: body.toString(),
+    cc_addr: ccAddr, subject, body_html: html, body_text: body.toString(), attachments: attMeta,
     status: res.ok ? 'sent' : 'failed', remarks: res.ok ? '' : (res.error || '').slice(0, 300),
   });
   if (!res.ok) {
@@ -100,7 +128,7 @@ export async function sendOfficialEmail(env, { to, cc, subject, body }, user) {
   return { success: true, messageId };
 }
 
-export async function replyOfficialEmail(env, { messageId, body }, user) {
+export async function replyOfficialEmail(env, { messageId, body, attachments }, user) {
   requireSuperadmin(user);
   if (!messageId) throw ValidationError('messageId is required.');
   if (!body || !body.toString().trim()) throw ValidationError('Reply body is required.');
@@ -113,11 +141,12 @@ export async function replyOfficialEmail(env, { messageId, body }, user) {
   if (!toAddr) throw ValidationError('The original message has no valid address to reply to.');
   const subject = /^re:/i.test(orig.subject || '') ? orig.subject : `Re: ${orig.subject || ''}`.trim();
   const html = textToHtml(body);
+  const { attachments: att, meta: attMeta } = prepareOutboundAttachments(attachments);
 
-  const res = await resendSend(env, { to: toAddr, subject, html });
+  const res = await resendSend(env, { to: toAddr, subject, html, attachments: att });
   const newId = await insertRow(env, {
     direction: 'outbound', resend_id: res.id || '', from_addr: officialFrom(env), to_addr: toAddr,
-    subject, body_html: html, body_text: body.toString(),
+    subject, body_html: html, body_text: body.toString(), attachments: attMeta,
     thread_id: orig.thread_id || orig.message_id, in_reply_to: orig.message_id,
     status: res.ok ? 'sent' : 'failed', remarks: res.ok ? '' : (res.error || '').slice(0, 300),
   });
@@ -155,14 +184,16 @@ export async function getOfficialEmail(env, messageId, user) {
   if (!row) throw ValidationError('Message not found.');
   const threadId = row.thread_id || row.message_id;
   const { results: thread } = await db(env).prepare(
-    `SELECT message_id, direction, from_addr, to_addr, cc_addr, subject, body_html, body_text, status, created_at, in_reply_to
+    `SELECT message_id, direction, from_addr, to_addr, cc_addr, subject, body_html, body_text, status, created_at, in_reply_to, attachments
        FROM ${TABLE} WHERE thread_id = ? ORDER BY id ASC`
   ).bind(threadId).all();
+  // Parse the attachments JSON so the UI gets an array (never the bytes).
+  const parseAtt = (m) => { try { return { ...m, attachments: m.attachments ? JSON.parse(m.attachments) : [] }; } catch (e) { return { ...m, attachments: [] }; } };
   // Opening an inbound message marks it read.
   if (row.direction === 'inbound' && !row.is_read) {
     await db(env).prepare(`UPDATE ${TABLE} SET is_read = 1 WHERE message_id = ?`).bind(row.message_id).run().catch(() => {});
   }
-  return { success: true, message: row, thread: thread || [] };
+  return { success: true, message: parseAtt(row), thread: (thread || []).map(parseAtt) };
 }
 
 export async function markOfficialEmailRead(env, messageId, user) {
@@ -191,6 +222,7 @@ export async function handleInboundEmailWebhook(env, payload) {
     let subject = data.subject || '';
     let bodyHtml = '';
     let bodyText = '';
+    let attachments = null; // metadata only (filename/contentType/id) — bytes stay in Resend
 
     // Fetch the full body via the Received Emails API (webhook has metadata only).
     if (receivedId && env.RESEND_API_KEY) {
@@ -205,6 +237,13 @@ export async function handleInboundEmailWebhook(env, payload) {
           subject = full.subject || subject;
           bodyHtml = full.html || '';
           bodyText = full.text || '';
+          if (Array.isArray(full.attachments) && full.attachments.length) {
+            attachments = full.attachments.slice(0, 20).map(a => ({
+              filename: (a && (a.filename || a.name) || 'attachment').toString().slice(0, 200),
+              contentType: (a && (a.content_type || a.contentType) || '').toString().slice(0, 100),
+              id: (a && a.id != null) ? a.id.toString() : '',
+            }));
+          }
         } else {
           await logWarn(env, 'official-mail', 'inbound:fetchBody',
             `Received-emails API returned HTTP ${resp.status} for ${receivedId}`, { receivedId });
@@ -228,7 +267,7 @@ export async function handleInboundEmailWebhook(env, payload) {
     const messageId = await insertRow(env, {
       direction: 'inbound', resend_id: receivedId, from_addr: from, to_addr: to,
       subject, body_html: bodyHtml, body_text: bodyText, thread_id: threadId, // '' -> insertRow defaults to its own id
-      status: 'received', is_read: 0,
+      attachments, status: 'received', is_read: 0,
     });
     return { ok: true, messageId };
   } catch (err) {

@@ -37,7 +37,28 @@ export default function EmailOfficial() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [replyTo, setReplyTo] = useState(null); // message_id when replying, else null
   const [form, setForm] = useState({ to: '', cc: '', subject: '', body: '' });
+  const [attachments, setAttachments] = useState([]); // [{ filename, content(base64) }]
   const [sending, setSending] = useState(false);
+
+  // Read chosen files -> base64 for Resend. Cap total ~2 MB (backend also enforces).
+  const onFiles = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = ''; // allow re-selecting the same file
+    const read = (file) => new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve({ filename: file.name, content: (r.result || '').toString().split(',')[1] || '' });
+      r.onerror = reject;
+      r.readAsDataURL(file);
+    });
+    try {
+      const added = await Promise.all(files.map(read));
+      const next = [...attachments, ...added];
+      const total = next.reduce((s, a) => s + (a.content ? a.content.length : 0), 0);
+      if (total > 3 * 1024 * 1024) return alert('Attachments too large (max ~2 MB total).');
+      setAttachments(next);
+    } catch (err) { alert('Could not read the file.'); }
+  };
+  const removeAttachment = (i) => setAttachments(attachments.filter((_, idx) => idx !== i));
 
   const load = useCallback((silent) => {
     if (!silent) setLoading(true);
@@ -63,11 +84,13 @@ export default function EmailOfficial() {
   const startCompose = () => {
     setReplyTo(null);
     setForm({ to: '', cc: '', subject: '', body: '' });
+    setAttachments([]);
     setComposeOpen(true);
   };
   const startReply = (msg) => {
     setReplyTo(msg.message_id);
     setForm({ to: '', cc: '', subject: '', body: '' });
+    setAttachments([]);
     setComposeOpen(true);
   };
 
@@ -76,12 +99,13 @@ export default function EmailOfficial() {
     if (!form.body.trim()) return alert('Please write a message.');
     setSending(true);
     try {
+      const att = attachments.length ? attachments : undefined;
       if (replyTo) {
-        await api.replyOfficialEmail(replyTo, form.body.trim());
+        await api.replyOfficialEmail(replyTo, form.body.trim(), att);
       } else {
         if (!form.to.trim()) return alert('Recipient is required.');
         if (!form.subject.trim()) return alert('Subject is required.');
-        await api.sendOfficialEmail(form.to.trim(), form.cc.trim(), form.subject.trim(), form.body.trim());
+        await api.sendOfficialEmail(form.to.trim(), form.cc.trim(), form.subject.trim(), form.body.trim(), att);
       }
       setComposeOpen(false);
       setOpenMsg(null);
@@ -152,6 +176,13 @@ export default function EmailOfficial() {
                     {t.status === 'failed' ? ' · failed' : ''}
                   </div>
                   <BodyView html={t.body_html} text={t.body_text} />
+                  {Array.isArray(t.attachments) && t.attachments.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                      {t.attachments.map((a, ai) => (
+                        <span key={ai} className="badge" style={{ background: '#eef2ff', color: '#3730a3' }}>📎 {a.filename || 'attachment'}</span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -183,6 +214,22 @@ export default function EmailOfficial() {
           <div className="form-group">
             <label>Message</label>
             <textarea rows={8} value={form.body} onChange={e => setForm({ ...form, body: e.target.value })} style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #ddd' }} />
+          </div>
+          <div className="form-group">
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+              <span className="material-icons-round" style={{ fontSize: 18 }}>attach_file</span> Attach files (≤ ~2 MB total)
+              <input type="file" multiple onChange={onFiles} style={{ display: 'none' }} />
+            </label>
+            {attachments.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                {attachments.map((a, i) => (
+                  <span key={i} className="badge" style={{ background: '#eef2ff', color: '#3730a3', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    📎 {a.filename}
+                    <span className="material-icons-round" style={{ fontSize: 14, cursor: 'pointer' }} onClick={() => removeAttachment(i)}>close</span>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
           <button className="btn-submit" disabled={sending}>{sending ? 'Sending...' : (replyTo ? 'Send Reply' : 'Send')}</button>
         </form>

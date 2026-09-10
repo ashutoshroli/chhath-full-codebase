@@ -171,6 +171,7 @@ CREATE TABLE IF NOT EXISTS official_emails (
   status TEXT,                  -- outbound: sent|failed ; inbound: received
   remarks TEXT,
   is_read INTEGER DEFAULT 0,    -- inbound unread flag (0/1)
+  attachments TEXT,             -- JSON array: outbound [{filename}], inbound [{filename,contentType,id}]
   created_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_official_emails_direction ON official_emails(direction);

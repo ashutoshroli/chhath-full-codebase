@@ -901,8 +901,8 @@ export default {
       // ---- Official mailbox (chhath@shaharpura.com) — Superadmin ----
       listOfficialEmails: () => withAuth(env, req, (user) => officialMail.listOfficialEmails(env, req.box, { limit: req.limit }, user)),
       getOfficialEmail: () => withAuth(env, req, (user) => officialMail.getOfficialEmail(env, req.message_id, user)),
-      sendOfficialEmail: () => withAuth(env, req, (user) => officialMail.sendOfficialEmail(env, { to: req.to, cc: req.cc, subject: req.subject, body: req.body }, user)),
-      replyOfficialEmail: () => withAuth(env, req, (user) => officialMail.replyOfficialEmail(env, { messageId: req.message_id, body: req.body }, user)),
+      sendOfficialEmail: () => withAuth(env, req, (user) => officialMail.sendOfficialEmail(env, { to: req.to, cc: req.cc, subject: req.subject, body: req.body, attachments: req.attachments }, user)),
+      replyOfficialEmail: () => withAuth(env, req, (user) => officialMail.replyOfficialEmail(env, { messageId: req.message_id, body: req.body, attachments: req.attachments }, user)),
       markOfficialEmailRead: () => withAuth(env, req, (user) => officialMail.markOfficialEmailRead(env, req.message_id, user)),
 
       // ---- WhatsApp: Diagnostic endpoint (Superadmin only) ----
