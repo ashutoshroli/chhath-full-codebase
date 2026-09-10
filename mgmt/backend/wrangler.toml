@@ -79,7 +79,24 @@ RESEND_REPLY_TO = "chhath@shaharpura.com"
 #   email's body via Resend's Received Emails API using RESEND_API_KEY.
 OFFICIAL_FROM = "Chhath Shaharpura Official <chhath@shaharpura.com>"
 
+# ---- AI auto-fix (Error Log "Fix using AI") — NON-secret config ----
+# The repo the fix runs against, "owner/repo". Fine-grained GITHUB_TOKEN (secret,
+# below) must be scoped to ONLY this repo.
+GITHUB_REPO = "ashutoshroli/chhath-full-codebase"
+# Auto-merge a PR once CI passes? Kept "false" by design: AI code can be CI-green
+# but behaviourally wrong, so it must be human-reviewed unless a Superadmin
+# deliberately turns this on. (CI monitoring + this flag are used in the follow-up
+# CI-retry step; harmless to set now.)
+AUTO_MERGE_ENABLED = "false"
+# Claude model for the fix. Overridable so the exact string can be updated without
+# a code change. Falls back to a valid Sonnet default in src/aiFix.js.
+AI_FIX_MODEL = "claude-sonnet-4-5-20250929"
+
 # ---- Secrets (set with `wrangler secret put NAME`, NOT here) ----
+# ANTHROPIC_API_KEY       (Claude API key for src/aiFix.js — `wrangler secret put ANTHROPIC_API_KEY`)
+# GITHUB_TOKEN            (fine-grained PAT scoped to GITHUB_REPO ONLY — Contents R/W,
+#                          Pull requests R/W, Actions: Read, Checks: Read — `wrangler secret put GITHUB_TOKEN`)
+# GITHUB_WEBHOOK_SECRET   (verifies GitHub check_suite webhook signatures — used in the CI-retry step)
 # PASSWORD_SALT
 # WHATSAPP_QUEUE_API_KEY
 # RESEND_API_KEY          (Resend API key for src/email.js + official mailbox — `wrangler secret put RESEND_API_KEY`)

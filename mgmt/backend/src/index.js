@@ -21,6 +21,7 @@ import * as cq from './collectionQueue.js';
 import * as email from './email.js';
 import * as officialMail from './officialMail.js';
 import { cleanupData, cleanupPreview } from './cleanup.js';
+import { generateAiFix, getAiFixes, getAiFix } from './aiFix.js';
 import { bumpDataVersion, getDataVersion } from './dataVersion.js';
 import { healthCheck } from './config.js';
 import { runRetentionSweep, shouldSweepNow } from './retention.js';
@@ -64,6 +65,7 @@ export const READ_ONLY_ACTIONS = new Set([
   'getCollectionQueueStatus', 'getQueueJobsForSuperadmin',
   'getPopups', 'getPopupWithSlides', 'getActivePopups', 'previewPublicPopups',
   'logError', 'reportErrorToWhatsApp', 'getErrorLog',
+  'getAiFixes', 'getAiFix',
   'getActivityLog', 'getLoginAttempts', 'getLockedAccounts', 'getMySessions', 'getUserSessions',
   'getLoanTemplates',
   'getPendingMessages', 'getStuckMessages',
@@ -118,6 +120,9 @@ export const EXPECTED_MUTATING_ACTIONS = new Set([
   // official mailbox (send/reply/mark-read; inbound is the public webhook route above)
   'sendOfficialEmail', 'replyOfficialEmail', 'markOfficialEmailRead',
   'cleanupData',
+  // AI auto-fix — generateAiFix inserts an ai_fixes row (a write), so it must be
+  // here (getAiFixes/getAiFix are reads in READ_ONLY_ACTIONS).
+  'generateAiFix',
   // announcements
   'addCustomAnnouncement', 'updateCustomAnnouncement', 'deleteCustomAnnouncement',
   'generateAnnouncementLink', 'revokeAnnouncementLink',
@@ -886,6 +891,11 @@ export default {
       logError: () => logError(env, req.source, req.page, req.message, req.stack, buildLogContext(req)),
       reportErrorToWhatsApp: () => reportErrorToWhatsApp(env, req.errorId),
       getErrorLog: () => withAuth(env, req, (user) => getErrorLog(env, user, req.limit)),
+      // AI auto-fix (Superadmin-only; enforced inside each handler). PR-1 scope:
+      // generate a fix + preview it. Branch/PR is PR-2, CI retry is PR-3.
+      generateAiFix: () => withAuth(env, req, (user) => generateAiFix(env, req.errorId, user)),
+      getAiFixes: () => withAuth(env, req, (user) => getAiFixes(env, user, req.errorId)),
+      getAiFix: () => withAuth(env, req, (user) => getAiFix(env, user, req.fixId)),
 
       // ---- Loan message templates (Superadmin) — fully ported, see loans.js ----
       getLoanTemplates: () => withAuth(env, req, (user) => { requireSuperadmin(user); return loans.getLoanTemplates(env, req.type); }),
