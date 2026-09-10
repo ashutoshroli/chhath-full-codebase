@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api, clearSession } from '../api.js';
 import Modal from './Modal.jsx';
+import TwoFactorSettings from './TwoFactorSettings.jsx';
 
 // Turns an ISO timestamp into a short "X min/hours/days ago" label.
 function timeAgo(iso) {
@@ -159,6 +160,10 @@ export default function SettingsModal({ open, onClose, userId }) {
             </div>
             <button className="btn-submit" disabled={pwSaving}>{pwSaving ? 'Saving...' : 'Change Password'}</button>
           </form>
+
+          {/* ---- Two-Factor Authentication (Superadmin only; the component
+               self-hides for other roles based on get2FAStatus.eligible) ---- */}
+          <TwoFactorSettings />
 
           {/* ---- Active Devices (all roles: your own logins) ---- */}
           <h4 style={{ margin: '28px 0 6px' }}>Active Devices</h4>

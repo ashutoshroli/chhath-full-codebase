@@ -287,6 +287,21 @@ export const api = {
   // Google Identity Services; the server verifies it and returns the same
   // { token, name, role, expiresAt } shape as `login`.
   verifyGoogleLogin: (idToken, rememberMe) => call('verifyGoogleLogin', { idToken, rememberMe }, false),
+
+  // ---- Two-Factor Authentication (TOTP, Superadmin) ----
+  // verify2FA is the login SECOND step (no session yet -> requireAuth=false); on
+  // success it returns the real { token, name, role, expiresAt } session object.
+  verify2FA: (tempToken, code) => call('verify2FA', { tempToken, code }, false),
+  // Enrollment + management (authenticated).
+  get2FAStatus: () => call('get2FAStatus'),
+  enroll2FA: () => call('enroll2FA'),
+  confirm2FA: (code, backupCodes, recoveryKey) => call('confirm2FA', { code, backupCodes, recoveryKey }),
+  disable2FA: (password) => call('disable2FA', { password }),
+  regenerate2FABackupCodes: (password) => call('regenerate2FABackupCodes', { password }),
+  // Recovery (no session).
+  disable2FAWithRecoveryKey: (name, password, recoveryKey) => call('disable2FAWithRecoveryKey', { name, password, recoveryKey }, false),
+  request2FARecovery: (name) => call('request2FARecovery', { name }, false),
+  reset2FA: (recoveryToken) => call('reset2FA', { recoveryToken }, false),
   logout: () => call('logout'),
   getYears: () => call('getYears'),
   // Tiny call used to decide whether the localStorage cache is still current.

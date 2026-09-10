@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api, saveSession } from '../api.js';
 import AppFooter from './AppFooter.jsx';
+import TwoFactorInput from './TwoFactorInput.jsx';
 
 // The Google Cloud OAuth 2.0 Web client id, baked in at build time. Must match
 // GOOGLE_SIGNIN_CLIENT_ID on the Worker (that's what the server verifies the
@@ -48,6 +49,19 @@ export default function Login({ onLogin }) {
   const rememberRef = useRef(remember);
   useEffect(() => { rememberRef.current = remember; }, [remember]);
 
+  // ---- 2FA (second factor) state ----
+  // When the backend answers a correct password with {requires2FA, tempToken}, we
+  // switch the form to a code-entry step instead of completing the login.
+  const [twoFA, setTwoFA] = useState(null);      // { tempToken, remember } | null
+  const [twoFAError, setTwoFAError] = useState('');
+  const [twoFAResetKey, setTwoFAResetKey] = useState(0);
+
+  // Finish a login once we have a real session object (from login or verify2FA).
+  const completeLogin = (res, rememberNow) => {
+    saveSession(res, rememberNow);
+    onLogin({ name: res.name, role: res.role });
+  };
+
   const submit = async (e) => {
     e.preventDefault();
     setError('');
@@ -55,13 +69,38 @@ export default function Login({ onLogin }) {
     setLoading(true);
     try {
       const res = await api.login(name, password, remember);
-      saveSession(res, remember);
-      onLogin({ name: res.name, role: res.role });
+      if (res && res.requires2FA) {
+        // Superadmin with 2FA on — collect the second factor.
+        setTwoFA({ tempToken: res.tempToken, remember });
+        return;
+      }
+      completeLogin(res, remember);
     } catch (err) {
       setError(err.message || 'Login failed');
     } finally {
       setLoading(false);
     }
+  };
+
+  // Called by TwoFactorInput with a 6-digit TOTP or a backup code.
+  const submitTwoFA = async (code) => {
+    setTwoFAError('');
+    setLoading(true);
+    try {
+      const res = await api.verify2FA(twoFA.tempToken, code);
+      completeLogin(res, twoFA.remember);
+    } catch (err) {
+      setTwoFAError(err.message || 'Invalid or expired code.');
+      setTwoFAResetKey(k => k + 1); // clear the boxes for another try
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const cancelTwoFA = () => {
+    setTwoFA(null);
+    setTwoFAError('');
+    setPassword('');
   };
 
   // Called by Google Identity Services with the signed ID token.
@@ -71,6 +110,10 @@ export default function Login({ onLogin }) {
     try {
       const rememberNow = rememberRef.current;
       const res = await api.verifyGoogleLogin(response.credential, rememberNow);
+      if (res && res.requires2FA) {
+        setTwoFA({ tempToken: res.tempToken, remember: rememberNow });
+        return;
+      }
       saveSession(res, rememberNow);
       onLogin({ name: res.name, role: res.role });
     } catch (err) {
@@ -110,6 +153,26 @@ export default function Login({ onLogin }) {
         <img src="/logo.svg" alt="Navyuvak Chhath Puja Samiti" width="88" height="88" style={{ width: 88, height: 88, display: 'block', margin: '0 auto 8px' }} />
         <h2>Committee Portal</h2>
       </div>
+
+      {twoFA ? (
+        <div className="glass-card">
+          <h3 style={{ marginTop: 0 }}>Two-Factor Authentication</h3>
+          <TwoFactorInput
+            onSubmit={submitTwoFA}
+            disabled={loading}
+            error={twoFAError}
+            resetKey={twoFAResetKey}
+          />
+          <button
+            type="button"
+            onClick={cancelTwoFA}
+            disabled={loading}
+            style={{ display: 'block', margin: '16px auto 0', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.82rem' }}
+          >
+            ← Back to login
+          </button>
+        </div>
+      ) : (
       <form className="glass-card" onSubmit={submit}>
         {error && <div className="error-banner">{error}</div>}
         <div className="form-group">
@@ -148,6 +211,7 @@ export default function Login({ onLogin }) {
           </>
         )}
       </form>
+      )}
     </div>
     <AppFooter compact />
     </>
