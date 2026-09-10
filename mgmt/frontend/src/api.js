@@ -462,6 +462,9 @@ export const api = {
   getAiFixes: (errorId) => call('getAiFixes', { errorId }),
   getAiFix: (fixId) => call('getAiFix', { fixId }),
   createAiFixPr: (fixId) => call('createAiFixPr', { fixId }),
+  // Render offload: generateAiFix/createAiFixPr now return a jobId that runs on the
+  // external Render service; poll this for the outcome.
+  getRenderJobStatus: (jobId) => call('getRenderJobStatus', { jobId }),
   // AI Management (multi-provider config, Superadmin-only)
   getAiProviders: () => call('getAiProviders'),
   saveAiProvider: (p) => call('saveAiProvider', p), // { providerId?, name, type, baseUrl, model, apiKey? }
