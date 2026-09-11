@@ -232,9 +232,40 @@ test('summary lists resold items with their Detail and the person real name', ()
     ],
   };
   const s = summarizePortalData(data, '');
-  const line = s.split('\n').find(l => l.startsWith('Resold items:')) || '';
+  const line = s.split('\n').find(l => l.startsWith('Resold items')) || '';
   assert.match(line, /Coconut basket by Anil Prasad \(2026\) ₹250/);
+  // The resell line carries a note that these amounts are already in the year total
+  // (so the model does not double-count them on top of the collections total).
+  assert.match(line, /already counted in the year's collections total/);
   assert.doesNotMatch(s, /USER0003/);
+});
+
+test('an orphan person ID (absent from users) in a loan, guarantor, or resell row is neutral-labelled, never leaked', () => {
+  // No `users` entries resolve, so every borrower/guarantor/reseller ID is an
+  // orphan. The NEW summary sections must degrade each to the neutral label
+  // rather than leaking the raw USER#### code into the prompt.
+  const data = {
+    users: [], // nothing resolves
+    collections: [
+      { Year: 2026, Name: 'USER0066', Amount: 100, Detail: 'Coconut basket', 'Is Resell': 'TRUE' },
+    ],
+    loans: [
+      { Year: 2025, Name: 'USER0099', Amount: 5000, 'Intrest Rate': '5%', Tenure: '12m', 'Loan ID': 'L-1' },
+    ],
+    guarantors: [
+      { Year: 2025, Loaner: 'USER0088', Guarantor: 'USER0077', 'Loan ID': 'L-2' },
+    ],
+  };
+  const s = summarizePortalData(data, '');
+  // The raw internal code must never reach the prompt from any new section.
+  assert.doesNotMatch(s, /USER\d+/);
+  // Each new section still emits its row, labelled with the neutral 'unknown member'.
+  const loanLine = s.split('\n').find(l => l.startsWith('Loans 2025:')) || '';
+  assert.match(loanLine, /unknown member: ₹5,000/);
+  const guarantorLine = s.split('\n').find(l => l.startsWith('Guarantors:')) || '';
+  assert.match(guarantorLine, /unknown member guarantees unknown member \(Loan L-2\)/);
+  const resellLine = s.split('\n').find(l => l.startsWith('Resold items')) || '';
+  assert.match(resellLine, /Coconut basket by unknown member \(2026\) ₹100/);
 });
 
 test('summary preamble broadens guidance yet keeps the guardrail line', () => {

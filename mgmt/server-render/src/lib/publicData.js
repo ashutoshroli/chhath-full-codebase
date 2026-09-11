@@ -84,6 +84,23 @@ export function summarizePortalData(data, question) {
   // human names. Fall back to the raw value if it isn't an ID.
   const nameOf = buildNameResolver(users);
 
+  // buildNameResolver returns the raw input (e.g. the internal code USER0001)
+  // when an ID is absent from `users`. The NEW loan/guarantor/resell sections
+  // below reference borrower/guarantor/reseller IDs that are more likely to be
+  // missing from a partial `users` slice than a contributor's, so an orphan ID
+  // would leak a raw USER#### code into the prompt. `safeName` mirrors the same
+  // neutral-label degradation buildFullContext uses: any value that resolves to
+  // itself AND looks like a raw ID becomes the neutral 'unknown member' label.
+  // (The decision lives at the call site, exactly like buildFullContext, so the
+  // shared `nameOf` and buildNameResolver's contract stay untouched — the
+  // pre-existing top-contributors/committee sections keep using plain `nameOf`.)
+  const looksLikeRawId = (raw, resolved) => raw && resolved === raw && /^USER\d+$/i.test(raw);
+  const safeName = (val) => {
+    const raw = (val || '').toString().trim();
+    const resolved = nameOf(raw);
+    return looksLikeRawId(raw, resolved) ? 'unknown member' : resolved;
+  };
+
   // Years present, newest first.
   const years = [...new Set(collections.map(c => parseInt(c.Year)).filter(Boolean))].sort((a, b) => b - a);
   const latestYear = years[0];
@@ -171,7 +188,7 @@ export function summarizePortalData(data, question) {
   const loanYears = [...new Set(loans.map(l => parseInt(l.Year)).filter(Boolean))].sort((a, b) => b - a);
   for (const y of loanYears.slice(0, 6)) {
     const items = loans.filter(l => parseInt(l.Year) === y).slice(0, 10).map(l => {
-      const who = nameOf((l.Name || '').toString().trim()) || 'unknown borrower';
+      const who = safeName((l.Name || '').toString().trim()) || 'unknown borrower';
       const rate = (l['Intrest Rate'] || '').toString().trim();
       const tenure = (l.Tenure || '').toString().trim();
       const id = (l['Loan ID'] || '').toString().trim();
@@ -190,8 +207,8 @@ export function summarizePortalData(data, question) {
   const guarantors = Array.isArray(d.guarantors) ? d.guarantors : [];
   if (guarantors.length) {
     const items = guarantors.slice(0, 15).map(g => {
-      const guarantor = nameOf((g.Guarantor || '').toString().trim()) || 'unknown member';
-      const borrower = nameOf((g.Loaner || '').toString().trim());
+      const guarantor = safeName((g.Guarantor || '').toString().trim()) || 'unknown member';
+      const borrower = safeName((g.Loaner || '').toString().trim());
       const id = (g['Loan ID'] || '').toString().trim();
       return `${guarantor} guarantees ${borrower || 'unknown borrower'}${id ? ` (Loan ${id})` : ''}`;
     });
@@ -203,12 +220,15 @@ export function summarizePortalData(data, question) {
   const resells = collections.filter(c => c['Is Resell'] === 'TRUE' || c['Is Resell'] === true).slice(0, 15);
   if (resells.length) {
     const items = resells.map(c => {
-      const nm = nameOf((c.Name || '').toString().trim()) || 'unknown member';
+      const nm = safeName((c.Name || '').toString().trim()) || 'unknown member';
       const detail = (c.Detail || '').toString().trim() || 'item';
       const yr = parseInt(c.Year) || '';
       return `${detail} by ${nm}${yr ? ` (${yr})` : ''} ${inr(c.Amount)}`;
     });
-    lines.push(`Resold items: ${items.join('; ')}.`);
+    // NOTE for the model: these resold-item amounts are already included in each
+    // year's collections total above — list them, but do NOT add them on top of a
+    // year total when answering (avoids double-counting).
+    lines.push(`Resold items (already counted in the year's collections total above): ${items.join('; ')}.`);
   }
 
   // PER-PERSON lookup: if the question names contributor(s) present in the data,
