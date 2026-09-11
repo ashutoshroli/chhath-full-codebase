@@ -39,6 +39,24 @@ export const config = {
   driveOAuthClientSecret: opt('DRIVE_OAUTH_CLIENT_SECRET', ''),
   driveOAuthRefreshToken: opt('DRIVE_OAUTH_REFRESH_TOKEN', ''),
 
+  // ---- Public chatbot (/public-chat endpoint) ----
+  // Base URL of the PUBLIC portal Worker (the same host the public frontend calls).
+  // The chatbot fetches the already-cached ?action=dataVersion + ?action=portalData
+  // from here, so it reads the edge cache and never touches D1 directly.
+  publicApiBase: opt('PUBLIC_API_BASE', 'https://chhath-public-worker.shaharpura.com'),
+  // Base URL of the mgmt Worker (to fetch the public_chat provider via the
+  // Render-only ?render-provider route). Falls back to deriving from workerWebhookUrl.
+  mgmtApiBase: opt('MGMT_API_BASE', ''),
+  // Comma-separated EXACT browser origins allowed to call /public-chat (CORS +
+  // Origin check). The public site + localhost for dev by default.
+  chatAllowedOrigins: opt('CHAT_ALLOWED_ORIGINS', 'https://chhath.shaharpura.com,http://localhost:5173,http://localhost:3000'),
+  // Per-IP rate limit for /public-chat (requests per window).
+  chatRateMax: parseInt(opt('CHAT_RATE_MAX', '15'), 10) || 15,
+  chatRateWindowMs: parseInt(opt('CHAT_RATE_WINDOW_MS', '60000'), 10) || 60000,
+  // Neon Postgres connection string for chat logs. OPTIONAL — if unset, the
+  // chatbot still answers and just skips logging.
+  databaseUrl: opt('DATABASE_URL', ''),
+
   port: parseInt(opt('PORT', '10000'), 10) || 10000,
 };
 
