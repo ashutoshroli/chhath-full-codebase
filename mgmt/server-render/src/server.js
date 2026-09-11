@@ -5,6 +5,7 @@
 import express from 'express';
 import { config } from './config.js';
 import { jobsRouter } from './routes/jobs.js';
+import { publicChatRouter } from './routes/publicChat.js';
 
 const app = express();
 app.use(express.json({ limit: '1mb' })); // payloads carry references + small text (error/diff), never big blobs
@@ -15,6 +16,10 @@ app.use(express.json({ limit: '1mb' })); // payloads carry references + small te
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'chhath-server-render' });
 });
+
+// Public chatbot — the ONE browser-facing endpoint (its own CORS/origin +
+// rate-limit guards live inside the router; NO X-Render-Api-Key).
+app.use('/', publicChatRouter);
 
 // Job intake (auth-gated inside the router).
 app.use('/', jobsRouter);
