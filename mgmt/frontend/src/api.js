@@ -492,8 +492,10 @@ export const api = {
   getErrorLog: (limit) => call('getErrorLog', { limit }),
   // AI auto-fix (Superadmin-only). PR-1: generate a fix + preview.
   // `force:true` bypasses duplicate-prevention and starts a fresh generation even
-  // if a live fix already exists (the modal's "Re-generate" button).
-  generateAiFix: (errorId, force) => call('generateAiFix', { errorId, force: !!force }),
+  // if a live fix already exists (the modal's "Re-generate" button). `guidance`
+  // (optional, only used on a forced attempt) is developer direction fed to the
+  // model for that attempt — e.g. "read VITE_API_URL, don't hardcode the domain".
+  generateAiFix: (errorId, force, guidance) => call('generateAiFix', { errorId, force: !!force, guidance: guidance || '' }),
   getAiFixes: (errorId) => call('getAiFixes', { errorId }),
   getAiFix: (fixId) => call('getAiFix', { fixId }),
   // The most-recent fix for an error (+ its live jobId if still pending), so the
