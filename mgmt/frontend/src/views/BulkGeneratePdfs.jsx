@@ -181,8 +181,11 @@ export default function BulkGeneratePdfs() {
           // The Worker returns the TRANSLATED shape ({ success, error }). As a
           // belt-and-suspenders guard we also honour the RAW Render shape ({ ok })
           // in case it ever leaks through — a raw ok:true record is a real success.
-          const ok = !!(r && (r.success || r.ok));
+          // A record flagged `skipped` was ALREADY generated: that is a success, so
+          // it must never be counted or logged as a failure even if `success` is
+          // absent from the entry.
           const skipped = !!(r && r.skipped);
+          const ok = !!(r && (r.success || r.ok || r.skipped));
           if (!ok) {
             // Distinguish a genuine per-record failure (r.error is set by the
             // Worker/Render) from a record that never came back in the results at
