@@ -4,6 +4,7 @@ import { runAiFixGenerate } from '../jobs/aiFixGenerate.js';
 import { runAiPrCreate } from '../jobs/aiPrCreate.js';
 import { runAiCiRetry } from '../jobs/aiCiRetry.js';
 import { runPdfConvert } from '../jobs/pdfConvert.js';
+import { runPdfConvertBatch } from '../jobs/pdfConvertBatch.js';
 import { postResult } from '../lib/callback.js';
 
 export const jobsRouter = express.Router();
@@ -19,6 +20,9 @@ const HANDLERS = {
   // Bulk PDF: render a filled .docx to PDF via Google Drive and return the bytes.
   // The Worker does the dedup read + R2 store + generated_files index write.
   pdf_convert: runPdfConvert,
+  // Batched bulk PDF: convert up to ~20 docs in one job (sequentially) and return
+  // per-record results in one callback. The Worker writes R2 + index per record.
+  pdf_convert_batch: runPdfConvertBatch,
 };
 
 // POST /jobs — accept a job, ack 202 IMMEDIATELY, then run it in the background

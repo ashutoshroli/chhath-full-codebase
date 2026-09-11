@@ -162,7 +162,7 @@ export const EXPECTED_MUTATING_ACTIONS = new Set([
   // files / drive / backup / rebuild
   'uploadFile', 'moveYearToDrive', 'restoreBackup', 'triggerRebuild',
   // pdf conversion (writes generated files to the index / drive)
-  'convertDocxToPdf', 'convertDocxToPdfBulk', 'convertDocxToPdfPublic',
+  'convertDocxToPdf', 'convertDocxToPdfBulk', 'convertDocxToPdfBatch', 'convertDocxToPdfPublic',
 ]);
 
 // ============ RESPONSE CACHE (Phase 2 scalability) ============
@@ -1000,6 +1000,17 @@ export default {
         return docx.dispatchBulkPdfConvert(
           env, req.docType, req.year, req.recordId, req.base64, req.fileName,
           user, { force: !!req.force }
+        );
+      }),
+      // BATCHED bulk conversion (Superadmin): the client sends up to 20 filled docs
+      // (items:[{recordId,base64,fileName}]) in ONE call. The Worker dedups each,
+      // dispatches ONE Render job (base64 in the Render body only, not D1), and
+      // writes R2 + the index per record on the single callback. Returns a jobId to
+      // poll. Falls back to synchronous in-Worker conversion if Render isn't set up.
+      convertDocxToPdfBatch: () => withAuth(env, req, (user) => {
+        requireSuperadmin(user);
+        return docx.dispatchBulkPdfBatch(
+          env, req.docType, req.year, req.items, user, { force: !!req.force }
         );
       }),
       // PUBLIC (Consent page). Was unauthenticated AND trusted the client's
