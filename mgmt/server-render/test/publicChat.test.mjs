@@ -46,27 +46,52 @@ test('summary never throws on missing/empty data', () => {
   assert.doesNotThrow(() => summarizePortalData(null, null));
 });
 
-test('per-person lookup: a named contributor gets their own rows in the context', () => {
+test('per-person lookup resolves the ID to a real name and lists their rows', () => {
+  // Contribution rows carry the person ID in `Name`; the real name is in `users`.
   const data = {
+    users: [
+      { ID: 'USER0001', Name: 'Anil Prasad' },
+      { ID: 'USER0002', Name: 'Someone Else' },
+    ],
     collections: [
-      { Year: 2026, Name: 'Anil Prasad', Amount: 500 },
-      { Year: 2025, Name: 'Anil Prasad', Amount: 300 },
-      { Year: 2026, Name: 'Someone Else', Amount: 9000 },
+      { Year: 2026, Name: 'USER0001', Amount: 500 },
+      { Year: 2025, Name: 'USER0001', Amount: 300 },
+      { Year: 2026, Name: 'USER0002', Amount: 9000 },
     ],
   };
+  // Asking by the REAL name (not the ID) must still match.
   const s = summarizePortalData(data, 'Anil Prasad ne abhi tak kitna diya?');
-  // The person-detail BLOCK is emitted (the phrase 'PERSON DETAILS' also appears
-  // in the system-prompt instructions, so match the block's own contribution line).
   assert.match(s, /Contributions by "Anil Prasad"/);
   assert.match(s, /total ₹800/); // 500 + 300
-  // A person NOT named in the question is not force-added as a person-detail block.
   assert.doesNotMatch(s, /Contributions by "Someone Else"/);
+  // The ID must never leak into the human-facing block.
+  assert.doesNotMatch(s, /USER0001/);
+});
+
+test('a single distinctive name word matches (amit -> Amit Kumar)', () => {
+  const data = {
+    users: [{ ID: 'U9', Name: 'Amit Kumar' }],
+    collections: [{ Year: 2026, Name: 'U9', Amount: 189 }],
+  };
+  const s = summarizePortalData(data, 'amit ka total kitna diya');
+  assert.match(s, /Contributions by "Amit Kumar"/);
+  assert.match(s, /total ₹189/);
 });
 
 test('per-person lookup returns nothing when no name matches the question', () => {
-  const data = { collections: [{ Year: 2026, Name: 'Anil Prasad', Amount: 500 }] };
+  const data = { users: [{ ID: 'U1', Name: 'Anil Prasad' }], collections: [{ Year: 2026, Name: 'U1', Amount: 500 }] };
   const s = summarizePortalData(data, 'what is the total budget?');
   assert.doesNotMatch(s, /Contributions by "/);
+});
+
+test('top contributors also show real names, not IDs', () => {
+  const data = {
+    users: [{ ID: 'U1', Name: 'Ramesh Verma' }],
+    collections: [{ Year: 2026, Name: 'U1', Amount: 5000 }],
+  };
+  const s = summarizePortalData(data, 'top contributors');
+  assert.match(s, /Ramesh Verma/);
+  assert.doesNotMatch(s, /Top contributors 2026:.*U1/);
 });
 
 test('summary is hard-capped so a huge dataset cannot blow the prompt', () => {
