@@ -187,7 +187,19 @@ export function buildFullContext(data, question) {
 
   // Same ID -> real-name resolver used by the summary (a collection/committee row's
   // `Name` is a person ID like USER0001; the display name lives in `users`).
-  const nameOf = buildNameResolver(users);
+  const resolve = buildNameResolver(users);
+  // Full mode dumps EVERY row and promises the model "every person is shown by
+  // their real name". buildNameResolver falls back to the raw value (e.g. the ID
+  // code USER0001) when an ID is absent from `users`; to keep that promise and to
+  // avoid handing an internal ID to a public user, degrade any unresolved code to
+  // a neutral label instead of leaking it. (This decision lives here, not in
+  // buildNameResolver, so the summary path's contract is untouched.)
+  const looksLikeRawId = (raw, resolved) => raw && resolved === raw && /^USER\d+$/i.test(raw);
+  const nameOf = (val) => {
+    const raw = (val || '').toString().trim();
+    const resolved = resolve(raw);
+    return looksLikeRawId(raw, resolved) ? 'unknown member' : resolved;
+  };
 
   const lines = [];
   lines.push('You are the friendly assistant of the Navyuvak Chhath Puja Samiti (Shaharpura & Gardih). Below is the committee\'s COMPLETE public dataset, laid out in full.');
@@ -251,7 +263,7 @@ export function buildFullContext(data, question) {
     }
   }
 
-  // Loans (with any guarantors), real names.
+  // Loans, real names.
   if (loans.length) {
     const totalLoan = loans.reduce((s, l) => s + num(l.Amount), 0);
     lines.push(`ALL LOANS (${loans.length}, total principal ${inr(totalLoan)}):`);
@@ -261,13 +273,17 @@ export function buildFullContext(data, question) {
       const detail = (l.Detail || l.detail || '').toString().trim();
       lines.push(`- ${yr}${who ? ` ${who}` : ''}: ${inr(l.Amount)}${detail ? ` — ${detail}` : ''}`);
     }
-    if (guarantors.length) {
-      lines.push(`GUARANTORS (${guarantors.length}):`);
-      for (const g of guarantors) {
-        const who = nameOf((g.Name || g.name || '').toString().trim());
-        const forWhom = nameOf((g['Loan Taker'] || g.loanTaker || g.For || '').toString().trim());
-        lines.push(`- ${who || '(unknown)'}${forWhom ? ` guarantees ${forWhom}` : ''}.`);
-      }
+  }
+
+  // Guarantors, real names. Emitted whenever guarantor rows exist — INDEPENDENT of
+  // loans (a portal can carry guarantors with the loan rows shaped separately, and
+  // dropping them silently would hide public info the full context promises).
+  if (guarantors.length) {
+    lines.push(`GUARANTORS (${guarantors.length}):`);
+    for (const g of guarantors) {
+      const who = nameOf((g.Name || g.name || '').toString().trim());
+      const forWhom = nameOf((g['Loan Taker'] || g.loanTaker || g.For || '').toString().trim());
+      lines.push(`- ${who || '(unknown)'}${forWhom ? ` guarantees ${forWhom}` : ''}.`);
     }
   }
 
@@ -281,6 +297,23 @@ export function buildFullContext(data, question) {
   // degrade gracefully to the compact summary rather than truncating mid-record.
   if (out.length > FULL_MAX_CHARS) return summarizePortalData(data, question);
   return out;
+}
+
+// ---- Per-provider context selection (full vs summary) --------------------------
+// Build the system-prompt context for ONE provider, honouring its dataMode:
+// 'full' => buildFullContext (whole dataset, IDs resolved to names, with its own
+// internal fallback to the summary when it would exceed the cap); anything else
+// (including a missing dataMode) => the compact summarizePortalData. Both read ONLY
+// the passed-in cached `data` — neither touches D1. Appends the Hindi instruction
+// when lang === 'hi'. Lives here (not in the express route) so it is a pure helper
+// importable without pulling in express/pg.
+export function buildContextForProvider(provider, data, question, lang) {
+  const mode = (provider && provider.dataMode) || 'summary';
+  let context = mode === 'full'
+    ? buildFullContext(data, question)
+    : summarizePortalData(data, question);
+  if (lang === 'hi') context += '\nReply in simple Hindi (Devanagari) unless the user writes in English.';
+  return context;
 }
 
 // Build a resolver: a collection row's `Name` is a person ID (e.g. USER0001); the

@@ -10,7 +10,7 @@
 
 import express from 'express';
 import { config } from '../config.js';
-import { getPortalData, summarizePortalData, buildFullContext } from '../lib/publicData.js';
+import { getPortalData, buildContextForProvider } from '../lib/publicData.js';
 import { getPublicChatProviders } from '../lib/chatProvider.js';
 import { ensureChatSession, logChatMessage, hashIp } from '../lib/neon.js';
 import { isOriginAllowed, rateLimited, clientIpFrom } from '../lib/chatGuards.js';
@@ -101,19 +101,10 @@ function chatModelError(message, status) {
   return e;
 }
 
-// Build the system prompt (portal context) for ONE provider, honouring its
-// dataMode: 'full' => buildFullContext (whole dataset, IDs resolved to names, with
-// its own internal fallback to summary when it would exceed the cap); anything
-// else (including a missing dataMode) => the compact summarizePortalData. Both read
-// ONLY the passed-in cached `data` — neither touches D1. Preserves the Hindi append.
-function buildContextForProvider(provider, data, question, lang) {
-  const mode = (provider && provider.dataMode) || 'summary';
-  let context = mode === 'full'
-    ? buildFullContext(data, question)
-    : summarizePortalData(data, question);
-  if (lang === 'hi') context += '\nReply in simple Hindi (Devanagari) unless the user writes in English.';
-  return context;
-}
+// The per-provider context selection (full vs summary by dataMode, plus the Hindi
+// append) lives in lib/publicData.js as the pure `buildContextForProvider` helper,
+// so it can be unit-tested without importing express. Both context builders read
+// ONLY the passed-in cached `data` — neither touches D1.
 
 // Try each provider in the chain in order; fall through only on a retryable
 // failure. The per-provider portal context is built INSIDE the loop so each
