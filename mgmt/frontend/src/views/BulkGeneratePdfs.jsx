@@ -181,8 +181,17 @@ export default function BulkGeneratePdfs() {
           const ok = !!(r && r.success);
           const skipped = !!(r && r.skipped);
           if (!ok) {
-            appendLog(`❌ ${label} — ${it.recordId}: ${(r && r.error) || 'conversion failed'}`);
-            reportClientError('BulkGeneratePdfs', `Record failed: ${it.recordId}`, null, { docType, year, recordId: it.recordId, error: r && r.error });
+            // Distinguish a genuine per-record failure (r.error is set by the
+            // Worker/Render) from a record that never came back in the results at
+            // all (r is undefined) — the latter means the batch job completed but
+            // dropped this record, which is otherwise invisible. Always surface a
+            // concrete, non-empty reason so the Error Log is actionable.
+            const reason = r
+              ? (r.error || 'conversion failed (no error detail returned)')
+              : 'no result returned from server for this record';
+            appendLog(`❌ ${label} — ${it.recordId}: ${reason}`);
+            reportClientError('BulkGeneratePdfs', `Record failed: ${it.recordId} — ${reason}`, null,
+              { docType, year, recordId: it.recordId, error: reason, hadResult: !!r });
           }
           setProgress(p => {
             const cur = p[docType];
