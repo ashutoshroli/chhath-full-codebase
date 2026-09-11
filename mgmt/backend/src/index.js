@@ -985,9 +985,13 @@ export default {
       }),
       convertDocxToPdfBulk: () => withAuth(env, req, (user) => {
         requireSuperadmin(user);
-        return docx.convertDocxToPdf(
+        // Bulk conversion is OFFLOADED to Render (per-record async): dispatch the
+        // docx→PDF job and return a jobId to poll. Falls back to synchronous
+        // in-Worker conversion if Render isn't configured. The dedup read + the
+        // generated_files index write stay in the Worker.
+        return docx.dispatchBulkPdfConvert(
           env, req.docType, req.year, req.recordId, req.base64, req.fileName,
-          user, 'bulk', { force: !!req.force }
+          user, { force: !!req.force }
         );
       }),
       // PUBLIC (Consent page). Was unauthenticated AND trusted the client's

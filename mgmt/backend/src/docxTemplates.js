@@ -6,7 +6,7 @@ import { logErrorAt } from './logger.js';
 import { consentPlaceholderFactory } from './consentPlaceholders.js';
 import { isTruthyFlag } from './flags.js';
 import { usersByIdCodes, loansByBorrower, loansByLoanIds, generatedFilesByRecordIds, consentsForPerson, consentsForLoanIds } from './lookups.js';
-import { base64ByteLength, MAX_DOCX_BYTES } from './base64.js';
+import { base64ByteLength, base64ToBytes, MAX_DOCX_BYTES } from './base64.js';
 import { parseAmt } from './money.js'; // audit L-13: shared, was duplicated here
 
 // `receipt_work` is the receipt for a Service (Work) contribution — previously it
@@ -409,6 +409,94 @@ export async function convertDocxToPdf(env, docType, year, recordId, base64, fil
   }
 
   return { success: true, skipped: false, publicLink, fileName: pdfName };
+}
+
+// ---- Bulk PDF: OFFLOAD the docx→PDF conversion to Render ----
+//
+// The heavy part of bulk generation is the Google-Drive round-trips (upload +
+// convert + export + trash) that render the .docx to a PDF — pure network work
+// with no D1. We offload ONLY that to Render, per record (async). The D1-bound
+// parts stay in the Worker: the dedup read and the generated_files index write.
+//
+// Design note (R2): Render does the DRIVE conversion and returns the PDF BYTES;
+// the WORKER writes them to R2 (via its binding) and writes the index row. This
+// deliberately avoids giving Render R2 S3 credentials + SigV4 signing — the only
+// new secrets Render needs are the Drive OAuth creds it already would for Drive.
+//
+// Called by the convertDocxToPdfBulk handler (Superadmin). Returns { jobId } for
+// the client to poll (getRenderJobStatus). If Render is NOT configured, falls back
+// to the synchronous in-Worker path so bulk keeps working before Render is set up.
+export async function dispatchBulkPdfConvert(env, docType, year, recordId, base64, fileName, user, opts) {
+  requireSuperadmin(user);
+  if (!DOC_TYPES.includes(docType)) throw ValidationError('Invalid doc type');
+  assertRecordIdMatches(docType, year, recordId);
+  base64 = assertValidDocxBase64(base64);
+  if (!env.DRIVE_ROOT_FOLDER_ID) throw InternalError('DRIVE_ROOT_FOLDER_ID not configured on server');
+
+  const force = !!(opts && opts.force);
+
+  // Dedup (D1 read) stays in the Worker.
+  if (recordId) {
+    const existing = await isFileGenerated(env, docType, year, recordId);
+    if (existing && !force) {
+      return { success: true, skipped: true, publicLink: existing.public_link, fileName: existing.file_name };
+    }
+  }
+
+  // No Render configured -> keep working synchronously (unchanged behaviour).
+  const { createAndDispatchJob } = await import('./renderJobs.js');
+  if (!env.RENDER_SERVICE_URL || !env.RENDER_API_KEY) {
+    return convertDocxToPdf(env, docType, year, recordId, base64, fileName, user, 'bulk', { force });
+  }
+
+  // Offload the Drive conversion to Render. Render returns the PDF bytes; the
+  // Worker's render-webhook callback (applyPdfConvertResult) writes R2 + the index.
+  const dispatch = await createAndDispatchJob(env, 'pdf_convert', {
+    docType, year, recordId,
+    base64,                        // the filled .docx (client-provided)
+    fileName: fileName || 'document.docx',
+    force,
+  }, { refId: recordId || `${docType}-${year}`, createdBy: (user && user.name) || '' });
+
+  if (!dispatch.success) {
+    // Could not reach Render — fall back to synchronous conversion so the user
+    // isn't blocked by a Render outage.
+    return convertDocxToPdf(env, docType, year, recordId, base64, fileName, user, 'bulk', { force });
+  }
+  return { success: true, dispatched: true, jobId: dispatch.jobId, status: 'pending' };
+}
+
+// Render callback side-effect for a completed pdf_convert job. Render returns the
+// PDF bytes (base64) + name; the Worker stores them (R2 if configured, else the
+// caller must have used the sync path) and writes the generated_files index row.
+// `payload` is the original dispatch payload (docType/year/recordId).
+export async function applyPdfConvertResult(env, payload, result) {
+  const { docType, year, recordId } = payload || {};
+  const pdfBase64 = result && result.pdfBase64;
+  const pdfName = (result && result.fileName) || 'document.pdf';
+  if (!pdfBase64 || !recordId) return;
+
+  const bytes = base64ToBytes(pdfBase64, { label: pdfName, maxBytes: MAX_DOCX_BYTES * 3 });
+
+  let publicLink, drivePath;
+  if (r2Available(env)) {
+    const key = keyForYear(year, 'pdf', pdfName, docType);
+    publicLink = await putToR2(env, key, new Uint8Array(bytes), 'application/pdf');
+    drivePath = key;
+  } else {
+    // R2 not configured: Render's raw-bytes path can't be indexed without a
+    // public store. This should not happen (bulk offload requires R2) — record a
+    // clear error on the job rather than a broken index row.
+    await logErrorAt(env, 'backend-docx', 'applyPdfConvertResult',
+      new Error('R2 not configured; cannot store the Render-converted PDF'), { docType, year, recordId }).catch(() => {});
+    return { error: 'R2 not configured' };
+  }
+
+  await recordGeneratedFile(env, docType, year, recordId, pdfName, publicLink, drivePath).catch((err) =>
+    logErrorAt(env, 'backend-docx', 'applyPdfConvertResult:index', err, { docType, year, recordId }));
+
+  // Return a base64-STRIPPED result for the job row / status poll.
+  return { publicLink, fileName: pdfName };
 }
 
 // PUBLIC (no login) — Consent page only.

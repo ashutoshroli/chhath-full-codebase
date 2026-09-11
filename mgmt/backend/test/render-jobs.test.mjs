@@ -278,6 +278,22 @@ test('createAndDispatchJob accepts the ai_ci_retry kind and dispatches it', asyn
   } finally { restore(); }
 });
 
+test('createAndDispatchJob accepts the pdf_convert kind and dispatches it', async () => {
+  const env = makeEnv();
+  const { calls, restore } = stubRenderFetch('ok');
+  try {
+    const res = await createAndDispatchJob(env, 'pdf_convert', {
+      docType: 'receipt', year: 2026, recordId: 'receipt-2026-45', base64: 'UEsDBfake', fileName: 'r.docx',
+    }, { refId: 'receipt-2026-45' });
+    assert.equal(res.success, true);
+    const sent = JSON.parse(calls[0].body);
+    assert.equal(sent.kind, 'pdf_convert');
+    assert.equal(sent.payload.recordId, 'receipt-2026-45');
+    const row = await rowFor(env, res.jobId);
+    assert.equal(row.status, 'dispatched');
+  } finally { restore(); }
+});
+
 test('applies the migration idempotently on top of the committed schema', () => {
   // The migration is CREATE ... IF NOT EXISTS, so running it against the schema
   // (which already has render_jobs) must be a no-op, not an error.

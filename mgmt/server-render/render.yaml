@@ -31,3 +31,12 @@ services:
         sync: false       # Claude API key
       - key: AI_FIX_MODEL
         value: claude-sonnet-4-5-20250929
+      # Google Drive OAuth — ONLY for the pdf_convert job (bulk PDF). Same values
+      # as the Worker's. Omit for an AI-only deploy. Render needs NO R2 creds (it
+      # returns PDF bytes to the Worker, which writes R2).
+      - key: DRIVE_OAUTH_CLIENT_ID
+        sync: false
+      - key: DRIVE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: DRIVE_OAUTH_REFRESH_TOKEN
+        sync: false

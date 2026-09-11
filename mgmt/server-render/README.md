@@ -12,6 +12,11 @@ CPU / request-duration / subrequest limits:
   same branch (re-triggering CI). The Worker still receives the GitHub check_suite
   webhook and does the light D1 orchestration (branch match, attempt cap,
   CI-pass/auto-merge, manual-review escalation); only this heavy retry runs here.
+- **`pdf_convert`** — render a filled `.docx` to a PDF via Google Drive's converter
+  and return the PDF bytes. Used by **bulk PDF generation**: the browser fills the
+  template, the Worker dispatches this job (per record), Render does the Drive
+  round-trips, and the Worker stores the PDF in R2 + writes the `generated_files`
+  index. Needs the Drive OAuth env vars below.
 
 The Worker stays the **single source of truth** for job state (its `render_jobs`
 table in D1). This service only **computes** and **calls back** — it never touches
@@ -50,7 +55,15 @@ service is never usable without the shared secret).
 | `GITHUB_REPO` | `owner/repo` | `ashutoshroli/chhath-full-codebase` |
 | `ANTHROPIC_API_KEY` | Claude API key | **Fallback only.** The active provider (custom / OpenAI-compatible / default) is chosen in the Worker's AI Management tab and sent in each job payload; this env key is used only when a job carries no provider. |
 | `AI_FIX_MODEL` | Model id | Fallback model when a job carries no provider. Defaults to `claude-sonnet-4-5-20250929` |
+| `DRIVE_OAUTH_CLIENT_ID` | Google OAuth client id | **Only for `pdf_convert` (bulk PDF).** Same value as the Worker's. Omit for an AI-only deploy. |
+| `DRIVE_OAUTH_CLIENT_SECRET` | Google OAuth client secret | Same as the Worker's. |
+| `DRIVE_OAUTH_REFRESH_TOKEN` | Google OAuth refresh token | Same as the Worker's. |
 | `PORT` | Injected by Render | Only set manually for local runs |
+
+> **R2:** Render does NOT need R2 credentials. It returns the PDF bytes to the
+> Worker, and the **Worker** writes them to R2 (via its binding) + the D1 index.
+> The only new secrets Render needs for bulk PDF are the three Drive OAuth values
+> above (which it can reuse from the Worker's setup).
 
 The service **fails fast at boot** (clear log message) if any required var is missing.
 

@@ -3,6 +3,7 @@ import { requireRenderApiKey } from '../middleware/auth.js';
 import { runAiFixGenerate } from '../jobs/aiFixGenerate.js';
 import { runAiPrCreate } from '../jobs/aiPrCreate.js';
 import { runAiCiRetry } from '../jobs/aiCiRetry.js';
+import { runPdfConvert } from '../jobs/pdfConvert.js';
 import { postResult } from '../lib/callback.js';
 
 export const jobsRouter = express.Router();
@@ -15,6 +16,9 @@ const HANDLERS = {
   // orchestration (branch match, attempt cap, escalation); only this heavy retry
   // (log fetch + Claude + commits) runs here.
   ai_ci_retry: runAiCiRetry,
+  // Bulk PDF: render a filled .docx to PDF via Google Drive and return the bytes.
+  // The Worker does the dedup read + R2 store + generated_files index write.
+  pdf_convert: runPdfConvert,
 };
 
 // POST /jobs — accept a job, ack 202 IMMEDIATELY, then run it in the background

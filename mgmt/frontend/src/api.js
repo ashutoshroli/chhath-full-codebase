@@ -281,6 +281,37 @@ export function reportClientError(page, message, err, context) {
   );
 }
 
+// Poll a Render pdf_convert job to completion and adapt it to the synchronous
+// convertDocxToPdf response shape the bulk/download callers expect. Throws on
+// failure/timeout so the caller's existing try/catch handles it as a record error.
+const PDF_POLL_INTERVAL_MS = 2000;
+const PDF_POLL_TIMEOUT_MS = 3 * 60 * 1000; // per record
+async function pollRenderPdfJob(jobId) {
+  const start = Date.now();
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    if (Date.now() - start > PDF_POLL_TIMEOUT_MS) {
+      throw new Error('PDF generation timed out (the processing service did not respond in time).');
+    }
+    let job = null;
+    try {
+      const res = await call('getRenderJobStatus', { jobId });
+      job = res && res.job;
+    } catch (e) { /* transient (job row not visible yet) — keep waiting */ }
+    if (job && job.status === 'completed') {
+      // The Worker's callback wrote R2 + the generated_files index; getRenderJobStatus
+      // returns the job's result. The index write is what the public portal needs;
+      // return a sync-shaped object so callers keep working unchanged.
+      const r = job.result || {};
+      return { success: true, skipped: false, publicLink: r.publicLink || '', fileName: r.fileName || '' };
+    }
+    if (job && job.status === 'failed') {
+      throw new Error(job.error || 'PDF generation failed on the processing service.');
+    }
+    await new Promise(res => setTimeout(res, PDF_POLL_INTERVAL_MS));
+  }
+}
+
 export const api = {
   login: (name, password, rememberMe) => call('login', { name, password, rememberMe }, false),
   // Sign in with Google: send the Google ID token (JWT) the browser got from
@@ -527,7 +558,18 @@ export const api = {
   //   convertDocxToPdfBulk — Superadmin; mass generation / regeneration
   //                          (Generate PDFs, Download Center, PDF Export).
   convertDocxToPdf: (docType, year, recordId, base64, fileName) => call('convertDocxToPdf', { docType, year, recordId, base64, fileName }),
-  convertDocxToPdfBulk: (docType, year, recordId, base64, fileName, force) => call('convertDocxToPdfBulk', { docType, year, recordId, base64, fileName, force }),
+  // Bulk PDF conversion is OFFLOADED to Render (per-record async): the backend may
+  // return a jobId instead of a finished result. This wrapper hides that — it polls
+  // getRenderJobStatus until the Render job completes and returns the SAME shape the
+  // old synchronous call did ({ success, publicLink, fileName, skipped }), so
+  // callers (BulkGeneratePdfs / DownloadCenter / PdfExport / Home autoPdf) need no
+  // change. If Render isn't configured the backend answers synchronously and we
+  // pass it straight through.
+  convertDocxToPdfBulk: async (docType, year, recordId, base64, fileName, force) => {
+    const res = await call('convertDocxToPdfBulk', { docType, year, recordId, base64, fileName, force });
+    if (!res || !res.jobId) return res; // synchronous result (skipped / sync fallback)
+    return pollRenderPdfJob(res.jobId);
+  },
   // Everything except the bytes is derived server-side from the verified consent
   // token, so docType/year/recordId are no longer client-controlled.
   convertDocxToPdfPublic: (base64, token) => call('convertDocxToPdfPublic', { base64, token }, false),

@@ -32,7 +32,7 @@ import { logErrorAt, logWarn } from './logger.js';
 
 const MAX_ATTEMPTS = 3;       // dispatch attempts before a job is parked 'failed'
 const STUCK_MINUTES = 10;     // a 'dispatched' row older than this is reconciled
-const KINDS = new Set(['ai_fix_generate', 'ai_pr_create', 'ai_ci_retry']);
+const KINDS = new Set(['ai_fix_generate', 'ai_pr_create', 'ai_ci_retry', 'pdf_convert']);
 
 const genJobId = () => randomId('RJOB');
 
@@ -145,14 +145,19 @@ export async function handleRenderCallback(env, body) {
     const succeeded = (body.status || '').toString() === 'completed' && !body.error;
 
     if (succeeded) {
-      const resultStr = JSON.stringify(body.result || {});
+      // Domain side-effect FIRST — for pdf_convert it stores the PDF in R2 + writes
+      // the index, and returns an enriched, base64-STRIPPED result ({publicLink,
+      // fileName}) so we don't persist a few-hundred-KB pdfBase64 into the job row.
+      let stored = body.result || {};
+      try {
+        const enriched = await applyResultSideEffect(env, row, body.result || {});
+        if (enriched) stored = enriched;
+      } catch (e) {
+        await logErrorAt(env, 'backend-render', 'handleRenderCallback:sideEffect', e, { jobId, kind: row.kind });
+      }
       await db.prepare(
         `UPDATE render_jobs SET status='completed', result=?, finished_at=?, render_job_id=COALESCE(render_job_id, ?) WHERE job_id=?`
-      ).bind(resultStr, now, body.renderJobId || null, jobId).run();
-      // Domain side-effect: apply the result to ai_fixes (kept generic so future
-      // kinds can add their own). Best-effort — never let it break the ack.
-      await applyResultSideEffect(env, row, body.result || {}).catch((e) =>
-        logErrorAt(env, 'backend-render', 'handleRenderCallback:sideEffect', e, { jobId, kind: row.kind }));
+      ).bind(JSON.stringify(stored), now, body.renderJobId || null, jobId).run();
       return { success: true, applied: true };
     }
 
@@ -174,18 +179,36 @@ export async function handleRenderCallback(env, body) {
 // PR-C to dispatch). Only ai_* kinds touch ai_fixes; unknown kinds are no-ops.
 const AI_KINDS = new Set(['ai_fix_generate', 'ai_pr_create', 'ai_ci_retry']);
 async function applyResultSideEffect(env, jobRow, result) {
-  if (!AI_KINDS.has(jobRow.kind)) return;
-  const { applyRenderFixResult } = await import('./aiFix.js');
-  if (typeof applyRenderFixResult === 'function') {
-    await applyRenderFixResult(env, jobRow.kind, jobRow.ref_id, result);
+  if (AI_KINDS.has(jobRow.kind)) {
+    const { applyRenderFixResult } = await import('./aiFix.js');
+    if (typeof applyRenderFixResult === 'function') {
+      await applyRenderFixResult(env, jobRow.kind, jobRow.ref_id, result);
+    }
+    return;
   }
+  if (jobRow.kind === 'pdf_convert') {
+    // Render converted the docx→PDF and returned the PDF bytes; the Worker writes
+    // R2 + the generated_files index (both binding-only). The original job payload
+    // carries docType/year/recordId. Returns a base64-STRIPPED { publicLink,
+    // fileName } so the caller stores that (not the fat pdfBase64) on the job row.
+    const { applyPdfConvertResult } = await import('./docxTemplates.js');
+    if (typeof applyPdfConvertResult === 'function') {
+      let payload = {};
+      try { payload = JSON.parse(jobRow.payload || '{}'); } catch (e) { payload = {}; }
+      return await applyPdfConvertResult(env, payload, result);
+    }
+  }
+  return null;
 }
 async function applyFailureSideEffect(env, jobRow, errorMsg) {
-  if (!AI_KINDS.has(jobRow.kind)) return;
-  const { applyRenderFixFailure } = await import('./aiFix.js');
-  if (typeof applyRenderFixFailure === 'function') {
-    await applyRenderFixFailure(env, jobRow.kind, jobRow.ref_id, errorMsg);
+  if (AI_KINDS.has(jobRow.kind)) {
+    const { applyRenderFixFailure } = await import('./aiFix.js');
+    if (typeof applyRenderFixFailure === 'function') {
+      await applyRenderFixFailure(env, jobRow.kind, jobRow.ref_id, errorMsg);
+    }
   }
+  // pdf_convert failure needs no D1 side-effect: the render_jobs row already holds
+  // status='failed' + error, which getRenderJobStatus surfaces to the poller.
 }
 
 // ============================================================================
