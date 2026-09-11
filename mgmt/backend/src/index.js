@@ -577,8 +577,16 @@ export default {
     // the action router because the body shape is Render's, not ours. Acks 200 fast
     // (result save runs in waitUntil) so Render never retries a stored result.
     if (reqUrl.searchParams.has('render-webhook') || (req && req.action === undefined && req.jobId && req.status && (req.result !== undefined || req.error !== undefined))) {
-      const provided = reqUrl.searchParams.get('render-webhook') || request.headers.get('X-Render-Signature') || '';
-      const ok = await renderJobs.verifyRenderWebhookSecret(env, provided);
+      // The secret may arrive in the X-Render-Signature header AND/OR the
+      // ?render-webhook query param. When WORKER_WEBHOOK_URL is
+      // "...?render-webhook=1" the query value is just a ROUTE MARKER ("1"), not
+      // the secret, so we must check BOTH sources independently and accept if
+      // EITHER matches — not `queryParam || header` (which would short-circuit on
+      // the truthy "1" and never look at the header that actually carries it).
+      const fromHeader = request.headers.get('X-Render-Signature') || '';
+      const fromQuery = reqUrl.searchParams.get('render-webhook') || '';
+      const ok = (await renderJobs.verifyRenderWebhookSecret(env, fromHeader))
+        || (await renderJobs.verifyRenderWebhookSecret(env, fromQuery));
       if (!ok) {
         ctx.waitUntil(logError(env, 'backend', 'render-webhook', 'Render callback rejected: bad/missing secret', '', ''));
         return jsonOut({ success: false, message: 'Unauthorized' }, request, env, 401);
