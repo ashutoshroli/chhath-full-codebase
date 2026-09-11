@@ -32,6 +32,13 @@ export const config = {
   anthropicApiKey: req('ANTHROPIC_API_KEY'),
   aiFixModel: opt('AI_FIX_MODEL', 'claude-sonnet-4-5-20250929'),
 
+  // Google Drive OAuth (for the pdf_convert job — bulk PDF offload). Optional:
+  // an AI-only deploy doesn't need them; the pdf_convert job fails clearly if
+  // they're missing. Same creds/refresh-token the Worker uses.
+  driveOAuthClientId: opt('DRIVE_OAUTH_CLIENT_ID', ''),
+  driveOAuthClientSecret: opt('DRIVE_OAUTH_CLIENT_SECRET', ''),
+  driveOAuthRefreshToken: opt('DRIVE_OAUTH_REFRESH_TOKEN', ''),
+
   port: parseInt(opt('PORT', '10000'), 10) || 10000,
 };
 
