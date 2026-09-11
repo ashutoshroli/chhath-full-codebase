@@ -178,7 +178,10 @@ export default function BulkGeneratePdfs() {
         for (const r of (results || [])) byId[r.recordId] = r;
         for (const it of items) {
           const r = byId[it.recordId];
-          const ok = !!(r && r.success);
+          // The Worker returns the TRANSLATED shape ({ success, error }). As a
+          // belt-and-suspenders guard we also honour the RAW Render shape ({ ok })
+          // in case it ever leaks through — a raw ok:true record is a real success.
+          const ok = !!(r && (r.success || r.ok));
           const skipped = !!(r && r.skipped);
           if (!ok) {
             // Distinguish a genuine per-record failure (r.error is set by the
@@ -187,7 +190,7 @@ export default function BulkGeneratePdfs() {
             // dropped this record, which is otherwise invisible. Always surface a
             // concrete, non-empty reason so the Error Log is actionable.
             const reason = r
-              ? (r.error || 'conversion failed (no error detail returned)')
+              ? (r.error || 'conversion failed (server returned no error detail — check Render logs)')
               : 'no result returned from server for this record';
             appendLog(`❌ ${label} — ${it.recordId}: ${reason}`);
             reportClientError('BulkGeneratePdfs', `Record failed: ${it.recordId} — ${reason}`, null,

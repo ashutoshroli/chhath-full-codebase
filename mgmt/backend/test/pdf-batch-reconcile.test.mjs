@@ -88,3 +88,69 @@ test('no requested-but-missing entries are invented when every record came back'
   assert.equal(results.length, 1, 'exactly one record, no phantom failures');
   assert.equal(results[0].error, 'x');
 });
+
+
+// ============ handleRenderCallback must NEVER leak the raw Render shape ============
+//
+// The batch bug: Render returns per-record { ok, pdfBase64 } (no `error` on
+// success); the frontend reads { success, error }. If the raw shape were persisted
+// as the completed result, the client would read success:undefined + no error — a
+// record failing with a BLANK reason — and the fat pdfBase64 could blow D1's row
+// limit. These tests drive the real handleRenderCallback + getRenderJobStatus.
+
+import { makeD1 as _makeD1, makeKV, schemaFor as _schemaFor } from './helpers/stubs.mjs';
+import { createAndDispatchJob, handleRenderCallback, getRenderJobStatus } from '../src/renderJobs.js';
+
+const SUPERADMIN2 = { name: 'USER0001', role: 'Superadmin' };
+
+function stubFetchOk() {
+  const orig = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, status: 202, json: async () => ({ renderJobId: 'r1' }) });
+  return () => { globalThis.fetch = orig; };
+}
+
+function callbackEnv() {
+  return {
+    DB_MISC: _makeD1(_schemaFor('misc.sql')),
+    DB_FILE_INDEX: _makeD1(_schemaFor('file_index.sql')),
+    DB_LOGS: _makeD1(_schemaFor('logs.sql')),
+    KV_SESSIONS: makeKV(),
+    RENDER_SERVICE_URL: 'https://render.example.test',
+    RENDER_API_KEY: 'k',
+    RENDER_WEBHOOK_SECRET: 's',
+    // No R2 binding on purpose: a Render-successful record cannot be stored, so it
+    // must surface as a per-record failure with a CONCRETE reason (not the raw shape).
+  };
+}
+
+test('a completed batch callback stores the TRANSLATED shape (success/error), never raw ok+base64', async () => {
+  const env = callbackEnv();
+  const restore = stubFetchOk();
+  let jobId;
+  try {
+    const res = await createAndDispatchJob(
+      env, 'pdf_convert_batch',
+      { docType: 'receipt', year: 2025, items: [{ recordId: 'receipt-2025-8', base64: 'x', fileName: 'r.docx' }] },
+      { refId: 'receipt-2025', storePayload: { docType: 'receipt', year: 2025, recordIds: ['receipt-2025-8'], count: 1 } }
+    );
+    jobId = res.jobId;
+  } finally { restore(); }
+
+  // Render succeeded for the record and returned the raw shape with base64.
+  await handleRenderCallback(env, {
+    jobId, status: 'completed',
+    result: { results: [{ recordId: 'receipt-2025-8', ok: true, pdfBase64: 'JVBERi0=', fileName: 'r.pdf' }] },
+  });
+
+  const st = await getRenderJobStatus(env, jobId, SUPERADMIN2);
+  assert.equal(st.job.status, 'completed');
+  const rec = st.job.result.results[0];
+  // TRANSLATED shape only — never the raw `ok`, never base64.
+  assert.equal(rec.recordId, 'receipt-2025-8');
+  assert.equal('ok' in rec, false, 'raw `ok` flag must not leak to the stored result');
+  assert.equal('pdfBase64' in rec, false, 'base64 must never be persisted on the job row');
+  // R2 was absent, so this record is a concrete, NON-EMPTY failure — not a blank one.
+  assert.equal(rec.success, false);
+  assert.ok(rec.error && rec.error.length > 0);
+  assert.match(rec.error, /R2 not configured/);
+});

@@ -27,8 +27,12 @@ export async function runPdfConvertBatch(payload) {
       const { pdfBase64, fileName } = await convertDocxToPdfBytes(it.base64, it.fileName || 'document.docx');
       results.push({ recordId, ok: true, pdfBase64, fileName });
     } catch (e) {
-      console.warn(`[pdf_convert_batch] ${recordId} failed:`, e && e.message);
-      results.push({ recordId, ok: false, error: (e && e.message) || 'conversion failed' });
+      // Log the FULL error (incl. stack) to the Render console so a per-record
+      // failure is diagnosable there, and always return a non-empty error string
+      // to the Worker (a thrown non-Error, e.g. a string, has no `.message`).
+      console.error(`[pdf_convert_batch] ${recordId} failed:`, (e && e.stack) || e);
+      const msg = (e && (e.message || String(e))) || 'conversion failed';
+      results.push({ recordId, ok: false, error: msg });
     }
   }
   return { results };
