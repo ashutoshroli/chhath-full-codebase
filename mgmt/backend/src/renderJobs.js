@@ -61,6 +61,30 @@ function stripHeavyResult(result) {
   return clean(result);
 }
 
+// Normalize a stored pdf_convert_batch result to the shape the frontend expects
+// ({ recordId, success, error?, publicLink?, fileName? }). Live rows are already
+// translated by applyPdfConvertBatchResult; this only rescues a stale/legacy row
+// that still holds the RAW Render shape (per-record `ok`, base64, no `success`,
+// and possibly no `error`), so it can never show a blank-reason failure.
+function normalizeBatchResult(result) {
+  if (!result || !Array.isArray(result.results)) return result;
+  const results = result.results.map((r) => {
+    if (!r || typeof r !== 'object') return r;
+    // Already in the translated shape — leave it (but drop any stray base64).
+    if ('success' in r) {
+      const { pdfBase64, base64, ...rest } = r; // eslint-disable-line no-unused-vars
+      return rest;
+    }
+    // Raw Render shape: derive success from `ok` and guarantee a non-empty error.
+    const success = !!r.ok;
+    const { pdfBase64, base64, ok, ...rest } = r; // eslint-disable-line no-unused-vars
+    return success
+      ? { ...rest, success: true }
+      : { ...rest, success: false, error: r.error || 'conversion failed (no detail recorded — please retry)' };
+  });
+  return { ...result, results };
+}
+
 // SHA-256 hex (Web Crypto) — used only to compare the webhook shared secret in
 // constant time (auth.js keeps its own copy private).
 async function sha256Hex(str) {
@@ -337,6 +361,12 @@ export async function getRenderJobStatus(env, jobId, user) {
   if (!row) return { success: false, message: 'Job not found' };
   let result = null;
   try { result = row.result ? JSON.parse(row.result) : null; } catch (e) { result = null; }
+  // READ-BOUNDARY GUARD: a completed pdf_convert_batch row written by an OLDER
+  // build could still hold the RAW Render shape (per-record `ok`, no `success`,
+  // and no `error` on success). Normalize it here so a stale row can NEVER surface
+  // a blank-reason failure to the client. Live rows are already translated, so
+  // this is a no-op for them.
+  if (row.kind === 'pdf_convert_batch') result = normalizeBatchResult(result);
   return {
     success: true,
     job: {

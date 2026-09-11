@@ -154,3 +154,48 @@ test('a completed batch callback stores the TRANSLATED shape (success/error), ne
   assert.ok(rec.error && rec.error.length > 0);
   assert.match(rec.error, /R2 not configured/);
 });
+
+
+// ============ Read-boundary guard: a STALE raw-shaped row never shows blank ============
+//
+// A completed pdf_convert_batch row written by an OLDER build could hold the RAW
+// Render shape (per-record `ok`, base64, no `success`, and possibly no `error`).
+// getRenderJobStatus must normalize it so the client never sees a success:false
+// record with an empty reason (the 'receipt-2025-34' symptom).
+
+test('getRenderJobStatus normalizes a STALE raw-shaped batch row (no blank errors, no base64)', async () => {
+  const env = callbackEnv();
+  const restore = stubFetchOk();
+  let jobId;
+  try {
+    const res = await createAndDispatchJob(
+      env, 'pdf_convert_batch',
+      { docType: 'receipt', year: 2025, items: [{ recordId: 'receipt-2025-34', base64: 'x', fileName: 'r.docx' }] },
+      { refId: 'receipt-2025', storePayload: { docType: 'receipt', year: 2025, recordIds: ['receipt-2025-34'], count: 1 } }
+    );
+    jobId = res.jobId;
+  } finally { restore(); }
+
+  // Simulate a LEGACY completed row: raw Render shape stored directly (this is
+  // what the pre-fix bug persisted). One failed record WITHOUT an error field, one
+  // successful record still carrying base64.
+  const rawStored = JSON.stringify({ results: [
+    { recordId: 'receipt-2025-34', ok: false },                          // no error!
+    { recordId: 'receipt-2025-35', ok: true, pdfBase64: 'JVBERi0=', fileName: 'r.pdf' },
+  ] });
+  await env.DB_MISC.prepare("UPDATE render_jobs SET status='completed', result=? WHERE job_id=?")
+    .bind(rawStored, jobId).run();
+
+  const st = await getRenderJobStatus(env, jobId, SUPERADMIN2);
+  const map = Object.fromEntries(st.job.result.results.map((r) => [r.recordId, r]));
+
+  // Failed record: normalized to success:false WITH a non-empty reason.
+  assert.equal(map['receipt-2025-34'].success, false);
+  assert.ok(map['receipt-2025-34'].error && map['receipt-2025-34'].error.length > 0);
+  assert.equal('ok' in map['receipt-2025-34'], false);
+
+  // Successful record: normalized to success:true, base64 stripped.
+  assert.equal(map['receipt-2025-35'].success, true);
+  assert.equal('pdfBase64' in map['receipt-2025-35'], false);
+  assert.equal('ok' in map['receipt-2025-35'], false);
+});
