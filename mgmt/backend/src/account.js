@@ -18,13 +18,29 @@ export async function getLoginUsers(env, user) {
   const users = await getSheetDataAsJSON(env, 'USERS');
   const userMap = {};
   users.forEach(u => { userMap[u.ID] = u; });
-  return rows.map(r => {
-    const { password, ...safe } = r;
-    return Object.assign({}, safe, {
-      personName: (userMap[r.Name] && userMap[r.Name].Name) || r.Name,
-      personVillage: (userMap[r.Name] && userMap[r.Name].Village) || '',
-    });
-  });
+  // SECURITY (audit CRITICAL): getSheetDataAsJSON returns the FULL login_users row,
+  // which now includes the five 2FA columns (totp_secret_enc, totp_pending_enc,
+  // totp_backup_codes, totp_recovery_hash, totp_enabled). Those are secrets/hashes
+  // that must NEVER reach the browser — a `{ password, ...safe }` spread only
+  // dropped the password and leaked all of them. Whitelist EXACTLY the display
+  // fields the Login Management screen uses, and expose only a boolean 2FA flag.
+  return rows.map(r => ({
+    __rowIndex: r.__rowIndex,
+    Name: r.Name,
+    Role: r.Role,
+    Mobile: r.Mobile || '',
+    Email: r.Email || '',
+    'Updated At': r['Updated At'] || '',
+    totp_enabled: isTotpEnabled(r.totp_enabled),
+    personName: (userMap[r.Name] && userMap[r.Name].Name) || r.Name,
+    personVillage: (userMap[r.Name] && userMap[r.Name].Village) || '',
+  }));
+}
+
+// The totp_enabled column is INTEGER 0/1 in D1, but a stub/legacy row could carry
+// '1'/'true'; treat any truthy-ish value as enabled, everything else as disabled.
+function isTotpEnabled(v) {
+  return v === 1 || v === '1' || v === true || v === 'true';
 }
 
 async function findLoginConflict(env, mobile, email, excludeName) {
