@@ -48,8 +48,8 @@ service is never usable without the shared secret).
 | `WORKER_WEBHOOK_URL` | Worker callback URL | e.g. `https://chhath-mgmt-api.shaharpura.workers.dev/?render-webhook=1` |
 | `GITHUB_TOKEN` | Fine-grained PAT | Scoped to the repo only: Contents R/W, Pull requests R/W |
 | `GITHUB_REPO` | `owner/repo` | `ashutoshroli/chhath-full-codebase` |
-| `ANTHROPIC_API_KEY` | Claude API key | Anthropic is the only provider supported here for now |
-| `AI_FIX_MODEL` | Model id | Defaults to `claude-sonnet-4-5-20250929` |
+| `ANTHROPIC_API_KEY` | Claude API key | **Fallback only.** The active provider (custom / OpenAI-compatible / default) is chosen in the Worker's AI Management tab and sent in each job payload; this env key is used only when a job carries no provider. |
+| `AI_FIX_MODEL` | Model id | Fallback model when a job carries no provider. Defaults to `claude-sonnet-4-5-20250929` |
 | `PORT` | Injected by Render | Only set manually for local runs |
 
 The service **fails fast at boot** (clear log message) if any required var is missing.

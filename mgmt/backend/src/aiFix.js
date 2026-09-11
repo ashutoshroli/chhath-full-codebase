@@ -79,6 +79,29 @@ export function requireConfig(env) {
 }
 export function model(env) { return (env.AI_FIX_MODEL || DEFAULT_MODEL).toString(); }
 
+// Resolve the ACTIVE AI provider (default DB provider -> ANTHROPIC_API_KEY secret)
+// and return the shape Render needs to make the model call itself. This is what
+// closes the "custom provider only worked in the Test button" gap: the resolved
+// provider (custom / OpenAI-compatible / default Anthropic) now travels in the
+// dispatch payload so Render's model call uses the SAME provider the Superadmin
+// selected in AI Management — not Render's own hardcoded env key.
+//
+// SECURITY: this includes the DECRYPTED apiKey. It only ever leaves the Worker
+// over the authenticated, HTTPS Render dispatch (X-Render-Api-Key), for a
+// Superadmin-only feature — the same trust level under which Render already holds
+// its own Anthropic key. Returns null when nothing is configured (caller decides).
+export async function resolveProviderForDispatch(env) {
+  const p = await resolveActiveProvider(env);
+  if (!p) return null;
+  return {
+    type: p.type,                 // 'anthropic' | 'openai-compatible'
+    apiKey: p.apiKey,
+    baseUrl: p.baseUrl || '',
+    model: p.model || '',
+    // sourceLabel is Worker-side logging only; not sent.
+  };
+}
+
 // --- GitHub raw file fetch --------------------------------------------------
 // Reads a file's content + blob sha from the repo's default branch. Returns null
 // (not throwing) for a 404 / blocked path so a missing "related" file never
@@ -310,11 +333,20 @@ export async function generateAiFix(env, errorId, user) {
     updated_at: ts,
   });
 
+  // Resolve the active AI provider HERE (Worker decrypts the key) and send it in
+  // the payload so Render calls the SAME provider the Superadmin configured.
+  const provider = await resolveProviderForDispatch(env);
+  if (!provider) {
+    await updateFixRow(env, fixId, { status: 'failed', error_message: 'AI not configured.' }).catch(() => {});
+    throw ValidationError('AI is not configured: add a provider in the AI Management tab, or set the ANTHROPIC_API_KEY secret.');
+  }
+
   // Dispatch to Render. Only references + the (small) error text travel in the
   // payload — Render fetches the repo files itself.
   const dispatch = await createAndDispatchJob(env, 'ai_fix_generate', {
     errorId,
     fixId,
+    provider,
     errorRow: {
       message: errorRow.message || '',
       stack: errorRow.stack || '',
