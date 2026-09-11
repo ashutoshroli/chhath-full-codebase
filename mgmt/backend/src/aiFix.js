@@ -25,7 +25,7 @@ import { logErrorAt, logWarn } from './logger.js';
 // diffApply (applyUnifiedDiff/pathsInDiff) is no longer used here — the PR-create
 // path that applied diffs is offloaded to Render. The CI-retry loop (aiFixCi.js)
 // imports diffApply directly, so the module is still in use repo-wide.
-import { resolveActiveProvider } from './aiConfig.js';
+import { resolveActiveProvider, resolveProviderChain } from './aiConfig.js';
 import { createAndDispatchJob } from './renderJobs.js';
 
 const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com/v1/messages';
@@ -100,6 +100,20 @@ export async function resolveProviderForDispatch(env) {
     model: p.model || '',
     // sourceLabel is Worker-side logging only; not sent.
   };
+}
+
+// The full FALLBACK CHAIN for the 'fix' purpose, in the shape Render needs. Render
+// tries them in order, falling through on a rate-limit / 5xx / timeout. Includes
+// the ANTHROPIC_API_KEY secret as the last resort (fix purpose). Returns [] when
+// nothing is configured.
+export async function resolveProviderChainForDispatch(env) {
+  const chain = await resolveProviderChain(env, 'fix');
+  return chain.map(p => ({
+    type: p.type,
+    apiKey: p.apiKey,
+    baseUrl: p.baseUrl || '',
+    model: p.model || '',
+  }));
 }
 
 // --- GitHub raw file fetch --------------------------------------------------
@@ -358,10 +372,12 @@ export async function generateAiFix(env, errorId, user, opts) {
     updated_at: ts,
   });
 
-  // Resolve the active AI provider HERE (Worker decrypts the key) and send it in
-  // the payload so Render calls the SAME provider the Superadmin configured.
-  const provider = await resolveProviderForDispatch(env);
-  if (!provider) {
+  // Resolve the AI provider CHAIN here (Worker decrypts the keys) and send it in
+  // the payload so Render calls the SAME providers the Superadmin configured,
+  // trying them in priority order (falling through on a rate-limit / 5xx /
+  // timeout). `provider` (the first) is kept for older Render builds.
+  const providers = await resolveProviderChainForDispatch(env);
+  if (!providers.length) {
     await updateFixRow(env, fixId, { status: 'failed', error_message: 'AI not configured.' }).catch(() => {});
     throw ValidationError('AI is not configured: add a provider in the AI Management tab, or set the ANTHROPIC_API_KEY secret.');
   }
@@ -371,7 +387,8 @@ export async function generateAiFix(env, errorId, user, opts) {
   const dispatch = await createAndDispatchJob(env, 'ai_fix_generate', {
     errorId,
     fixId,
-    provider,
+    provider: providers[0], // back-compat with an older Render build
+    providers,              // the full fallback chain (Render loops this)
     errorRow: {
       message: errorRow.message || '',
       stack: errorRow.stack || '',
