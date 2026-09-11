@@ -92,6 +92,21 @@ export default function AiManagement() {
     finally { setBusyId(null); }
   };
 
+  // Move a provider up/down within its purpose's fallback order (dir = -1 up / +1 down).
+  const move = async (p, dir) => {
+    const purpose = p.purpose || 'fix';
+    const group = (providers || []).filter(x => (x.purpose || 'fix') === purpose);
+    const idx = group.findIndex(x => x.provider_id === p.provider_id);
+    const j = idx + dir;
+    if (idx < 0 || j < 0 || j >= group.length) return; // already at the edge
+    const ids = group.map(x => x.provider_id);
+    [ids[idx], ids[j]] = [ids[j], ids[idx]]; // swap
+    setBusyId('move:' + p.provider_id);
+    try { await api.reorderAiProviders(purpose, ids); refresh(); }
+    catch (err) { alert(err.message); }
+    finally { setBusyId(null); }
+  };
+
   const clearDefault = async () => {
     setBusyId('__clear__');
     // Clears the FIX default only (that's the one with the ANTHROPIC_API_KEY
@@ -186,8 +201,9 @@ export default function AiManagement() {
         <button className="btn-submit" style={{ width: 'auto', padding: '6px 12px', fontSize: '0.85rem' }} onClick={startAdd}>+ Add Provider</button>
       </div>
       <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 12 }}>
-        The <strong>default</strong> provider is used for the Error Log "Fix using AI" feature.
-        With no default set, it falls back to the <code>ANTHROPIC_API_KEY</code> server secret.
+        Add multiple providers per use. They are tried in <strong>priority order</strong> (#1 first) — if one is
+        rate-limited or down, the next is used automatically. Use <strong>↑ / ↓</strong> to set the order.
+        AI-Fixes falls back to the <code>ANTHROPIC_API_KEY</code> server secret if none is set.
       </p>
       {error && <div className="error-banner">{error}</div>}
 
@@ -204,15 +220,29 @@ export default function AiManagement() {
         </div>
       )}
 
-      {(providers || []).map(p => {
+      {(providers || []).map((p, i) => {
         const tr = testResult[p.provider_id];
+        const purpose = p.purpose || 'fix';
+        // Rank of this provider within its purpose (1-based) + a purpose header on
+        // the first row of each purpose. providers[] is already sorted by
+        // purpose, priority from the backend.
+        const sameBefore = (providers || []).slice(0, i).filter(x => (x.purpose || 'fix') === purpose).length;
+        const sameTotal = (providers || []).filter(x => (x.purpose || 'fix') === purpose).length;
+        const rank = sameBefore + 1;
+        const isFirstOfPurpose = sameBefore === 0;
+        const busyMove = busyId === 'move:' + p.provider_id;
         return (
-          <div className="glass-card" key={p.provider_id} style={{ padding: 14, marginBottom: 10 }}>
+          <div key={p.provider_id}>
+          {isFirstOfPurpose && (
+            <h4 style={{ margin: '14px 0 6px', fontSize: '0.9rem' }}>{purposeLabel(purpose)}</h4>
+          )}
+          <div className="glass-card" style={{ padding: 14, marginBottom: 10 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
               <div>
+                <span className="badge" style={{ marginRight: 8, background: rank === 1 ? '#dcfce7' : '#f3f4f6', color: rank === 1 ? '#166534' : '#6b7280' }}>
+                  #{rank}{rank === 1 ? ' primary' : ' fallback'}
+                </span>
                 <strong>{p.name}</strong>
-                {p.is_default && <span className="badge badge-ok" style={{ marginLeft: 8 }}>Default</span>}
-                {p.is_default && <span className="badge" style={{ marginLeft: 8, background: '#ede9fe', color: '#5b21b6' }}>{p.purpose === 'public_chat' ? 'Chatbot' : 'Fixes'}</span>}
                 <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>
                   {p.type} · model: <code>{p.model || '—'}</code>{p.base_url ? <> · {p.base_url}</> : null}
                 </div>
@@ -240,6 +270,8 @@ export default function AiManagement() {
                 )}
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <button type="button" className="btn-submit" title="Move up (higher priority)" style={{ width: 'auto', padding: '4px 9px', fontSize: '0.72rem', background: '#e5e7eb', color: '#111' }} onClick={() => move(p, -1)} disabled={rank === 1 || busyMove}>↑</button>
+                <button type="button" className="btn-submit" title="Move down (lower priority)" style={{ width: 'auto', padding: '4px 9px', fontSize: '0.72rem', background: '#e5e7eb', color: '#111' }} onClick={() => move(p, +1)} disabled={rank === sameTotal || busyMove}>↓</button>
                 <button type="button" className="btn-submit" style={{ width: 'auto', padding: '4px 10px', fontSize: '0.72rem', background: '#e5e7eb', color: '#111' }} onClick={() => test(p.provider_id)} disabled={busyId === 'test:' + p.provider_id}>
                   {busyId === 'test:' + p.provider_id ? 'Testing…' : 'Test'}
                 </button>
@@ -279,6 +311,7 @@ export default function AiManagement() {
                 </button>
               </div>
             )}
+          </div>
           </div>
         );
       })}

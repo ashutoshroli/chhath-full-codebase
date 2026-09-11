@@ -512,6 +512,8 @@ export const api = {
   // Set the default for a provider (its own purpose decides the scope), or clear a
   // purpose's default by passing providerId='' + purpose.
   setDefaultAiProvider: (providerId, purpose) => call('setDefaultAiProvider', { providerId, purpose }),
+  // Set the fallback order for a purpose. orderedIds = provider_ids, first = tried first.
+  reorderAiProviders: (purpose, orderedIds) => call('reorderAiProviders', { purpose, orderedIds }),
   // A custom `prompt` (optional) exercises the model and returns its reply text;
   // omit it for a quick connectivity ping. maxTokens is capped server-side (1024).
   // The test is OFFLOADED to Render when configured (slow models exceed the
