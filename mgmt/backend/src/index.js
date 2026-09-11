@@ -24,7 +24,7 @@ import * as cq from './collectionQueue.js';
 import * as email from './email.js';
 import * as officialMail from './officialMail.js';
 import { cleanupData, cleanupPreview } from './cleanup.js';
-import { generateAiFix, getAiFixes, getAiFix, createAiFixPr } from './aiFix.js';
+import { generateAiFix, getAiFixes, getAiFix, getLatestAiFixForError, createAiFixPr } from './aiFix.js';
 import { verifyGithubSignature, handleCheckSuiteEvent } from './aiFixCi.js';
 import { getAiProviders, saveAiProvider, deleteAiProvider, setDefaultAiProvider, testAiProvider } from './aiConfig.js';
 import { bumpDataVersion, getDataVersion } from './dataVersion.js';
@@ -70,7 +70,7 @@ export const READ_ONLY_ACTIONS = new Set([
   'getCollectionQueueStatus', 'getQueueJobsForSuperadmin',
   'getPopups', 'getPopupWithSlides', 'getActivePopups', 'previewPublicPopups',
   'reportErrorToWhatsApp', 'reportErrorPublic', 'getErrorLog',
-  'getAiFixes', 'getAiFix', 'getRenderJobStatus',
+  'getAiFixes', 'getAiFix', 'getLatestAiFixForError', 'getRenderJobStatus',
   // AI Management: getAiProviders reads; testAiProvider makes an external ping but
   // writes no data (so it's read-only for the version-bump classifier).
   'getAiProviders', 'testAiProvider',
@@ -1105,9 +1105,10 @@ export default {
       getErrorLog: () => withAuth(env, req, (user) => getErrorLog(env, user, req.limit)),
       // AI auto-fix (Superadmin-only; enforced inside each handler). PR-1 scope:
       // generate a fix + preview it. Branch/PR is PR-2, CI retry is PR-3.
-      generateAiFix: () => withAuth(env, req, (user) => generateAiFix(env, req.errorId, user)),
+      generateAiFix: () => withAuth(env, req, (user) => generateAiFix(env, req.errorId, user, { force: !!req.force })),
       getAiFixes: () => withAuth(env, req, (user) => getAiFixes(env, user, req.errorId)),
       getAiFix: () => withAuth(env, req, (user) => getAiFix(env, user, req.fixId)),
+      getLatestAiFixForError: () => withAuth(env, req, (user) => getLatestAiFixForError(env, req.errorId, user)),
       createAiFixPr: () => withAuth(env, req, (user) => createAiFixPr(env, req.fixId, user)),
       // Render offload job status (Superadmin-only inside renderJobs). The frontend
       // polls this after generateAiFix/createAiFixPr dispatch a job to Render.

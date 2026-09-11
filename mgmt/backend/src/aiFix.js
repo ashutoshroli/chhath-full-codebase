@@ -305,13 +305,34 @@ async function insertFixRow(env, row) {
 // NOT removed — the CI-retry loop (aiFixCi.js), which stays in the Worker for now,
 // still uses them. Only THIS generate path (and createAiFixPr) stops running the
 // heavy work in-Worker; the duplicated compute lives in mgmt/server-render.
-export async function generateAiFix(env, errorId, user) {
+export async function generateAiFix(env, errorId, user, opts) {
   requireSuperadmin(user);
   if (!errorId) throw ValidationError('errorId required');
   requireConfig(env);
 
   const errorRow = await env.DB_LOGS.prepare('SELECT * FROM error_log WHERE error_id = ?').bind(errorId).first();
   if (!errorRow) throw ValidationError('Error record not found.');
+
+  // DUPLICATE PREVENTION: unless the caller explicitly asks to re-generate, reuse
+  // an existing LIVE fix for this error instead of spawning a second Render job
+  // (which wastes provider tokens and creates confusing duplicate rows). A failed
+  // fix is not "live", so it does not block a fresh attempt.
+  const force = !!(opts && opts.force);
+  if (!force) {
+    const { fix, jobId } = await getLatestAiFixForError(env, errorId, user);
+    if (fix && LIVE_FIX_STATUSES.has(fix.status)) {
+      return {
+        success: true,
+        reused: true,
+        fixId: fix.fix_id,
+        status: fix.status,
+        jobId: fix.status === 'pending' ? jobId : null,
+        message: fix.status === 'pending'
+          ? 'An AI fix is already generating for this error — showing its progress.'
+          : 'Showing the existing AI fix for this error.',
+      };
+    }
+  }
 
   // Create the preview row up front as 'pending' so the UI has something to poll
   // and history is complete even while Render is still working.
@@ -390,6 +411,36 @@ export async function getAiFix(env, user, fixId) {
   const row = await env.DB_LOGS.prepare('SELECT * FROM ai_fixes WHERE fix_id = ?').bind(fixId).first();
   if (!row) throw ValidationError('AI fix not found.');
   return row;
+}
+
+// A fix is "live" (usable / do not regenerate) unless it failed. 'pending' is
+// still running on Render; the others already have a result to show.
+const LIVE_FIX_STATUSES = new Set(['pending', 'fix_generated', 'pr_created', 'ci_running', 'ci_failed', 'needs_manual_review']);
+
+// The most-recent live fix for an error, or the newest row of any status. Used by
+// the modal to REUSE an existing fix instead of always starting a new job:
+//   - 'pending'      -> also returns the live jobId so the UI can resume polling.
+//   - 'fix_generated'/'pr_created'/... -> the UI shows the stored result directly.
+// Returns { fix: <row|null>, jobId: <string|null> }.
+export async function getLatestAiFixForError(env, errorId, user) {
+  requireSuperadmin(user);
+  if (!errorId) throw ValidationError('errorId required');
+  const fix = await env.DB_LOGS.prepare(
+    'SELECT * FROM ai_fixes WHERE error_id = ? ORDER BY created_at DESC LIMIT 1'
+  ).bind(errorId).first();
+  if (!fix) return { fix: null, jobId: null };
+
+  let jobId = null;
+  if (fix.status === 'pending') {
+    // Find the still-in-flight Render job that drives this fix (ref_id = fix_id).
+    try {
+      const job = await env.DB_MISC.prepare(
+        "SELECT job_id FROM render_jobs WHERE ref_id = ? AND status IN ('pending','dispatched') ORDER BY id DESC LIMIT 1"
+      ).bind(fix.fix_id).first();
+      jobId = job ? job.job_id : null;
+    } catch (e) { jobId = null; }
+  }
+  return { fix, jobId };
 }
 
 export async function updateFixRow(env, fixId, fields) {
