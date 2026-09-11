@@ -122,6 +122,10 @@ test('verifyRenderWebhookSecret: constant-time match / mismatch / missing', asyn
   assert.equal(await verifyRenderWebhookSecret(env, 'wrong'), false);
   assert.equal(await verifyRenderWebhookSecret(env, ''), false);
   assert.equal(await verifyRenderWebhookSecret({ RENDER_WEBHOOK_SECRET: '' }, 'anything'), false);
+  // The route-marker value from WORKER_WEBHOOK_URL "?render-webhook=1" must NOT be
+  // mistaken for the secret — the route checks the header independently (bugfix:
+  // a `query || header` short-circuit made "1" win and always 401'd).
+  assert.equal(await verifyRenderWebhookSecret(env, '1'), false);
 });
 
 test('handleRenderCallback: success saves result + marks completed', async () => {
