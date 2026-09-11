@@ -5,6 +5,7 @@ import { runAiPrCreate } from '../jobs/aiPrCreate.js';
 import { runAiCiRetry } from '../jobs/aiCiRetry.js';
 import { runPdfConvert } from '../jobs/pdfConvert.js';
 import { runPdfConvertBatch } from '../jobs/pdfConvertBatch.js';
+import { runProviderTest } from '../jobs/providerTest.js';
 import { postResult } from '../lib/callback.js';
 
 export const jobsRouter = express.Router();
@@ -23,6 +24,9 @@ const HANDLERS = {
   // Batched bulk PDF: convert up to ~20 docs in one job (sequentially) and return
   // per-record results in one callback. The Worker writes R2 + index per record.
   pdf_convert_batch: runPdfConvertBatch,
+  // AI Management "Test": exercise a provider (slow reasoning models exceed the
+  // Worker's ~30s cap -> HTTP 524; Render has no such cap).
+  provider_test: runProviderTest,
 };
 
 // POST /jobs — accept a job, ack 202 IMMEDIATELY, then run it in the background

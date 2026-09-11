@@ -221,6 +221,32 @@ export async function testAiProvider(env, providerId, user, opts) {
     return { success: false, ok: false, message: 'Stored key could not be decrypted (AI_CONFIG_SECRET may have changed). Re-enter the key.' };
   }
 
+  // OFFLOAD to Render when it is configured. The Cloudflare Worker caps a request
+  // at ~30s, so a slow reasoning model (e.g. NVIDIA NIM DeepSeek) times out with an
+  // HTTP 524. Render has no such cap. The decrypted key travels in the job payload
+  // (never stored on the job row) exactly like the AI-fix provider dispatch; the
+  // client polls getRenderJobStatus(jobId) for the reply. If Render is not
+  // configured we fall back to the in-Worker request below (unchanged behaviour).
+  if (env.RENDER_SERVICE_URL && env.RENDER_API_KEY) {
+    const { createAndDispatchJob } = await import('./renderJobs.js');
+    const dispatch = await createAndDispatchJob(
+      env, 'provider_test',
+      { type: row.type, apiKey, baseUrl: row.base_url || '', model: row.model, prompt, maxTokens }, // -> Render (has the key)
+      {
+        refId: providerId,
+        createdBy: (user && user.name) || '',
+        // storePayload is what lands in D1. It DELIBERATELY omits apiKey so the
+        // decrypted key is NEVER persisted on the job row — it only ever travels
+        // in the outbound Render request body.
+        storePayload: { type: row.type, model: row.model, hasPrompt: prompt !== 'ping' },
+      }
+    );
+    if (dispatch.success) {
+      return { success: true, dispatched: true, jobId: dispatch.jobId, status: 'pending', via: 'render' };
+    }
+    // Could not reach Render — fall through to the in-Worker path.
+  }
+
   // Bound the request so a hanging provider (e.g. the observed HTTP 524) fails
   // fast with a readable message instead of hanging the whole call.
   const controller = new AbortController();

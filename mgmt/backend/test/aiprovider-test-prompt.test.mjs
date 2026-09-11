@@ -161,3 +161,64 @@ test('still Superadmin-only', async () => {
   const id = await addProvider(env);
   await assert.rejects(() => testAiProvider(env, id, { name: 'x', role: 'Admin' }, { prompt: 'hi' }), /Superadmin/);
 });
+
+// ---- OFFLOAD to Render (slow models exceed the Worker's 30s cap -> HTTP 524) ----
+
+test('when Render is configured, the test is DISPATCHED and returns a jobId', async () => {
+  const env = makeEnv();
+  // render_jobs lives in DB_MISC; add it + the Render config.
+  env.DB_MISC = makeD1(schemaFor('misc.sql'));
+  env.RENDER_SERVICE_URL = 'https://render.example.test';
+  env.RENDER_API_KEY = 'render-key';
+  const id = await addProvider(env);
+
+  const calls = [];
+  const orig = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => { calls.push({ url, body: JSON.parse(opts.body) }); return { ok: true, status: 202, json: async () => ({ renderJobId: 'r1' }) }; };
+  let res;
+  try {
+    res = await testAiProvider(env, id, SUPER, { prompt: 'say hi' });
+  } finally { globalThis.fetch = orig; }
+
+  assert.equal(res.dispatched, true);
+  assert.ok(res.jobId && res.jobId.startsWith('RJOB'));
+  assert.equal(res.via, 'render');
+  // The decrypted key WAS sent to Render (in the outbound body)...
+  const sent = calls[0].body;
+  assert.equal(sent.kind, 'provider_test');
+  assert.equal(sent.payload.prompt, 'say hi');
+  assert.ok(sent.payload.apiKey, 'the key travels to Render in the request body');
+});
+
+test('the decrypted key is NEVER persisted on the render_jobs row', async () => {
+  const env = makeEnv();
+  env.DB_MISC = makeD1(schemaFor('misc.sql'));
+  env.RENDER_SERVICE_URL = 'https://render.example.test';
+  env.RENDER_API_KEY = 'render-key';
+  const id = await addProvider(env, { apiKey: 'super-secret-key-xyz' });
+
+  const orig = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, status: 202, json: async () => ({ renderJobId: 'r1' }) });
+  let res;
+  try {
+    res = await testAiProvider(env, id, SUPER, { prompt: 'hi' });
+  } finally { globalThis.fetch = orig; }
+
+  const row = await env.DB_MISC.prepare('SELECT payload FROM render_jobs WHERE job_id = ?').bind(res.jobId).first();
+  assert.ok(row, 'the job row exists');
+  assert.equal(row.payload.includes('super-secret-key-xyz'), false, 'the decrypted key must NOT be in the stored payload');
+  assert.equal(row.payload.includes('apiKey'), false, 'no apiKey field is persisted at all');
+});
+
+test('when Render is NOT configured, it still answers synchronously (fallback)', async () => {
+  const env = makeEnv(); // no RENDER_SERVICE_URL
+  const id = await addProvider(env);
+  const { restore } = stubFetch(async () => ({ status: 200, body: { choices: [{ message: { content: 'sync-ok' } }] } }));
+  let res;
+  try {
+    res = await testAiProvider(env, id, SUPER, { prompt: 'hi' });
+  } finally { restore(); }
+  assert.equal(res.ok, true);
+  assert.equal(res.reply, 'sync-ok');
+  assert.ok(!res.jobId, 'no dispatch when Render is absent');
+});

@@ -98,9 +98,10 @@ export default function AiManagement() {
     setTestResult(r => ({ ...r, [providerId]: null }));
     try {
       const res = await api.testAiProvider(providerId, custom || undefined);
+      const viaNote = res.via === 'render' ? ' (via Render)' : '';
       setTestResult(r => ({ ...r, [providerId]: {
         ok: !!res.ok,
-        message: res.message || (res.ok ? 'OK' : 'Failed'),
+        message: (res.message || (res.ok ? 'OK' : 'Failed')) + (res.message && res.message.includes('Render') ? '' : viaNote),
         reply: res.reply || '',
       } }));
     } catch (err) {
@@ -194,6 +195,11 @@ export default function AiManagement() {
                   {p.type} · model: <code>{p.model || '—'}</code>{p.base_url ? <> · {p.base_url}</> : null}
                 </div>
                 <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Key: {p.has_key ? p.key_hint || '••••••••' : '(none)'}</div>
+                {busyId === 'test:' + p.provider_id && (
+                  <div style={{ fontSize: '0.72rem', marginTop: 4, color: 'var(--text-muted)' }}>
+                    Testing… slow models can take a while (offloaded to Render — no 30s limit).
+                  </div>
+                )}
                 {tr && (
                   <div style={{ fontSize: '0.75rem', marginTop: 4, color: tr.ok ? 'var(--success, #166534)' : 'var(--danger, #b91c1c)' }}>
                     {tr.ok ? '✓ ' : '✗ '}{tr.message}
