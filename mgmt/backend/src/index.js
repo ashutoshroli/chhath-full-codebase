@@ -617,7 +617,7 @@ export default {
         const { resolveProviderChain } = await import('./aiConfig.js');
         const chain = await resolveProviderChain(env, 'public_chat');
         if (!chain.length) return jsonOut({ success: true, configured: false }, request, env, 200);
-        const providers = chain.map(p => ({ type: p.type, apiKey: p.apiKey, baseUrl: p.baseUrl, model: p.model }));
+        const providers = chain.map(p => ({ type: p.type, apiKey: p.apiKey, baseUrl: p.baseUrl, model: p.model, dataMode: p.dataMode }));
         return jsonOut({
           success: true, configured: true,
           provider: providers[0], // back-compat: an older Render build reads a single provider

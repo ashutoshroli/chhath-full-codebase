@@ -18,7 +18,8 @@ const SECRET = 'render-webhook-secret-value-123456';
 function logsSchemaWithPurpose() {
   const m24 = readFileSync(new URL('../../db/migration/2026-09-05/24-ai-providers-purpose.sql', import.meta.url), 'utf8');
   const m25 = readFileSync(new URL('../../db/migration/2026-09-05/25-ai-providers-priority.sql', import.meta.url), 'utf8');
-  return schemaFor('logs.sql') + '\n' + m24 + '\n' + m25;
+  const m26 = readFileSync(new URL('../../db/migration/2026-09-05/26-ai-providers-data-mode.sql', import.meta.url), 'utf8');
+  return schemaFor('logs.sql') + '\n' + m24 + '\n' + m25 + '\n' + m26;
 }
 function makeCtx() {
   const pending = [];
@@ -71,6 +72,24 @@ test('with the right secret + a configured public_chat default, returns the decr
   // The full fallback chain is also returned (Render loops it); provider = chain[0].
   assert.ok(Array.isArray(body.providers) && body.providers.length >= 1, 'a providers[] chain is returned');
   assert.equal(body.providers[0].model, 'chat-m');
+  assert.equal(body.providers[0].dataMode, 'summary', 'dataMode is threaded through to Render (default summary)');
+});
+
+test('the ?render-provider route threads a "full" data_mode through to Render', async () => {
+  const env = makeEnv();
+  const { ctx, settle } = makeCtx();
+  const p = await saveAiProvider(env, {
+    name: 'FullChat', type: 'openai-compatible', baseUrl: 'https://chat.test/v1', model: 'full-m',
+    apiKey: 'test-chat-key-8888', purpose: 'public_chat', data_mode: 'full',
+  }, SUPER);
+  await setDefaultAiProvider(env, p.providerId, SUPER);
+
+  const res = await post(env, ctx, { sig: SECRET });
+  await settle();
+  const body = await res.json();
+  assert.equal(body.configured, true);
+  assert.equal(body.provider.dataMode, 'full');
+  assert.equal(body.providers[0].dataMode, 'full');
 });
 
 test('returns the public_chat providers in priority order (a multi-provider chain)', async () => {

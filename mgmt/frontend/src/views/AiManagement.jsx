@@ -23,7 +23,14 @@ const PURPOSES = [
 ];
 const purposeLabel = (p) => (PURPOSES.find(x => x.value === p) || PURPOSES[0]).label;
 
-const BLANK = { providerId: null, name: '', type: 'openai-compatible', baseUrl: '', model: '', apiKey: '', purpose: 'fix' };
+// How much portal data a public_chat provider sends to the model. Only meaningful
+// for the public_chat purpose (ignored for 'fix'). Default 'summary'.
+const DATA_MODES = [
+  { value: 'summary', label: 'Summary (fast, cheap - default)' },
+  { value: 'full', label: 'Full dataset (cache-only)' },
+];
+
+const BLANK = { providerId: null, name: '', type: 'openai-compatible', baseUrl: '', model: '', apiKey: '', purpose: 'fix', data_mode: 'summary' };
 
 export default function AiManagement() {
   const [providers, setProviders] = useState(null);
@@ -46,7 +53,7 @@ export default function AiManagement() {
   const startEdit = (p) => {
     setError('');
     // apiKey left blank on edit = keep existing key.
-    setForm({ providerId: p.provider_id, name: p.name, type: p.type, baseUrl: p.base_url || '', model: p.model || '', apiKey: '', purpose: p.purpose || 'fix' });
+    setForm({ providerId: p.provider_id, name: p.name, type: p.type, baseUrl: p.base_url || '', model: p.model || '', apiKey: '', purpose: p.purpose || 'fix', data_mode: p.data_mode || 'summary' });
   };
 
   const save = async () => {
@@ -66,6 +73,8 @@ export default function AiManagement() {
         baseUrl: form.baseUrl.trim(),
         model: form.model.trim(),
         purpose: form.purpose || 'fix',
+        // Only meaningful for public_chat; harmless (ignored) for 'fix'.
+        data_mode: form.data_mode || 'summary',
         // Only send the key if the user typed one (blank on edit = keep existing).
         ...(form.apiKey.trim() ? { apiKey: form.apiKey } : {}),
       });
@@ -165,6 +174,17 @@ export default function AiManagement() {
               “AI Fixes” powers the Error Log fixer. “Public Chatbot” answers questions on the public portal. Each has its own default.
             </div>
           </div>
+          {form.purpose === 'public_chat' && (
+            <div className="form-group">
+              <label>Data sent to the model</label>
+              <select value={form.data_mode} onChange={e => setForm({ ...form, data_mode: e.target.value })}>
+                {DATA_MODES.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+              </select>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                “Summary” sends a compact computed summary (totals, top contributors, committee, per-person lookup, download links): fast, cheap and the recommended default. “Full dataset” sends the whole portal dataset, read only from the edge cache (never a live DB query), capped in size with an automatic fall back to the summary if it would be too big.
+              </div>
+            </div>
+          )}
           {form.type === 'openai-compatible' && (
             <div className="form-group">
               <label>Base URL</label>

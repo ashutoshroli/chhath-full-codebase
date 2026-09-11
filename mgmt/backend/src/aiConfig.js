@@ -31,6 +31,12 @@ export const PROVIDER_PURPOSES = ['fix', 'public_chat'];
 const DEFAULT_PURPOSE = 'fix';
 function normPurpose(p) { return PROVIDER_PURPOSES.includes(p) ? p : DEFAULT_PURPOSE; }
 
+// How much portal data a public_chat provider sends to the model. Only meaningful
+// for the public_chat purpose (ignored for 'fix'). Default 'summary'.
+export const PROVIDER_DATA_MODES = ['summary', 'full'];
+const DEFAULT_DATA_MODE = 'summary';
+function normDataMode(m) { return PROVIDER_DATA_MODES.includes(m) ? m : DEFAULT_DATA_MODE; }
+
 // ---- AES-GCM helpers -------------------------------------------------------
 async function aesKey(env) {
   const secret = env.AI_CONFIG_SECRET;
@@ -100,6 +106,7 @@ function providerOut(r) {
     base_url: r.base_url || '',
     model: r.model || '',
     purpose: normPurpose(r.purpose),
+    data_mode: normDataMode(r.data_mode),
     priority: Number.isFinite(r.priority) ? r.priority : (r.priority != null ? parseInt(r.priority) || 100 : 100),
     is_default: r.is_default === 1 || r.is_default === '1' || r.is_default === true,
     has_key: !!(r.api_key_enc && r.api_key_enc.length),
@@ -131,6 +138,10 @@ export async function saveAiProvider(env, req, user) {
   const model = (req.model || '').toString().trim();
   const apiKey = (req.apiKey || '').toString(); // raw key, only present when set/changed
   const purpose = normPurpose((req.purpose || '').toString().trim());
+  // How much portal data a public_chat provider sends to the model. Accept either
+  // camelCase (dataMode) or snake_case (data_mode) from the client. Only meaningful
+  // for the public_chat purpose; harmless for 'fix'. Defaults to 'summary'.
+  const dataMode = normDataMode((req.dataMode || req.data_mode || '').toString().trim());
 
   if (!name) throw ValidationError('A provider name is required.');
   if (!PROVIDER_TYPES.includes(type)) {
@@ -170,20 +181,20 @@ export async function saveAiProvider(env, req, user) {
     if (purposeChanged) {
       const pr = await nextPriority(env, purpose);
       await env.DB_LOGS.prepare(
-        'UPDATE ai_providers SET name=?, type=?, base_url=?, model=?, api_key_enc=?, key_hint=?, purpose=?, priority=?, updated_at=? WHERE provider_id=?'
-      ).bind(name, type, baseUrl, model, apiKeyEnc, keyHint, purpose, pr, ts, req.providerId).run();
+        'UPDATE ai_providers SET name=?, type=?, base_url=?, model=?, api_key_enc=?, key_hint=?, purpose=?, data_mode=?, priority=?, updated_at=? WHERE provider_id=?'
+      ).bind(name, type, baseUrl, model, apiKeyEnc, keyHint, purpose, dataMode, pr, ts, req.providerId).run();
     } else {
       await env.DB_LOGS.prepare(
-        'UPDATE ai_providers SET name=?, type=?, base_url=?, model=?, api_key_enc=?, key_hint=?, purpose=?, updated_at=? WHERE provider_id=?'
-      ).bind(name, type, baseUrl, model, apiKeyEnc, keyHint, purpose, ts, req.providerId).run();
+        'UPDATE ai_providers SET name=?, type=?, base_url=?, model=?, api_key_enc=?, key_hint=?, purpose=?, data_mode=?, updated_at=? WHERE provider_id=?'
+      ).bind(name, type, baseUrl, model, apiKeyEnc, keyHint, purpose, dataMode, ts, req.providerId).run();
     }
     return { success: true, providerId: req.providerId };
   }
   const providerId = randomId('AIP');
   const priority = await nextPriority(env, purpose); // append to the end of the purpose's fallback list
   await env.DB_LOGS.prepare(
-    'INSERT INTO ai_providers (provider_id, name, type, base_url, model, api_key_enc, key_hint, purpose, priority, is_default, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
-  ).bind(providerId, name, type, baseUrl, model, apiKeyEnc, keyHint, purpose, priority, 0, ts, ts).run();
+    'INSERT INTO ai_providers (provider_id, name, type, base_url, model, api_key_enc, key_hint, purpose, data_mode, priority, is_default, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
+  ).bind(providerId, name, type, baseUrl, model, apiKeyEnc, keyHint, purpose, dataMode, priority, 0, ts, ts).run();
   return { success: true, providerId };
 }
 
@@ -418,6 +429,7 @@ export async function resolveProviderChain(env, purpose) {
             apiKey,
             baseUrl: row.base_url || '',
             model: row.model || '',
+            dataMode: normDataMode(row.data_mode),
             sourceLabel: `provider:${row.name}`,
           });
         }
@@ -439,6 +451,7 @@ export async function resolveProviderChain(env, purpose) {
       apiKey: env.ANTHROPIC_API_KEY,
       baseUrl: '',
       model: (env.AI_FIX_MODEL || 'claude-sonnet-4-5-20250929').toString(),
+      dataMode: 'summary',
       sourceLabel: 'secret:ANTHROPIC_API_KEY',
     });
   }
