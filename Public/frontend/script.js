@@ -1013,6 +1013,24 @@ const app = {
     document.getElementById('dc-people-wrap').style.display = '';
   },
 
+  // AUDIT MEDIUM #5: the Year dropdown's onchange used to call refreshData() only,
+  // which re-renders Home/Expenses/Loans/Committee but NOT the Download Center. So
+  // if a visitor had a person's documents open and then changed the year, the open
+  // card stayed showing the previous year's context. Reset the Download Center's
+  // active person view back to the people list on a year change, THEN refresh the
+  // rest. (Language toggle still goes through applyLang(), which deliberately
+  // re-renders the open docs — so switching language keeps the card open.)
+  onYearChange: () => {
+    const wrap = document.getElementById('dc-docs-wrap');
+    if (app.dcSelectedId) {
+      app.dcSelectedId = null;
+      if (wrap) wrap.innerHTML = '';
+      const people = document.getElementById('dc-people-wrap');
+      if (people) people.style.display = '';
+    }
+    app.refreshData();
+  },
+
   buildPersonDownloads: (id) => {
     const isFileGenerated = (docType, year, recordId) => {
       return (app.data.generatedFiles || []).find(r =>
