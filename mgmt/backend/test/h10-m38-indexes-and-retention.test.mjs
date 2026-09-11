@@ -84,6 +84,9 @@ const SCHEMA_FOR_MIGRATION = {
   // ai_providers.priority — a real ADD COLUMN (+ a backfill UPDATE), so it is in
   // SCHEMA_ONLY_MIGRATIONS below and asserted for idempotency-failure separately.
   '25-ai-providers-priority.sql': 'logs.sql',
+  // ai_providers.data_mode: a plain ADD COLUMN with NO backfill, so it is in
+  // SCHEMA_ONLY_MIGRATIONS below and asserted for idempotency-failure separately.
+  '26-ai-providers-data-mode.sql': 'logs.sql',
   // render_jobs table (Render offload). CREATE TABLE/INDEX IF NOT EXISTS against
   // the misc DB (schema/misc.sql already defines it), so it applies on a fresh
   // schema and a second run is a no-op — like 15/17/20/21.
@@ -93,7 +96,7 @@ const SCHEMA_FOR_MIGRATION = {
 // Migrations that legitimately do more than CREATE INDEX. Keep this list as short
 // as possible: everything on it opts out of the "cannot drop, delete, update or
 // alter" guarantee that makes the rest safe to run unattended.
-const SCHEMA_ONLY_MIGRATIONS = new Set(['09-error-log-client-ip.sql', '22-login-users-totp.sql', '24-ai-providers-purpose.sql', '25-ai-providers-priority.sql']);
+const SCHEMA_ONLY_MIGRATIONS = new Set(['09-error-log-client-ip.sql', '22-login-users-totp.sql', '24-ai-providers-purpose.sql', '25-ai-providers-priority.sql', '26-ai-providers-data-mode.sql']);
 
 const DAY = 86400000;
 const isoAgo = (d) => new Date(Date.now() - d * DAY).toISOString();

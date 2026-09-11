@@ -16,7 +16,8 @@ const SUPER = { name: 'USER0001', role: 'Superadmin' };
 function logsSchemaWithPurpose() {
   const m24 = readFileSync(new URL('../../db/migration/2026-09-05/24-ai-providers-purpose.sql', import.meta.url), 'utf8');
   const m25 = readFileSync(new URL('../../db/migration/2026-09-05/25-ai-providers-priority.sql', import.meta.url), 'utf8');
-  return schemaFor('logs.sql') + '\n' + m24 + '\n' + m25;
+  const m26 = readFileSync(new URL('../../db/migration/2026-09-05/26-ai-providers-data-mode.sql', import.meta.url), 'utf8');
+  return schemaFor('logs.sql') + '\n' + m24 + '\n' + m25 + '\n' + m26;
 }
 function makeEnv(extra = {}) {
   return { DB_LOGS: makeD1(logsSchemaWithPurpose()), AI_CONFIG_SECRET: 'a-very-strong-random-secret-value-123456', ...extra };
@@ -174,4 +175,64 @@ test('reorder is Superadmin-only and needs a non-empty list', async () => {
   const c = await add(env, { purpose: 'public_chat', name: 'C', model: 'm' });
   await assert.rejects(() => reorderAiProviders(env, 'public_chat', [c.providerId], { name: 'x', role: 'Admin' }), /Superadmin/);
   await assert.rejects(() => reorderAiProviders(env, 'public_chat', [], SUPER), /orderedIds/);
+});
+
+// ---- data_mode (summary|full): public_chat providers only ----
+
+test('a public_chat provider saved with data_mode="full" stores and returns it', async () => {
+  const env = makeEnv();
+  await add(env, { purpose: 'public_chat', name: 'FullChat', model: 'full-m', data_mode: 'full' });
+  const [p] = await getAiProviders(env, SUPER);
+  assert.equal(p.data_mode, 'full');
+});
+
+test('data_mode is accepted via the camelCase dataMode key too', async () => {
+  const env = makeEnv();
+  await add(env, { purpose: 'public_chat', name: 'CamelChat', model: 'camel-m', dataMode: 'full' });
+  const [p] = await getAiProviders(env, SUPER);
+  assert.equal(p.data_mode, 'full');
+});
+
+test('data_mode defaults to "summary" when omitted', async () => {
+  const env = makeEnv();
+  await add(env, { purpose: 'public_chat', name: 'DefChat', model: 'def-m' });
+  const [p] = await getAiProviders(env, SUPER);
+  assert.equal(p.data_mode, 'summary');
+});
+
+test('an unknown data_mode falls back to "summary"', async () => {
+  const env = makeEnv();
+  await add(env, { purpose: 'public_chat', name: 'BadChat', model: 'bad-m', data_mode: 'nonsense' });
+  const [p] = await getAiProviders(env, SUPER);
+  assert.equal(p.data_mode, 'summary');
+});
+
+test('editing a provider updates its data_mode', async () => {
+  const env = makeEnv();
+  const c = await add(env, { purpose: 'public_chat', name: 'EditChat', model: 'edit-m' });
+  const [before] = await getAiProviders(env, SUPER);
+  assert.equal(before.data_mode, 'summary');
+  await saveAiProvider(env, {
+    providerId: c.providerId, name: 'EditChat', type: 'openai-compatible',
+    baseUrl: 'https://x.test/v1', model: 'edit-m', purpose: 'public_chat', data_mode: 'full',
+  }, SUPER);
+  const [after] = await getAiProviders(env, SUPER);
+  assert.equal(after.data_mode, 'full');
+});
+
+test('resolveProviderChain carries dataMode per entry', async () => {
+  const env = makeEnv();
+  const a = await add(env, { purpose: 'public_chat', name: 'ChainFull', model: 'chain-full', data_mode: 'full' });
+  const b = await add(env, { purpose: 'public_chat', name: 'ChainSummary', model: 'chain-sum' });
+  await reorderAiProviders(env, 'public_chat', [a.providerId, b.providerId], SUPER);
+  const chain = await resolveProviderChain(env, 'public_chat');
+  assert.deepEqual(chain.map(p => p.dataMode), ['full', 'summary']);
+});
+
+test('the fix-chain ANTHROPIC last-resort entry carries dataMode "summary"', async () => {
+  const env = makeEnv({ ANTHROPIC_API_KEY: 'sk-fallback' });
+  const chain = await resolveProviderChain(env, 'fix');
+  const last = chain[chain.length - 1];
+  assert.ok(last.sourceLabel.includes('ANTHROPIC_API_KEY'));
+  assert.equal(last.dataMode, 'summary');
 });

@@ -1,0 +1,26 @@
+-- ============================================================================
+-- AI provider "data_mode" column — 2026-09-05  ·  DB: chhath-logs
+--
+-- RUN THIS FILE AGAINST **chhath-logs** ONLY:
+--   wrangler d1 execute chhath-logs --remote --file=./migration/2026-09-05/26-ai-providers-data-mode.sql
+--
+-- Test locally first (safe, hits the local replica):
+--   wrangler d1 execute chhath-logs --local --file=./migration/2026-09-05/26-ai-providers-data-mode.sql
+--
+-- Adds `data_mode` to ai_providers. Meaningful only for public_chat providers —
+-- how much portal data the chatbot sends to the model per question:
+--   'summary' -> a compact, computed summary (totals, top contributors, committee,
+--                per-person lookup, download links). Fast + cheap + accurate.
+--                DEFAULT (every existing row keeps this).
+--   'full'    -> the whole portal dataset (names resolved), bounded by a large cap
+--                with an automatic summary fallback if it would be too big.
+-- In BOTH modes the data comes from the SAME edge-cached, version-keyed public
+-- endpoints — D1 is never touched by the chatbot.
+--
+-- NOTE: SQLite has no `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, so this migration
+-- is NOT idempotent — a second run fails on "duplicate column name", which is
+-- expected. It is registered in SCHEMA_ONLY_MIGRATIONS in the migration test
+-- (same as 22 / 24 / 25). Run it ONCE.
+-- ============================================================================
+
+ALTER TABLE ai_providers ADD COLUMN data_mode TEXT DEFAULT 'summary';
