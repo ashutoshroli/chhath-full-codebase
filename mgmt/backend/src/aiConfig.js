@@ -183,14 +183,36 @@ export async function setDefaultAiProvider(env, providerId, user) {
 }
 
 // Test a saved provider from the BACKEND: decrypt its key here, make a tiny
-// request, and return only success/failure + latency. The key/model detail is
-// never returned to the frontend and never logged.
-export async function testAiProvider(env, providerId, user) {
+// request, and return success/failure + latency. The key/model detail is never
+// returned to the frontend and never logged.
+//
+// A Superadmin may pass a CUSTOM `prompt` (and optional `maxTokens`) to actually
+// exercise the model and read its reply — useful for debugging a provider that
+// times out or misbehaves on real prompts. The model's reply text is returned
+// (as `reply`) ONLY when a custom prompt was supplied (a deliberate test the
+// caller asked for); the default no-prompt ping never returns any body text.
+const TEST_PING = 'ping';
+const TEST_MAXTOK_DEFAULT = 256;   // custom-prompt default (the bare ping uses 8)
+const TEST_MAXTOK_CAP = 1024;      // hard cap so a test can't burn a big response
+const TEST_TIMEOUT_MS = 30000;     // abort a slow provider with a clear message
+const TEST_REPLY_MAX_CHARS = 2000; // truncate the returned reply for the UI
+
+export async function testAiProvider(env, providerId, user, opts) {
   requireSuperadmin(user);
   if (!providerId) throw ValidationError('providerId required');
   const row = await env.DB_LOGS.prepare('SELECT * FROM ai_providers WHERE provider_id = ?').bind(providerId).first();
   if (!row) throw ValidationError('Provider not found.');
   if (!row.api_key_enc) throw ValidationError('This provider has no API key set.');
+
+  // Normalize the (optional) custom prompt + token budget.
+  const rawPrompt = opts && typeof opts.prompt === 'string' ? opts.prompt.trim() : '';
+  const hasCustom = rawPrompt.length > 0;
+  if (rawPrompt.length > 8000) throw ValidationError('Test prompt is too long (max 8000 characters).');
+  const prompt = hasCustom ? rawPrompt : TEST_PING;
+  let maxTokens = hasCustom ? TEST_MAXTOK_DEFAULT : 8;
+  if (opts && Number.isFinite(opts.maxTokens)) {
+    maxTokens = Math.max(1, Math.min(TEST_MAXTOK_CAP, Math.floor(opts.maxTokens)));
+  }
 
   let apiKey;
   try {
@@ -199,33 +221,80 @@ export async function testAiProvider(env, providerId, user) {
     return { success: false, ok: false, message: 'Stored key could not be decrypted (AI_CONFIG_SECRET may have changed). Re-enter the key.' };
   }
 
+  // Bound the request so a hanging provider (e.g. the observed HTTP 524) fails
+  // fast with a readable message instead of hanging the whole call.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TEST_TIMEOUT_MS);
+
   const t0 = Date.now();
   try {
+    let resp;
     if (row.type === 'anthropic') {
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      resp = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-        body: JSON.stringify({ model: row.model, max_tokens: 8, messages: [{ role: 'user', content: 'ping' }] }),
+        body: JSON.stringify({ model: row.model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] }),
+        signal: controller.signal,
       });
-      if (!resp.ok) {
-        const b = await resp.text().catch(() => '');
-        return { success: true, ok: false, status: resp.status, message: `HTTP ${resp.status}: ${b.slice(0, 160)}` };
-      }
     } else {
       const base = (row.base_url || '').replace(/\/+$/, '');
-      const resp = await fetch(`${base}/chat/completions`, {
+      resp = await fetch(`${base}/chat/completions`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: row.model, max_tokens: 8, messages: [{ role: 'user', content: 'ping' }] }),
+        body: JSON.stringify({ model: row.model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] }),
+        signal: controller.signal,
       });
-      if (!resp.ok) {
-        const b = await resp.text().catch(() => '');
-        return { success: true, ok: false, status: resp.status, message: `HTTP ${resp.status}: ${b.slice(0, 160)}` };
-      }
     }
-    return { success: true, ok: true, latencyMs: Date.now() - t0, message: 'Provider responded OK.' };
+
+    if (!resp.ok) {
+      const b = await resp.text().catch(() => '');
+      const hint = resp.status === 524 || resp.status === 504
+        ? ' — the provider took too long to respond (check the base URL / model, or the provider\'s own status).'
+        : '';
+      return { success: true, ok: false, status: resp.status, message: `HTTP ${resp.status}: ${b.slice(0, 160)}${hint}` };
+    }
+
+    const latencyMs = Date.now() - t0;
+    // Only read + return the model's reply for an EXPLICIT custom-prompt test.
+    if (hasCustom) {
+      const reply = await extractReplyText(resp, row.type);
+      return {
+        success: true, ok: true, latencyMs,
+        reply: (reply || '(the provider returned no text)').slice(0, TEST_REPLY_MAX_CHARS),
+        message: `Provider responded OK in ${latencyMs} ms.`,
+      };
+    }
+    return { success: true, ok: true, latencyMs, message: 'Provider responded OK.' };
   } catch (e) {
+    if (e && e.name === 'AbortError') {
+      return { success: true, ok: false, message: `Request timed out after ${Math.round(TEST_TIMEOUT_MS / 1000)}s — the provider did not respond (this is what a Cloudflare HTTP 524 usually means).` };
+    }
     return { success: true, ok: false, message: `Request failed: ${(e && e.message || 'network error').slice(0, 160)}` };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Pull the assistant's text out of either provider's response shape. Never throws
+// (a parse failure just yields ''), so a successful HTTP call is never reported as
+// a failure just because the body was shaped unexpectedly.
+async function extractReplyText(resp, type) {
+  try {
+    const data = await resp.json();
+    if (type === 'anthropic') {
+      const parts = Array.isArray(data && data.content) ? data.content : [];
+      return parts.map(p => (p && typeof p.text === 'string' ? p.text : '')).join('').trim();
+    }
+    const choice = data && Array.isArray(data.choices) ? data.choices[0] : null;
+    const msg = choice && choice.message;
+    if (msg && typeof msg.content === 'string') return msg.content.trim();
+    // Some openai-compatible servers return content as an array of parts.
+    if (msg && Array.isArray(msg.content)) {
+      return msg.content.map(p => (p && typeof p.text === 'string' ? p.text : '')).join('').trim();
+    }
+    return '';
+  } catch (e) {
+    return '';
   }
 }
 
