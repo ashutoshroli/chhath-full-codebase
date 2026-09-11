@@ -19,7 +19,10 @@ export const publicChatRouter = express.Router();
 
 const MAX_QUESTION_CHARS = 1000;
 const MAX_ANSWER_TOKENS = 700;
-const MODEL_TIMEOUT_MS = 60000;
+// 90s: Render has no 30s cap, and a cold/slower model needs headroom. A fast
+// instruct model (e.g. meta/llama-3.1-8b-instruct) answers well within this;
+// this only prevents a genuinely stuck request from hanging forever.
+const MODEL_TIMEOUT_MS = 90000;
 
 function clientIp(req) {
   return clientIpFrom(req.headers, req.ip);
