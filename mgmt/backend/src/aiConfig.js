@@ -100,6 +100,7 @@ function providerOut(r) {
     base_url: r.base_url || '',
     model: r.model || '',
     purpose: normPurpose(r.purpose),
+    priority: Number.isFinite(r.priority) ? r.priority : (r.priority != null ? parseInt(r.priority) || 100 : 100),
     is_default: r.is_default === 1 || r.is_default === '1' || r.is_default === true,
     has_key: !!(r.api_key_enc && r.api_key_enc.length),
     key_hint: r.key_hint || '',
@@ -114,7 +115,11 @@ function nowIso() { return new Date().toISOString(); }
 
 export async function getAiProviders(env, user) {
   requireSuperadmin(user);
-  const { results } = await env.DB_LOGS.prepare('SELECT * FROM ai_providers ORDER BY created_at ASC').all();
+  // Order by purpose, then by the fallback priority (lower = tried first), so the
+  // AI Management list shows each purpose's providers in the order they'll be used.
+  const { results } = await env.DB_LOGS.prepare(
+    'SELECT * FROM ai_providers ORDER BY purpose ASC, priority ASC, created_at ASC'
+  ).all();
   return (results || []).map(providerOut);
 }
 
@@ -158,15 +163,27 @@ export async function saveAiProvider(env, req, user) {
 
   const ts = nowIso();
   if (editing) {
-    await env.DB_LOGS.prepare(
-      'UPDATE ai_providers SET name=?, type=?, base_url=?, model=?, api_key_enc=?, key_hint=?, purpose=?, updated_at=? WHERE provider_id=?'
-    ).bind(name, type, baseUrl, model, apiKeyEnc, keyHint, purpose, ts, req.providerId).run();
+    // A provider's purpose can change on edit; its priority stays (reorder is a
+    // separate action). If the purpose changed, push it to the end of the new
+    // purpose's list so it doesn't accidentally jump to the front.
+    const purposeChanged = normPurpose(editing.purpose) !== purpose;
+    if (purposeChanged) {
+      const pr = await nextPriority(env, purpose);
+      await env.DB_LOGS.prepare(
+        'UPDATE ai_providers SET name=?, type=?, base_url=?, model=?, api_key_enc=?, key_hint=?, purpose=?, priority=?, updated_at=? WHERE provider_id=?'
+      ).bind(name, type, baseUrl, model, apiKeyEnc, keyHint, purpose, pr, ts, req.providerId).run();
+    } else {
+      await env.DB_LOGS.prepare(
+        'UPDATE ai_providers SET name=?, type=?, base_url=?, model=?, api_key_enc=?, key_hint=?, purpose=?, updated_at=? WHERE provider_id=?'
+      ).bind(name, type, baseUrl, model, apiKeyEnc, keyHint, purpose, ts, req.providerId).run();
+    }
     return { success: true, providerId: req.providerId };
   }
   const providerId = randomId('AIP');
+  const priority = await nextPriority(env, purpose); // append to the end of the purpose's fallback list
   await env.DB_LOGS.prepare(
-    'INSERT INTO ai_providers (provider_id, name, type, base_url, model, api_key_enc, key_hint, purpose, is_default, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
-  ).bind(providerId, name, type, baseUrl, model, apiKeyEnc, keyHint, purpose, 0, ts, ts).run();
+    'INSERT INTO ai_providers (provider_id, name, type, base_url, model, api_key_enc, key_hint, purpose, priority, is_default, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
+  ).bind(providerId, name, type, baseUrl, model, apiKeyEnc, keyHint, purpose, priority, 0, ts, ts).run();
   return { success: true, providerId };
 }
 
@@ -203,6 +220,33 @@ export async function setDefaultAiProvider(env, providerId, user, purposeArg) {
   }
   await env.DB_LOGS.batch(stmts);
   return { success: true, defaultProviderId: providerId || null, purpose: scope };
+}
+
+// The next priority value for a purpose = one past the current max, so a new
+// provider is appended to the END of that purpose's fallback list.
+async function nextPriority(env, purpose) {
+  const row = await env.DB_LOGS.prepare(
+    'SELECT MAX(priority) AS mx FROM ai_providers WHERE purpose = ?'
+  ).bind(normPurpose(purpose)).first().catch(() => null);
+  const mx = row && Number.isFinite(parseInt(row.mx)) ? parseInt(row.mx) : -1;
+  return mx + 1;
+}
+
+// Reorder a purpose's providers into an explicit fallback order. `orderedIds` is
+// the provider_ids of that purpose, first = highest priority (tried first). Any
+// provider of the purpose not listed keeps a lower rank (pushed to the end).
+export async function reorderAiProviders(env, purpose, orderedIds, user) {
+  requireSuperadmin(user);
+  const scope = normPurpose(purpose);
+  const ids = Array.isArray(orderedIds) ? orderedIds.filter(Boolean).map(String) : [];
+  if (!ids.length) throw ValidationError('orderedIds (a non-empty array) is required.');
+  const ts = nowIso();
+  const stmts = ids.map((id, i) =>
+    env.DB_LOGS.prepare('UPDATE ai_providers SET priority = ?, updated_at = ? WHERE provider_id = ? AND purpose = ?')
+      .bind(i, ts, id, scope)
+  );
+  await env.DB_LOGS.batch(stmts);
+  return { success: true, purpose: scope, order: ids };
 }
 
 // Test a saved provider from the BACKEND: decrypt its key here, make a tiny
@@ -347,56 +391,64 @@ async function extractReplyText(resp, type) {
   }
 }
 
-// ---- The fallback chain (used by aiFix.js + the public chatbot) ------------
-// Resolves the provider to actually call FOR A PURPOSE, decrypting the key ONLY
-// here, at call time. `purpose` is 'fix' (default) or 'public_chat'.
-//   1. the default provider OF THAT PURPOSE, if it has a usable key
-//   2. (purpose 'fix' ONLY) else the ANTHROPIC_API_KEY Cloudflare secret
-//   3. else null  -> caller reports "AI not configured"
-// The ANTHROPIC_API_KEY safety-net is deliberately 'fix'-only: the AI-fix engine
-// must always have a fallback, but the public chatbot must NOT silently spend the
-// committee's fix-budget key — a Superadmin has to configure a public_chat
-// provider explicitly, or the chatbot stays off.
-// Returns { type, apiKey, baseUrl, model, sourceLabel } or null.
-export async function resolveActiveProvider(env, purpose) {
+// ---- The fallback CHAIN (used by aiFix.js + the public chatbot) ------------
+// Resolves the ORDERED list of providers to try FOR A PURPOSE, decrypting each
+// key ONLY here, at call time. `purpose` is 'fix' (default) or 'public_chat'.
+// Order: the purpose's providers by `priority` ASC (lower = tried first). The
+// caller tries them in order, falling through to the next on a rate-limit / 5xx /
+// timeout (that logic lives in the model callers). For the 'fix' purpose the
+// ANTHROPIC_API_KEY Cloudflare secret is appended as a LAST-RESORT entry; the
+// public chatbot gets NO secret fallback (it must be configured explicitly, or it
+// stays off — a Superadmin decision, not a silent spend of the fix budget).
+// Returns an array of { type, apiKey, baseUrl, model, sourceLabel } (may be empty).
+export async function resolveProviderChain(env, purpose) {
   const scope = normPurpose(purpose);
-  // 1) default provider of this purpose from the DB
+  const chain = [];
   try {
-    const row = await env.DB_LOGS.prepare('SELECT * FROM ai_providers WHERE is_default = 1 AND purpose = ? LIMIT 1').bind(scope).first();
-    if (row && row.api_key_enc) {
+    const { results } = await env.DB_LOGS.prepare(
+      'SELECT * FROM ai_providers WHERE purpose = ? ORDER BY priority ASC, created_at ASC'
+    ).bind(scope).all();
+    for (const row of (results || [])) {
+      if (!row.api_key_enc) continue;
       try {
         const apiKey = await decryptSecret(env, row.api_key_enc);
         if (apiKey) {
-          return {
+          chain.push({
             type: row.type,
             apiKey,
             baseUrl: row.base_url || '',
             model: row.model || '',
             sourceLabel: `provider:${row.name}`,
-          };
+          });
         }
       } catch (e) {
-        // Decrypt failed (secret rotated?) — log and fall through.
-        await logWarn(env, 'backend-aiConfig', 'resolveActiveProvider',
-          `Default ${scope} AI provider key could not be decrypted. ${e && (e.userMessage || e.message)}`,
+        // Decrypt failed (secret rotated?) — skip this provider, keep the chain.
+        await logWarn(env, 'backend-aiConfig', 'resolveProviderChain',
+          `${scope} provider key could not be decrypted; skipping it in the chain. ${e && (e.userMessage || e.message)}`,
           { providerId: row.provider_id }).catch(() => {});
       }
     }
   } catch (e) {
-    // DB read failed — fall through.
+    // DB read failed — fall through to the secret (fix only).
   }
 
-  // 2) the Cloudflare Anthropic secret — 'fix' purpose only (see note above).
+  // LAST-RESORT for the 'fix' purpose only: the Cloudflare Anthropic secret.
   if (scope === 'fix' && env.ANTHROPIC_API_KEY) {
-    return {
+    chain.push({
       type: 'anthropic',
       apiKey: env.ANTHROPIC_API_KEY,
       baseUrl: '',
       model: (env.AI_FIX_MODEL || 'claude-sonnet-4-5-20250929').toString(),
       sourceLabel: 'secret:ANTHROPIC_API_KEY',
-    };
+    });
   }
+  return chain;
+}
 
-  // 3) nothing configured for this purpose
-  return null;
+// Back-compat: the single "primary" provider for a purpose = the first of the
+// chain. Existing callers that want just one provider keep working unchanged.
+// Returns { type, apiKey, baseUrl, model, sourceLabel } or null.
+export async function resolveActiveProvider(env, purpose) {
+  const chain = await resolveProviderChain(env, purpose);
+  return chain.length ? chain[0] : null;
 }

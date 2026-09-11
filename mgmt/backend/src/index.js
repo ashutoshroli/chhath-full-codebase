@@ -26,7 +26,7 @@ import * as officialMail from './officialMail.js';
 import { cleanupData, cleanupPreview } from './cleanup.js';
 import { generateAiFix, getAiFixes, getAiFix, getLatestAiFixForError, createAiFixPr } from './aiFix.js';
 import { verifyGithubSignature, handleCheckSuiteEvent } from './aiFixCi.js';
-import { getAiProviders, saveAiProvider, deleteAiProvider, setDefaultAiProvider, testAiProvider } from './aiConfig.js';
+import { getAiProviders, saveAiProvider, deleteAiProvider, setDefaultAiProvider, reorderAiProviders, testAiProvider } from './aiConfig.js';
 import { bumpDataVersion, getDataVersion } from './dataVersion.js';
 import { healthCheck } from './config.js';
 import { runRetentionSweep, shouldSweepNow } from './retention.js';
@@ -146,7 +146,7 @@ export const EXPECTED_MUTATING_ACTIONS = new Set([
   // reportErrorPublic in READ_ONLY_ACTIONS.
   'logError',
   // AI Management: these write the ai_providers table.
-  'saveAiProvider', 'deleteAiProvider', 'setDefaultAiProvider',
+  'saveAiProvider', 'deleteAiProvider', 'setDefaultAiProvider', 'reorderAiProviders',
   // announcements
   'addCustomAnnouncement', 'updateCustomAnnouncement', 'deleteCustomAnnouncement',
   'generateAnnouncementLink', 'revokeAnnouncementLink',
@@ -1147,6 +1147,7 @@ export default {
       saveAiProvider: () => withAuth(env, req, (user) => saveAiProvider(env, req, user)),
       deleteAiProvider: () => withAuth(env, req, (user) => deleteAiProvider(env, req.providerId, user)),
       setDefaultAiProvider: () => withAuth(env, req, (user) => setDefaultAiProvider(env, req.providerId, user, req.purpose)),
+      reorderAiProviders: () => withAuth(env, req, (user) => reorderAiProviders(env, req.purpose, req.orderedIds, user)),
       testAiProvider: () => withAuth(env, req, (user) => testAiProvider(env, req.providerId, user, { prompt: req.prompt, maxTokens: req.maxTokens })),
 
       // ---- Loan message templates (Superadmin) — fully ported, see loans.js ----
