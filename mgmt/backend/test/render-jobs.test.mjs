@@ -298,6 +298,36 @@ test('createAndDispatchJob accepts the pdf_convert kind and dispatches it', asyn
   } finally { restore(); }
 });
 
+test('createAndDispatchJob storePayload: batch base64 goes to Render but NOT into the D1 row', async () => {
+  const env = makeEnv();
+  const { calls, restore } = stubRenderFetch('ok');
+  try {
+    const bigItems = [
+      { recordId: 'receipt-2026-1', base64: 'UEsDB' + 'A'.repeat(5000), fileName: 'a.docx' },
+      { recordId: 'receipt-2026-2', base64: 'UEsDB' + 'B'.repeat(5000), fileName: 'b.docx' },
+    ];
+    const res = await createAndDispatchJob(
+      env, 'pdf_convert_batch',
+      { docType: 'receipt', year: 2026, items: bigItems },
+      { refId: 'receipt-2026', storePayload: { docType: 'receipt', year: 2026, recordIds: ['receipt-2026-1', 'receipt-2026-2'], count: 2 } }
+    );
+    assert.equal(res.success, true);
+
+    // Render got the FULL payload with base64.
+    const sent = JSON.parse(calls[0].body);
+    assert.equal(sent.kind, 'pdf_convert_batch');
+    assert.equal(sent.payload.items.length, 2);
+    assert.ok(sent.payload.items[0].base64.length > 4000, 'base64 sent to Render');
+
+    // The stored D1 row holds only metadata — NO base64.
+    const row = await rowFor(env, res.jobId);
+    assert.ok(!/UEsDB/.test(row.payload || ''), 'no base64 persisted in the D1 job row');
+    const stored = JSON.parse(row.payload);
+    assert.deepEqual(stored.recordIds, ['receipt-2026-1', 'receipt-2026-2']);
+    assert.equal(stored.count, 2);
+  } finally { restore(); }
+});
+
 test('applies the migration idempotently on top of the committed schema', () => {
   // The migration is CREATE ... IF NOT EXISTS, so running it against the schema
   // (which already has render_jobs) must be a no-op, not an error.

@@ -32,7 +32,7 @@ import { logErrorAt, logWarn } from './logger.js';
 
 const MAX_ATTEMPTS = 3;       // dispatch attempts before a job is parked 'failed'
 const STUCK_MINUTES = 10;     // a 'dispatched' row older than this is reconciled
-const KINDS = new Set(['ai_fix_generate', 'ai_pr_create', 'ai_ci_retry', 'pdf_convert']);
+const KINDS = new Set(['ai_fix_generate', 'ai_pr_create', 'ai_ci_retry', 'pdf_convert', 'pdf_convert_batch']);
 
 const genJobId = () => randomId('RJOB');
 
@@ -93,7 +93,12 @@ export async function createAndDispatchJob(env, kind, payload, opts = {}) {
   const db = jobsDb(env);
   const jobId = genJobId();
   const now = new Date().toISOString();
-  const payloadStr = JSON.stringify(payload || {});
+  // `payload` is what goes to RENDER (may carry large base64 blobs, e.g. a PDF
+  // batch). `opts.storePayload`, when given, is a SMALL metadata-only version
+  // persisted in the D1 render_jobs row instead — big blobs must never be stored
+  // (D1 rows are ~1 MB). When absent, the full payload is stored (the AI jobs are
+  // small references, so this stays true for them).
+  const payloadStr = JSON.stringify((opts.storePayload !== undefined ? opts.storePayload : payload) || {});
   const refId = opts.refId != null ? opts.refId.toString() : null;
   const createdBy = opts.createdBy != null ? opts.createdBy.toString() : null;
 
@@ -196,6 +201,18 @@ async function applyResultSideEffect(env, jobRow, result) {
       let payload = {};
       try { payload = JSON.parse(jobRow.payload || '{}'); } catch (e) { payload = {}; }
       return await applyPdfConvertResult(env, payload, result);
+    }
+  }
+  if (jobRow.kind === 'pdf_convert_batch') {
+    // Render converted a BATCH and returned per-record { recordId, ok, pdfBase64 }.
+    // The Worker writes each PDF to R2 + the index, and returns a base64-STRIPPED
+    // per-record summary for the job row / status poll. The stored jobRow.payload
+    // holds only metadata (docType/year/recordIds) — the base64 was Render-body-only.
+    const { applyPdfConvertBatchResult } = await import('./docxTemplates.js');
+    if (typeof applyPdfConvertBatchResult === 'function') {
+      let payload = {};
+      try { payload = JSON.parse(jobRow.payload || '{}'); } catch (e) { payload = {}; }
+      return await applyPdfConvertBatchResult(env, payload, result);
     }
   }
   return null;

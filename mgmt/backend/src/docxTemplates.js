@@ -499,6 +499,136 @@ export async function applyPdfConvertResult(env, payload, result) {
   return { publicLink, fileName: pdfName };
 }
 
+// ---- BATCHED bulk PDF: convert up to BULK_BATCH_MAX records in ONE Render job ----
+//
+// WHY: one Worker request + one Render job + one callback per BATCH (of 10-20)
+// instead of per RECORD, so a several-hundred-record run costs a fraction of the
+// Worker requests / D1 writes / callbacks it did before. The base64 blobs travel
+// in the RENDER dispatch body only (never the D1 job row — that would blow the
+// ~1 MB row limit); the D1 row keeps only metadata (docType/year/recordIds).
+//
+// Subrequest safety: the Worker does NOT loop conversions (that would hit the
+// 50-subrequest cap). Render converts the batch sequentially (no such cap there),
+// then the Worker writes R2 + the index once per record on the single callback.
+const BULK_BATCH_MAX = 20; // hard cap (payload/memory); default is chosen client-side (10)
+
+// `items`: [{ recordId, base64, fileName }]. All same docType+year.
+export async function dispatchBulkPdfBatch(env, docType, year, items, user, opts) {
+  requireSuperadmin(user);
+  if (!DOC_TYPES.includes(docType)) throw ValidationError('Invalid doc type');
+  if (!Array.isArray(items) || items.length === 0) throw ValidationError('No records to generate.');
+  if (items.length > BULK_BATCH_MAX) throw ValidationError(`A batch may contain at most ${BULK_BATCH_MAX} records.`);
+  if (!env.DRIVE_ROOT_FOLDER_ID) throw InternalError('DRIVE_ROOT_FOLDER_ID not configured on server');
+
+  const force = !!(opts && opts.force);
+
+  // Validate every item + dedup (D1 reads) up front. Already-generated records are
+  // reported as `skipped` and NOT sent to Render.
+  const toConvert = [];
+  const skipped = [];
+  for (const it of items) {
+    const recordId = it && it.recordId;
+    if (!recordId) continue;
+    assertRecordIdMatches(docType, year, recordId);
+    const base64 = assertValidDocxBase64(it.base64);
+    if (!force) {
+      const existing = await isFileGenerated(env, docType, year, recordId);
+      if (existing) {
+        skipped.push({ recordId, skipped: true, publicLink: existing.public_link, fileName: existing.file_name });
+        continue;
+      }
+    }
+    toConvert.push({ recordId, base64, fileName: it.fileName || 'document.docx' });
+  }
+
+  if (toConvert.length === 0) {
+    // Everything was already generated — nothing to dispatch.
+    return { success: true, dispatched: false, results: skipped };
+  }
+
+  const { createAndDispatchJob } = await import('./renderJobs.js');
+  // No Render configured -> convert synchronously in-Worker, one by one (unchanged
+  // per-record behaviour), so bulk keeps working before Render is set up.
+  if (!env.RENDER_SERVICE_URL || !env.RENDER_API_KEY) {
+    const results = [...skipped];
+    for (const it of toConvert) {
+      try {
+        const r = await convertDocxToPdf(env, docType, year, it.recordId, it.base64, it.fileName, user, 'bulk', { force });
+        results.push({ recordId: it.recordId, ...r });
+      } catch (e) {
+        results.push({ recordId: it.recordId, success: false, error: (e && (e.userMessage || e.message)) || 'conversion failed' });
+      }
+    }
+    return { success: true, dispatched: false, results };
+  }
+
+  // Offload the whole batch to Render. The FULL payload (with base64) goes to
+  // Render; the D1 row stores only metadata via opts.storePayload.
+  const recordIds = toConvert.map(it => it.recordId);
+  const dispatch = await createAndDispatchJob(
+    env, 'pdf_convert_batch',
+    { docType, year, force, items: toConvert },              // -> Render (big)
+    {
+      refId: `${docType}-${year}`,
+      createdBy: (user && user.name) || '',
+      storePayload: { docType, year, force, recordIds, count: toConvert.length }, // -> D1 (small)
+    }
+  );
+
+  if (!dispatch.success) {
+    // Could not reach Render — fall back to synchronous conversion.
+    const results = [...skipped];
+    for (const it of toConvert) {
+      try {
+        const r = await convertDocxToPdf(env, docType, year, it.recordId, it.base64, it.fileName, user, 'bulk', { force });
+        results.push({ recordId: it.recordId, ...r });
+      } catch (e) {
+        results.push({ recordId: it.recordId, success: false, error: (e && (e.userMessage || e.message)) || 'conversion failed' });
+      }
+    }
+    return { success: true, dispatched: false, results };
+  }
+
+  // Async: caller polls getRenderJobStatus(jobId). `preSkipped` lets the client
+  // account for records that were skipped before dispatch.
+  return { success: true, dispatched: true, jobId: dispatch.jobId, status: 'pending', preSkipped: skipped };
+}
+
+// Render callback for a completed pdf_convert_batch. `result.results` is
+// [{ recordId, ok, pdfBase64?, fileName?, error? }]. The Worker stores each PDF in
+// R2 + writes the index, and returns a base64-STRIPPED per-record summary for the
+// job row / status poll.
+export async function applyPdfConvertBatchResult(env, payload, result) {
+  const { docType, year } = payload || {};
+  const items = (result && Array.isArray(result.results)) ? result.results : [];
+  const out = [];
+  for (const r of items) {
+    const recordId = r && r.recordId;
+    if (!recordId) continue;
+    if (!r.ok || !r.pdfBase64) {
+      out.push({ recordId, success: false, error: (r && r.error) || 'conversion failed' });
+      continue;
+    }
+    try {
+      const pdfName = r.fileName || 'document.pdf';
+      const bytes = base64ToBytes(r.pdfBase64, { label: pdfName, maxBytes: MAX_DOCX_BYTES * 3 });
+      if (!r2Available(env)) {
+        out.push({ recordId, success: false, error: 'R2 not configured' });
+        continue;
+      }
+      const key = keyForYear(year, 'pdf', pdfName, docType);
+      const publicLink = await putToR2(env, key, new Uint8Array(bytes), 'application/pdf');
+      await recordGeneratedFile(env, docType, year, recordId, pdfName, publicLink, key).catch((err) =>
+        logErrorAt(env, 'backend-docx', 'applyPdfConvertBatchResult:index', err, { docType, year, recordId }));
+      out.push({ recordId, success: true, publicLink, fileName: pdfName });
+    } catch (e) {
+      out.push({ recordId, success: false, error: (e && e.message) || 'store failed' });
+    }
+  }
+  // base64-STRIPPED summary stored on the job row.
+  return { results: out };
+}
+
 // PUBLIC (no login) — Consent page only.
 // The consent token is now verified server-side and docType / year / recordId /
 // fileName are DERIVED from the consent row, so a caller cannot choose what gets

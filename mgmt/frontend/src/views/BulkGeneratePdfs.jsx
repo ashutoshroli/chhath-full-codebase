@@ -22,7 +22,20 @@ const THROTTLE_MS = 350; // small gap between records to stay under Drive's per-
 // per-worker gap stays comfortably under the rate that produced 429s before.
 const CONCURRENCY = 3;
 
+// BATCHING: instead of one Worker call per record, we fill BATCH_SIZE docs in the
+// browser and send them in ONE convertDocxToPdfBatch call — far fewer Worker
+// requests + D1 writes for a big year. 10 is the default; 20 is the server's hard
+// cap (payload/memory). The docx FILL still happens per record in the browser.
+const BATCH_SIZE = 10;
+
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// Split an array into chunks of `size`.
+function chunk(arr, size) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
 
 // Run `worker(item, index)` over `items` with at most `limit` in flight at once.
 // Workers pull from a shared cursor, so a slow record never blocks the others and
@@ -113,79 +126,84 @@ export default function BulkGeneratePdfs() {
       return;
     }
 
-    const processRecord = async (rec) => {
+    // Fill ONE record's .docx in the browser (QR + placeholders). Returns the item
+    // { recordId, base64, fileName } for the batch, or null on a fill failure
+    // (counted as failed). The docx fill stays client-side exactly as before.
+    const fillRecord = async (rec) => {
       try {
         let qrCode = '';
         try {
           qrCode = await generateQrDataUrl(publicRecordUrl(rec.recordId));
         } catch (qrErr) {
-          // Was `.catch(() => '')`. An empty QR value produced a permanently
-          // archived PDF with a broken QR, silently killing the public
-          // "Verified Record" scan for that document.
           appendLog(`⚠️ ${label} — ${rec.recordId}: QR generation failed; the QR in the PDF will be blank.`);
           reportClientError('BulkGeneratePdfs', `QR generation failed for ${rec.recordId}`, qrErr, { docType, year, recordId: rec.recordId });
         }
-
         const filledBase64 = await fillDocxTemplateFromRow(templateRow, {
           ...rec.placeholders,
           GENERATED_AT: new Date().toLocaleString('en-IN'),
           QR_CODE: qrCode,
         });
-
-        // Unresolved placeholders used to blank out silently (nullGetter), which is
-        // exactly how the missing consent festival/count fields went unnoticed.
         const rep = getLastRenderReport();
         if (rep.missingTags.length) {
           appendLog(`⚠️ ${label} — ${rec.recordId}: blank placeholders — ${[...new Set(rep.missingTags)].join(', ')}`);
           reportClientError('BulkGeneratePdfs', `Unresolved placeholders for ${rec.recordId}`, null,
             { docType, year, recordId: rec.recordId, missingTags: [...new Set(rep.missingTags)] });
         }
-
-        const fileName = `${rec.fileNameHint}.docx`;
-        const res = await withRetry(
-          () => api.convertDocxToPdfBulk(docType, year, rec.recordId, filledBase64, fileName),
-          (attempt, wait) => appendLog(`↻ ${label} — ${rec.recordId}: retry ${attempt}/${RETRY_ATTEMPTS - 1} in ${Math.round(wait / 1000)}s`)
-        );
-
-        // The backend returns indexFailed but this screen used to ignore it and
-        // count the record as a SUCCESS, so a PDF that will never appear on the
-        // public portal looked completely fine here.
-        const notIndexed = !!(res && res.indexFailed);
-        if (notIndexed) {
-          appendLog(`⚠️ ${label} — ${rec.recordId}: PDF was generated but NOT indexed in the public portal.`);
-          reportClientError('BulkGeneratePdfs', `PDF generated but NOT indexed: ${rec.recordId}`, null,
-            { docType, year, recordId: rec.recordId, publicLink: res && res.publicLink });
-        }
-
-        setProgress(p => {
-          const cur = p[docType];
-          return { ...p, [docType]: {
-            ...cur,
-            done: cur.done + 1,
-            skipped: cur.skipped + (res.skipped ? 1 : 0),
-            notIndexed: cur.notIndexed + (notIndexed ? 1 : 0),
-          } };
-        });
+        return { recordId: rec.recordId, base64: filledBase64, fileName: `${rec.fileNameHint}.docx` };
       } catch (err) {
-        setProgress(p => {
-          const cur = p[docType];
-          return { ...p, [docType]: { ...cur, done: cur.done + 1, failed: cur.failed + 1 } };
-        });
-        appendLog(`❌ ${label} — ${rec.recordId}: ${err.message}`);
-        // The UI log is in-memory and vanishes on refresh — persist the failure so
-        // a bulk run of hundreds can actually be diagnosed afterwards.
-        reportClientError('BulkGeneratePdfs', `Record failed: ${rec.recordId}`, err, { docType, year, recordId: rec.recordId });
+        setProgress(p => { const cur = p[docType]; return { ...p, [docType]: { ...cur, done: cur.done + 1, failed: cur.failed + 1 } }; });
+        appendLog(`❌ ${label} — ${rec.recordId}: fill failed — ${err.message}`);
+        reportClientError('BulkGeneratePdfs', `Fill failed: ${rec.recordId}`, err, { docType, year, recordId: rec.recordId });
+        return null;
       }
-      // Per-worker gap AFTER each record so N workers together still pace Drive's
-      // per-user rate limit (≈ CONCURRENCY requests per THROTTLE_MS) rather than
-      // firing an unbounded burst.
-      await sleep(THROTTLE_MS);
     };
 
-    // Bounded-concurrency pool instead of a strict serial loop (audit P-3). Each
-    // record is still an independent request with its own retry/backoff; we just
-    // allow CONCURRENCY of them in flight at once.
-    await runPool(records, CONCURRENCY, processRecord);
+    // Process the records in BATCHES: fill each batch in the browser (up to
+    // CONCURRENCY fills in flight), then send the whole batch in ONE Worker call.
+    for (const group of chunk(records, BATCH_SIZE)) {
+      // Fill this batch's docs (bounded concurrency for the CPU-heavy fill).
+      const items = [];
+      await runPool(group, CONCURRENCY, async (rec) => {
+        const it = await fillRecord(rec);
+        if (it) items.push(it);
+      });
+      if (items.length === 0) { await sleep(THROTTLE_MS); continue; }
+
+      try {
+        const { results } = await withRetry(
+          () => api.convertDocxToPdfBatch(docType, year, items),
+          (attempt, wait) => appendLog(`↻ ${label}: batch retry ${attempt}/${RETRY_ATTEMPTS - 1} in ${Math.round(wait / 1000)}s`)
+        );
+        const byId = {};
+        for (const r of (results || [])) byId[r.recordId] = r;
+        for (const it of items) {
+          const r = byId[it.recordId];
+          const ok = !!(r && r.success);
+          const skipped = !!(r && r.skipped);
+          if (!ok) {
+            appendLog(`❌ ${label} — ${it.recordId}: ${(r && r.error) || 'conversion failed'}`);
+            reportClientError('BulkGeneratePdfs', `Record failed: ${it.recordId}`, null, { docType, year, recordId: it.recordId, error: r && r.error });
+          }
+          setProgress(p => {
+            const cur = p[docType];
+            return { ...p, [docType]: {
+              ...cur,
+              done: cur.done + 1,
+              skipped: cur.skipped + (skipped ? 1 : 0),
+              failed: cur.failed + (ok ? 0 : 1),
+            } };
+          });
+        }
+      } catch (err) {
+        // The whole batch call failed (network/timeout after retries) — count every
+        // item in it as failed.
+        appendLog(`❌ ${label}: batch of ${items.length} failed — ${err.message}`);
+        reportClientError('BulkGeneratePdfs', `Batch failed (${items.length} records)`, err, { docType, year, count: items.length });
+        setProgress(p => { const cur = p[docType]; return { ...p, [docType]: { ...cur, done: cur.done + items.length, failed: cur.failed + items.length } }; });
+      }
+      // Small gap between batches to pace Drive's per-user rate limit.
+      await sleep(THROTTLE_MS);
+    }
     appendLog(`✓ ${label} complete.`);
   };
 

@@ -286,7 +286,7 @@ export function reportClientError(page, message, err, context) {
 // failure/timeout so the caller's existing try/catch handles it as a record error.
 const PDF_POLL_INTERVAL_MS = 2000;
 const PDF_POLL_TIMEOUT_MS = 3 * 60 * 1000; // per record
-async function pollRenderPdfJob(jobId) {
+async function pollRenderPdfJob(jobId, returnJob) {
   const start = Date.now();
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -300,8 +300,10 @@ async function pollRenderPdfJob(jobId) {
     } catch (e) { /* transient (job row not visible yet) — keep waiting */ }
     if (job && job.status === 'completed') {
       // The Worker's callback wrote R2 + the generated_files index; getRenderJobStatus
-      // returns the job's result. The index write is what the public portal needs;
-      // return a sync-shaped object so callers keep working unchanged.
+      // returns the job's result. For a BATCH the caller wants the raw job (its
+      // result is { results:[...] }); for a single record we return a sync-shaped
+      // object so existing callers keep working unchanged.
+      if (returnJob) return job;
       const r = job.result || {};
       return { success: true, skipped: false, publicLink: r.publicLink || '', fileName: r.fileName || '' };
     }
@@ -569,6 +571,20 @@ export const api = {
     const res = await call('convertDocxToPdfBulk', { docType, year, recordId, base64, fileName, force });
     if (!res || !res.jobId) return res; // synchronous result (skipped / sync fallback)
     return pollRenderPdfJob(res.jobId);
+  },
+  // BATCHED bulk conversion: send up to 20 filled docs in ONE call. `items` is
+  // [{recordId, base64, fileName}]. Returns { results: [{recordId, success,
+  // publicLink?, skipped?, error?}] } — merging any records skipped before dispatch
+  // (preSkipped) with the Render-converted results. Polls the job like the single
+  // wrapper; falls straight through if the backend answered synchronously.
+  convertDocxToPdfBatch: async (docType, year, items, force) => {
+    const res = await call('convertDocxToPdfBatch', { docType, year, items, force });
+    // Synchronous answer (sync fallback, or everything was already generated).
+    if (!res || !res.jobId) return { results: (res && res.results) || [] };
+    const job = await pollRenderPdfJob(res.jobId, /* returnJob */ true);
+    const converted = (job && job.result && job.result.results) || [];
+    const preSkipped = (res.preSkipped || []).map(s => ({ recordId: s.recordId, success: true, skipped: true, publicLink: s.publicLink, fileName: s.fileName }));
+    return { results: [...preSkipped, ...converted] };
   },
   // Everything except the bytes is derived server-side from the verified consent
   // token, so docType/year/recordId are no longer client-controlled.
