@@ -26,6 +26,10 @@ export default function SettingsModal({ open, onClose, userId }) {
 
   const [pwForm, setPwForm] = useState({ current: '', next: '', confirm: '' });
   const [pwSaving, setPwSaving] = useState(false);
+  // Inline validation/result for the password form (audit LOW #6: no more blocking
+  // alert() for empty/mismatched fields). pwError is red, pwMsg is a green success.
+  const [pwError, setPwError] = useState('');
+  const [pwMsg, setPwMsg] = useState('');
 
   // Active devices / sessions
   const [sessions, setSessions] = useState([]);
@@ -35,6 +39,7 @@ export default function SettingsModal({ open, onClose, userId }) {
 
   useEffect(() => {
     if (!open || !userId) return;
+    setPwError(''); setPwMsg(''); // don't carry stale password messages across opens
     setLoading(true);
     api.getUserProfile(userId)
       .then(d => setProfile({ Mobile: d.user.Mobile || '', Email: d.user.Email || '', WhatsApp: d.user.WhatsApp || '' }))
@@ -96,20 +101,26 @@ export default function SettingsModal({ open, onClose, userId }) {
     }
   };
 
+  // Update a password field and clear any stale inline messages as the user types.
+  const setPw = (patch) => { setPwForm(f => ({ ...f, ...patch })); setPwError(''); setPwMsg(''); };
+
   const savePassword = async (e) => {
     e.preventDefault();
-    if (!pwForm.current || !pwForm.next) return alert('Please fill in all fields');
-    if (pwForm.next !== pwForm.confirm) return alert('New password does not match');
+    setPwError('');
+    setPwMsg('');
+    // Inline validation instead of a blocking browser alert (audit LOW #6).
+    if (!pwForm.current || !pwForm.next || !pwForm.confirm) return setPwError('Please fill in all fields.');
+    if (pwForm.next !== pwForm.confirm) return setPwError('The new passwords do not match.');
     setPwSaving(true);
     try {
       const res = await api.changePassword(pwForm.current, pwForm.next);
       // audit H-15: other devices are now signed out by the change. Say so, so the
       // person knows the action actually cut off whoever had the old password —
       // the whole reason for changing it.
-      alert((res && res.message) || 'Password changed successfully.');
+      setPwMsg((res && res.message) || 'Password changed successfully.');
       setPwForm({ current: '', next: '', confirm: '' });
     } catch (err) {
-      alert(err.message);
+      setPwError(err.message);
     } finally {
       setPwSaving(false);
     }
@@ -148,16 +159,22 @@ export default function SettingsModal({ open, onClose, userId }) {
           <form onSubmit={savePassword}>
             <div className="form-group">
               <label>Current Password</label>
-              <input type="password" value={pwForm.current} onChange={e => setPwForm({ ...pwForm, current: e.target.value })} />
+              <input type="password" value={pwForm.current} onChange={e => setPw({ current: e.target.value })} />
             </div>
             <div className="form-group">
               <label>New Password</label>
-              <input type="password" value={pwForm.next} onChange={e => setPwForm({ ...pwForm, next: e.target.value })} />
+              <input type="password" value={pwForm.next} onChange={e => setPw({ next: e.target.value })} />
             </div>
             <div className="form-group">
               <label>Confirm New Password</label>
-              <input type="password" value={pwForm.confirm} onChange={e => setPwForm({ ...pwForm, confirm: e.target.value })} />
+              <input type="password" value={pwForm.confirm} onChange={e => setPw({ confirm: e.target.value })} />
             </div>
+            {pwError && (
+              <div style={{ color: '#b91c1c', fontSize: '0.82rem', marginBottom: 10 }} role="alert">{pwError}</div>
+            )}
+            {pwMsg && (
+              <div style={{ color: '#166534', fontSize: '0.82rem', marginBottom: 10 }} role="status">{pwMsg}</div>
+            )}
             <button className="btn-submit" disabled={pwSaving}>{pwSaving ? 'Saving...' : 'Change Password'}</button>
           </form>
 
