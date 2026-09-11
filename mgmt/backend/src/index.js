@@ -598,6 +598,35 @@ export default {
       return jsonOut({ success: true, received: true }, request, env, 200);
     }
 
+    // ---- Render -> Worker: fetch the PUBLIC-CHAT AI provider (Render-only) ----
+    // The public chatbot runs on Render, but the provider config (with the
+    // AES-encrypted key) lives in D1 and only the Worker holds AI_CONFIG_SECRET to
+    // decrypt it. So Render asks the Worker for the resolved public_chat provider
+    // over this route, authenticated by RENDER_WEBHOOK_SECRET (the same shared
+    // secret Render already uses to call the webhook — carried in the
+    // X-Render-Signature header). No session, no CSRF; handled before the action
+    // router. Returns { type, apiKey, baseUrl, model } or { configured:false }.
+    // The decrypted key crosses ONLY this authenticated HTTPS hop, never a browser.
+    if (reqUrl.searchParams.has('render-provider') || (req && req.action === 'renderGetPublicChatProvider')) {
+      const sig = request.headers.get('X-Render-Signature') || reqUrl.searchParams.get('render-provider') || '';
+      if (!(await renderJobs.verifyRenderWebhookSecret(env, sig))) {
+        ctx.waitUntil(logError(env, 'backend', 'render-provider', 'Provider fetch rejected: bad/missing secret', '', ''));
+        return jsonOut({ success: false, message: 'Unauthorized' }, request, env, 401);
+      }
+      try {
+        const { resolveActiveProvider } = await import('./aiConfig.js');
+        const p = await resolveActiveProvider(env, 'public_chat');
+        if (!p) return jsonOut({ success: true, configured: false }, request, env, 200);
+        return jsonOut({
+          success: true, configured: true,
+          provider: { type: p.type, apiKey: p.apiKey, baseUrl: p.baseUrl, model: p.model },
+        }, request, env, 200);
+      } catch (err) {
+        ctx.waitUntil(logError(env, 'backend', 'render-provider', err && err.message || String(err), err && err.stack || '', ''));
+        return jsonOut({ success: false, message: 'provider lookup failed' }, request, env, 500);
+      }
+    }
+
     const action = req.action;
 
     // SECURITY (audit S7): overwrite the client-reported IP with the real
