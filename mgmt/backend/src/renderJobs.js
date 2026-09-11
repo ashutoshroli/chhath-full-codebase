@@ -41,6 +41,26 @@ function jobsDb(env) {
   return env.DB_MISC;
 }
 
+// Defence-in-depth for the job-row result: strip any large base64 blobs so we
+// never persist multi-hundred-KB payloads (which can exceed D1's ~1 MB row limit)
+// when a kind has no side-effect to enrich the result. This is a SAFE fallback —
+// the normal path stores the side-effect's already-stripped, translated result.
+const HEAVY_FIELDS = new Set(['pdfBase64', 'base64', 'bytes', 'content', 'fileBase64']);
+function stripHeavyResult(result) {
+  if (!result || typeof result !== 'object') return result || {};
+  const clean = (obj) => {
+    if (Array.isArray(obj)) return obj.map(clean);
+    if (!obj || typeof obj !== 'object') return obj;
+    const out = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (HEAVY_FIELDS.has(k)) continue;
+      out[k] = clean(v);
+    }
+    return out;
+  };
+  return clean(result);
+}
+
 // SHA-256 hex (Web Crypto) — used only to compare the webhook shared secret in
 // constant time (auth.js keeps its own copy private).
 async function sha256Hex(str) {
@@ -153,12 +173,30 @@ export async function handleRenderCallback(env, body) {
       // Domain side-effect FIRST — for pdf_convert it stores the PDF in R2 + writes
       // the index, and returns an enriched, base64-STRIPPED result ({publicLink,
       // fileName}) so we don't persist a few-hundred-KB pdfBase64 into the job row.
-      let stored = body.result || {};
+      //
+      // IMPORTANT: the RAW Render result must NEVER be persisted as the completed
+      // result. Render uses a per-record `ok` flag (and omits `error` on success),
+      // while the frontend reads `success`/`error`. If the raw shape leaked through
+      // (e.g. because the side-effect threw and we stored body.result verbatim), the
+      // client would read `success:undefined` (falsy) with NO error string — a bulk
+      // record failing with a BLANK reason. It also still carries the fat pdfBase64,
+      // which can blow D1's ~1 MB row limit. So: if the side-effect throws, mark the
+      // job FAILED with the real error instead of storing the raw body.
+      let stored = null;
       try {
         const enriched = await applyResultSideEffect(env, row, body.result || {});
-        if (enriched) stored = enriched;
+        // A kind WITH a side-effect (pdf_convert*, ai_*) must return an enriched,
+        // translated result. If it returns nothing meaningful, keep only a minimal
+        // safe echo of the raw result WITHOUT any base64 blobs.
+        stored = (enriched != null) ? enriched : stripHeavyResult(body.result || {});
       } catch (e) {
         await logErrorAt(env, 'backend-render', 'handleRenderCallback:sideEffect', e, { jobId, kind: row.kind });
+        const msg = (e && (e.userMessage || e.message)) || 'Processing the result failed on the server.';
+        await db.prepare(
+          `UPDATE render_jobs SET status='failed', error=?, finished_at=?, render_job_id=COALESCE(render_job_id, ?) WHERE job_id=?`
+        ).bind(msg.toString().slice(0, 500), now, body.renderJobId || null, jobId).run();
+        await applyFailureSideEffect(env, row, msg).catch(() => {});
+        return { success: true, applied: true };
       }
       await db.prepare(
         `UPDATE render_jobs SET status='completed', result=?, finished_at=?, render_job_id=COALESCE(render_job_id, ?) WHERE job_id=?`
