@@ -491,9 +491,14 @@ export const api = {
   reportErrorToWhatsApp: (errorId) => call('reportErrorToWhatsApp', { errorId }, false),
   getErrorLog: (limit) => call('getErrorLog', { limit }),
   // AI auto-fix (Superadmin-only). PR-1: generate a fix + preview.
-  generateAiFix: (errorId) => call('generateAiFix', { errorId }),
+  // `force:true` bypasses duplicate-prevention and starts a fresh generation even
+  // if a live fix already exists (the modal's "Re-generate" button).
+  generateAiFix: (errorId, force) => call('generateAiFix', { errorId, force: !!force }),
   getAiFixes: (errorId) => call('getAiFixes', { errorId }),
   getAiFix: (fixId) => call('getAiFix', { fixId }),
+  // The most-recent fix for an error (+ its live jobId if still pending), so the
+  // modal can REUSE it instead of always starting a new job.
+  getLatestAiFixForError: (errorId) => call('getLatestAiFixForError', { errorId }),
   createAiFixPr: (fixId) => call('createAiFixPr', { fixId }),
   // Render offload: generateAiFix/createAiFixPr now return a jobId that runs on the
   // external Render service; poll this for the outcome.
