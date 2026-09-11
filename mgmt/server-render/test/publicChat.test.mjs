@@ -108,6 +108,33 @@ test('per-person block says no files when none are generated', () => {
   assert.match(s, /No downloadable files are available for this person/);
 });
 
+test('committee is listed PER YEAR with real names (IDs resolved), deduped', () => {
+  const data = {
+    users: [
+      { ID: 'USER0001', Name: 'President Ji' },
+      { ID: 'USER0136', Name: 'Secretary Ji' },
+      { ID: 'USER0137', Name: 'Treasurer Ji' },
+    ],
+    // committee rows carry the member's ID in `Name`, and a Year.
+    committee: [
+      { Year: 2026, Name: 'USER0001' },
+      { Year: 2026, Name: 'USER0136' },
+      { Year: 2026, Name: 'USER0001' }, // duplicate within the year
+      { Year: 2025, Name: 'USER0137' },
+    ],
+  };
+  const s = summarizePortalData(data, 'committee members 2026');
+  const line2026 = s.split('\n').find(l => l.startsWith('Committee 2026')) || '';
+  assert.match(line2026, /President Ji/);
+  assert.match(line2026, /Secretary Ji/);
+  assert.equal((line2026.match(/President Ji/g) || []).length, 1, 'no duplicate within a year');
+  assert.match(line2026, /Committee 2026 \(2 members\)/); // deduped count
+  // 2025 is its own line.
+  assert.match(s, /Committee 2025 \(1 members\): Treasurer Ji/);
+  // IDs must never leak.
+  assert.doesNotMatch(s, /USER0001/);
+});
+
 test('a single distinctive name word matches (amit -> Amit Kumar)', () => {
   const data = {
     users: [{ ID: 'U9', Name: 'Amit Kumar' }],
