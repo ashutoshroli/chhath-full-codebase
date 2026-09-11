@@ -547,9 +547,20 @@ export async function dispatchBulkPdfBatch(env, docType, year, items, user, opts
     toConvert.push({ recordId, base64, fileName: it.fileName || 'document.docx' });
   }
 
+  // `engine` tells the client WHICH service actually did (or will do) the
+  // conversion, so the bulk screen can show it instead of guessing:
+  //   'render' -> offloaded to the Render service (async, polled)
+  //   'worker' -> converted synchronously in this Worker (fallback)
+  //   'none'   -> nothing to convert (everything was already generated)
+  const skippedCount = skipped.length;
+
   if (toConvert.length === 0) {
     // Everything was already generated — nothing to dispatch.
-    return { success: true, dispatched: false, results: skipped };
+    return {
+      success: true, dispatched: false, results: skipped,
+      engine: 'none', engineReason: 'all-already-generated',
+      dispatchedCount: 0, skippedCount,
+    };
   }
 
   const { createAndDispatchJob } = await import('./renderJobs.js');
@@ -565,7 +576,11 @@ export async function dispatchBulkPdfBatch(env, docType, year, items, user, opts
         results.push({ recordId: it.recordId, success: false, error: (e && (e.userMessage || e.message)) || 'conversion failed' });
       }
     }
-    return { success: true, dispatched: false, results };
+    return {
+      success: true, dispatched: false, results,
+      engine: 'worker', engineReason: 'render-not-configured',
+      dispatchedCount: toConvert.length, skippedCount,
+    };
   }
 
   // Offload the whole batch to Render. The FULL payload (with base64) goes to
@@ -592,12 +607,20 @@ export async function dispatchBulkPdfBatch(env, docType, year, items, user, opts
         results.push({ recordId: it.recordId, success: false, error: (e && (e.userMessage || e.message)) || 'conversion failed' });
       }
     }
-    return { success: true, dispatched: false, results };
+    return {
+      success: true, dispatched: false, results,
+      engine: 'worker', engineReason: 'render-unreachable',
+      dispatchedCount: toConvert.length, skippedCount,
+    };
   }
 
   // Async: caller polls getRenderJobStatus(jobId). `preSkipped` lets the client
   // account for records that were skipped before dispatch.
-  return { success: true, dispatched: true, jobId: dispatch.jobId, status: 'pending', preSkipped: skipped };
+  return {
+    success: true, dispatched: true, jobId: dispatch.jobId, status: 'pending', preSkipped: skipped,
+    engine: 'render', engineReason: null,
+    dispatchedCount: toConvert.length, skippedCount,
+  };
 }
 
 // Render callback for a completed pdf_convert_batch. `result.results` is

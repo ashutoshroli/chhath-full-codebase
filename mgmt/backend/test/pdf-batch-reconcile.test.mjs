@@ -291,3 +291,80 @@ test('force:true re-converts instead of skipping (no skipped entries)', async ()
   assert.equal(rec.success, false);
   assert.ok(rec.error && rec.error.length > 0);
 });
+
+
+// ============ `engine`: which service did the conversion ============
+//
+// The bulk screen shows WHICH service converted each batch (Render offload vs an
+// in-Worker fallback) instead of leaving a slow/fallback run a mystery. These
+// assert the contract the UI reads.
+
+test('engine: "none" when every record was already generated (nothing dispatched)', async () => {
+  const { env, markGenerated } = bulkEnv();
+  markGenerated('receipt', 2025, 'receipt-2025-57');
+
+  const res = await dispatchBulkPdfBatch(env, 'receipt', 2025, [
+    { recordId: 'receipt-2025-57', base64: DOCX_B64_OK, fileName: 'r.docx' },
+  ], SUPERADMIN2, {});
+
+  assert.equal(res.engine, 'none');
+  assert.equal(res.engineReason, 'all-already-generated');
+  assert.equal(res.dispatchedCount, 0);
+  assert.equal(res.skippedCount, 1);
+});
+
+test('engine: "worker" + reason when Render is not configured', async () => {
+  const { env } = bulkEnv(); // no RENDER_SERVICE_URL / RENDER_API_KEY
+  const res = await dispatchBulkPdfBatch(env, 'receipt', 2025, [
+    { recordId: 'receipt-2025-58', base64: DOCX_B64_OK, fileName: 'r.docx' },
+  ], SUPERADMIN2, {});
+
+  assert.equal(res.engine, 'worker');
+  assert.equal(res.engineReason, 'render-not-configured');
+  assert.equal(res.dispatchedCount, 1);
+  assert.equal(res.skippedCount, 0);
+  assert.equal(res.dispatched, false);
+});
+
+test('engine: "render" when the batch is offloaded, with the jobId for support', async () => {
+  const { env } = bulkEnv();
+  env.RENDER_SERVICE_URL = 'https://render.example.test';
+  env.RENDER_API_KEY = 'k';
+  const restore = stubFetchOk();
+  let res;
+  try {
+    res = await dispatchBulkPdfBatch(env, 'receipt', 2025, [
+      { recordId: 'receipt-2025-59', base64: DOCX_B64_OK, fileName: 'a.docx' },
+      { recordId: 'receipt-2025-60', base64: DOCX_B64_OK, fileName: 'b.docx' },
+    ], SUPERADMIN2, {});
+  } finally { restore(); }
+
+  assert.equal(res.engine, 'render');
+  assert.equal(res.engineReason, null);
+  assert.equal(res.dispatched, true);
+  assert.equal(res.dispatchedCount, 2);
+  assert.equal(res.skippedCount, 0);
+  assert.ok(res.jobId && res.jobId.startsWith('RJOB'), 'a jobId is returned for the UI/support');
+});
+
+test('engine: "render" still reports the pre-skipped count alongside the dispatched ones', async () => {
+  const { env, markGenerated } = bulkEnv();
+  env.RENDER_SERVICE_URL = 'https://render.example.test';
+  env.RENDER_API_KEY = 'k';
+  markGenerated('receipt', 2025, 'receipt-2025-61');
+  const restore = stubFetchOk();
+  let res;
+  try {
+    res = await dispatchBulkPdfBatch(env, 'receipt', 2025, [
+      { recordId: 'receipt-2025-61', base64: DOCX_B64_OK, fileName: 'a.docx' }, // already generated
+      { recordId: 'receipt-2025-62', base64: DOCX_B64_OK, fileName: 'b.docx' }, // dispatched
+    ], SUPERADMIN2, {});
+  } finally { restore(); }
+
+  assert.equal(res.engine, 'render');
+  assert.equal(res.dispatchedCount, 1);
+  assert.equal(res.skippedCount, 1);
+  // The skipped record is handed back as an unambiguous success (regression guard).
+  assert.equal(res.preSkipped[0].success, true);
+  assert.equal(res.preSkipped[0].skipped, true);
+});
