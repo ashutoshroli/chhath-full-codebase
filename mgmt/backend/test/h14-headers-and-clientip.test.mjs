@@ -146,6 +146,9 @@ test('H-14 (mgmt): every image host the SPA renders is in img-src', () => {
 test('H-14 (public): the public CSP allows its Worker and its image hosts', () => {
   const d = cspDirectives(headerMap(PUBLIC)['Content-Security-Policy-Report-Only']);
   assert.match(d['connect-src'].join(' '), /chhath-public-worker\.shaharpura\.com/);
+  // The AI chatbot widget fetches the Render /public-chat endpoint directly.
+  assert.match(d['connect-src'].join(' '), /chhath-server-render\.onrender\.com/,
+    'the chatbot Render origin must be in connect-src or the widget is blocked under strict CSP');
   assert.match(d['img-src'].join(' '), /lh3\.googleusercontent\.com/);
   // The public site never needs blob: — it builds no PDFs.
   assert.ok(!d['img-src'].includes('blob:'), 'the public policy should stay tighter than mgmt');

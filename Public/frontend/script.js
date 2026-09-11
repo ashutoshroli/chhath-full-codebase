@@ -1,6 +1,21 @@
 const fmt = (n) => new Intl.NumberFormat('en-IN', {style:'currency', currency:'INR', maximumFractionDigits:0}).format(n||0);
 const parseAmt = (v) => parseFloat((v||'').toString().replace(/[^0-9.-]+/g,"")) || 0;
 
+// AI chatbot backend (the Render /public-chat endpoint). Public/frontend has no
+// build step / env vars (see FRONTEND_DIFF_NOTES.md), so this is a plain constant
+// like BASE_API_URL. ⚠️ REPLACE with your real Render service URL after deploying
+// mgmt/server-render. Leave the path as /public-chat.
+const CHATBOT_API_URL = "https://chhath-server-render.onrender.com/public-chat";
+// A stable per-browser session id so the backend can group a conversation's
+// messages (no PII; just a random opaque token kept for this tab/session).
+const CHAT_SESSION_ID = (() => {
+  try {
+    let id = sessionStorage.getItem('chat_sid');
+    if (!id) { id = 'cs-' + Math.random().toString(36).slice(2) + Date.now().toString(36); sessionStorage.setItem('chat_sid', id); }
+    return id;
+  } catch (e) { return 'cs-' + Math.random().toString(36).slice(2); }
+})();
+
 // ---- HTML escaping ----
 // This file builds almost all of its DOM with innerHTML string templates. Values
 // that originate from an authenticated author (popup slide text, link URL/label)
@@ -130,6 +145,7 @@ const T = {
     no_records_found: 'No records found.', no_expenses: 'No expenses recorded.',
     not_distributed: 'Not Distributed Yet', no_committee: 'No committee on record.',
     no_matches: 'No matches found.', no_docs: 'No records available.',
+    chat_placeholder: 'Type your question…', chat_error: 'Sorry, something went wrong. Please try again.',
     verified_record: 'Verified Record', record_not_found: 'Record Not Found',
     verify_help: "This record could not be verified against the committee's records. If you believe this is an error, please contact the committee.",
     year: 'Year', amount: 'Amount', detail: 'Detail',
@@ -162,6 +178,7 @@ const T = {
     no_records_found: 'कोई रिकॉर्ड नहीं मिला।', no_expenses: 'कोई व्यय दर्ज नहीं है।',
     not_distributed: 'अभी वितरित नहीं हुआ', no_committee: 'कोई समिति दर्ज नहीं है।',
     no_matches: 'कोई परिणाम नहीं मिला।', no_docs: 'कोई दस्तावेज़ उपलब्ध नहीं है।',
+    chat_placeholder: 'अपना प्रश्न लिखें…', chat_error: 'क्षमा करें, कुछ गड़बड़ हुई। कृपया पुनः प्रयास करें।',
     verified_record: 'सत्यापित रिकॉर्ड', record_not_found: 'रिकॉर्ड नहीं मिला',
     verify_help: 'यह रिकॉर्ड समिति के अभिलेखों से सत्यापित नहीं हो सका। यदि आपको लगता है कि यह त्रुटि है, तो कृपया समिति से संपर्क करें।',
     year: 'वर्ष', amount: 'राशि', detail: 'विवरण',
@@ -411,6 +428,7 @@ const app = {
     app.renderDownloadVillages();
     app.checkRecordVerification();
     app.restoreViewFromHash();
+    app.setupChat();
 
     // Non-blocking banner when we're showing this browser's saved copy because the
     // network/backend was unreachable. The portal is fully usable; this only tells
@@ -418,6 +436,86 @@ const app = {
     app.renderStaleNotice(opts.fromCache ? opts.savedAt : null);
 
     document.getElementById('loader').style.display = 'none';
+  },
+
+  // ==== AI Chatbot ====
+  // Wires the floating button + popup ONCE (guarded by _chatReady). Opening/closing
+  // is same-tab overlay (no navigation). Sends the question to the Render
+  // /public-chat endpoint and renders the answer.
+  setupChat: () => {
+    if (app._chatReady) return;
+    const fab = document.getElementById('chat-fab');
+    const panel = document.getElementById('chat-panel');
+    const closeBtn = document.getElementById('chat-close');
+    const form = document.getElementById('chat-form');
+    if (!fab || !panel || !form) return; // markup missing (older cached HTML) — skip
+    app._chatReady = true;
+
+    const open = () => {
+      panel.hidden = false;
+      const input = document.getElementById('chat-input');
+      if (input) setTimeout(() => input.focus(), 50);
+    };
+    const close = () => { panel.hidden = true; };
+    fab.addEventListener('click', () => (panel.hidden ? open() : close()));
+    if (closeBtn) closeBtn.addEventListener('click', close);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !panel.hidden) close(); });
+
+    form.addEventListener('submit', (e) => { e.preventDefault(); app.sendChat(); });
+  },
+
+  // Append a message bubble. kind: 'user' | 'bot' | 'error'. Returns the node.
+  appendChatMsg: (text, kind) => {
+    const wrap = document.getElementById('chat-messages');
+    if (!wrap) return null;
+    const div = document.createElement('div');
+    div.className = 'chat-msg chat-msg-' + (kind === 'user' ? 'user' : kind === 'error' ? 'error' : 'bot');
+    div.textContent = text; // textContent — never innerHTML (answer is untrusted model output)
+    wrap.appendChild(div);
+    wrap.scrollTop = wrap.scrollHeight;
+    return div;
+  },
+
+  sendChat: async () => {
+    const input = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('chat-send');
+    const wrap = document.getElementById('chat-messages');
+    if (!input || app._chatBusy) return;
+    const question = (input.value || '').trim();
+    if (!question) return;
+
+    app._chatBusy = true;
+    if (sendBtn) sendBtn.disabled = true;
+    input.value = '';
+    app.appendChatMsg(question, 'user');
+
+    // Typing indicator.
+    const typing = document.createElement('div');
+    typing.className = 'chat-typing';
+    typing.textContent = app.lang === 'hi' ? 'सोच रहा हूँ…' : 'Thinking…';
+    if (wrap) { wrap.appendChild(typing); wrap.scrollTop = wrap.scrollHeight; }
+
+    try {
+      const res = await fetch(CHATBOT_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question, sessionId: CHAT_SESSION_ID, lang: app.lang }),
+      });
+      const data = await res.json().catch(() => ({}));
+      typing.remove();
+      if (res.ok && data && data.ok && data.answer) {
+        app.appendChatMsg(data.answer, 'bot');
+      } else {
+        app.appendChatMsg((data && data.error) || app.t('chat_error'), 'error');
+      }
+    } catch (err) {
+      typing.remove();
+      app.appendChatMsg(app.t('chat_error'), 'error');
+    } finally {
+      app._chatBusy = false;
+      if (sendBtn) sendBtn.disabled = false;
+      if (input) input.focus();
+    }
   },
 
   // Small dismissible-looking strip shown ONLY when rendering cached data.

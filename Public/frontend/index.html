@@ -295,6 +295,40 @@
     (function () { var y = document.getElementById('footer-yr'); if (y) y.textContent = new Date().getFullYear(); })();
   </script>
 
+  <!-- ==== AI Chatbot: floating button (bottom-right) + popup panel ==== -->
+  <!-- Opens in the SAME tab as an overlay panel (no navigation). Bilingual via the
+       data-lang spans (CSS-toggled on <html lang>), like the footer. All behaviour
+       is in script.js (app.chat*). Hidden until wired; degrades gracefully if the
+       chatbot backend isn't reachable. -->
+  <button id="chat-fab" class="chat-fab" aria-label="Open chat assistant" title="Ask a question">
+    <span class="material-icons-round">chat</span>
+  </button>
+
+  <div id="chat-panel" class="chat-panel" role="dialog" aria-modal="false" aria-labelledby="chat-title" hidden>
+    <div class="chat-header">
+      <span id="chat-title" class="chat-title">
+        <span data-lang="en">Ask about our Chhath data</span>
+        <span data-lang="hi">छठ डेटा के बारे में पूछें</span>
+      </span>
+      <button id="chat-close" class="chat-close" aria-label="Close chat">
+        <span class="material-icons-round">close</span>
+      </button>
+    </div>
+    <div id="chat-messages" class="chat-messages">
+      <div class="chat-msg chat-msg-bot">
+        <span data-lang="en">Namaste! Ask me about collections, expenses, contributors or committee — I answer from this portal's public data.</span>
+        <span data-lang="hi">नमस्ते! संग्रह, व्यय, योगदानकर्ता या समिति के बारे में पूछें — मैं इस पोर्टल के सार्वजनिक डेटा से उत्तर देता हूँ।</span>
+      </div>
+    </div>
+    <form id="chat-form" class="chat-input-row" autocomplete="off">
+      <input id="chat-input" class="chat-input" type="text" maxlength="1000"
+             data-i18n-placeholder="chat_placeholder" placeholder="Type your question…" />
+      <button id="chat-send" class="chat-send" type="submit" aria-label="Send">
+        <span class="material-icons-round">send</span>
+      </button>
+    </form>
+  </div>
+
   <!-- `defer`: let the browser finish parsing the HTML (and paint the header +
        reserved content areas) before running the app script, instead of blocking
        on it. Improves LCP with no behaviour change — the script still runs before
