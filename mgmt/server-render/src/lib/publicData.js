@@ -82,8 +82,10 @@ export function summarizePortalData(data, question) {
   const latestYear = years[0];
 
   const lines = [];
-  lines.push('You are a helpful assistant for the Navyuvak Chhath Puja Samiti (Shaharpura & Gardih) public transparency portal.');
-  lines.push('Answer ONLY from the data below. If a detail is not present, say you do not have that information. Amounts are in Indian Rupees.');
+  lines.push('You are the friendly assistant of the Navyuvak Chhath Puja Samiti (Shaharpura & Gardih). Below is the committee\'s public data.');
+  lines.push('Answer the user\'s question using this data. You MAY add up amounts, count entries, and summarise across years to answer. Amounts are in Indian Rupees (₹).');
+  lines.push('If the specific PERSON DETAILS block for a named person is present below, use it to answer questions about that person (their yearly amounts and total).');
+  lines.push('Only say you do not have the information if the answer genuinely is not in the data below. Reply briefly and clearly.');
   lines.push(`Years with records: ${years.join(', ') || 'none'}.`);
 
   // Per-year totals (cap to the most recent ~6 years to bound tokens).
@@ -142,8 +144,12 @@ function personContributionsFor(question, collections) {
     const ln = n.toLowerCase();
     if (q.includes(ln)) return true;
     const words = ln.split(/\s+/).filter(w => w.length >= 3);
-    return words.length > 0 && words.every(w => q.includes(w));
-  }).slice(0, 5); // at most 5 people
+    if (!words.length) return false;
+    // Match if ALL name-words are in the question ("anil prasad ka total")...
+    if (words.every(w => q.includes(w))) return true;
+    // ...or if a distinctive (>=4-char) name-word appears ("anil ne kitna diya").
+    return words.some(w => w.length >= 4 && q.includes(w));
+  }).slice(0, 8); // at most 8 people
   if (!matched.length) return '';
 
   const blocks = matched.map(name => {
