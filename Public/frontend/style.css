@@ -157,8 +157,10 @@ body { background-color: var(--bg-offwhite); color: var(--text-main); padding-bo
 
 
 /* ==== AI Chatbot: floating button + popup panel ==== */
+/* bottom:80px keeps the button clear of the fixed 65px .bottom-nav on mobile.
+   On desktop the nav is hidden, so it just floats a little higher — fine. */
 .chat-fab {
-  position: fixed; right: 18px; bottom: 18px; z-index: 200;
+  position: fixed; right: 18px; bottom: 80px; z-index: 200;
   width: 56px; height: 56px; border-radius: 50%; border: none; cursor: pointer;
   background: var(--primary-saffron); color: #fff;
   display: flex; align-items: center; justify-content: center;
@@ -168,8 +170,8 @@ body { background-color: var(--bg-offwhite); color: var(--text-main); padding-bo
 .chat-fab .material-icons-round { font-size: 26px; }
 
 .chat-panel {
-  position: fixed; right: 18px; bottom: 84px; z-index: 200;
-  width: min(380px, calc(100vw - 36px)); height: min(70vh, 560px);
+  position: fixed; right: 18px; bottom: 146px; z-index: 201;
+  width: min(380px, calc(100vw - 36px)); height: min(70vh, 520px);
   background: var(--card-white); border-radius: 16px; overflow: hidden;
   display: flex; flex-direction: column;
   box-shadow: 0 12px 40px rgba(0,0,0,0.28); border: 1px solid #eef0f2;

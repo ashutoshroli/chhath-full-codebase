@@ -451,15 +451,21 @@ const app = {
     if (!fab || !panel || !form) return; // markup missing (older cached HTML) — skip
     app._chatReady = true;
 
+    // Toggle via inline display too (not just the `hidden` attr) so the panel
+    // shows/hides correctly even if an OLD cached style.css (without the
+    // .chat-panel[hidden] rule) is still being served.
+    const isOpen = () => panel.style.display === 'flex';
     const open = () => {
       panel.hidden = false;
+      panel.style.display = 'flex';
       const input = document.getElementById('chat-input');
       if (input) setTimeout(() => input.focus(), 50);
     };
-    const close = () => { panel.hidden = true; };
-    fab.addEventListener('click', () => (panel.hidden ? open() : close()));
+    const close = () => { panel.hidden = true; panel.style.display = 'none'; };
+    close(); // ensure a known-closed starting state
+    fab.addEventListener('click', () => (isOpen() ? close() : open()));
     if (closeBtn) closeBtn.addEventListener('click', close);
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !panel.hidden) close(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && isOpen()) close(); });
 
     form.addEventListener('submit', (e) => { e.preventDefault(); app.sendChat(); });
   },

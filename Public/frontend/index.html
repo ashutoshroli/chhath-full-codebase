@@ -102,7 +102,7 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round">
   </noscript>
 
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=chatbot1">
   <!-- Footer language toggle lives INLINE here (not in style.css) on purpose:
        style.css is cached for a day (max-age=86400), but this HTML is always
        revalidated (max-age=0). Keeping the show/hide rule with the markup means
@@ -300,30 +300,34 @@
        data-lang spans (CSS-toggled on <html lang>), like the footer. All behaviour
        is in script.js (app.chat*). Hidden until wired; degrades gracefully if the
        chatbot backend isn't reachable. -->
-  <button id="chat-fab" class="chat-fab" aria-label="Open chat assistant" title="Ask a question">
-    <span class="material-icons-round">chat</span>
+  <button id="chat-fab" class="chat-fab" aria-label="Open chat assistant" title="Ask a question"
+    style="position:fixed; right:18px; bottom:80px; z-index:200; width:56px; height:56px; border-radius:50%; border:none; cursor:pointer; background:#F27A1A; color:#fff; display:flex; align-items:center; justify-content:center; box-shadow:0 6px 20px rgba(0,0,0,0.22);">
+    <span class="material-icons-round" style="font-size:26px;">chat</span>
   </button>
 
-  <div id="chat-panel" class="chat-panel" role="dialog" aria-modal="false" aria-labelledby="chat-title" hidden>
-    <div class="chat-header">
-      <span id="chat-title" class="chat-title">
+  <div id="chat-panel" class="chat-panel" role="dialog" aria-modal="false" aria-labelledby="chat-title" hidden
+    style="position:fixed; right:18px; bottom:146px; z-index:201; width:min(380px, calc(100vw - 36px)); height:min(70vh, 520px); background:#fff; border-radius:16px; overflow:hidden; flex-direction:column; box-shadow:0 12px 40px rgba(0,0,0,0.28); border:1px solid #eef0f2;">
+    <div class="chat-header" style="display:flex; align-items:center; justify-content:space-between; padding:12px 14px; background:#F27A1A; color:#fff;">
+      <span id="chat-title" class="chat-title" style="font-weight:700; font-size:0.95rem;">
         <span data-lang="en">Ask about our Chhath data</span>
         <span data-lang="hi">छठ डेटा के बारे में पूछें</span>
       </span>
-      <button id="chat-close" class="chat-close" aria-label="Close chat">
+      <button id="chat-close" class="chat-close" aria-label="Close chat" style="background:transparent; border:none; color:#fff; cursor:pointer; display:flex; padding:2px;">
         <span class="material-icons-round">close</span>
       </button>
     </div>
-    <div id="chat-messages" class="chat-messages">
+    <div id="chat-messages" class="chat-messages" style="flex:1; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:10px;">
       <div class="chat-msg chat-msg-bot">
         <span data-lang="en">Namaste! Ask me about collections, expenses, contributors or committee — I answer from this portal's public data.</span>
         <span data-lang="hi">नमस्ते! संग्रह, व्यय, योगदानकर्ता या समिति के बारे में पूछें — मैं इस पोर्टल के सार्वजनिक डेटा से उत्तर देता हूँ।</span>
       </div>
     </div>
-    <form id="chat-form" class="chat-input-row" autocomplete="off">
+    <form id="chat-form" class="chat-input-row" autocomplete="off" style="display:flex; gap:8px; padding:10px; border-top:1px solid #eef0f2;">
       <input id="chat-input" class="chat-input" type="text" maxlength="1000"
-             data-i18n-placeholder="chat_placeholder" placeholder="Type your question…" />
-      <button id="chat-send" class="chat-send" type="submit" aria-label="Send">
+             data-i18n-placeholder="chat_placeholder" placeholder="Type your question…"
+             style="flex:1; border:1px solid #d1d5db; border-radius:10px; padding:9px 12px; font-size:0.88rem; outline:none;" />
+      <button id="chat-send" class="chat-send" type="submit" aria-label="Send"
+              style="background:#F27A1A; color:#fff; border:none; border-radius:10px; width:42px; cursor:pointer; display:flex; align-items:center; justify-content:center;">
         <span class="material-icons-round">send</span>
       </button>
     </form>
@@ -333,7 +337,7 @@
        reserved content areas) before running the app script, instead of blocking
        on it. Improves LCP with no behaviour change — the script still runs before
        DOMContentLoaded, in order, exactly as an end-of-body script did. -->
-  <script defer src="script.js"></script>
+  <script defer src="script.js?v=chatbot1"></script>
 
   <!-- Vercel Web Analytics (privacy-friendly, cookie-less visitor/pageview
        counts in the Vercel dashboard). This is the plain-HTML integration: the
