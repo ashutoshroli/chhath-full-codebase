@@ -121,10 +121,24 @@ export function summarizePortalData(data, question) {
     if (top.length) lines.push(`Top contributors ${y}: ${top.join(', ')}.`);
   }
 
-  // Committee (public list).
+  // Committee — PER YEAR, with real names (a committee row's `Name` is the member's
+  // ID code, like collections). Dedupe within a year. Public info.
   if (committee.length) {
-    const names = committee.slice(0, 40).map(m => (m.Name || m.name || '').toString()).filter(Boolean);
-    lines.push(`Committee members (${committee.length}): ${names.join(', ')}.`);
+    const cYears = [...new Set(committee.map(m => parseInt(m.Year || m.year)).filter(Boolean))].sort((a, b) => b - a);
+    if (cYears.length) {
+      for (const y of cYears.slice(0, 8)) {
+        const names = [...new Set(
+          committee.filter(m => parseInt(m.Year || m.year) === y)
+            .map(m => nameOf((m.Name || m.name || '').toString().trim()))
+            .filter(Boolean)
+        )];
+        if (names.length) lines.push(`Committee ${y} (${names.length} members): ${names.join(', ')}.`);
+      }
+    } else {
+      // No year on the rows — fall back to a single de-duplicated list.
+      const names = [...new Set(committee.map(m => nameOf((m.Name || m.name || '').toString().trim())).filter(Boolean))].slice(0, 60);
+      lines.push(`Committee members (${names.length}): ${names.join(', ')}.`);
+    }
   }
 
   // Loans summary (counts + totals only — no borrower PII beyond public name).
