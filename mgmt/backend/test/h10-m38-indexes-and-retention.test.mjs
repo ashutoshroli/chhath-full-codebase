@@ -81,6 +81,9 @@ const SCHEMA_FOR_MIGRATION = {
   // ai_providers.purpose — a real ADD COLUMN (like 09/22), so it is in
   // SCHEMA_ONLY_MIGRATIONS below and asserted for idempotency-failure separately.
   '24-ai-providers-purpose.sql': 'logs.sql',
+  // ai_providers.priority — a real ADD COLUMN (+ a backfill UPDATE), so it is in
+  // SCHEMA_ONLY_MIGRATIONS below and asserted for idempotency-failure separately.
+  '25-ai-providers-priority.sql': 'logs.sql',
   // render_jobs table (Render offload). CREATE TABLE/INDEX IF NOT EXISTS against
   // the misc DB (schema/misc.sql already defines it), so it applies on a fresh
   // schema and a second run is a no-op — like 15/17/20/21.
@@ -90,7 +93,7 @@ const SCHEMA_FOR_MIGRATION = {
 // Migrations that legitimately do more than CREATE INDEX. Keep this list as short
 // as possible: everything on it opts out of the "cannot drop, delete, update or
 // alter" guarantee that makes the rest safe to run unattended.
-const SCHEMA_ONLY_MIGRATIONS = new Set(['09-error-log-client-ip.sql', '22-login-users-totp.sql', '24-ai-providers-purpose.sql']);
+const SCHEMA_ONLY_MIGRATIONS = new Set(['09-error-log-client-ip.sql', '22-login-users-totp.sql', '24-ai-providers-purpose.sql', '25-ai-providers-priority.sql']);
 
 const DAY = 86400000;
 const isoAgo = (d) => new Date(Date.now() - d * DAY).toISOString();
@@ -392,9 +395,11 @@ test('H-10: the schema-changing migrations are still narrowly scoped', () => {
     for (const m of sql.matchAll(/ALTER\s+TABLE\s+\w+\s+(\w+)/gi)) {
       assert.match(m[1], /^ADD$/i, `${file}: only ALTER TABLE ... ADD COLUMN is allowed, saw "${m[1]}"`);
     }
-    // UPDATE is permitted, but must be a bounded backfill of the new column only.
+    // UPDATE is permitted, but must be a bounded backfill of a column this same
+    // migration just ADDED — never an arbitrary column of existing data.
+    const addedCols = [...sql.matchAll(/ALTER\s+TABLE\s+\w+\s+ADD\s+COLUMN\s+(\w+)/gi)].map(x => x[1]);
     for (const m of sql.matchAll(/UPDATE\s+(\w+)\s+SET\s+(\w+)/gi)) {
-      assert.equal(m[2], 'client_ip', `${file}: the backfill may only write the new column, saw "${m[2]}"`);
+      assert.ok(addedCols.includes(m[2]), `${file}: the backfill may only write a column this migration ADDED, saw "${m[2]}"`);
       assert.match(sql.slice(sql.indexOf(m[0])), /WHERE/i, `${file}: an UPDATE must be bounded by a WHERE`);
     }
   }

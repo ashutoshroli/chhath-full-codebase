@@ -9,13 +9,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { makeD1, schemaFor } from './helpers/stubs.mjs';
-import { saveAiProvider, getAiProviders, setDefaultAiProvider, resolveActiveProvider } from '../src/aiConfig.js';
+import { saveAiProvider, getAiProviders, setDefaultAiProvider, resolveActiveProvider, resolveProviderChain, reorderAiProviders } from '../src/aiConfig.js';
 
 const SUPER = { name: 'USER0001', role: 'Superadmin' };
 
 function logsSchemaWithPurpose() {
-  const migration = readFileSync(new URL('../../db/migration/2026-09-05/24-ai-providers-purpose.sql', import.meta.url), 'utf8');
-  return schemaFor('logs.sql') + '\n' + migration;
+  const m24 = readFileSync(new URL('../../db/migration/2026-09-05/24-ai-providers-purpose.sql', import.meta.url), 'utf8');
+  const m25 = readFileSync(new URL('../../db/migration/2026-09-05/25-ai-providers-priority.sql', import.meta.url), 'utf8');
+  return schemaFor('logs.sql') + '\n' + m24 + '\n' + m25;
 }
 function makeEnv(extra = {}) {
   return { DB_LOGS: makeD1(logsSchemaWithPurpose()), AI_CONFIG_SECRET: 'a-very-strong-random-secret-value-123456', ...extra };
@@ -107,4 +108,70 @@ test('clearing a purpose default leaves the other purpose untouched', async () =
   const byId = Object.fromEntries(provs.map(p => [p.provider_id, p]));
   assert.equal(byId[fix.providerId].is_default, false, 'fix default cleared');
   assert.equal(byId[chat.providerId].is_default, true, 'chat default still set');
+});
+
+// ---- Fallback CHAIN by priority (multiple providers per purpose) ----
+
+test('resolveProviderChain returns a purpose\'s providers in priority order', async () => {
+  const env = makeEnv();
+  const a = await add(env, { purpose: 'public_chat', name: 'Groq', model: 'groq-m' });
+  const b = await add(env, { purpose: 'public_chat', name: 'NVIDIA', model: 'nv-m' });
+  const c = await add(env, { purpose: 'public_chat', name: 'OpenRouter', model: 'or-m' });
+  // Newly added -> appended, so insertion order is the default priority order.
+  const chain = await resolveProviderChain(env, 'public_chat');
+  assert.deepEqual(chain.map(p => p.model), ['groq-m', 'nv-m', 'or-m']);
+
+  // Reorder: put OpenRouter first, then Groq, then NVIDIA.
+  await reorderAiProviders(env, 'public_chat', [c.providerId, a.providerId, b.providerId], SUPER);
+  const chain2 = await resolveProviderChain(env, 'public_chat');
+  assert.deepEqual(chain2.map(p => p.model), ['or-m', 'groq-m', 'nv-m']);
+});
+
+test('resolveActiveProvider returns the FIRST of the chain (back-compat)', async () => {
+  const env = makeEnv();
+  const a = await add(env, { purpose: 'public_chat', name: 'First', model: 'first-m' });
+  const b = await add(env, { purpose: 'public_chat', name: 'Second', model: 'second-m' });
+  await reorderAiProviders(env, 'public_chat', [b.providerId, a.providerId], SUPER);
+  const primary = await resolveActiveProvider(env, 'public_chat');
+  assert.equal(primary.model, 'second-m', 'primary = priority-first');
+});
+
+test('the fix chain appends the ANTHROPIC secret as the LAST resort; public_chat does not', async () => {
+  const env = makeEnv({ ANTHROPIC_API_KEY: 'sk-fallback' });
+  await add(env, { purpose: 'fix', name: 'FixA', model: 'fix-a' });
+  const fixChain = await resolveProviderChain(env, 'fix');
+  assert.equal(fixChain[0].model, 'fix-a');
+  assert.ok(fixChain[fixChain.length - 1].sourceLabel.includes('ANTHROPIC_API_KEY'), 'fix chain ends with the secret');
+
+  const chatChain = await resolveProviderChain(env, 'public_chat');
+  assert.equal(chatChain.length, 0, 'public_chat has no providers and NO secret fallback');
+});
+
+test('a decrypt-failure provider is skipped but the chain continues', async () => {
+  const env = makeEnv();
+  const good = await add(env, { purpose: 'public_chat', name: 'Good', model: 'good-m' });
+  // Corrupt one provider's stored key so decrypt throws.
+  env.DB_LOGS.prepare("UPDATE ai_providers SET api_key_enc='v1:bad:bad' WHERE provider_id=?").bind(good.providerId).run();
+  const also = await add(env, { purpose: 'public_chat', name: 'AlsoGood', model: 'also-m' });
+  await reorderAiProviders(env, 'public_chat', [good.providerId, also.providerId], SUPER);
+  const chain = await resolveProviderChain(env, 'public_chat');
+  // The corrupt one is skipped; the good one remains.
+  assert.deepEqual(chain.map(p => p.model), ['also-m']);
+});
+
+test('reorder only affects the given purpose', async () => {
+  const env = makeEnv();
+  const f = await add(env, { purpose: 'fix', name: 'FixOnly', model: 'fix-only' });
+  const c = await add(env, { purpose: 'public_chat', name: 'ChatOnly', model: 'chat-only' });
+  await reorderAiProviders(env, 'public_chat', [c.providerId], SUPER);
+  const fixChain = await resolveProviderChain(env, 'fix');
+  assert.equal(fixChain[0].model, 'fix-only');
+  void f;
+});
+
+test('reorder is Superadmin-only and needs a non-empty list', async () => {
+  const env = makeEnv();
+  const c = await add(env, { purpose: 'public_chat', name: 'C', model: 'm' });
+  await assert.rejects(() => reorderAiProviders(env, 'public_chat', [c.providerId], { name: 'x', role: 'Admin' }), /Superadmin/);
+  await assert.rejects(() => reorderAiProviders(env, 'public_chat', [], SUPER), /orderedIds/);
 });
