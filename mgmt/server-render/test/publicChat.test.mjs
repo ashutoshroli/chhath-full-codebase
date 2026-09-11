@@ -15,7 +15,7 @@ process.env.PUBLIC_API_BASE ||= 'https://public.test';
 process.env.CHAT_ALLOWED_ORIGINS ||= 'https://chhath.shaharpura.com';
 process.env.CHAT_RATE_MAX ||= '3';
 
-const { summarizePortalData, getPortalData, _resetCache } = await import('../src/lib/publicData.js');
+const { summarizePortalData, buildFullContext, buildContextForProvider, getPortalData, _resetCache } = await import('../src/lib/publicData.js');
 
 const SAMPLE = {
   collections: [
@@ -204,6 +204,231 @@ test('getPortalData refetches when the version bumps', async () => {
     const portalFetches = calls.filter(u => u.includes('portalData')).length;
     assert.equal(portalFetches, 2, 'a version bump triggers a fresh portalData fetch');
   } finally { globalThis.fetch = orig; }
+});
+
+// ---- chatProvider.js dataMode mapping (Render side) ----
+// getPublicChatProviders() asks the mgmt Worker over ?render-provider and must
+// carry each provider's `dataMode` through (defaulting to undefined when absent).
+// fetch is stubbed — no network, no pg. The mgmt base is derived from
+// WORKER_WEBHOOK_URL's origin (https://mgmt.test), so the request lands there.
+const { getPublicChatProviders, _resetProviderCache } = await import('../src/lib/chatProvider.js');
+
+test('getPublicChatProviders carries dataMode through (full survives; missing => undefined)', async () => {
+  _resetProviderCache();
+  const calls = [];
+  const orig = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    return {
+      ok: true,
+      json: async () => ({
+        configured: true,
+        providers: [
+          { type: 'openai', model: 'm-full', dataMode: 'full' },
+          { type: 'anthropic', model: 'm-summary', dataMode: 'summary' },
+          { type: 'openai', model: 'm-none' }, // no dataMode field
+        ],
+      }),
+    };
+  };
+  try {
+    const providers = await getPublicChatProviders();
+    assert.equal(providers.length, 3);
+    assert.equal(providers[0].dataMode, 'full');
+    assert.equal(providers[1].dataMode, 'summary');
+    assert.equal(providers[2].dataMode, undefined, 'a provider missing dataMode comes through as undefined');
+    // The Render-only ?render-provider route on the mgmt base was hit.
+    assert.ok(calls.some(u => u.includes('render-provider')), 'asked the Worker over ?render-provider');
+    assert.ok(calls.some(u => u.startsWith('https://mgmt.test')), 'used the mgmt base from WORKER_WEBHOOK_URL');
+  } finally { globalThis.fetch = orig; _resetProviderCache(); }
+});
+
+test('getPublicChatProviders falls back to a single `provider` (older Worker) with its dataMode', async () => {
+  _resetProviderCache();
+  const orig = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({ configured: true, provider: { type: 'openai', model: 'solo', dataMode: 'full' } }),
+  });
+  try {
+    const providers = await getPublicChatProviders();
+    assert.equal(providers.length, 1);
+    assert.equal(providers[0].model, 'solo');
+    assert.equal(providers[0].dataMode, 'full');
+  } finally { globalThis.fetch = orig; _resetProviderCache(); }
+});
+
+// ---- end-to-end full-vs-summary routing (buildContextForProvider) ----
+// The pure selection helper lives in publicData.js (no express), so we exercise the
+// REAL routing logic callChatModelChain uses: a 'full' provider yields the full
+// dataset layout; a 'summary'/missing-mode provider yields the compact summary.
+
+test('routing: dataMode=full produces buildFullContext output, summary/missing produces summarizePortalData', () => {
+  const q = '';
+  const full = buildContextForProvider({ type: 'openai', model: 'm', dataMode: 'full' }, FULL_SAMPLE, q, 'en');
+  const summary = buildContextForProvider({ type: 'openai', model: 'm', dataMode: 'summary' }, FULL_SAMPLE, q, 'en');
+  const missing = buildContextForProvider({ type: 'openai', model: 'm' }, FULL_SAMPLE, q, 'en');
+
+  // The full provider routes through buildFullContext (whole dataset layout).
+  assert.match(full, /COMPLETE public dataset/);
+  assert.match(full, /ALL CONTRIBUTIONS/);
+  assert.equal(full, buildFullContext(FULL_SAMPLE, q));
+
+  // A summary (or missing) mode routes through the compact summarizePortalData.
+  assert.doesNotMatch(summary, /ALL CONTRIBUTIONS/);
+  assert.match(summary, /Top contributors/);
+  assert.equal(summary, summarizePortalData(FULL_SAMPLE, q));
+  // A missing dataMode defaults to summary — identical to the explicit summary.
+  assert.equal(missing, summary);
+});
+
+test('routing: lang=hi appends the Hindi instruction to either mode', () => {
+  const full = buildContextForProvider({ dataMode: 'full' }, FULL_SAMPLE, '', 'hi');
+  const summary = buildContextForProvider({ dataMode: 'summary' }, FULL_SAMPLE, '', 'hi');
+  assert.match(full, /Reply in simple Hindi/);
+  assert.match(summary, /Reply in simple Hindi/);
+});
+
+// ---- FULL data-mode context (buildFullContext) ----
+// Full mode lays out the WHOLE public dataset row-by-row, IDs resolved to real
+// names, CACHE-ONLY (never fetches / touches D1), bounded by a large cap with an
+// automatic fall-back to the compact summary on a huge dataset.
+
+const FULL_SAMPLE = {
+  users: [
+    { ID: 'USER0001', Name: 'Ramesh Verma' },
+    { ID: 'USER0002', Name: 'Suresh Gupta' },
+    { ID: 'USER0003', Name: 'Anil Prasad' },
+  ],
+  collections: [
+    { Year: 2026, Name: 'USER0001', Amount: 5000, __rowIndex: 1 },
+    { Year: 2026, Name: 'USER0002', Amount: 3000, __rowIndex: 2 },
+    { Year: 2025, Name: 'USER0001', Amount: 2000, __rowIndex: 3 },
+    { Year: 2024, Name: 'USER0003', Amount: 1500, __rowIndex: 4 },
+  ],
+  expenses: [
+    { Year: 2026, Amount: 1000, Detail: 'Tent and lighting' },
+    { Year: 2025, Amount: 800, Detail: 'Prasad' },
+  ],
+  loans: [{ Year: 2025, Name: 'USER0002', Amount: 10000, Detail: 'Advance' }],
+  guarantors: [{ Name: 'USER0001', 'Loan Taker': 'USER0002' }],
+  committee: [
+    { Year: 2026, Name: 'USER0001', 'View Role': 'President' },
+    { Year: 2026, Name: 'USER0002', 'View Role': 'Secretary' },
+    { Year: 2025, Name: 'USER0003', 'View Role': 'Treasurer' },
+  ],
+  generatedFiles: [
+    { doc_type: 'receipt', year: 2026, record_id: 'receipt-2026-1', public_link: 'https://files.test/ramesh.pdf' },
+  ],
+};
+
+test('buildFullContext resolves IDs to real names and never emits a raw USER#### code', () => {
+  const s = buildFullContext(FULL_SAMPLE, '');
+  assert.match(s, /Ramesh Verma/);
+  assert.match(s, /Suresh Gupta/);
+  assert.match(s, /Anil Prasad/);
+  // No raw person-ID code must ever leak into the full context.
+  assert.doesNotMatch(s, /USER00\d\d/);
+});
+
+test('buildFullContext includes multiple years and multiple sections', () => {
+  const s = buildFullContext(FULL_SAMPLE, '');
+  // Multiple years present.
+  assert.match(s, /Year 2026:/);
+  assert.match(s, /Year 2025:/);
+  assert.match(s, /Year 2024:/);
+  // Multiple sections: contributions, expenses, committee, loans.
+  assert.match(s, /ALL CONTRIBUTIONS/);
+  assert.match(s, /ALL EXPENSES/);
+  assert.match(s, /COMMITTEE MEMBERS BY YEAR/);
+  assert.match(s, /ALL LOANS/);
+  // Expense detail + committee role are carried through.
+  assert.match(s, /Tent and lighting/);
+  assert.match(s, /President/);
+  // A public download link for a contribution is included.
+  assert.match(s, /https:\/\/files\.test\/ramesh\.pdf/);
+});
+
+test('buildFullContext never throws on missing/empty data', () => {
+  assert.doesNotThrow(() => buildFullContext({}, ''));
+  assert.doesNotThrow(() => buildFullContext(null, null));
+});
+
+test('buildFullContext is CACHE-ONLY: it never calls fetch (does not touch D1)', () => {
+  const orig = globalThis.fetch;
+  // Any fetch attempt would mean it tried to hit the network / D1 — hard fail.
+  globalThis.fetch = () => { throw new Error('buildFullContext must not fetch'); };
+  try {
+    let out;
+    assert.doesNotThrow(() => { out = buildFullContext(FULL_SAMPLE, 'Ramesh ne kitna diya'); });
+    assert.equal(typeof out, 'string');
+    assert.ok(out.length > 0, 'returns a non-empty context string with no network access');
+  } finally { globalThis.fetch = orig; }
+});
+
+test('buildFullContext stays under its cap on a normal dataset (does not fall back)', () => {
+  const s = buildFullContext(FULL_SAMPLE, '');
+  // A modest dataset must produce the full layout (not the summary fall-back).
+  assert.match(s, /COMPLETE public dataset/);
+  assert.ok(s.length < 80000, 'full context stays under the char cap');
+});
+
+test('buildFullContext auto-falls-back to the compact summary on a huge dataset', () => {
+  const many = [];
+  for (let i = 0; i < 20000; i++) many.push({ Year: 2026, Name: 'USER' + i, Amount: i, __rowIndex: i });
+  const users = [];
+  for (let i = 0; i < 20000; i++) users.push({ ID: 'USER' + i, Name: 'Person Number ' + i });
+  const huge = { users, collections: many, committee: many.map(m => ({ Year: 2026, Name: m.Name })) };
+  const s = buildFullContext(huge, '');
+  // Over the cap => returns summarizePortalData output, which is itself capped ~6000.
+  assert.ok(s.length <= 6100, 'huge full dataset degrades to the compact, capped summary');
+});
+
+test('buildFullContext lists loans and guarantors with real names', () => {
+  const s = buildFullContext(FULL_SAMPLE, '');
+  assert.match(s, /ALL LOANS \(1, total principal ₹10,000\)/);
+  assert.match(s, /GUARANTORS \(1\)/);
+  // Guarantor + loan-taker resolved to names, no IDs.
+  assert.match(s, /Ramesh Verma guarantees Suresh Gupta/);
+});
+
+test('buildFullContext degrades an unresolved USER#### id to a neutral label (no raw code leaks)', () => {
+  // An orphan contributor/committee/loan/guarantor ID absent from `users` must
+  // NEVER print the raw code — the full-mode header promises real names only.
+  const data = {
+    users: [], // nothing resolves
+    collections: [{ Year: 2026, Name: 'USER9999', Amount: 100, __rowIndex: 1 }],
+    committee: [{ Year: 2026, Name: 'USER8888', 'View Role': 'President' }],
+    loans: [{ Year: 2025, Name: 'USER7777', Amount: 500 }],
+    guarantors: [{ Name: 'USER6666', 'Loan Taker': 'USER5555' }],
+  };
+  const s = buildFullContext(data, '');
+  // No raw person-ID code anywhere in the full context.
+  assert.doesNotMatch(s, /USER\d+/);
+  // The rows still appear, labelled neutrally.
+  assert.match(s, /unknown member/);
+  // And the neutral label reaches every full-mode section.
+  assert.match(s, /ALL CONTRIBUTIONS/);
+  assert.match(s, /COMMITTEE MEMBERS BY YEAR/);
+  assert.match(s, /ALL LOANS/);
+  assert.match(s, /GUARANTORS/);
+});
+
+test('buildFullContext emits GUARANTORS even when there are no loan rows', () => {
+  // Guarantors must not be coupled to loans: a portal with guarantors but no
+  // loan rows must still surface the GUARANTORS section.
+  const data = {
+    users: [
+      { ID: 'USER0001', Name: 'Ramesh Verma' },
+      { ID: 'USER0002', Name: 'Suresh Gupta' },
+    ],
+    loans: [], // no loans at all
+    guarantors: [{ Name: 'USER0001', 'Loan Taker': 'USER0002' }],
+  };
+  const s = buildFullContext(data, '');
+  assert.doesNotMatch(s, /ALL LOANS/); // no loan section
+  assert.match(s, /GUARANTORS \(1\)/); // but guarantors still appear
+  assert.match(s, /Ramesh Verma guarantees Suresh Gupta/);
 });
 
 // ---- /public-chat guards (origin allow-list + per-IP rate limit) ----

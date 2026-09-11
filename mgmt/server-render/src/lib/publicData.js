@@ -162,6 +162,160 @@ export function summarizePortalData(data, question) {
   return out;
 }
 
+// ---- FULL portal dataset context (opt-in, per-provider dataMode='full') --------
+// Unlike summarizePortalData (aggregates + only the queried person), this lays out
+// the WHOLE public dataset row-by-row — every contribution, expense, committee
+// membership and loan across all years — with all IDs resolved to real names so
+// the model can answer any question without needing to re-query. It is CACHE-ONLY:
+// it operates purely on the passed-in `data` object and NEVER calls fetch or D1.
+//
+// Because a large committee's full dataset can be big, it is bounded by a generous
+// char cap (FULL_MAX_CHARS). If the assembled full context would exceed the cap we
+// AUTOMATICALLY fall back to the compact summarizePortalData(data, question) — the
+// caller does not need to check; 'full' degrades gracefully to 'summary'.
+const FULL_MAX_CHARS = 80000;
+
+export function buildFullContext(data, question) {
+  const d = data || {};
+  const collections = Array.isArray(d.collections) ? d.collections : [];
+  const expenses = Array.isArray(d.expenses) ? d.expenses : [];
+  const loans = Array.isArray(d.loans) ? d.loans : [];
+  const guarantors = Array.isArray(d.guarantors) ? d.guarantors : [];
+  const committee = Array.isArray(d.committee) ? d.committee : (Array.isArray(d.committeeMembers) ? d.committeeMembers : []);
+  const users = Array.isArray(d.users) ? d.users : [];
+  const generatedFiles = Array.isArray(d.generatedFiles) ? d.generatedFiles : [];
+
+  // Same ID -> real-name resolver used by the summary (a collection/committee row's
+  // `Name` is a person ID like USER0001; the display name lives in `users`).
+  const resolve = buildNameResolver(users);
+  // Full mode dumps EVERY row and promises the model "every person is shown by
+  // their real name". buildNameResolver falls back to the raw value (e.g. the ID
+  // code USER0001) when an ID is absent from `users`; to keep that promise and to
+  // avoid handing an internal ID to a public user, degrade any unresolved code to
+  // a neutral label instead of leaking it. (This decision lives here, not in
+  // buildNameResolver, so the summary path's contract is untouched.)
+  const looksLikeRawId = (raw, resolved) => raw && resolved === raw && /^USER\d+$/i.test(raw);
+  const nameOf = (val) => {
+    const raw = (val || '').toString().trim();
+    const resolved = resolve(raw);
+    return looksLikeRawId(raw, resolved) ? 'unknown member' : resolved;
+  };
+
+  const lines = [];
+  lines.push('You are the friendly assistant of the Navyuvak Chhath Puja Samiti (Shaharpura & Gardih). Below is the committee\'s COMPLETE public dataset, laid out in full.');
+  lines.push('Answer the user\'s question using this data. You MAY add up amounts, count entries, and summarise across years. Amounts are in Indian Rupees (₹).');
+  lines.push('Every person is shown by their real name. Only say you do not have the information if it genuinely is not below. Reply briefly and clearly.');
+
+  const years = [...new Set(collections.map(c => parseInt(c.Year)).filter(Boolean))].sort((a, b) => b - a);
+  lines.push(`Years with contribution records: ${years.join(', ') || 'none'}.`);
+
+  // Per-year totals (all years, not just the recent 6 — this is the full context).
+  for (const y of years) {
+    const cols = collections.filter(c => parseInt(c.Year) === y);
+    const exps = expenses.filter(e => parseInt(e.Year) === y);
+    const totalCol = cols.reduce((s, c) => s + num(c.Amount), 0);
+    const totalExp = exps.reduce((s, e) => s + num(e.Amount), 0);
+    lines.push(`Year ${y}: collections ${inr(totalCol)} from ${cols.length} entries; expenses ${inr(totalExp)}; net ${inr(totalCol - totalExp)}.`);
+  }
+
+  // EVERY contribution, resolved to a real name, with any public download link.
+  if (collections.length) {
+    lines.push('ALL CONTRIBUTIONS (person: year amount [type] [download link]):');
+    for (const c of collections) {
+      const nm = nameOf(c.Name);
+      const yr = parseInt(c.Year) || '';
+      const isResell = c['Is Resell'] === 'TRUE' || c['Is Resell'] === true;
+      const type = (c['Contribution Type'] || '').toString().trim();
+      const what = isResell ? `resold: ${(c.Detail || '').toString()}` : inr(c.Amount);
+      const link = downloadLinkFor(generatedFiles, yr, c.__rowIndex);
+      lines.push(`- ${nm}: ${yr} ${what}${type ? ` (${type})` : ''}${link ? ` [download: ${link}]` : ''}`);
+    }
+  }
+
+  // EVERY expense (public info: what the money was spent on).
+  if (expenses.length) {
+    lines.push('ALL EXPENSES (year amount — detail):');
+    for (const e of expenses) {
+      const yr = parseInt(e.Year) || '';
+      const detail = (e.Detail || e.Description || e.detail || '').toString().trim();
+      lines.push(`- ${yr} ${inr(e.Amount)}${detail ? ` — ${detail}` : ''}`);
+    }
+  }
+
+  // Committee membership per year, real names, deduped within a year.
+  if (committee.length) {
+    const cYears = [...new Set(committee.map(m => parseInt(m.Year || m.year)).filter(Boolean))].sort((a, b) => b - a);
+    if (cYears.length) {
+      lines.push('COMMITTEE MEMBERS BY YEAR:');
+      for (const y of cYears) {
+        const entries = [...new Set(
+          committee.filter(m => parseInt(m.Year || m.year) === y).map(m => {
+            const nm = nameOf((m.Name || m.name || '').toString().trim());
+            const role = (m['View Role'] || m.role || '').toString().trim();
+            return nm ? `${nm}${role ? ` (${role})` : ''}` : '';
+          }).filter(Boolean)
+        )];
+        if (entries.length) lines.push(`- ${y} (${entries.length}): ${entries.join(', ')}.`);
+      }
+    } else {
+      const names = [...new Set(committee.map(m => nameOf((m.Name || m.name || '').toString().trim())).filter(Boolean))];
+      lines.push(`COMMITTEE MEMBERS (${names.length}): ${names.join(', ')}.`);
+    }
+  }
+
+  // Loans, real names.
+  if (loans.length) {
+    const totalLoan = loans.reduce((s, l) => s + num(l.Amount), 0);
+    lines.push(`ALL LOANS (${loans.length}, total principal ${inr(totalLoan)}):`);
+    for (const l of loans) {
+      const yr = parseInt(l.Year || l.year) || '';
+      const who = nameOf((l.Name || l.name || '').toString().trim());
+      const detail = (l.Detail || l.detail || '').toString().trim();
+      lines.push(`- ${yr}${who ? ` ${who}` : ''}: ${inr(l.Amount)}${detail ? ` — ${detail}` : ''}`);
+    }
+  }
+
+  // Guarantors, real names. Emitted whenever guarantor rows exist — INDEPENDENT of
+  // loans (a portal can carry guarantors with the loan rows shaped separately, and
+  // dropping them silently would hide public info the full context promises).
+  if (guarantors.length) {
+    lines.push(`GUARANTORS (${guarantors.length}):`);
+    for (const g of guarantors) {
+      const who = nameOf((g.Name || g.name || '').toString().trim());
+      const forWhom = nameOf((g['Loan Taker'] || g.loanTaker || g.For || '').toString().trim());
+      lines.push(`- ${who || '(unknown)'}${forWhom ? ` guarantees ${forWhom}` : ''}.`);
+    }
+  }
+
+  // If the question names a specific person, still surface their focused block
+  // (with download links) — cheap to include and helps a targeted question.
+  const personBlock = personContributionsFor(question, collections, nameOf, generatedFiles);
+  if (personBlock) lines.push(personBlock);
+
+  const out = lines.join('\n');
+  // Bounded by a generous cap. If the full layout would blow the model's input,
+  // degrade gracefully to the compact summary rather than truncating mid-record.
+  if (out.length > FULL_MAX_CHARS) return summarizePortalData(data, question);
+  return out;
+}
+
+// ---- Per-provider context selection (full vs summary) --------------------------
+// Build the system-prompt context for ONE provider, honouring its dataMode:
+// 'full' => buildFullContext (whole dataset, IDs resolved to names, with its own
+// internal fallback to the summary when it would exceed the cap); anything else
+// (including a missing dataMode) => the compact summarizePortalData. Both read ONLY
+// the passed-in cached `data` — neither touches D1. Appends the Hindi instruction
+// when lang === 'hi'. Lives here (not in the express route) so it is a pure helper
+// importable without pulling in express/pg.
+export function buildContextForProvider(provider, data, question, lang) {
+  const mode = (provider && provider.dataMode) || 'summary';
+  let context = mode === 'full'
+    ? buildFullContext(data, question)
+    : summarizePortalData(data, question);
+  if (lang === 'hi') context += '\nReply in simple Hindi (Devanagari) unless the user writes in English.';
+  return context;
+}
+
 // Build a resolver: a collection row's `Name` is a person ID (e.g. USER0001); the
 // real display name lives in `users` keyed by `ID` (mirrors the frontend's
 // getUser()). Also prefer the Hindi name only if the English is blank. Returns a

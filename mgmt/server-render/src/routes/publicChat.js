@@ -10,7 +10,7 @@
 
 import express from 'express';
 import { config } from '../config.js';
-import { getPortalData, summarizePortalData } from '../lib/publicData.js';
+import { getPortalData, buildContextForProvider } from '../lib/publicData.js';
 import { getPublicChatProviders } from '../lib/chatProvider.js';
 import { ensureChatSession, logChatMessage, hashIp } from '../lib/neon.js';
 import { isOriginAllowed, rateLimited, clientIpFrom } from '../lib/chatGuards.js';
@@ -101,12 +101,20 @@ function chatModelError(message, status) {
   return e;
 }
 
+// The per-provider context selection (full vs summary by dataMode, plus the Hindi
+// append) lives in lib/publicData.js as the pure `buildContextForProvider` helper,
+// so it can be unit-tested without importing express. Both context builders read
+// ONLY the passed-in cached `data` — neither touches D1.
+
 // Try each provider in the chain in order; fall through only on a retryable
-// failure. Returns { text, promptTokens, completionTokens, model } or throws.
-async function callChatModelChain(providers, systemPrompt, question) {
+// failure. The per-provider portal context is built INSIDE the loop so each
+// provider gets the context its own dataMode calls for (full vs summary).
+// Returns { text, promptTokens, completionTokens, model } or throws.
+async function callChatModelChain(providers, data, question, lang) {
   let lastErr = null;
   for (let i = 0; i < providers.length; i++) {
     try {
+      const systemPrompt = buildContextForProvider(providers[i], data, question, lang);
       const out = await callChatModel(providers[i], systemPrompt, question);
       return { ...out, model: providers[i].model };
     } catch (e) {
@@ -145,12 +153,12 @@ publicChatRouter.post('/public-chat', async (req, res) => {
     }
 
     const { version, data } = await getPortalData();
-    // Pass the question so a per-person query gets that person's rows in context.
-    let summary = summarizePortalData(data, question);
-    if (lang === 'hi') summary += '\nReply in simple Hindi (Devanagari) unless the user writes in English.';
 
     // Try the provider chain in priority order (falls through on 429/5xx/timeout).
-    const { text, promptTokens, completionTokens, model } = await callChatModelChain(providers, summary, question);
+    // The context is built per-provider inside the chain (full vs summary per the
+    // active provider's dataMode) — the question is passed so a per-person query
+    // gets that person's rows, and the Hindi append is preserved.
+    const { text, promptTokens, completionTokens, model } = await callChatModelChain(providers, data, question, lang);
     const answer = (text || 'Sorry, I could not find an answer.').slice(0, 4000);
 
     // Best-effort logging to Neon (never blocks / fails the response).
