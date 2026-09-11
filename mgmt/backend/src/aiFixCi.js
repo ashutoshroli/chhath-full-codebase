@@ -17,7 +17,7 @@
 
 import { logWarn } from './logger.js';
 import { reportErrorToWhatsApp } from './errorLog.js';
-import { gh, updateFixRow, MAX_CI_ATTEMPTS, resolveProviderForDispatch } from './aiFix.js';
+import { gh, updateFixRow, MAX_CI_ATTEMPTS, resolveProviderForDispatch, resolveProviderChainForDispatch } from './aiFix.js';
 import { createAndDispatchJob } from './renderJobs.js';
 
 // --- HMAC-SHA256 signature verification (X-Hub-Signature-256) ---------------
@@ -138,14 +138,16 @@ export async function handleCheckSuiteEvent(env, payload) {
     : null;
   // Resolve the active AI provider so the CI-retry uses the SAME provider the
   // Superadmin configured (custom / OpenAI-compatible / default Anthropic).
-  const provider = await resolveProviderForDispatch(env);
+  const providers = await resolveProviderChainForDispatch(env);
+  const provider = providers.length ? providers[0] : null;
   const dispatch = provider ? await createAndDispatchJob(env, 'ai_ci_retry', {
     fixId: fix.fix_id,
     branch: fix.branch,
     prevDiff: fix.diff,
     checkSuiteId: suite.id,
     attempts,
-    provider,
+    provider,       // back-compat single provider
+    providers,      // full fallback chain (Render loops this)
     errorRow: {
       message: (errorRow && errorRow.message) || '',
       stack: (errorRow && errorRow.stack) || '',

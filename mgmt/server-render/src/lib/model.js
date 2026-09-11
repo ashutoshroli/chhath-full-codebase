@@ -87,12 +87,23 @@ async function callAnthropic(p, userMsg) {
   });
   if (!resp.ok) {
     const body = await resp.text().catch(() => '');
-    throw new Error(`Anthropic API call failed (${resp.status}): ${body.slice(0, 300)}`);
+    throw modelError(`Anthropic API call failed (${resp.status}): ${body.slice(0, 300)}`, resp.status);
   }
   const data = await resp.json();
   const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('').trim();
   const usage = data.usage || {};
   return { text, promptTokens: usage.input_tokens || 0, completionTokens: usage.output_tokens || 0 };
+}
+
+// Tag a model error with whether it is worth FALLING THROUGH to the next provider:
+// a rate limit (429) or a server/gateway error (5xx) or a timeout means "this
+// provider is busy/down, try the next one". A 4xx (bad model id / key) is NOT
+// retryable — falling through would just waste the other providers too.
+function modelError(message, status) {
+  const e = new Error(message);
+  e.retryable = status === 429 || status === 408 || (status >= 500 && status <= 599);
+  e.status = status;
+  return e;
 }
 
 async function callOpenAiCompatible(p, userMsg) {
@@ -112,7 +123,7 @@ async function callOpenAiCompatible(p, userMsg) {
   });
   if (!resp.ok) {
     const body = await resp.text().catch(() => '');
-    throw new Error(`AI API call failed (${resp.status}): ${body.slice(0, 300)}`);
+    throw modelError(`AI API call failed (${resp.status}): ${body.slice(0, 300)}`, resp.status);
   }
   const data = await resp.json();
   const text = ((data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '').trim();
@@ -120,21 +131,39 @@ async function callOpenAiCompatible(p, userMsg) {
   return { text, promptTokens: usage.prompt_tokens || 0, completionTokens: usage.completion_tokens || 0 };
 }
 
-// Ask the model for a fix. Returns { diff, reasoning, promptTokens, completionTokens, model }.
-export async function callModel({ provider, errorRow, files, extraContext }) {
-  const p = effectiveProvider(provider);
+// Ask the model for a fix, trying the provider CHAIN in order. Falls through to
+// the next provider ONLY on a retryable failure (rate-limit / 5xx / timeout); a
+// non-retryable error (bad model id / key) or an unparseable reply stops and
+// throws. Accepts either `providers` (the chain) or a single `provider`
+// (back-compat). Returns { diff, reasoning, promptTokens, completionTokens, model }.
+export async function callModel({ providers, provider, errorRow, files, extraContext }) {
+  // Build the ordered list of candidates. If a chain is given, use it; else fall
+  // back to the single provider; effectiveProvider() fills env-Anthropic if empty.
+  let chain = Array.isArray(providers) && providers.length ? providers : (provider ? [provider] : []);
+  if (!chain.length) chain = [null]; // effectiveProvider(null) -> env Anthropic
   const userMsg = buildUserMsg({ errorRow, files, extraContext });
-  const raw = p.type === 'openai-compatible'
-    ? await callOpenAiCompatible(p, userMsg)
-    : await callAnthropic(p, userMsg);
-  const { diff, reasoning } = parseModelJson(raw.text, p.label);
-  return {
-    diff,
-    reasoning,
-    promptTokens: raw.promptTokens,
-    completionTokens: raw.completionTokens,
-    model: p.model,
-  };
+
+  let lastErr = null;
+  for (let i = 0; i < chain.length; i++) {
+    const p = effectiveProvider(chain[i]);
+    try {
+      const raw = p.type === 'openai-compatible'
+        ? await callOpenAiCompatible(p, userMsg)
+        : await callAnthropic(p, userMsg);
+      const { diff, reasoning } = parseModelJson(raw.text, p.label);
+      return { diff, reasoning, promptTokens: raw.promptTokens, completionTokens: raw.completionTokens, model: p.model };
+    } catch (e) {
+      lastErr = e;
+      const isLast = i === chain.length - 1;
+      // Only fall through on a retryable failure with another provider left.
+      if (e && e.retryable && !isLast) {
+        console.warn(`[callModel] provider ${i + 1}/${chain.length} (${p.label}) failed retryably (${e.status}); trying next.`);
+        continue;
+      }
+      throw e; // non-retryable, or nothing left to try
+    }
+  }
+  throw lastErr || new Error('No AI provider produced a result.');
 }
 
 // Back-compat alias. Older call sites passed { errorRow, files, extraContext }

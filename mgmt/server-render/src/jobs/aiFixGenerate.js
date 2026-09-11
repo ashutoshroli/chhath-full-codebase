@@ -51,7 +51,8 @@ export async function runAiFixGenerate(payload) {
   // extraContext carries optional developer guidance the Worker attached for a
   // Re-generate; model.js drops it into the prompt as ADDITIONAL CONTEXT.
   const result = await callModel({
-    provider: payload && payload.provider,
+    providers: payload && payload.providers,   // the fallback chain (preferred)
+    provider: payload && payload.provider,     // back-compat single provider
     errorRow,
     files,
     extraContext: payload && payload.extraContext,

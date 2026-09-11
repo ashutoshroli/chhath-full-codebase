@@ -57,7 +57,7 @@ export async function runAiCiRetry(payload) {
     + `Fix the CI failure. The RELEVANT FILE(S) below already contain the previous fix `
     + `(current branch state). Return a diff AGAINST THAT CURRENT STATE.`;
 
-  const result = await callModel({ provider: payload && payload.provider, errorRow, files, extraContext });
+  const result = await callModel({ providers: payload && payload.providers, provider: payload && payload.provider, errorRow, files, extraContext });
 
   // 4) Apply strictly.
   const applied = applyUnifiedDiff(result.diff, contentByPath);
