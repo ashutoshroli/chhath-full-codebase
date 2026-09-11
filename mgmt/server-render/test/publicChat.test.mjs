@@ -168,6 +168,103 @@ test('summary is hard-capped so a huge dataset cannot blow the prompt', () => {
   assert.ok(s.length <= 6100, 'summary must be capped (~6000 chars) regardless of data size');
 });
 
+// ---- SUMMARY enriched coverage (expenses/loans/guarantors/resell) ----
+// The compact summary now surfaces expense detail by description, loans per year
+// with resolved borrower names, guarantors resolved to real names, and resold
+// items — all data-driven, cache-only, IDs resolved so no raw code leaks.
+
+test('summary lists expenses per year by description with summed amounts', () => {
+  const data = {
+    collections: [{ Year: 2026, Name: 'X', Amount: 1 }],
+    expenses: [
+      { Year: 2026, Amount: 1000, Discription: 'Tent and lighting' },
+      { Year: 2026, Amount: 500, Discription: 'Tent and lighting' }, // same desc -> collapses
+      { Year: 2026, Amount: 700, Discription: 'Prasad' },
+    ],
+  };
+  const s = summarizePortalData(data, '');
+  const line = s.split('\n').find(l => l.startsWith('Expenses 2026:')) || '';
+  // Duplicate description collapses to a single summed line item (1000 + 500).
+  assert.match(line, /Tent and lighting \(₹1,500\)/);
+  assert.match(line, /Prasad \(₹700\)/);
+  assert.equal((line.match(/Tent and lighting/g) || []).length, 1, 'description appears once, summed');
+});
+
+test('summary lists loans per year with resolved borrower name, amount, interest and tenure (no ID leaks)', () => {
+  const data = {
+    users: [{ ID: 'USER0002', Name: 'Suresh Gupta' }],
+    collections: [{ Year: 2025, Name: 'USER0002', Amount: 1 }],
+    loans: [
+      { Year: 2025, Name: 'USER0002', Amount: 10000, 'Intrest Rate': '5%', Tenure: '12 months', 'Loan ID': 'L-7' },
+    ],
+  };
+  const s = summarizePortalData(data, '');
+  const line = s.split('\n').find(l => l.startsWith('Loans 2025:')) || '';
+  assert.match(line, /Suresh Gupta: ₹10,000/);
+  assert.match(line, /interest 5%/);
+  assert.match(line, /tenure 12 months/);
+  assert.match(line, /Loan L-7/);
+  // The borrower ID must never leak into the human-facing loan line.
+  assert.doesNotMatch(s, /USER0002/);
+});
+
+test('summary resolves guarantors to real names ("X guarantees Y"), independent of loans', () => {
+  const data = {
+    users: [
+      { ID: 'USER0001', Name: 'Ramesh Verma' },
+      { ID: 'USER0002', Name: 'Suresh Gupta' },
+    ],
+    loans: [], // guarantors surface even with no loans
+    guarantors: [{ Year: 2025, Loaner: 'USER0002', Guarantor: 'USER0001', 'Loan ID': 'L-9' }],
+  };
+  const s = summarizePortalData(data, '');
+  assert.match(s, /Guarantors: Ramesh Verma guarantees Suresh Gupta \(Loan L-9\)/);
+  // No raw person-ID codes leak anywhere.
+  assert.doesNotMatch(s, /USER000\d/);
+});
+
+test('summary lists resold items with their Detail and the person real name', () => {
+  const data = {
+    users: [{ ID: 'USER0003', Name: 'Anil Prasad' }],
+    collections: [
+      { Year: 2026, Name: 'USER0003', Amount: 250, Detail: 'Coconut basket', 'Is Resell': 'TRUE' },
+      { Year: 2026, Name: 'USER0003', Amount: 500 }, // normal, not resell
+    ],
+  };
+  const s = summarizePortalData(data, '');
+  const line = s.split('\n').find(l => l.startsWith('Resold items:')) || '';
+  assert.match(line, /Coconut basket by Anil Prasad \(2026\) ₹250/);
+  assert.doesNotMatch(s, /USER0003/);
+});
+
+test('summary preamble broadens guidance yet keeps the guardrail line', () => {
+  const s = summarizePortalData(SAMPLE, '');
+  // Broadened coverage guidance is present.
+  assert.match(s, /top contributors/i);
+  assert.match(s, /committee/i);
+  assert.match(s, /guaranteed/i);
+  assert.match(s, /resold items/i);
+  // The guardrail against over-refusing remains.
+  assert.match(s, /Only say you do not have the information if the answer genuinely is not in the data below/);
+});
+
+test('summary with the new sections still stays under its char bound on a large dataset', () => {
+  const collections = [];
+  const expenses = [];
+  const loans = [];
+  const guarantors = [];
+  const users = [];
+  for (let i = 0; i < 5000; i++) {
+    users.push({ ID: 'USER' + i, Name: 'Person Number ' + i });
+    collections.push({ Year: 2026, Name: 'USER' + i, Amount: i, Detail: 'Item ' + i, 'Is Resell': 'TRUE' });
+    expenses.push({ Year: 2026, Amount: i, Discription: 'Spend ' + i });
+    loans.push({ Year: 2025, Name: 'USER' + i, Amount: i, 'Intrest Rate': '5%', Tenure: '12m', 'Loan ID': 'L' + i });
+    guarantors.push({ Year: 2025, Loaner: 'USER' + i, Guarantor: 'USER' + i, 'Loan ID': 'L' + i });
+  }
+  const s = summarizePortalData({ users, collections, expenses, loans, guarantors }, '');
+  assert.ok(s.length <= 6100, 'enriched summary must still be capped (~6000 chars) regardless of data size');
+});
+
 test('getPortalData reuses the cache when the version is unchanged (no portalData refetch)', async () => {
   _resetCache();
   const calls = [];

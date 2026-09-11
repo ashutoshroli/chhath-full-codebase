@@ -89,10 +89,11 @@ export function summarizePortalData(data, question) {
   const latestYear = years[0];
 
   const lines = [];
-  lines.push('You are the friendly assistant of the Navyuvak Chhath Puja Samiti (Shaharpura & Gardih). Below is the committee\'s public data.');
-  lines.push('Answer the user\'s question using this data. You MAY add up amounts, count entries, and summarise across years to answer. Amounts are in Indian Rupees (₹).');
+  lines.push('You are the warm, helpful assistant of the Navyuvak Chhath Puja Samiti (Shaharpura & Gardih). Below is the committee\'s public data — use it to answer people\'s questions in a friendly, clear way.');
+  lines.push('You MAY add up amounts, count entries, rank people, and summarise across years. Amounts are in Indian Rupees (₹).');
+  lines.push('You can answer questions such as: totals collected or spent per year; how much a specific person gave (across years, with any receipt/certificate download links); the top contributors in a year; who was on the committee in a given year and their roles; what money was spent on (expenses by description); loans (borrower, amount, interest rate, tenure); who guaranteed whose loan; and resold items.');
   lines.push('If the specific PERSON DETAILS block for a named person is present below, use it to answer about that person — their yearly amounts, total, and any download links for their receipts/certificates.');
-  lines.push('Only say you do not have the information if the answer genuinely is not in the data below. Reply briefly and clearly.');
+  lines.push('Be generous and helpful: draw on every section below before concluding anything is missing. Only say you do not have the information if the answer genuinely is not in the data below. Reply briefly and clearly.');
   lines.push(`Years with records: ${years.join(', ') || 'none'}.`);
 
   // Per-year totals (cap to the most recent ~6 years to bound tokens).
@@ -145,6 +146,69 @@ export function summarizePortalData(data, question) {
   if (loans.length) {
     const totalLoan = loans.reduce((s, l) => s + num(l.Amount), 0);
     lines.push(`Loans on record: ${loans.length}, total principal ${inr(totalLoan)}.`);
+  }
+
+  // EXPENSES per-year detail — for the recent ~6 years, list what the money was
+  // spent on, grouped by the app's `Discription` field (NOTE its spelling; there
+  // is NO public Category field) so repeated descriptions collapse into one summed
+  // line. Capped to the top few items per year to keep the prompt small. Public.
+  for (const y of years.slice(0, 6)) {
+    const byDesc = new Map(); // description -> summed amount for the year
+    for (const e of expenses) {
+      if (parseInt(e.Year) !== y) continue;
+      const desc = (e.Discription || e['Discription (Hindi)'] || '').toString().trim();
+      if (!desc) continue;
+      byDesc.set(desc, (byDesc.get(desc) || 0) + num(e.Amount));
+    }
+    const items = [...byDesc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
+      .map(([desc, amt]) => `${desc} (${inr(amt)})`);
+    if (items.length) lines.push(`Expenses ${y}: ${items.join(', ')}.`);
+  }
+
+  // LOANS per-year detail — for the recent ~6 years, each loan as the borrower's
+  // real name + amount + interest rate + tenure (+ 'Loan ID' when present). There
+  // is NO public Status field, so none is invented. Bounded per year. Public.
+  const loanYears = [...new Set(loans.map(l => parseInt(l.Year)).filter(Boolean))].sort((a, b) => b - a);
+  for (const y of loanYears.slice(0, 6)) {
+    const items = loans.filter(l => parseInt(l.Year) === y).slice(0, 10).map(l => {
+      const who = nameOf((l.Name || '').toString().trim()) || 'unknown borrower';
+      const rate = (l['Intrest Rate'] || '').toString().trim();
+      const tenure = (l.Tenure || '').toString().trim();
+      const id = (l['Loan ID'] || '').toString().trim();
+      const parts = [`${who}: ${inr(l.Amount)}`];
+      if (rate) parts.push(`interest ${rate}`);
+      if (tenure) parts.push(`tenure ${tenure}`);
+      if (id) parts.push(`Loan ${id}`);
+      return parts.join(', ');
+    });
+    if (items.length) lines.push(`Loans ${y}: ${items.join('; ')}.`);
+  }
+
+  // GUARANTORS — resolve the Loaner (borrower) and Guarantor person IDs to real
+  // names, e.g. "X guarantees Y (Loan <id>)". Emitted whenever guarantor rows
+  // exist, independent of loans. Bounded to a small cap. Public.
+  const guarantors = Array.isArray(d.guarantors) ? d.guarantors : [];
+  if (guarantors.length) {
+    const items = guarantors.slice(0, 15).map(g => {
+      const guarantor = nameOf((g.Guarantor || '').toString().trim()) || 'unknown member';
+      const borrower = nameOf((g.Loaner || '').toString().trim());
+      const id = (g['Loan ID'] || '').toString().trim();
+      return `${guarantor} guarantees ${borrower || 'unknown borrower'}${id ? ` (Loan ${id})` : ''}`;
+    });
+    lines.push(`Guarantors: ${items.join('; ')}.`);
+  }
+
+  // RESELL items — collections flagged 'Is Resell'. List the resold item (its
+  // Detail), the person's real name, the year, and the amount. Bounded. Public.
+  const resells = collections.filter(c => c['Is Resell'] === 'TRUE' || c['Is Resell'] === true).slice(0, 15);
+  if (resells.length) {
+    const items = resells.map(c => {
+      const nm = nameOf((c.Name || '').toString().trim()) || 'unknown member';
+      const detail = (c.Detail || '').toString().trim() || 'item';
+      const yr = parseInt(c.Year) || '';
+      return `${detail} by ${nm}${yr ? ` (${yr})` : ''} ${inr(c.Amount)}`;
+    });
+    lines.push(`Resold items: ${items.join('; ')}.`);
   }
 
   // PER-PERSON lookup: if the question names contributor(s) present in the data,
