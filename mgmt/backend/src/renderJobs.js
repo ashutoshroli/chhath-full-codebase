@@ -32,7 +32,7 @@ import { logErrorAt, logWarn } from './logger.js';
 
 const MAX_ATTEMPTS = 3;       // dispatch attempts before a job is parked 'failed'
 const STUCK_MINUTES = 10;     // a 'dispatched' row older than this is reconciled
-const KINDS = new Set(['ai_fix_generate', 'ai_pr_create', 'ai_ci_retry', 'pdf_convert', 'pdf_convert_batch']);
+const KINDS = new Set(['ai_fix_generate', 'ai_pr_create', 'ai_ci_retry', 'pdf_convert', 'pdf_convert_batch', 'provider_test']);
 
 const genJobId = () => randomId('RJOB');
 

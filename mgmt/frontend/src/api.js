@@ -505,7 +505,19 @@ export const api = {
   setDefaultAiProvider: (providerId) => call('setDefaultAiProvider', { providerId }),
   // A custom `prompt` (optional) exercises the model and returns its reply text;
   // omit it for a quick connectivity ping. maxTokens is capped server-side (1024).
-  testAiProvider: (providerId, prompt, maxTokens) => call('testAiProvider', { providerId, prompt, maxTokens }),
+  // The test is OFFLOADED to Render when configured (slow models exceed the
+  // Worker's ~30s cap -> HTTP 524); in that case the backend returns a jobId and we
+  // poll for the reply — otherwise it answers synchronously (in-Worker fallback).
+  // Returns a uniform { ok, message, reply?, latencyMs?, status?, via }.
+  testAiProvider: async (providerId, prompt, maxTokens) => {
+    const res = await call('testAiProvider', { providerId, prompt, maxTokens });
+    if (!res || !res.jobId) {
+      return { ok: !!(res && res.ok), message: (res && res.message) || '', reply: (res && res.reply) || '', latencyMs: res && res.latencyMs, status: res && res.status, via: (res && res.via) || 'worker' };
+    }
+    const job = await pollRenderPdfJob(res.jobId, /* returnJob */ true);
+    const r = (job && job.result) || {};
+    return { ok: !!r.ok, message: r.message || '', reply: r.reply || '', latencyMs: r.latencyMs, status: r.status, via: 'render' };
+  },
 
   // Loan Consent — Admin
   getLoanConsents: (loanId) => call('getLoanConsents', { loanId }),
