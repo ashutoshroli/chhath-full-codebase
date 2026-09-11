@@ -15,7 +15,9 @@ services:
     buildCommand: npm install --omit=dev --no-audit --no-fund
     startCommand: npm start
     healthCheckPath: /health
-    autoDeploy: false     # deploy manually / on a chosen branch; keep control
+    autoDeploy: true      # auto-deploy on every push to the default branch, so the
+                          # Render service never lags the Worker (avoids the
+                          # "Unknown job kind" gap when a new job kind ships)
     envVars:
       - key: RENDER_API_KEY
         sync: false       # Worker->Render shared secret (X-Render-Api-Key). Same value as the Worker's secret.
