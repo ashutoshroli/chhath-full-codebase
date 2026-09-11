@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, reportClientError } from '../api.js';
 import { fillDocxTemplateFromRow, getLastRenderReport } from '../docxFill.js';
 import { generateQrDataUrl, publicRecordUrl } from '../qrCode.js';
@@ -76,6 +76,24 @@ async function withRetry(fn, onRetry) {
   throw lastErr;
 }
 
+// Which service actually converts the .docx -> PDF. The backend reports this per
+// batch (see api.convertDocxToPdfBatch); we surface it so a slow/fallback run is
+// obvious instead of a mystery.
+const ENGINE_LABELS = {
+  render: 'Render (offload service)',
+  worker: 'Cloudflare Worker (fallback)',
+  none: 'none — nothing to convert',
+  mixed: 'Mixed (Render + Worker fallback)',
+  unknown: 'unknown',
+};
+const ENGINE_REASONS = {
+  'render-not-configured': 'Render is not configured, so the Worker did the conversion itself.',
+  'render-unreachable': 'Render could not be reached, so the Worker fell back to converting in-process.',
+  'all-already-generated': 'Every record already had a PDF, so nothing needed converting.',
+};
+// A short, readable job reference for support (full id stays in the Error Log).
+const shortJobId = (id) => (id ? `${String(id).slice(0, 10)}…` : '');
+
 const DOC_TYPES = [
   ['receipt', 'Receipts'],
   ['receipt_work', 'Work Receipts'],
@@ -92,12 +110,40 @@ export default function BulkGeneratePdfs() {
   const [progress, setProgress] = useState({}); // docType -> { done, total, skipped, failed, notIndexed }
   const [error, setError] = useState('');
   const [log, setLog] = useState([]);
+  // Per-record lines are OFF by default: a big year would otherwise bury the batch
+  // summaries and the failures under hundreds of lines. Failures are ALWAYS logged.
+  const [showDetails, setShowDetails] = useState(false);
+  // Live engine/batch telemetry for the run.
+  const [eng, setEng] = useState(null);
+
+  // Read through a ref so toggling "details" mid-run takes effect immediately
+  // (runOne's closures would otherwise keep the value from when the run started).
+  const detailsRef = useRef(showDetails);
+  useEffect(() => { detailsRef.current = showDetails; }, [showDetails]);
 
   useEffect(() => {
     api.getYears().then(ys => { setYears(ys); if (ys && ys.length) setYear(String(ys[0])); }).catch(err => setError(err.message));
   }, []);
 
   const appendLog = (line) => setLog(l => [...l, line]);
+  // A per-record detail line — only shown when "details" is on.
+  const appendDetail = (line) => { if (detailsRef.current) appendLog(line); };
+
+  // Fold one batch's engine report into the run-wide totals.
+  const noteEngine = (meta, batchRecords) => setEng(prev => {
+    const cur = prev || { render: 0, worker: 0, none: 0, jobIds: [], reasons: [], batchesDone: 0, batchesTotal: 0 };
+    const engine = (meta && meta.engine) || 'unknown';
+    const next = { ...cur, batchesDone: cur.batchesDone + 1 };
+    // Count RECORDS by the engine that converted them (skipped ones converted nowhere).
+    const converted = Math.max(0, (meta && meta.dispatchedCount) || 0);
+    if (engine === 'render') next.render = cur.render + converted;
+    else if (engine === 'worker') next.worker = cur.worker + converted;
+    next.none = cur.none + Math.max(0, ((meta && meta.skippedCount) || 0));
+    if (meta && meta.jobId && !cur.jobIds.includes(meta.jobId)) next.jobIds = [...cur.jobIds, meta.jobId];
+    if (meta && meta.engineReason && !cur.reasons.includes(meta.engineReason)) next.reasons = [...cur.reasons, meta.engineReason];
+    void batchRecords;
+    return next;
+  });
 
   const runOne = async (docType, label) => {
     const blank = { done: 0, total: 0, skipped: 0, failed: 0, notIndexed: 0 };
@@ -126,6 +172,14 @@ export default function BulkGeneratePdfs() {
       return;
     }
 
+    // How many Worker calls this doc-type will take (one per batch).
+    const batchCount = Math.ceil(records.length / BATCH_SIZE);
+    setEng(prev => {
+      const cur = prev || { render: 0, worker: 0, none: 0, jobIds: [], reasons: [], batchesDone: 0, batchesTotal: 0 };
+      return { ...cur, batchesTotal: cur.batchesTotal + batchCount };
+    });
+    appendLog(`${label}: ${records.length} records → ${batchCount} batch${batchCount === 1 ? '' : 'es'} of up to ${BATCH_SIZE}`);
+
     // Fill ONE record's .docx in the browser (QR + placeholders). Returns the item
     // { recordId, base64, fileName } for the batch, or null on a fill failure
     // (counted as failed). The docx fill stays client-side exactly as before.
@@ -135,7 +189,7 @@ export default function BulkGeneratePdfs() {
         try {
           qrCode = await generateQrDataUrl(publicRecordUrl(rec.recordId));
         } catch (qrErr) {
-          appendLog(`⚠️ ${label} — ${rec.recordId}: QR generation failed; the QR in the PDF will be blank.`);
+          appendDetail(`⚠️ ${label} — ${rec.recordId}: QR generation failed; the QR in the PDF will be blank.`);
           reportClientError('BulkGeneratePdfs', `QR generation failed for ${rec.recordId}`, qrErr, { docType, year, recordId: rec.recordId });
         }
         const filledBase64 = await fillDocxTemplateFromRow(templateRow, {
@@ -145,7 +199,7 @@ export default function BulkGeneratePdfs() {
         });
         const rep = getLastRenderReport();
         if (rep.missingTags.length) {
-          appendLog(`⚠️ ${label} — ${rec.recordId}: blank placeholders — ${[...new Set(rep.missingTags)].join(', ')}`);
+          appendDetail(`⚠️ ${label} — ${rec.recordId}: blank placeholders — ${[...new Set(rep.missingTags)].join(', ')}`);
           reportClientError('BulkGeneratePdfs', `Unresolved placeholders for ${rec.recordId}`, null,
             { docType, year, recordId: rec.recordId, missingTags: [...new Set(rep.missingTags)] });
         }
@@ -160,7 +214,9 @@ export default function BulkGeneratePdfs() {
 
     // Process the records in BATCHES: fill each batch in the browser (up to
     // CONCURRENCY fills in flight), then send the whole batch in ONE Worker call.
+    let batchNo = 0;
     for (const group of chunk(records, BATCH_SIZE)) {
+      batchNo++;
       // Fill this batch's docs (bounded concurrency for the CPU-heavy fill).
       const items = [];
       await runPool(group, CONCURRENCY, async (rec) => {
@@ -170,10 +226,20 @@ export default function BulkGeneratePdfs() {
       if (items.length === 0) { await sleep(THROTTLE_MS); continue; }
 
       try {
-        const { results } = await withRetry(
+        const res = await withRetry(
           () => api.convertDocxToPdfBatch(docType, year, items),
           (attempt, wait) => appendLog(`↻ ${label}: batch retry ${attempt}/${RETRY_ATTEMPTS - 1} in ${Math.round(wait / 1000)}s`)
         );
+        const { results } = res;
+        // Record + report WHICH service handled this batch.
+        noteEngine(res);
+        const engine = res.engine || 'unknown';
+        const via = engine === 'render'
+          ? `Render${res.jobId ? ` · job ${shortJobId(res.jobId)}` : ''}`
+          : engine === 'worker' ? 'in-Worker fallback'
+            : engine === 'none' ? 'nothing to convert (all already generated)'
+              : 'unknown engine';
+        appendLog(`📦 ${label}: batch ${batchNo}/${batchCount} (${items.length} records) → ${via}`);
         const byId = {};
         for (const r of (results || [])) byId[r.recordId] = r;
         for (const it of items) {
@@ -198,6 +264,8 @@ export default function BulkGeneratePdfs() {
             appendLog(`❌ ${label} — ${it.recordId}: ${reason}`);
             reportClientError('BulkGeneratePdfs', `Record failed: ${it.recordId} — ${reason}`, null,
               { docType, year, recordId: it.recordId, error: reason, hadResult: !!r });
+          } else {
+            appendDetail(`${skipped ? '⏭️' : '✓'} ${label} — ${it.recordId}${skipped ? ' (already generated)' : ''}`);
           }
           setProgress(p => {
             const cur = p[docType];
@@ -229,6 +297,7 @@ export default function BulkGeneratePdfs() {
     setError('');
     setLog([]);
     setProgress({});
+    setEng(null);
     try {
       for (const [docType, label] of DOC_TYPES) {
         appendLog(`Starting ${label}...`);
@@ -242,6 +311,15 @@ export default function BulkGeneratePdfs() {
       setRunning(false);
     }
   };
+
+  // One run can span several batches, and Render could go away mid-run — so derive
+  // the engine from what actually converted records, not from the last batch alone.
+  const engineKey = !eng ? null
+    : (eng.render > 0 && eng.worker > 0) ? 'mixed'
+      : eng.render > 0 ? 'render'
+        : eng.worker > 0 ? 'worker'
+          : 'none';
+  const isFallback = engineKey === 'worker' || engineKey === 'mixed';
 
   return (
     <>
@@ -261,6 +339,38 @@ export default function BulkGeneratePdfs() {
         <button className="btn-submit" onClick={runAll} disabled={running || !year}>
           {running ? 'Generating...' : '⚡ Generate PDFs for this Year'}
         </button>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: '0.82rem', cursor: 'pointer' }}>
+          <input type="checkbox" checked={showDetails} onChange={e => setShowDetails(e.target.checked)} />
+          Show per-record details in the log (failures are always shown)
+        </label>
+
+        {eng && (
+          <div style={{
+            marginTop: 12, padding: '10px 12px', borderRadius: 8, fontSize: '0.82rem',
+            background: isFallback ? '#fff7ed' : '#f0f9ff',
+            border: `1px solid ${isFallback ? '#fed7aa' : '#bae6fd'}`,
+          }}>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>
+              {isFallback ? '⚠️' : '⚙️'} Engine: {ENGINE_LABELS[engineKey] || engineKey}
+            </div>
+            {eng.reasons.map(r => (
+              <div key={r} style={{ color: 'var(--text-muted)', marginBottom: 4 }}>{ENGINE_REASONS[r] || r}</div>
+            ))}
+            <div style={{ color: 'var(--text-muted)' }}>
+              Batch {eng.batchesDone}/{eng.batchesTotal} · size {BATCH_SIZE} · fill concurrency {CONCURRENCY} · throttle {THROTTLE_MS}ms · retries {RETRY_ATTEMPTS}
+            </div>
+            <div style={{ color: 'var(--text-muted)' }}>
+              Converted → Render: {eng.render} · Worker: {eng.worker} · already generated: {eng.none}
+            </div>
+            {eng.jobIds.length > 0 && (
+              <div style={{ color: 'var(--text-muted)', marginTop: 4 }}>
+                Render jobs: {eng.jobIds.slice(-6).map(shortJobId).join(', ')}
+                {eng.jobIds.length > 6 ? ` (+${eng.jobIds.length - 6} more)` : ''}
+              </div>
+            )}
+          </div>
+        )}
 
         {Object.keys(progress).length > 0 && (
           <div style={{ marginTop: 15 }}>

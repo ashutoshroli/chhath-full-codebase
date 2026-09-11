@@ -577,14 +577,26 @@ export const api = {
   // publicLink?, skipped?, error?}] } — merging any records skipped before dispatch
   // (preSkipped) with the Render-converted results. Polls the job like the single
   // wrapper; falls straight through if the backend answered synchronously.
+  // Also returns WHICH service did the work, so the bulk screen can show it:
+  //   engine: 'render' (offload service) | 'worker' (in-Worker fallback) | 'none'
+  //   engineReason: why the fallback happened ('render-not-configured' |
+  //                 'render-unreachable') or 'all-already-generated'
+  //   jobId: the Render job id (only for engine 'render'), useful for support
   convertDocxToPdfBatch: async (docType, year, items, force) => {
     const res = await call('convertDocxToPdfBatch', { docType, year, items, force });
+    const meta = {
+      engine: (res && res.engine) || 'unknown',
+      engineReason: (res && res.engineReason) || null,
+      dispatchedCount: (res && res.dispatchedCount) || 0,
+      skippedCount: (res && res.skippedCount) || 0,
+      jobId: (res && res.jobId) || null,
+    };
     // Synchronous answer (sync fallback, or everything was already generated).
-    if (!res || !res.jobId) return { results: (res && res.results) || [] };
+    if (!res || !res.jobId) return { ...meta, results: (res && res.results) || [] };
     const job = await pollRenderPdfJob(res.jobId, /* returnJob */ true);
     const converted = (job && job.result && job.result.results) || [];
     const preSkipped = (res.preSkipped || []).map(s => ({ recordId: s.recordId, success: true, skipped: true, publicLink: s.publicLink, fileName: s.fileName }));
-    return { results: [...preSkipped, ...converted] };
+    return { ...meta, results: [...preSkipped, ...converted] };
   },
   // Everything except the bytes is derived server-side from the verified consent
   // token, so docType/year/recordId are no longer client-controlled.
