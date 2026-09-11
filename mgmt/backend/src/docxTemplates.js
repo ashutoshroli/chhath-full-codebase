@@ -25,6 +25,9 @@ const TYPE_FOLDER_NAMES = {
 // ---- DOCX_TEMPLATES CRUD (Superadmin) ----
 
 export async function getDocxTemplates(env, docType) {
+  // Guard the D1 bind: an omitted docType would bind `undefined` and crash with
+  // D1_TYPE_ERROR (HTTP 500). Return a friendly 400 instead (audit HIGH #3).
+  if (!docType) throw ValidationError('Missing required field: docType.');
   const { results } = await env.DB_TEMPLATES.prepare('SELECT year, file_name, updated_at FROM docx_templates WHERE doc_type = ?').bind(docType).all();
   return results;
 }
