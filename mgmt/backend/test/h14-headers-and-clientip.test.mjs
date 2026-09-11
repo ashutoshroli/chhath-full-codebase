@@ -116,9 +116,13 @@ test('H-14 (mgmt): every origin the SPA fetches from is in connect-src', () => {
   const connect = d['connect-src'].join(' ');
 
   // These are real runtime fetch targets, verified in the source:
-  //   mgmt-chhath...   api.js  (VITE_API_URL)
+  //   mgmt-chhath...   api.js  (VITE_API_URL — the custom domain)
+  //   chhath-mgmt-api...workers.dev — the SAME Worker's default origin; the SPA can
+  //     be built to hit it directly, so strict CSP must allow it too (audit HIGH #2).
   //   inputtools...    transliterate.js — the Hindi transliteration API
   assert.match(connect, /mgmt-chhath\.shaharpura\.com/);
+  assert.match(connect, /chhath-mgmt-api\.shaharpura\.workers\.dev/,
+    'the mgmt Worker origin must be in connect-src or strict CSP blocks all API calls');
   assert.ok(used.has('inputtools.google.com'), 'sanity: transliterate.js still calls Input Tools');
   assert.match(connect, /inputtools\.google\.com/,
     'the transliteration API must be allowed or Hindi name entry breaks');
