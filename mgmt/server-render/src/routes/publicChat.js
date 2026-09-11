@@ -11,7 +11,7 @@
 import express from 'express';
 import { config } from '../config.js';
 import { getPortalData, summarizePortalData } from '../lib/publicData.js';
-import { getPublicChatProvider } from '../lib/chatProvider.js';
+import { getPublicChatProviders } from '../lib/chatProvider.js';
 import { ensureChatSession, logChatMessage, hashIp } from '../lib/neon.js';
 import { isOriginAllowed, rateLimited, clientIpFrom } from '../lib/chatGuards.js';
 
@@ -61,7 +61,7 @@ async function callChatModel(provider, systemPrompt, question) {
         }),
         signal: controller.signal,
       });
-      if (!resp.ok) throw new Error(`Anthropic HTTP ${resp.status}: ${(await resp.text().catch(() => '')).slice(0, 200)}`);
+      if (!resp.ok) throw chatModelError(`Anthropic HTTP ${resp.status}: ${(await resp.text().catch(() => '')).slice(0, 200)}`, resp.status);
       const data = await resp.json();
       const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('').trim();
       const u = data.usage || {};
@@ -78,14 +78,47 @@ async function callChatModel(provider, systemPrompt, question) {
       }),
       signal: controller.signal,
     });
-    if (!resp.ok) throw new Error(`Model HTTP ${resp.status}: ${(await resp.text().catch(() => '')).slice(0, 200)}`);
+    if (!resp.ok) throw chatModelError(`Model HTTP ${resp.status}: ${(await resp.text().catch(() => '')).slice(0, 200)}`, resp.status);
     const data = await resp.json();
     const text = ((data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '').trim();
     const u = data.usage || {};
     return { text, promptTokens: u.prompt_tokens || 0, completionTokens: u.completion_tokens || 0 };
+  } catch (e) {
+    // An AbortError (timeout) is retryable — try the next provider.
+    if (e && e.name === 'AbortError') throw chatModelError('model request timed out', 408);
+    throw e;
   } finally {
     clearTimeout(timer);
   }
+}
+
+// Tag with retryable = rate-limit / gateway / timeout (fall through to next
+// provider); a 4xx (bad model/key) is NOT retryable (stops the chain).
+function chatModelError(message, status) {
+  const e = new Error(message);
+  e.retryable = status === 429 || status === 408 || (status >= 500 && status <= 599);
+  e.status = status;
+  return e;
+}
+
+// Try each provider in the chain in order; fall through only on a retryable
+// failure. Returns { text, promptTokens, completionTokens, model } or throws.
+async function callChatModelChain(providers, systemPrompt, question) {
+  let lastErr = null;
+  for (let i = 0; i < providers.length; i++) {
+    try {
+      const out = await callChatModel(providers[i], systemPrompt, question);
+      return { ...out, model: providers[i].model };
+    } catch (e) {
+      lastErr = e;
+      if (e && e.retryable && i < providers.length - 1) {
+        console.warn(`[public-chat] provider ${i + 1}/${providers.length} failed retryably (${e.status}); trying next.`);
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr || new Error('No chat provider produced a result.');
 }
 
 publicChatRouter.post('/public-chat', async (req, res) => {
@@ -106,8 +139,8 @@ publicChatRouter.post('/public-chat', async (req, res) => {
   if (question.length > MAX_QUESTION_CHARS) return res.status(400).json({ ok: false, error: 'Your question is too long.' });
 
   try {
-    const provider = await getPublicChatProvider();
-    if (!provider) {
+    const providers = await getPublicChatProviders();
+    if (!providers.length) {
       return res.status(503).json({ ok: false, error: 'The chatbot is not configured yet. Please try again later.' });
     }
 
@@ -116,14 +149,15 @@ publicChatRouter.post('/public-chat', async (req, res) => {
     let summary = summarizePortalData(data, question);
     if (lang === 'hi') summary += '\nReply in simple Hindi (Devanagari) unless the user writes in English.';
 
-    const { text, promptTokens, completionTokens } = await callChatModel(provider, summary, question);
+    // Try the provider chain in priority order (falls through on 429/5xx/timeout).
+    const { text, promptTokens, completionTokens, model } = await callChatModelChain(providers, summary, question);
     const answer = (text || 'Sorry, I could not find an answer.').slice(0, 4000);
 
     // Best-effort logging to Neon (never blocks / fails the response).
     const ipHash = hashIp(ip);
     ensureChatSession(sessionId, { lang, ipHash, userAgent: req.headers['user-agent'] }).catch(() => {});
     logChatMessage({ sessionId, role: 'user', content: question, dataVersion: version }).catch(() => {});
-    logChatMessage({ sessionId, role: 'assistant', content: answer, model: provider.model, promptTokens, completionTokens, dataVersion: version }).catch(() => {});
+    logChatMessage({ sessionId, role: 'assistant', content: answer, model, promptTokens, completionTokens, dataVersion: version }).catch(() => {});
 
     return res.json({ ok: true, answer });
   } catch (err) {

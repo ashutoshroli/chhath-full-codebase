@@ -614,12 +614,14 @@ export default {
         return jsonOut({ success: false, message: 'Unauthorized' }, request, env, 401);
       }
       try {
-        const { resolveActiveProvider } = await import('./aiConfig.js');
-        const p = await resolveActiveProvider(env, 'public_chat');
-        if (!p) return jsonOut({ success: true, configured: false }, request, env, 200);
+        const { resolveProviderChain } = await import('./aiConfig.js');
+        const chain = await resolveProviderChain(env, 'public_chat');
+        if (!chain.length) return jsonOut({ success: true, configured: false }, request, env, 200);
+        const providers = chain.map(p => ({ type: p.type, apiKey: p.apiKey, baseUrl: p.baseUrl, model: p.model }));
         return jsonOut({
           success: true, configured: true,
-          provider: { type: p.type, apiKey: p.apiKey, baseUrl: p.baseUrl, model: p.model },
+          provider: providers[0], // back-compat: an older Render build reads a single provider
+          providers,              // the full fallback chain (Render loops this)
         }, request, env, 200);
       } catch (err) {
         ctx.waitUntil(logError(env, 'backend', 'render-provider', err && err.message || String(err), err && err.stack || '', ''));
