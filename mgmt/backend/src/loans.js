@@ -942,6 +942,9 @@ export async function getLoanConsents(env, loanId, user) {
   // available to every staff role, so this stays staff-level — the fix is that it
   // no longer hands out credentials or third-party evidence (see CONSENT_LIST_COLS).
   requireStaffRole(user);
+  // A missing loanId would bind `undefined` and crash D1 (D1_TYPE_ERROR / 500).
+  // Return a friendly 400 instead (audit HIGH #3).
+  if (!loanId) throw ValidationError('Missing required field: loanId.');
   const { results } = await env.DB_LOANS_EXPENSES
     .prepare(`SELECT ${CONSENT_LIST_COLS} FROM loan_consents WHERE loan_id = ?`)
     .bind(loanId).all();
@@ -1237,6 +1240,9 @@ export async function markLoanDisbursed(env, loanId, cashAmount, onlineAmount, u
 // ---- Loan template CRUD (Superadmin) — same pattern as Person/Group templates ----
 
 export async function getLoanTemplates(env, type) {
+  // A missing `type` would bind `undefined` and crash D1 (D1_TYPE_ERROR / 500).
+  // Return a friendly 400 instead (audit HIGH #3).
+  if (!type) throw ValidationError('Missing required field: type.');
   const { results } = await env.DB_LOANS_EXPENSES.prepare('SELECT * FROM loan_message_templates WHERE type = ?').bind(type).all();
   // BUGFIX: the WhatsApp Templates screen deletes/updates/toggles a loan template
   // by `r.__rowIndex` (the same field the person/group lists use), and the backend

@@ -1,4 +1,4 @@
-import { requireSuperadmin } from './auth.js';
+import { requireSuperadmin, ValidationError } from './auth.js';
 
 // ---- Festival dates (core db) ----
 export async function getFestivalDates(env, year) {
@@ -96,6 +96,9 @@ export async function otpConsentSenderNumber(env) {
 // migration/templates.sql from the live xlsx export, so no need to re-embed the
 // long bilingual legal text here; this is pure CRUD over that table. ----
 export async function getConsentPageTemplate(env, type) {
+  // A missing `type` would bind `undefined` and crash D1 (D1_TYPE_ERROR / 500).
+  // Return a friendly 400 instead (audit HIGH #3).
+  if (!type) throw ValidationError('Missing required field: type.');
   const row = await env.DB_TEMPLATES.prepare('SELECT * FROM consent_page_templates WHERE type = ?').bind(type).first();
   return row ? { type: row.type, text: row.text, updated_at: row.updated_at } : { type, text: '', updated_at: '' };
 }
