@@ -10,7 +10,7 @@
 
 import { config } from '../config.js';
 
-let _cache = null; // { provider|null, at }
+let _cache = null; // { providers: [], at }
 const TTL_MS = 5 * 60 * 1000; // refresh at most every 5 min
 
 // Derive the mgmt Worker base URL: explicit MGMT_API_BASE, else the origin of
@@ -20,12 +20,13 @@ function mgmtBase() {
   try { return new URL(config.workerWebhookUrl).origin; } catch (e) { return ''; }
 }
 
-// Returns { type, apiKey, baseUrl, model } or null (not configured / unreachable).
-export async function getPublicChatProvider() {
-  if (_cache && (Date.now() - _cache.at) < TTL_MS) return _cache.provider;
+// Returns the public_chat provider CHAIN (array, priority order) — or [] when not
+// configured / unreachable. Cached for a short TTL.
+export async function getPublicChatProviders() {
+  if (_cache && (Date.now() - _cache.at) < TTL_MS) return _cache.providers;
 
   const base = mgmtBase();
-  if (!base) return _cache ? _cache.provider : null;
+  if (!base) return _cache ? _cache.providers : [];
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 10000);
@@ -38,13 +39,18 @@ export async function getPublicChatProvider() {
     });
     if (!res.ok) throw new Error(`Worker returned HTTP ${res.status}`);
     const body = await res.json();
-    const provider = (body && body.configured && body.provider) ? body.provider : null;
-    _cache = { provider, at: Date.now() };
-    return provider;
+    // Prefer the chain; fall back to the single `provider` from an older Worker.
+    let providers = [];
+    if (body && body.configured) {
+      providers = Array.isArray(body.providers) && body.providers.length
+        ? body.providers
+        : (body.provider ? [body.provider] : []);
+    }
+    _cache = { providers, at: Date.now() };
+    return providers;
   } catch (e) {
     console.warn('[chatProvider] fetch failed:', e && e.message);
-    // Fall back to the last known provider if we have one; else null.
-    return _cache ? _cache.provider : null;
+    return _cache ? _cache.providers : []; // last known chain, if any
   } finally {
     clearTimeout(timer);
   }

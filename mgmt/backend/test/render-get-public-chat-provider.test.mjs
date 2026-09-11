@@ -68,6 +68,24 @@ test('with the right secret + a configured public_chat default, returns the decr
   assert.equal(body.provider.model, 'chat-m');
   assert.equal(body.provider.baseUrl, 'https://chat.test/v1');
   assert.equal(body.provider.apiKey, 'test-chat-key-9999', 'the key is decrypted for Render');
+  // The full fallback chain is also returned (Render loops it); provider = chain[0].
+  assert.ok(Array.isArray(body.providers) && body.providers.length >= 1, 'a providers[] chain is returned');
+  assert.equal(body.providers[0].model, 'chat-m');
+});
+
+test('returns the public_chat providers in priority order (a multi-provider chain)', async () => {
+  const env = makeEnv();
+  const { ctx } = makeCtx();
+  const { saveAiProvider: save, reorderAiProviders: reorder } = await import('../src/aiConfig.js');
+  const a = await save(env, { name: 'Groq', type: 'openai-compatible', baseUrl: 'https://groq.test/v1', model: 'groq-m', apiKey: 'test-key-a', purpose: 'public_chat' }, SUPER);
+  const b = await save(env, { name: 'NVIDIA', type: 'openai-compatible', baseUrl: 'https://nv.test/v1', model: 'nv-m', apiKey: 'test-key-b', purpose: 'public_chat' }, SUPER);
+  await reorder(env, 'public_chat', [b.providerId, a.providerId], SUPER); // NVIDIA first
+
+  const res = await post(env, ctx, { sig: SECRET });
+  const body = await res.json();
+  assert.equal(body.configured, true);
+  assert.deepEqual(body.providers.map(p => p.model), ['nv-m', 'groq-m']);
+  assert.equal(body.provider.model, 'nv-m', 'provider = chain[0]');
 });
 
 test('with the right secret but NO public_chat provider, returns configured:false (no ANTHROPIC fallback)', async () => {
