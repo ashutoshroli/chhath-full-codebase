@@ -76,6 +76,13 @@ export function summarizePortalData(data, question) {
   const expenses = Array.isArray(d.expenses) ? d.expenses : [];
   const loans = Array.isArray(d.loans) ? d.loans : [];
   const committee = Array.isArray(d.committee) ? d.committee : (Array.isArray(d.committeeMembers) ? d.committeeMembers : []);
+  const users = Array.isArray(d.users) ? d.users : [];
+
+  // A contribution row's `Name` is the person's ID code (e.g. USER0001), NOT the
+  // display name — the real name lives in `users` keyed by `ID` (same as the
+  // public frontend's getUser()). Build ID -> real name so we can match and show
+  // human names. Fall back to the raw value if it isn't an ID.
+  const nameOf = buildNameResolver(users);
 
   // Years present, newest first.
   const years = [...new Set(collections.map(c => parseInt(c.Year)).filter(Boolean))].sort((a, b) => b - a);
@@ -101,7 +108,7 @@ export function summarizePortalData(data, question) {
   if (latestYear) {
     const cur = collections.filter(c => parseInt(c.Year) === latestYear && !(c['Is Resell'] === 'TRUE' || c['Is Resell'] === true));
     const top = [...cur].sort((a, b) => num(b.Amount) - num(a.Amount)).slice(0, 10)
-      .map(c => `${(c.Name || '').toString()} (${inr(c.Amount)})`);
+      .map(c => `${nameOf(c.Name)} (${inr(c.Amount)})`);
     if (top.length) lines.push(`Top contributors ${latestYear}: ${top.join(', ')}.`);
   }
 
@@ -120,7 +127,7 @@ export function summarizePortalData(data, question) {
   // PER-PERSON lookup: if the question names contributor(s) present in the data,
   // add ONLY their specific rows so a question like "how much did X give?" is
   // answerable without dumping every record. Bounded to keep the prompt small.
-  const personBlock = personContributionsFor(question, collections);
+  const personBlock = personContributionsFor(question, collections, nameOf);
   if (personBlock) lines.push(personBlock);
 
   let out = lines.join('\n');
@@ -131,29 +138,50 @@ export function summarizePortalData(data, question) {
   return out;
 }
 
-// Find contributor names in the data that appear in the question, and list that
-// person's contributions across years. Returns '' when no name matches.
-function personContributionsFor(question, collections) {
+// Build a resolver: a collection row's `Name` is a person ID (e.g. USER0001); the
+// real display name lives in `users` keyed by `ID` (mirrors the frontend's
+// getUser()). Also prefer the Hindi name only if the English is blank. Returns a
+// function id -> real name (falls back to the raw value if it's not a known ID).
+function buildNameResolver(users) {
+  const byId = new Map();
+  for (const u of (users || [])) {
+    const id = (u.ID || u.id || '').toString().trim();
+    if (!id) continue;
+    const name = (u.Name || u.name || u['Name (Hindi)'] || '').toString().trim();
+    if (name) byId.set(id, name);
+  }
+  return (val) => {
+    const v = (val || '').toString().trim();
+    return byId.get(v) || v;
+  };
+}
+
+// Find contributor(s) named in the question and list their contributions across
+// years. Matches on the RESOLVED real name (not the ID stored on the row).
+// Returns '' when no name matches.
+function personContributionsFor(question, collections, nameOf) {
   const q = (question || '').toString().toLowerCase();
   if (!q || !collections.length) return '';
-  // Unique contributor names.
-  const names = [...new Set(collections.map(c => (c.Name || '').toString().trim()).filter(Boolean))];
-  // A name "matches" if its full string appears in the question, OR any of its
-  // words (>=3 chars) does — so "Anil Prasad" matches "anil prasad ne kitna diya".
-  const matched = names.filter(n => {
-    const ln = n.toLowerCase();
+  // Unique contributor IDs -> { id, realName }.
+  const ids = [...new Set(collections.map(c => (c.Name || '').toString().trim()).filter(Boolean))];
+  const people = ids.map(id => ({ id, name: (nameOf ? nameOf(id) : id) }));
+
+  // A person "matches" if their real name (full) is in the question, OR all of its
+  // words (>=3 chars) are, OR a distinctive (>=4-char) word is — so "amit ka total"
+  // and "amit kumar ne kitna diya" both match "Amit Kumar".
+  const matched = people.filter(({ name }) => {
+    const ln = (name || '').toLowerCase();
+    if (!ln) return false;
     if (q.includes(ln)) return true;
     const words = ln.split(/\s+/).filter(w => w.length >= 3);
     if (!words.length) return false;
-    // Match if ALL name-words are in the question ("anil prasad ka total")...
     if (words.every(w => q.includes(w))) return true;
-    // ...or if a distinctive (>=4-char) name-word appears ("anil ne kitna diya").
     return words.some(w => w.length >= 4 && q.includes(w));
   }).slice(0, 8); // at most 8 people
   if (!matched.length) return '';
 
-  const blocks = matched.map(name => {
-    const rows = collections.filter(c => (c.Name || '').toString().trim() === name).slice(0, 40);
+  const blocks = matched.map(({ id, name }) => {
+    const rows = collections.filter(c => (c.Name || '').toString().trim() === id).slice(0, 40);
     const total = rows.reduce((s, c) => s + num(c.Amount), 0);
     const items = rows.map(c => {
       const yr = parseInt(c.Year) || '';
