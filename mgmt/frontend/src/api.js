@@ -503,7 +503,9 @@ export const api = {
   saveAiProvider: (p) => call('saveAiProvider', p), // { providerId?, name, type, baseUrl, model, apiKey? }
   deleteAiProvider: (providerId) => call('deleteAiProvider', { providerId }),
   setDefaultAiProvider: (providerId) => call('setDefaultAiProvider', { providerId }),
-  testAiProvider: (providerId) => call('testAiProvider', { providerId }),
+  // A custom `prompt` (optional) exercises the model and returns its reply text;
+  // omit it for a quick connectivity ping. maxTokens is capped server-side (1024).
+  testAiProvider: (providerId, prompt, maxTokens) => call('testAiProvider', { providerId, prompt, maxTokens }),
 
   // Loan Consent — Admin
   getLoanConsents: (loanId) => call('getLoanConsents', { loanId }),

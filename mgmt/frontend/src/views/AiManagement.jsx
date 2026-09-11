@@ -22,8 +22,10 @@ export default function AiManagement() {
   const [error, setError] = useState('');
   const [form, setForm] = useState(null); // null = not editing; object = add/edit form
   const [saving, setSaving] = useState(false);
-  const [testResult, setTestResult] = useState({}); // providerId -> { ok, message }
+  const [testResult, setTestResult] = useState({}); // providerId -> { ok, message, reply? }
   const [busyId, setBusyId] = useState(null);
+  const [promptOpen, setPromptOpen] = useState({}); // providerId -> bool (custom-prompt box shown)
+  const [promptText, setPromptText] = useState({}); // providerId -> string
 
   const refresh = () => {
     api.getAiProviders()
@@ -88,12 +90,19 @@ export default function AiManagement() {
     finally { setBusyId(null); }
   };
 
-  const test = async (providerId) => {
+  // `prompt` empty/undefined -> quick connectivity ping; non-empty -> exercise the
+  // model and show its reply. maxTokens is capped server-side (1024).
+  const test = async (providerId, prompt) => {
+    const custom = (prompt || '').trim();
     setBusyId('test:' + providerId);
     setTestResult(r => ({ ...r, [providerId]: null }));
     try {
-      const res = await api.testAiProvider(providerId);
-      setTestResult(r => ({ ...r, [providerId]: { ok: !!res.ok, message: res.message || (res.ok ? 'OK' : 'Failed') } }));
+      const res = await api.testAiProvider(providerId, custom || undefined);
+      setTestResult(r => ({ ...r, [providerId]: {
+        ok: !!res.ok,
+        message: res.message || (res.ok ? 'OK' : 'Failed'),
+        reply: res.reply || '',
+      } }));
     } catch (err) {
       setTestResult(r => ({ ...r, [providerId]: { ok: false, message: err.message } }));
     } finally {
@@ -190,10 +199,23 @@ export default function AiManagement() {
                     {tr.ok ? '✓ ' : '✗ '}{tr.message}
                   </div>
                 )}
+                {tr && tr.reply && (
+                  <div style={{ marginTop: 6 }}>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 2 }}>Model reply:</div>
+                    <pre style={{
+                      whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, padding: '8px 10px',
+                      background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6,
+                      fontSize: '0.75rem', maxHeight: 220, overflowY: 'auto',
+                    }}>{tr.reply}</pre>
+                  </div>
+                )}
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 <button type="button" className="btn-submit" style={{ width: 'auto', padding: '4px 10px', fontSize: '0.72rem', background: '#e5e7eb', color: '#111' }} onClick={() => test(p.provider_id)} disabled={busyId === 'test:' + p.provider_id}>
                   {busyId === 'test:' + p.provider_id ? 'Testing…' : 'Test'}
+                </button>
+                <button type="button" className="btn-submit" style={{ width: 'auto', padding: '4px 10px', fontSize: '0.72rem', background: promptOpen[p.provider_id] ? '#dbeafe' : '#e5e7eb', color: '#111' }} onClick={() => setPromptOpen(o => ({ ...o, [p.provider_id]: !o[p.provider_id] }))}>
+                  {promptOpen[p.provider_id] ? 'Hide prompt' : 'Custom prompt'}
                 </button>
                 {!p.is_default && (
                   <button type="button" className="btn-submit" style={{ width: 'auto', padding: '4px 10px', fontSize: '0.72rem' }} onClick={() => makeDefault(p.provider_id)} disabled={busyId === p.provider_id}>
@@ -204,6 +226,30 @@ export default function AiManagement() {
                 <button type="button" className="btn-submit" style={{ width: 'auto', padding: '4px 10px', fontSize: '0.72rem', background: '#fee2e2', color: '#991b1b' }} onClick={() => remove(p)}>Delete</button>
               </div>
             </div>
+
+            {promptOpen[p.provider_id] && (
+              <div style={{ marginTop: 10, borderTop: '1px solid #eef0f2', paddingTop: 10 }}>
+                <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                  Custom test prompt — sends this to the model and shows its reply (max 256 tokens back).
+                </label>
+                <textarea
+                  value={promptText[p.provider_id] || ''}
+                  onChange={e => setPromptText(t => ({ ...t, [p.provider_id]: e.target.value }))}
+                  placeholder="e.g. Reply with a one-line JSON: {&quot;status&quot;:&quot;ok&quot;}"
+                  rows={3}
+                  style={{ width: '100%', marginTop: 4, fontSize: '0.8rem', fontFamily: 'inherit', padding: 8, borderRadius: 6, border: '1px solid #d1d5db', boxSizing: 'border-box' }}
+                />
+                <button
+                  type="button"
+                  className="btn-submit"
+                  style={{ width: 'auto', marginTop: 6, padding: '5px 12px', fontSize: '0.75rem' }}
+                  onClick={() => test(p.provider_id, promptText[p.provider_id])}
+                  disabled={busyId === 'test:' + p.provider_id || !(promptText[p.provider_id] || '').trim()}
+                >
+                  {busyId === 'test:' + p.provider_id ? 'Sending…' : 'Send prompt'}
+                </button>
+              </div>
+            )}
           </div>
         );
       })}
