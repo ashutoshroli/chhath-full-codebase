@@ -40,12 +40,16 @@ export async function getPublicChatProviders() {
     if (!res.ok) throw new Error(`Worker returned HTTP ${res.status}`);
     const body = await res.json();
     // Prefer the chain; fall back to the single `provider` from an older Worker.
-    let providers = [];
+    let raw = [];
     if (body && body.configured) {
-      providers = Array.isArray(body.providers) && body.providers.length
+      raw = Array.isArray(body.providers) && body.providers.length
         ? body.providers
         : (body.provider ? [body.provider] : []);
     }
+    // Carry `dataMode` through per provider (the Worker sends it on each provider
+    // object). An older Worker / a provider missing it leaves dataMode undefined;
+    // publicChat defaults that to 'summary' downstream (we don't hard-code it here).
+    const providers = raw.map(p => ({ ...p, dataMode: p && p.dataMode ? p.dataMode : undefined }));
     _cache = { providers, at: Date.now() };
     return providers;
   } catch (e) {

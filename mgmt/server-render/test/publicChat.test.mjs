@@ -15,7 +15,7 @@ process.env.PUBLIC_API_BASE ||= 'https://public.test';
 process.env.CHAT_ALLOWED_ORIGINS ||= 'https://chhath.shaharpura.com';
 process.env.CHAT_RATE_MAX ||= '3';
 
-const { summarizePortalData, getPortalData, _resetCache } = await import('../src/lib/publicData.js');
+const { summarizePortalData, buildFullContext, getPortalData, _resetCache } = await import('../src/lib/publicData.js');
 
 const SAMPLE = {
   collections: [
@@ -204,6 +204,109 @@ test('getPortalData refetches when the version bumps', async () => {
     const portalFetches = calls.filter(u => u.includes('portalData')).length;
     assert.equal(portalFetches, 2, 'a version bump triggers a fresh portalData fetch');
   } finally { globalThis.fetch = orig; }
+});
+
+// ---- FULL data-mode context (buildFullContext) ----
+// Full mode lays out the WHOLE public dataset row-by-row, IDs resolved to real
+// names, CACHE-ONLY (never fetches / touches D1), bounded by a large cap with an
+// automatic fall-back to the compact summary on a huge dataset.
+
+const FULL_SAMPLE = {
+  users: [
+    { ID: 'USER0001', Name: 'Ramesh Verma' },
+    { ID: 'USER0002', Name: 'Suresh Gupta' },
+    { ID: 'USER0003', Name: 'Anil Prasad' },
+  ],
+  collections: [
+    { Year: 2026, Name: 'USER0001', Amount: 5000, __rowIndex: 1 },
+    { Year: 2026, Name: 'USER0002', Amount: 3000, __rowIndex: 2 },
+    { Year: 2025, Name: 'USER0001', Amount: 2000, __rowIndex: 3 },
+    { Year: 2024, Name: 'USER0003', Amount: 1500, __rowIndex: 4 },
+  ],
+  expenses: [
+    { Year: 2026, Amount: 1000, Detail: 'Tent and lighting' },
+    { Year: 2025, Amount: 800, Detail: 'Prasad' },
+  ],
+  loans: [{ Year: 2025, Name: 'USER0002', Amount: 10000, Detail: 'Advance' }],
+  guarantors: [{ Name: 'USER0001', 'Loan Taker': 'USER0002' }],
+  committee: [
+    { Year: 2026, Name: 'USER0001', 'View Role': 'President' },
+    { Year: 2026, Name: 'USER0002', 'View Role': 'Secretary' },
+    { Year: 2025, Name: 'USER0003', 'View Role': 'Treasurer' },
+  ],
+  generatedFiles: [
+    { doc_type: 'receipt', year: 2026, record_id: 'receipt-2026-1', public_link: 'https://files.test/ramesh.pdf' },
+  ],
+};
+
+test('buildFullContext resolves IDs to real names and never emits a raw USER#### code', () => {
+  const s = buildFullContext(FULL_SAMPLE, '');
+  assert.match(s, /Ramesh Verma/);
+  assert.match(s, /Suresh Gupta/);
+  assert.match(s, /Anil Prasad/);
+  // No raw person-ID code must ever leak into the full context.
+  assert.doesNotMatch(s, /USER00\d\d/);
+});
+
+test('buildFullContext includes multiple years and multiple sections', () => {
+  const s = buildFullContext(FULL_SAMPLE, '');
+  // Multiple years present.
+  assert.match(s, /Year 2026:/);
+  assert.match(s, /Year 2025:/);
+  assert.match(s, /Year 2024:/);
+  // Multiple sections: contributions, expenses, committee, loans.
+  assert.match(s, /ALL CONTRIBUTIONS/);
+  assert.match(s, /ALL EXPENSES/);
+  assert.match(s, /COMMITTEE MEMBERS BY YEAR/);
+  assert.match(s, /ALL LOANS/);
+  // Expense detail + committee role are carried through.
+  assert.match(s, /Tent and lighting/);
+  assert.match(s, /President/);
+  // A public download link for a contribution is included.
+  assert.match(s, /https:\/\/files\.test\/ramesh\.pdf/);
+});
+
+test('buildFullContext never throws on missing/empty data', () => {
+  assert.doesNotThrow(() => buildFullContext({}, ''));
+  assert.doesNotThrow(() => buildFullContext(null, null));
+});
+
+test('buildFullContext is CACHE-ONLY: it never calls fetch (does not touch D1)', () => {
+  const orig = globalThis.fetch;
+  // Any fetch attempt would mean it tried to hit the network / D1 — hard fail.
+  globalThis.fetch = () => { throw new Error('buildFullContext must not fetch'); };
+  try {
+    let out;
+    assert.doesNotThrow(() => { out = buildFullContext(FULL_SAMPLE, 'Ramesh ne kitna diya'); });
+    assert.equal(typeof out, 'string');
+    assert.ok(out.length > 0, 'returns a non-empty context string with no network access');
+  } finally { globalThis.fetch = orig; }
+});
+
+test('buildFullContext stays under its cap on a normal dataset (does not fall back)', () => {
+  const s = buildFullContext(FULL_SAMPLE, '');
+  // A modest dataset must produce the full layout (not the summary fall-back).
+  assert.match(s, /COMPLETE public dataset/);
+  assert.ok(s.length < 80000, 'full context stays under the char cap');
+});
+
+test('buildFullContext auto-falls-back to the compact summary on a huge dataset', () => {
+  const many = [];
+  for (let i = 0; i < 20000; i++) many.push({ Year: 2026, Name: 'USER' + i, Amount: i, __rowIndex: i });
+  const users = [];
+  for (let i = 0; i < 20000; i++) users.push({ ID: 'USER' + i, Name: 'Person Number ' + i });
+  const huge = { users, collections: many, committee: many.map(m => ({ Year: 2026, Name: m.Name })) };
+  const s = buildFullContext(huge, '');
+  // Over the cap => returns summarizePortalData output, which is itself capped ~6000.
+  assert.ok(s.length <= 6100, 'huge full dataset degrades to the compact, capped summary');
+});
+
+test('buildFullContext lists loans and guarantors with real names', () => {
+  const s = buildFullContext(FULL_SAMPLE, '');
+  assert.match(s, /ALL LOANS \(1, total principal ₹10,000\)/);
+  assert.match(s, /GUARANTORS \(1\)/);
+  // Guarantor + loan-taker resolved to names, no IDs.
+  assert.match(s, /Ramesh Verma guarantees Suresh Gupta/);
 });
 
 // ---- /public-chat guards (origin allow-list + per-IP rate limit) ----
