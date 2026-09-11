@@ -24,6 +24,12 @@ import { randomId } from './random.js';
 import { logWarn } from './logger.js';
 
 export const PROVIDER_TYPES = ['anthropic', 'openai-compatible'];
+// What a provider is used for. 'fix' = the Error Log "Fix using AI" engine (the
+// original + default); 'public_chat' = the public portal chatbot. Each purpose
+// has its OWN default provider (is_default is scoped by purpose in the code).
+export const PROVIDER_PURPOSES = ['fix', 'public_chat'];
+const DEFAULT_PURPOSE = 'fix';
+function normPurpose(p) { return PROVIDER_PURPOSES.includes(p) ? p : DEFAULT_PURPOSE; }
 
 // ---- AES-GCM helpers -------------------------------------------------------
 async function aesKey(env) {
@@ -93,6 +99,7 @@ function providerOut(r) {
     type: r.type,
     base_url: r.base_url || '',
     model: r.model || '',
+    purpose: normPurpose(r.purpose),
     is_default: r.is_default === 1 || r.is_default === '1' || r.is_default === true,
     has_key: !!(r.api_key_enc && r.api_key_enc.length),
     key_hint: r.key_hint || '',
@@ -118,10 +125,14 @@ export async function saveAiProvider(env, req, user) {
   const baseUrl = (req.baseUrl || '').toString().trim();
   const model = (req.model || '').toString().trim();
   const apiKey = (req.apiKey || '').toString(); // raw key, only present when set/changed
+  const purpose = normPurpose((req.purpose || '').toString().trim());
 
   if (!name) throw ValidationError('A provider name is required.');
   if (!PROVIDER_TYPES.includes(type)) {
     throw ValidationError(`type must be one of: ${PROVIDER_TYPES.join(', ')}.`);
+  }
+  if (req.purpose && !PROVIDER_PURPOSES.includes((req.purpose || '').toString().trim())) {
+    throw ValidationError(`purpose must be one of: ${PROVIDER_PURPOSES.join(', ')}.`);
   }
   if (!model) throw ValidationError('A model is required.');
   if (type === 'openai-compatible' && !/^https?:\/\//.test(baseUrl)) {
@@ -148,14 +159,14 @@ export async function saveAiProvider(env, req, user) {
   const ts = nowIso();
   if (editing) {
     await env.DB_LOGS.prepare(
-      'UPDATE ai_providers SET name=?, type=?, base_url=?, model=?, api_key_enc=?, key_hint=?, updated_at=? WHERE provider_id=?'
-    ).bind(name, type, baseUrl, model, apiKeyEnc, keyHint, ts, req.providerId).run();
+      'UPDATE ai_providers SET name=?, type=?, base_url=?, model=?, api_key_enc=?, key_hint=?, purpose=?, updated_at=? WHERE provider_id=?'
+    ).bind(name, type, baseUrl, model, apiKeyEnc, keyHint, purpose, ts, req.providerId).run();
     return { success: true, providerId: req.providerId };
   }
   const providerId = randomId('AIP');
   await env.DB_LOGS.prepare(
-    'INSERT INTO ai_providers (provider_id, name, type, base_url, model, api_key_enc, key_hint, is_default, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)'
-  ).bind(providerId, name, type, baseUrl, model, apiKeyEnc, keyHint, 0, ts, ts).run();
+    'INSERT INTO ai_providers (provider_id, name, type, base_url, model, api_key_enc, key_hint, purpose, is_default, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+  ).bind(providerId, name, type, baseUrl, model, apiKeyEnc, keyHint, purpose, 0, ts, ts).run();
   return { success: true, providerId };
 }
 
@@ -170,16 +181,28 @@ export async function deleteAiProvider(env, providerId, user) {
 
 // Set (or clear) the default. providerId '' / null clears it -> falls back to the
 // ANTHROPIC_API_KEY secret.
-export async function setDefaultAiProvider(env, providerId, user) {
+// Set (or clear) the default FOR A PURPOSE. Defaults are scoped by purpose, so
+// there is one default 'fix' provider and one default 'public_chat' provider —
+// setting one never disturbs the other. When providerId is given, its own purpose
+// determines which purpose's default is being set (the optional `purpose` arg is
+// only used to clear a purpose's default when providerId is empty).
+export async function setDefaultAiProvider(env, providerId, user, purposeArg) {
   requireSuperadmin(user);
-  const stmts = [env.DB_LOGS.prepare('UPDATE ai_providers SET is_default = 0, updated_at = ?').bind(nowIso())];
+  let scope;
   if (providerId) {
-    const exists = await env.DB_LOGS.prepare('SELECT provider_id FROM ai_providers WHERE provider_id = ?').bind(providerId).first();
-    if (!exists) throw ValidationError('Provider not found.');
+    const row = await env.DB_LOGS.prepare('SELECT provider_id, purpose FROM ai_providers WHERE provider_id = ?').bind(providerId).first();
+    if (!row) throw ValidationError('Provider not found.');
+    scope = normPurpose(row.purpose);
+  } else {
+    scope = normPurpose((purposeArg || '').toString().trim());
+  }
+  // Clear the default ONLY within this purpose, then set the chosen one (if any).
+  const stmts = [env.DB_LOGS.prepare('UPDATE ai_providers SET is_default = 0, updated_at = ? WHERE purpose = ?').bind(nowIso(), scope)];
+  if (providerId) {
     stmts.push(env.DB_LOGS.prepare('UPDATE ai_providers SET is_default = 1, updated_at = ? WHERE provider_id = ?').bind(nowIso(), providerId));
   }
   await env.DB_LOGS.batch(stmts);
-  return { success: true, defaultProviderId: providerId || null };
+  return { success: true, defaultProviderId: providerId || null, purpose: scope };
 }
 
 // Test a saved provider from the BACKEND: decrypt its key here, make a tiny
@@ -324,17 +347,22 @@ async function extractReplyText(resp, type) {
   }
 }
 
-// ---- The fallback chain (used by aiFix.js) ---------------------------------
-// Resolves the provider to actually call, decrypting the key ONLY here, at call
-// time. Order (per spec):
-//   1. the configured default provider, if it has a usable key
-//   2. else the ANTHROPIC_API_KEY Cloudflare secret (native Anthropic)
+// ---- The fallback chain (used by aiFix.js + the public chatbot) ------------
+// Resolves the provider to actually call FOR A PURPOSE, decrypting the key ONLY
+// here, at call time. `purpose` is 'fix' (default) or 'public_chat'.
+//   1. the default provider OF THAT PURPOSE, if it has a usable key
+//   2. (purpose 'fix' ONLY) else the ANTHROPIC_API_KEY Cloudflare secret
 //   3. else null  -> caller reports "AI not configured"
+// The ANTHROPIC_API_KEY safety-net is deliberately 'fix'-only: the AI-fix engine
+// must always have a fallback, but the public chatbot must NOT silently spend the
+// committee's fix-budget key — a Superadmin has to configure a public_chat
+// provider explicitly, or the chatbot stays off.
 // Returns { type, apiKey, baseUrl, model, sourceLabel } or null.
-export async function resolveActiveProvider(env) {
-  // 1) default provider from the DB
+export async function resolveActiveProvider(env, purpose) {
+  const scope = normPurpose(purpose);
+  // 1) default provider of this purpose from the DB
   try {
-    const row = await env.DB_LOGS.prepare('SELECT * FROM ai_providers WHERE is_default = 1 LIMIT 1').first();
+    const row = await env.DB_LOGS.prepare('SELECT * FROM ai_providers WHERE is_default = 1 AND purpose = ? LIMIT 1').bind(scope).first();
     if (row && row.api_key_enc) {
       try {
         const apiKey = await decryptSecret(env, row.api_key_enc);
@@ -348,18 +376,18 @@ export async function resolveActiveProvider(env) {
           };
         }
       } catch (e) {
-        // Decrypt failed (secret rotated?) — log and fall through to the secret.
+        // Decrypt failed (secret rotated?) — log and fall through.
         await logWarn(env, 'backend-aiConfig', 'resolveActiveProvider',
-          `Default AI provider key could not be decrypted; falling back to ANTHROPIC_API_KEY. ${e && (e.userMessage || e.message)}`,
+          `Default ${scope} AI provider key could not be decrypted. ${e && (e.userMessage || e.message)}`,
           { providerId: row.provider_id }).catch(() => {});
       }
     }
   } catch (e) {
-    // DB read failed — fall through to the secret.
+    // DB read failed — fall through.
   }
 
-  // 2) the Cloudflare Anthropic secret (the always-there safety net)
-  if (env.ANTHROPIC_API_KEY) {
+  // 2) the Cloudflare Anthropic secret — 'fix' purpose only (see note above).
+  if (scope === 'fix' && env.ANTHROPIC_API_KEY) {
     return {
       type: 'anthropic',
       apiKey: env.ANTHROPIC_API_KEY,
@@ -369,6 +397,6 @@ export async function resolveActiveProvider(env) {
     };
   }
 
-  // 3) nothing configured
+  // 3) nothing configured for this purpose
   return null;
 }

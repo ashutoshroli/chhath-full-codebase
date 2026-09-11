@@ -1117,7 +1117,7 @@ export default {
       getAiProviders: () => withAuth(env, req, (user) => getAiProviders(env, user)),
       saveAiProvider: () => withAuth(env, req, (user) => saveAiProvider(env, req, user)),
       deleteAiProvider: () => withAuth(env, req, (user) => deleteAiProvider(env, req.providerId, user)),
-      setDefaultAiProvider: () => withAuth(env, req, (user) => setDefaultAiProvider(env, req.providerId, user)),
+      setDefaultAiProvider: () => withAuth(env, req, (user) => setDefaultAiProvider(env, req.providerId, user, req.purpose)),
       testAiProvider: () => withAuth(env, req, (user) => testAiProvider(env, req.providerId, user, { prompt: req.prompt, maxTokens: req.maxTokens })),
 
       // ---- Loan message templates (Superadmin) — fully ported, see loans.js ----

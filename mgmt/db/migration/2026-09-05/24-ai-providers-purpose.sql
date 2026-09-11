@@ -1,0 +1,26 @@
+-- ============================================================================
+-- AI provider "purpose" column — 2026-09-05  ·  DB: chhath-logs
+--
+-- RUN THIS FILE AGAINST **chhath-logs** ONLY:
+--   wrangler d1 execute chhath-logs --remote --file=./migration/2026-09-05/24-ai-providers-purpose.sql
+--
+-- Test locally first (safe, hits the local replica):
+--   wrangler d1 execute chhath-logs --local --file=./migration/2026-09-05/24-ai-providers-purpose.sql
+--
+-- Adds `purpose` to ai_providers so the AI Management tab can mark a provider as
+-- used for AI Fixes (the Error Log "Fix using AI") OR for the public chatbot:
+--   'fix'          -> the AI-fix engine (default; matches every existing row)
+--   'public_chat'  -> the public portal chatbot
+-- Each purpose has its own default provider (is_default is now scoped by purpose
+-- in the code, not by a schema change).
+--
+-- Every existing row keeps working: the DEFAULT 'fix' means all current providers
+-- stay AI-fix providers exactly as before.
+--
+-- NOTE: SQLite has no `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, so this migration
+-- is NOT idempotent — running it twice fails on "duplicate column name", which is
+-- expected. It is registered in SCHEMA_ONLY_MIGRATIONS in the migration test for
+-- exactly that reason (same as 22-login-users-totp.sql). Run it ONCE.
+-- ============================================================================
+
+ALTER TABLE ai_providers ADD COLUMN purpose TEXT DEFAULT 'fix';

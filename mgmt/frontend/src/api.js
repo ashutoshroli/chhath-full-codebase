@@ -507,9 +507,11 @@ export const api = {
   getRenderJobStatus: (jobId) => call('getRenderJobStatus', { jobId }),
   // AI Management (multi-provider config, Superadmin-only)
   getAiProviders: () => call('getAiProviders'),
-  saveAiProvider: (p) => call('saveAiProvider', p), // { providerId?, name, type, baseUrl, model, apiKey? }
+  saveAiProvider: (p) => call('saveAiProvider', p), // { providerId?, name, type, baseUrl, model, apiKey?, purpose? }
   deleteAiProvider: (providerId) => call('deleteAiProvider', { providerId }),
-  setDefaultAiProvider: (providerId) => call('setDefaultAiProvider', { providerId }),
+  // Set the default for a provider (its own purpose decides the scope), or clear a
+  // purpose's default by passing providerId='' + purpose.
+  setDefaultAiProvider: (providerId, purpose) => call('setDefaultAiProvider', { providerId, purpose }),
   // A custom `prompt` (optional) exercises the model and returns its reply text;
   // omit it for a quick connectivity ping. maxTokens is capped server-side (1024).
   // The test is OFFLOADED to Render when configured (slow models exceed the
