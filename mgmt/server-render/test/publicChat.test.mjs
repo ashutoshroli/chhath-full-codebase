@@ -29,7 +29,7 @@ const SAMPLE = {
 };
 
 test('summary is public-safe, compact, and carries the key totals', () => {
-  const s = summarizePortalData(SAMPLE);
+  const s = summarizePortalData(SAMPLE, '');
   assert.match(s, /Year 2026: collections ₹8,000/);
   assert.match(s, /expenses ₹1,000/);
   assert.match(s, /net ₹7,000/);
@@ -42,8 +42,37 @@ test('summary is public-safe, compact, and carries the key totals', () => {
 });
 
 test('summary never throws on missing/empty data', () => {
-  assert.doesNotThrow(() => summarizePortalData({}));
-  assert.doesNotThrow(() => summarizePortalData(null));
+  assert.doesNotThrow(() => summarizePortalData({}, ''));
+  assert.doesNotThrow(() => summarizePortalData(null, null));
+});
+
+test('per-person lookup: a named contributor gets their own rows in the context', () => {
+  const data = {
+    collections: [
+      { Year: 2026, Name: 'Anil Prasad', Amount: 500 },
+      { Year: 2025, Name: 'Anil Prasad', Amount: 300 },
+      { Year: 2026, Name: 'Someone Else', Amount: 9000 },
+    ],
+  };
+  const s = summarizePortalData(data, 'Anil Prasad ne abhi tak kitna diya?');
+  assert.match(s, /PERSON DETAILS/);
+  assert.match(s, /Anil Prasad/);
+  assert.match(s, /total ₹800/); // 500 + 300
+  // A person NOT named in the question is not force-added as a person-detail block.
+  assert.doesNotMatch(s, /Contributions by "Someone Else"/);
+});
+
+test('per-person lookup returns nothing when no name matches the question', () => {
+  const data = { collections: [{ Year: 2026, Name: 'Anil Prasad', Amount: 500 }] };
+  const s = summarizePortalData(data, 'what is the total budget?');
+  assert.doesNotMatch(s, /PERSON DETAILS/);
+});
+
+test('summary is hard-capped so a huge dataset cannot blow the prompt', () => {
+  const many = [];
+  for (let i = 0; i < 5000; i++) many.push({ Year: 2026, Name: 'Person ' + i, Amount: i });
+  const s = summarizePortalData({ collections: many, committee: many.map(m => ({ Name: m.Name })) }, '');
+  assert.ok(s.length <= 6100, 'summary must be capped (~6000 chars) regardless of data size');
 });
 
 test('getPortalData reuses the cache when the version is unchanged (no portalData refetch)', async () => {

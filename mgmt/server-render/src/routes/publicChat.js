@@ -18,7 +18,7 @@ import { isOriginAllowed, rateLimited, clientIpFrom } from '../lib/chatGuards.js
 export const publicChatRouter = express.Router();
 
 const MAX_QUESTION_CHARS = 1000;
-const MAX_ANSWER_TOKENS = 700;
+const MAX_ANSWER_TOKENS = 512;
 // 90s: Render has no 30s cap, and a cold/slower model needs headroom. A fast
 // instruct model (e.g. meta/llama-3.1-8b-instruct) answers well within this;
 // this only prevents a genuinely stuck request from hanging forever.
@@ -112,7 +112,8 @@ publicChatRouter.post('/public-chat', async (req, res) => {
     }
 
     const { version, data } = await getPortalData();
-    let summary = summarizePortalData(data);
+    // Pass the question so a per-person query gets that person's rows in context.
+    let summary = summarizePortalData(data, question);
     if (lang === 'hi') summary += '\nReply in simple Hindi (Devanagari) unless the user writes in English.';
 
     const { text, promptTokens, completionTokens } = await callChatModel(provider, summary, question);
@@ -126,7 +127,9 @@ publicChatRouter.post('/public-chat', async (req, res) => {
 
     return res.json({ ok: true, answer });
   } catch (err) {
-    console.error('[public-chat] failed:', err && err.message);
+    // Log the full error (message already includes the model's HTTP status + body
+    // slice from callChatModel) so a recurring failure is diagnosable in the logs.
+    console.error('[public-chat] failed:', (err && err.stack) || err);
     return res.status(502).json({ ok: false, error: 'The chatbot had trouble answering. Please try again.' });
   }
 });

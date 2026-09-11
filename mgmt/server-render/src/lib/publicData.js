@@ -68,7 +68,9 @@ export function _resetCache() { _cache = null; }
 const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
 const inr = (n) => `₹${Math.round(num(n)).toLocaleString('en-IN')}`;
 
-export function summarizePortalData(data) {
+const SUMMARY_MAX_CHARS = 6000; // hard cap so the prompt can never blow the model's input
+
+export function summarizePortalData(data, question) {
   const d = data || {};
   const collections = Array.isArray(d.collections) ? d.collections : [];
   const expenses = Array.isArray(d.expenses) ? d.expenses : [];
@@ -113,5 +115,47 @@ export function summarizePortalData(data) {
     lines.push(`Loans on record: ${loans.length}, total principal ${inr(totalLoan)}.`);
   }
 
-  return lines.join('\n');
+  // PER-PERSON lookup: if the question names contributor(s) present in the data,
+  // add ONLY their specific rows so a question like "how much did X give?" is
+  // answerable without dumping every record. Bounded to keep the prompt small.
+  const personBlock = personContributionsFor(question, collections);
+  if (personBlock) lines.push(personBlock);
+
+  let out = lines.join('\n');
+  // Hard cap: never send an oversized prompt (a huge dataset was producing
+  // Model HTTP 500). Trim from the end (per-year + person detail survive; the
+  // long committee-name list is what gets cut first if anything).
+  if (out.length > SUMMARY_MAX_CHARS) out = out.slice(0, SUMMARY_MAX_CHARS) + '\n…(data truncated)';
+  return out;
+}
+
+// Find contributor names in the data that appear in the question, and list that
+// person's contributions across years. Returns '' when no name matches.
+function personContributionsFor(question, collections) {
+  const q = (question || '').toString().toLowerCase();
+  if (!q || !collections.length) return '';
+  // Unique contributor names.
+  const names = [...new Set(collections.map(c => (c.Name || '').toString().trim()).filter(Boolean))];
+  // A name "matches" if its full string appears in the question, OR any of its
+  // words (>=3 chars) does — so "Anil Prasad" matches "anil prasad ne kitna diya".
+  const matched = names.filter(n => {
+    const ln = n.toLowerCase();
+    if (q.includes(ln)) return true;
+    const words = ln.split(/\s+/).filter(w => w.length >= 3);
+    return words.length > 0 && words.every(w => q.includes(w));
+  }).slice(0, 5); // at most 5 people
+  if (!matched.length) return '';
+
+  const blocks = matched.map(name => {
+    const rows = collections.filter(c => (c.Name || '').toString().trim() === name).slice(0, 40);
+    const total = rows.reduce((s, c) => s + num(c.Amount), 0);
+    const items = rows.map(c => {
+      const yr = parseInt(c.Year) || '';
+      const isResell = c['Is Resell'] === 'TRUE' || c['Is Resell'] === true;
+      const what = isResell ? `resold: ${(c.Detail || '').toString()}` : inr(c.Amount);
+      return `${yr}: ${what}`;
+    }).join('; ');
+    return `Contributions by "${name}" (${rows.length} entries, total ${inr(total)}): ${items}.`;
+  });
+  return 'PERSON DETAILS (use these for questions about a specific person):\n' + blocks.join('\n');
 }
