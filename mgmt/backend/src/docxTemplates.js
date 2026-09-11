@@ -602,9 +602,11 @@ export async function applyPdfConvertBatchResult(env, payload, result) {
   const { docType, year } = payload || {};
   const items = (result && Array.isArray(result.results)) ? result.results : [];
   const out = [];
+  const seen = new Set();
   for (const r of items) {
     const recordId = r && r.recordId;
     if (!recordId) continue;
+    seen.add(recordId);
     if (!r.ok || !r.pdfBase64) {
       out.push({ recordId, success: false, error: (r && r.error) || 'conversion failed' });
       continue;
@@ -624,6 +626,17 @@ export async function applyPdfConvertBatchResult(env, payload, result) {
     } catch (e) {
       out.push({ recordId, success: false, error: (e && e.message) || 'store failed' });
     }
+  }
+  // Reconcile against the records we ASKED Render to convert (stored on the job
+  // row as payload.recordIds). If the processing service dropped a record from its
+  // response, it would otherwise vanish silently — report it as an explicit
+  // failure so the client's Error Log shows a concrete, actionable reason instead
+  // of a blank one.
+  const requested = (payload && Array.isArray(payload.recordIds)) ? payload.recordIds : [];
+  for (const recordId of requested) {
+    if (!recordId || seen.has(recordId)) continue;
+    out.push({ recordId, success: false, error: 'missing from processing-service response' });
+    logErrorAt(env, 'backend-docx', 'applyPdfConvertBatchResult:missing', new Error('record missing from Render batch response'), { docType, year, recordId }).catch(() => {});
   }
   // base64-STRIPPED summary stored on the job row.
   return { results: out };
