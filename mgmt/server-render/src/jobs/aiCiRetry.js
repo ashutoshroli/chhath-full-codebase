@@ -14,7 +14,7 @@
 
 import { config } from '../config.js';
 import { gh, githubGetFileOnBranch, fetchFailedJobLog, isBlockedPath, toBase64Utf8 } from '../lib/github.js';
-import { callClaude } from '../lib/anthropic.js';
+import { callModel } from '../lib/model.js';
 import { applyUnifiedDiff, pathsInDiff } from '../lib/diffApply.js';
 
 export async function runAiCiRetry(payload) {
@@ -57,7 +57,7 @@ export async function runAiCiRetry(payload) {
     + `Fix the CI failure. The RELEVANT FILE(S) below already contain the previous fix `
     + `(current branch state). Return a diff AGAINST THAT CURRENT STATE.`;
 
-  const result = await callClaude({ errorRow, files, extraContext });
+  const result = await callModel({ provider: payload && payload.provider, errorRow, files, extraContext });
 
   // 4) Apply strictly.
   const applied = applyUnifiedDiff(result.diff, contentByPath);

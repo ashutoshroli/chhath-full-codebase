@@ -8,7 +8,7 @@
 //   { diff, reasoning, files: [{path, sha}], model, tokens: {prompt, completion} }
 
 import { githubGetFile, isBlockedPath } from '../lib/github.js';
-import { callClaude } from '../lib/anthropic.js';
+import { callModel } from '../lib/model.js';
 
 const MAX_CONTEXT_FILES = 4;
 
@@ -46,8 +46,9 @@ export async function runAiFixGenerate(payload) {
     }
   }
 
-  // B — ask Claude for a diff.
-  const result = await callClaude({ errorRow, files });
+  // B — ask the configured model for a diff (provider comes from the Worker's
+  // AI Management config; falls back to this service's env if absent).
+  const result = await callModel({ provider: payload && payload.provider, errorRow, files });
 
   return {
     diff: result.diff,

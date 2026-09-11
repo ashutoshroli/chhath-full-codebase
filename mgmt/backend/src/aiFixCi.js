@@ -17,7 +17,7 @@
 
 import { logWarn } from './logger.js';
 import { reportErrorToWhatsApp } from './errorLog.js';
-import { gh, updateFixRow, MAX_CI_ATTEMPTS } from './aiFix.js';
+import { gh, updateFixRow, MAX_CI_ATTEMPTS, resolveProviderForDispatch } from './aiFix.js';
 import { createAndDispatchJob } from './renderJobs.js';
 
 // --- HMAC-SHA256 signature verification (X-Hub-Signature-256) ---------------
@@ -136,12 +136,16 @@ export async function handleCheckSuiteEvent(env, payload) {
   const errorRow = fix.error_id
     ? await env.DB_LOGS.prepare('SELECT * FROM error_log WHERE error_id = ?').bind(fix.error_id).first().catch(() => null)
     : null;
-  const dispatch = await createAndDispatchJob(env, 'ai_ci_retry', {
+  // Resolve the active AI provider so the CI-retry uses the SAME provider the
+  // Superadmin configured (custom / OpenAI-compatible / default Anthropic).
+  const provider = await resolveProviderForDispatch(env);
+  const dispatch = provider ? await createAndDispatchJob(env, 'ai_ci_retry', {
     fixId: fix.fix_id,
     branch: fix.branch,
     prevDiff: fix.diff,
     checkSuiteId: suite.id,
     attempts,
+    provider,
     errorRow: {
       message: (errorRow && errorRow.message) || '',
       stack: (errorRow && errorRow.stack) || '',
@@ -149,7 +153,7 @@ export async function handleCheckSuiteEvent(env, payload) {
       source: (errorRow && errorRow.source) || '',
       page: (errorRow && errorRow.page) || '',
     },
-  }, { refId: fix.fix_id });
+  }, { refId: fix.fix_id }) : { success: false };
 
   if (!dispatch.success) {
     // Could not even reach Render. Count the attempt; escalate at the cap.
