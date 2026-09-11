@@ -91,7 +91,7 @@ export function summarizePortalData(data, question) {
   const lines = [];
   lines.push('You are the friendly assistant of the Navyuvak Chhath Puja Samiti (Shaharpura & Gardih). Below is the committee\'s public data.');
   lines.push('Answer the user\'s question using this data. You MAY add up amounts, count entries, and summarise across years to answer. Amounts are in Indian Rupees (₹).');
-  lines.push('If the specific PERSON DETAILS block for a named person is present below, use it to answer questions about that person (their yearly amounts and total).');
+  lines.push('If the specific PERSON DETAILS block for a named person is present below, use it to answer about that person — their yearly amounts, total, and any download links for their receipts/certificates.');
   lines.push('Only say you do not have the information if the answer genuinely is not in the data below. Reply briefly and clearly.');
   lines.push(`Years with records: ${years.join(', ') || 'none'}.`);
 
@@ -104,12 +104,21 @@ export function summarizePortalData(data, question) {
     lines.push(`Year ${y}: collections ${inr(totalCol)} from ${cols.length} entries; expenses ${inr(totalExp)}; net ${inr(totalCol - totalExp)}.`);
   }
 
-  // Top contributors of the latest year (names are public on the portal already).
-  if (latestYear) {
-    const cur = collections.filter(c => parseInt(c.Year) === latestYear && !(c['Is Resell'] === 'TRUE' || c['Is Resell'] === true));
-    const top = [...cur].sort((a, b) => num(b.Amount) - num(a.Amount)).slice(0, 10)
-      .map(c => `${nameOf(c.Name)} (${inr(c.Amount)})`);
-    if (top.length) lines.push(`Top contributors ${latestYear}: ${top.join(', ')}.`);
+  // Top contributors PER YEAR — aggregated per PERSON (so someone with several
+  // entries appears ONCE with their combined total, never duplicated), real names,
+  // for each of the most recent ~6 years. Public info (shown on the portal).
+  for (const y of years.slice(0, 6)) {
+    const totals = new Map(); // realName -> summed amount for the year
+    for (const c of collections) {
+      if (parseInt(c.Year) !== y) continue;
+      if (c['Is Resell'] === 'TRUE' || c['Is Resell'] === true) continue;
+      const nm = nameOf(c.Name);
+      if (!nm) continue;
+      totals.set(nm, (totals.get(nm) || 0) + num(c.Amount));
+    }
+    const top = [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10)
+      .map(([nm, amt]) => `${nm} (${inr(amt)})`);
+    if (top.length) lines.push(`Top contributors ${y}: ${top.join(', ')}.`);
   }
 
   // Committee (public list).
@@ -127,7 +136,8 @@ export function summarizePortalData(data, question) {
   // PER-PERSON lookup: if the question names contributor(s) present in the data,
   // add ONLY their specific rows so a question like "how much did X give?" is
   // answerable without dumping every record. Bounded to keep the prompt small.
-  const personBlock = personContributionsFor(question, collections, nameOf);
+  const generatedFiles = Array.isArray(d.generatedFiles) ? d.generatedFiles : [];
+  const personBlock = personContributionsFor(question, collections, nameOf, generatedFiles);
   if (personBlock) lines.push(personBlock);
 
   let out = lines.join('\n');
@@ -156,12 +166,24 @@ function buildNameResolver(users) {
   };
 }
 
+// A generated file's record_id is `<docType>-<year>-<rowIndex>`. Return the public
+// download link for a collection row (year + __rowIndex) if one exists, else ''.
+// We match on the trailing `-<year>-<row>` so we don't need to reproduce the
+// docType-selection logic — the year+row pair is unique per collection entry.
+function downloadLinkFor(genFiles, year, rowIndex) {
+  if (!genFiles.length || !year || rowIndex == null || rowIndex === '') return '';
+  const suffix = `-${year}-${rowIndex}`;
+  const hit = genFiles.find(g => (g.record_id || '').toString().trim().endsWith(suffix) && (g.public_link || '').toString().trim());
+  return hit ? hit.public_link.toString().trim() : '';
+}
+
 // Find contributor(s) named in the question and list their contributions across
-// years. Matches on the RESOLVED real name (not the ID stored on the row).
-// Returns '' when no name matches.
-function personContributionsFor(question, collections, nameOf) {
+// years, plus any public download links (receipts/certificates). Matches on the
+// RESOLVED real name (not the ID stored on the row). Returns '' when no match.
+function personContributionsFor(question, collections, nameOf, generatedFiles) {
   const q = (question || '').toString().toLowerCase();
   if (!q || !collections.length) return '';
+  const genFiles = Array.isArray(generatedFiles) ? generatedFiles : [];
   // Unique contributor IDs -> { id, realName }.
   const ids = [...new Set(collections.map(c => (c.Name || '').toString().trim()).filter(Boolean))];
   const people = ids.map(id => ({ id, name: (nameOf ? nameOf(id) : id) }));
@@ -187,9 +209,12 @@ function personContributionsFor(question, collections, nameOf) {
       const yr = parseInt(c.Year) || '';
       const isResell = c['Is Resell'] === 'TRUE' || c['Is Resell'] === true;
       const what = isResell ? `resold: ${(c.Detail || '').toString()}` : inr(c.Amount);
-      return `${yr}: ${what}`;
+      const link = downloadLinkFor(genFiles, yr, c.__rowIndex);
+      return `${yr}: ${what}${link ? ` [download: ${link}]` : ''}`;
     }).join('; ');
-    return `Contributions by "${name}" (${rows.length} entries, total ${inr(total)}): ${items}.`;
+    const links = rows.map(c => downloadLinkFor(genFiles, parseInt(c.Year) || '', c.__rowIndex)).filter(Boolean);
+    const linkNote = links.length ? ` Download links: ${links.join(', ')}.` : ' No downloadable files are available for this person.';
+    return `Contributions by "${name}" (${rows.length} entries, total ${inr(total)}): ${items}.${linkNote}`;
   });
-  return 'PERSON DETAILS (use these for questions about a specific person):\n' + blocks.join('\n');
+  return 'PERSON DETAILS (use these for questions about a specific person, including download links):\n' + blocks.join('\n');
 }
