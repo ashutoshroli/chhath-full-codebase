@@ -43,7 +43,8 @@ Consent, Popups, Download Center and PDF Export), then flip it.
 | `lh3.googleusercontent.com`, `drive.google.com`, `drive.usercontent.google.com` | `driveUrl.js` — Drive-hosted popup images, consent photos and signatures |
 | `files-chhath.shaharpura.com` | the R2 public bucket (`R2_PUBLIC_BASE`) |
 | `inputtools.google.com` | `transliterate.js` — the Hindi transliteration API (mgmt only) |
-| `mgmt-chhath.shaharpura.com` | the mgmt API Worker (`connect-src`, mgmt only) |
+| `mgmt-chhath.shaharpura.com` | the mgmt API Worker — custom domain (`connect-src`, mgmt only) |
+| `chhath-mgmt-api.shaharpura.workers.dev` | the SAME mgmt Worker's default origin; allowed so a build pointing `VITE_API_URL` at it (or a direct call) isn't blocked under strict CSP (`connect-src`, mgmt only) |
 | `chhath-public-worker.shaharpura.com` | the public read-only API (`connect-src`, public only) |
 | `accounts.google.com` | **Sign in with Google** (Google Identity Services): the GSI client script (`script-src`), its iframe (`frame-src`) and its token exchange (`connect-src`). mgmt only. |
 | `blob:` / `data:` | jsPDF, html2canvas, QR data-URLs, camera capture |
