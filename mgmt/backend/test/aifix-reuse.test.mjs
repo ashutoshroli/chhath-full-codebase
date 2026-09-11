@@ -147,3 +147,44 @@ test('getLatestAiFixForError is empty for an error with no fix, and Superadmin-o
   assert.equal(none.jobId, null);
   await assert.rejects(() => getLatestAiFixForError(env, 'ERR1', { name: 'x', role: 'Admin' }), /Superadmin/);
 });
+
+
+// ---- Developer guidance for a Re-generate (steers the next attempt) ----
+
+// Parse the payload the Worker POSTed to Render out of the captured fetch call.
+const sentPayload = (calls) => JSON.parse(calls[calls.length - 1].opts.body).payload;
+
+test('guidance on a forced re-generate is sent to Render as extraContext', async () => {
+  const env = makeEnv();
+  const { calls, restore } = stubDispatch();
+  try {
+    await generateAiFix(env, 'ERR1', SUPER, { force: true, guidance: 'Do not hardcode the domain; read VITE_API_URL. Only change api.js.' });
+  } finally { restore(); }
+
+  const payload = sentPayload(calls);
+  assert.equal(payload.kind === undefined, true); // (sanity: payload is the inner object)
+  assert.match(payload.extraContext, /DEVELOPER GUIDANCE/);
+  assert.match(payload.extraContext, /read VITE_API_URL/);
+  assert.match(payload.extraContext, /Only change api\.js/);
+});
+
+test('no guidance -> no extraContext key in the dispatch payload', async () => {
+  const env = makeEnv();
+  const { calls, restore } = stubDispatch();
+  try {
+    await generateAiFix(env, 'ERR1', SUPER, { force: true });
+  } finally { restore(); }
+  assert.equal('extraContext' in sentPayload(calls), false, 'a plain re-generate carries no extraContext');
+});
+
+test('guidance is capped at 1000 chars', async () => {
+  const env = makeEnv();
+  const { calls, restore } = stubDispatch();
+  try {
+    await generateAiFix(env, 'ERR1', SUPER, { force: true, guidance: 'x'.repeat(5000) });
+  } finally { restore(); }
+  const payload = sentPayload(calls);
+  // The prefix line + up to 1000 chars of guidance; the guidance body itself is clamped.
+  const body = payload.extraContext.split('\n').slice(1).join('\n');
+  assert.equal(body.length, 1000, 'guidance body is clamped to 1000 chars');
+});

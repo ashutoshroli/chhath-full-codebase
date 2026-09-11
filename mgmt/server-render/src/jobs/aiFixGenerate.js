@@ -48,7 +48,14 @@ export async function runAiFixGenerate(payload) {
 
   // B — ask the configured model for a diff (provider comes from the Worker's
   // AI Management config; falls back to this service's env if absent).
-  const result = await callModel({ provider: payload && payload.provider, errorRow, files });
+  // extraContext carries optional developer guidance the Worker attached for a
+  // Re-generate; model.js drops it into the prompt as ADDITIONAL CONTEXT.
+  const result = await callModel({
+    provider: payload && payload.provider,
+    errorRow,
+    files,
+    extraContext: payload && payload.extraContext,
+  });
 
   return {
     diff: result.diff,

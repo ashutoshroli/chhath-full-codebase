@@ -318,6 +318,10 @@ export async function generateAiFix(env, errorId, user, opts) {
   // (which wastes provider tokens and creates confusing duplicate rows). A failed
   // fix is not "live", so it does not block a fresh attempt.
   const force = !!(opts && opts.force);
+  // Optional developer guidance for THIS attempt (the modal's Re-generate box).
+  // It is fed to the model as extra context to steer the fix — capped so a huge
+  // paste can't blow the prompt. Not persisted; only used for this dispatch.
+  const guidance = (opts && typeof opts.guidance === 'string') ? opts.guidance.trim().slice(0, 1000) : '';
   if (!force) {
     const { fix, jobId } = await getLatestAiFixForError(env, errorId, user);
     if (fix && LIVE_FIX_STATUSES.has(fix.status)) {
@@ -375,6 +379,10 @@ export async function generateAiFix(env, errorId, user, opts) {
       source: errorRow.source || '',
       page: errorRow.page || '',
     },
+    // Developer direction for this attempt -> Render's model.js drops it into the
+    // prompt as ADDITIONAL CONTEXT. Prefixed so the model knows it is a human
+    // instruction, not error data. Omitted entirely when there is no guidance.
+    ...(guidance ? { extraContext: `DEVELOPER GUIDANCE for this fix attempt (follow it):\n${guidance}` } : {}),
   }, { refId: fixId, createdBy: (user && user.name) || '' });
 
   if (!dispatch.success) {

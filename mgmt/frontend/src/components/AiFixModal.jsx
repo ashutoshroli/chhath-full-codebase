@@ -68,6 +68,9 @@ export default function AiFixModal({ error, onClose }) {
   const [result, setResult] = useState(null); // { fixId, diff, reasoning, files, model, tokens }
   const [creating, setCreating] = useState(false);
   const [pr, setPr] = useState(null); // { prNumber, prUrl, branch } once the PR is created
+  // Optional developer guidance for a Re-generate — steers the next attempt
+  // (e.g. "don't hardcode the domain, read VITE_API_URL" / "only touch api.js").
+  const [guidance, setGuidance] = useState('');
   const cancelledRef = useRef(false);
 
   // Poll a running Render job for the GENERATE step and reflect its outcome.
@@ -83,8 +86,9 @@ export default function AiFixModal({ error, onClose }) {
     }
   };
 
-  // Kick off / resume the flow. `force` starts a fresh generation (Re-generate).
-  const startFlow = async (force) => {
+  // Kick off / resume the flow. `force` starts a fresh generation (Re-generate);
+  // `guidanceText` (only meaningful with force) steers that fresh attempt.
+  const startFlow = async (force, guidanceText) => {
     const isCancelled = () => cancelledRef.current;
     setLoading(true);
     setErrMsg('');
@@ -115,7 +119,8 @@ export default function AiFixModal({ error, onClose }) {
       }
 
       // 2) Start (or force) a generation. generateAiFix reuses server-side too.
-      const start = await api.generateAiFix(error.error_id, force);
+      // guidanceText only travels on a forced (Re-generate) attempt.
+      const start = await api.generateAiFix(error.error_id, force, force ? (guidanceText || '') : '');
       if (start && start.reused && !start.jobId) {
         // Server says a ready fix exists — load it.
         const row = await api.getAiFix(start.fixId);
@@ -156,7 +161,7 @@ export default function AiFixModal({ error, onClose }) {
 
   const regenerate = () => {
     cancelledRef.current = false;
-    startFlow(true);
+    startFlow(true, guidance.trim());
   };
 
   return (
@@ -214,6 +219,24 @@ export default function AiFixModal({ error, onClose }) {
             </div>
           )}
         </>
+      )}
+
+      {/* Optional guidance for Re-generate: only useful once there is a result (or
+          an error) to redo, and before a PR exists. Empty = a plain re-run. */}
+      {!loading && (result || errMsg) && !pr && (
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 4 }}>
+            Optional: guide the next attempt (used when you press Re-generate)
+          </label>
+          <textarea
+            value={guidance}
+            onChange={e => setGuidance(e.target.value)}
+            rows={2}
+            maxLength={1000}
+            placeholder="e.g. Don't hardcode the domain — read it from VITE_API_URL. Only change api.js."
+            style={{ width: '100%', fontSize: '0.8rem', fontFamily: 'inherit', padding: 8, borderRadius: 6, border: '1px solid #d1d5db', boxSizing: 'border-box' }}
+          />
+        </div>
       )}
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>

@@ -1105,7 +1105,7 @@ export default {
       getErrorLog: () => withAuth(env, req, (user) => getErrorLog(env, user, req.limit)),
       // AI auto-fix (Superadmin-only; enforced inside each handler). PR-1 scope:
       // generate a fix + preview it. Branch/PR is PR-2, CI retry is PR-3.
-      generateAiFix: () => withAuth(env, req, (user) => generateAiFix(env, req.errorId, user, { force: !!req.force })),
+      generateAiFix: () => withAuth(env, req, (user) => generateAiFix(env, req.errorId, user, { force: !!req.force, guidance: req.guidance })),
       getAiFixes: () => withAuth(env, req, (user) => getAiFixes(env, user, req.errorId)),
       getAiFix: () => withAuth(env, req, (user) => getAiFix(env, user, req.fixId)),
       getLatestAiFixForError: () => withAuth(env, req, (user) => getLatestAiFixForError(env, req.errorId, user)),
