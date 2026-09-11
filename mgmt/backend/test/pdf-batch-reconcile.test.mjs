@@ -199,3 +199,95 @@ test('getRenderJobStatus normalizes a STALE raw-shaped batch row (no blank error
   assert.equal('pdfBase64' in map['receipt-2025-35'], false);
   assert.equal('ok' in map['receipt-2025-35'], false);
 });
+
+
+// ============ ROOT CAUSE: an already-generated (skipped) record is a SUCCESS ============
+//
+// THE BUG: dispatchBulkPdfBatch pushed already-generated records into `skipped` as
+// { recordId, skipped:true, publicLink, fileName } with NO `success` field. Every
+// SYNCHRONOUS path returns that array VERBATIM as `results` (nothing to dispatch /
+// no Render configured / dispatch failed), and the client reads `r.success`
+// directly on that path (only the ASYNC `preSkipped` path re-maps it). So an
+// already-generated record was read as success:false with NO error string —
+// surfacing as "conversion failed (server returned no error detail)" for a record
+// that was perfectly fine and was NEVER even sent to Render (hence no Render logs).
+// Bulk runs over an OLD year, where most PDFs already exist, hit this constantly.
+
+import { dispatchBulkPdfBatch } from '../src/docxTemplates.js';
+
+const DOCX_B64_OK = 'UEsDBBQAAAAIAA' + 'A'.repeat(18);
+
+function bulkEnv() {
+  const fileIndex = _makeD1(_schemaFor('file_index.sql'));
+  const core = _makeD1(_schemaFor('core.sql'));
+  return {
+    env: {
+      DB_CORE: core,
+      DB_MISC: _makeD1(_schemaFor('misc.sql')),
+      DB_FILE_INDEX: fileIndex,
+      DB_LOGS: _makeD1(_schemaFor('logs.sql')),
+      DRIVE_ROOT_FOLDER_ID: 'folder-root',
+      // No RENDER_SERVICE_URL / RENDER_API_KEY -> the synchronous path, which is
+      // exactly where the raw `skipped` array is returned as `results`.
+    },
+    markGenerated: (docType, year, recordId) =>
+      fileIndex.prepare(
+        'INSERT INTO generated_files (doc_type, year, record_id, file_name, public_link, drive_path, generated_at) VALUES (?,?,?,?,?,?,?)'
+      ).bind(docType, year, recordId, `${recordId}.pdf`, `https://cdn.test/${recordId}.pdf`, `k/${recordId}.pdf`, '2025-01-01').run(),
+  };
+}
+
+test('ROOT CAUSE: an already-generated record is returned as success:true (never a blank failure)', async () => {
+  const { env, markGenerated } = bulkEnv();
+  markGenerated('receipt', 2025, 'receipt-2025-57');
+
+  // Every record in the batch is already generated -> toConvert is empty -> the
+  // function returns `results: skipped` VERBATIM on the synchronous path.
+  const res = await dispatchBulkPdfBatch(env, 'receipt', 2025, [
+    { recordId: 'receipt-2025-57', base64: DOCX_B64_OK, fileName: 'r.docx' },
+  ], SUPERADMIN2, {});
+
+  assert.equal(res.dispatched, false, 'nothing to dispatch');
+  const rec = res.results[0];
+  assert.equal(rec.recordId, 'receipt-2025-57');
+  // THE REGRESSION GUARD: the client reads r.success on this path.
+  assert.equal(rec.success, true, 'an already-generated record MUST be success:true');
+  assert.equal(rec.skipped, true, 'and it must still be reported as skipped');
+  assert.ok(rec.publicLink, 'the existing link is handed back');
+  // It must NOT look like a failure: no error string at all.
+  assert.ok(!rec.error, 'a skipped record must carry no error');
+});
+
+test('a MIXED batch marks the generated record skipped:true and still reports the rest', async () => {
+  const { env, markGenerated } = bulkEnv();
+  markGenerated('receipt', 2025, 'receipt-2025-57');
+
+  const res = await dispatchBulkPdfBatch(env, 'receipt', 2025, [
+    { recordId: 'receipt-2025-57', base64: DOCX_B64_OK, fileName: 'a.docx' }, // already generated
+    { recordId: 'receipt-2025-58', base64: DOCX_B64_OK, fileName: 'b.docx' }, // needs conversion
+  ], SUPERADMIN2, {});
+
+  const map = Object.fromEntries(res.results.map((r) => [r.recordId, r]));
+  // The skipped one is an unambiguous success.
+  assert.equal(map['receipt-2025-57'].success, true);
+  assert.equal(map['receipt-2025-57'].skipped, true);
+  // The other one was attempted synchronously (Drive is not reachable in the test,
+  // so it fails) — and when it fails it carries a CONCRETE, non-empty reason.
+  assert.equal(map['receipt-2025-58'].success, false);
+  assert.ok(map['receipt-2025-58'].error && map['receipt-2025-58'].error.length > 0);
+});
+
+test('force:true re-converts instead of skipping (no skipped entries)', async () => {
+  const { env, markGenerated } = bulkEnv();
+  markGenerated('receipt', 2025, 'receipt-2025-57');
+
+  const res = await dispatchBulkPdfBatch(env, 'receipt', 2025, [
+    { recordId: 'receipt-2025-57', base64: DOCX_B64_OK, fileName: 'a.docx' },
+  ], SUPERADMIN2, { force: true });
+
+  const rec = res.results[0];
+  assert.notEqual(rec.skipped, true, 'force must bypass the already-generated skip');
+  // It was actually attempted (and fails on the unreachable Drive) with a real reason.
+  assert.equal(rec.success, false);
+  assert.ok(rec.error && rec.error.length > 0);
+});

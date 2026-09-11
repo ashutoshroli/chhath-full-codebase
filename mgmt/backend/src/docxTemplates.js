@@ -534,7 +534,13 @@ export async function dispatchBulkPdfBatch(env, docType, year, items, user, opts
     if (!force) {
       const existing = await isFileGenerated(env, docType, year, recordId);
       if (existing) {
-        skipped.push({ recordId, skipped: true, publicLink: existing.public_link, fileName: existing.file_name });
+        // `success: true` is REQUIRED, not decorative. These entries are returned
+        // VERBATIM as `results` on every synchronous path (nothing to dispatch /
+        // no Render configured / dispatch failed), where the client reads
+        // `r.success` directly. Without it an already-generated record was read as
+        // a failure with no error string — a "conversion failed (no error detail)"
+        // for a record that was actually fine and never even sent to Render.
+        skipped.push({ recordId, success: true, skipped: true, publicLink: existing.public_link, fileName: existing.file_name });
         continue;
       }
     }
