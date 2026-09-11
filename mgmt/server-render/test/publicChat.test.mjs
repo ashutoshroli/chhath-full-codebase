@@ -55,8 +55,9 @@ test('per-person lookup: a named contributor gets their own rows in the context'
     ],
   };
   const s = summarizePortalData(data, 'Anil Prasad ne abhi tak kitna diya?');
-  assert.match(s, /PERSON DETAILS/);
-  assert.match(s, /Anil Prasad/);
+  // The person-detail BLOCK is emitted (the phrase 'PERSON DETAILS' also appears
+  // in the system-prompt instructions, so match the block's own contribution line).
+  assert.match(s, /Contributions by "Anil Prasad"/);
   assert.match(s, /total ₹800/); // 500 + 300
   // A person NOT named in the question is not force-added as a person-detail block.
   assert.doesNotMatch(s, /Contributions by "Someone Else"/);
@@ -65,7 +66,7 @@ test('per-person lookup: a named contributor gets their own rows in the context'
 test('per-person lookup returns nothing when no name matches the question', () => {
   const data = { collections: [{ Year: 2026, Name: 'Anil Prasad', Amount: 500 }] };
   const s = summarizePortalData(data, 'what is the total budget?');
-  assert.doesNotMatch(s, /PERSON DETAILS/);
+  assert.doesNotMatch(s, /Contributions by "/);
 });
 
 test('summary is hard-capped so a huge dataset cannot blow the prompt', () => {
