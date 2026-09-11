@@ -133,11 +133,41 @@ export default function App() {
   const [showAdminMenu, setShowAdminMenu] = useState(false);
 
   // Keep the URL hash in sync with the current tab so a refresh restores it (see
-  // the initial state above). replaceState (not pushState) so it doesn't spam the
-  // browser's back history on every tab click.
+  // the initial state above), AND so the browser Back/Forward buttons work (audit
+  // MEDIUM #4). We PUSH a history entry when the tab genuinely changes, so Back
+  // returns to the previous screen (Home -> Expenses -> Back -> Home); we only
+  // REPLACE when the hash already equals this tab (the first sync after a refresh,
+  // or a hashchange we are echoing), so we never create a duplicate entry or spam
+  // history. The `hashchange` listener below already applied a Back/Forward hash
+  // to `tab`, so that case hits the replace branch and adds nothing.
   useEffect(() => {
-    try { window.history.replaceState(null, '', '#' + tab); } catch (e) { /* ignore */ }
+    try {
+      const current = (window.location.hash || '').replace(/^#/, '').trim();
+      if (current === tab) {
+        window.history.replaceState(null, '', '#' + tab);
+      } else {
+        window.history.pushState(null, '', '#' + tab);
+      }
+    } catch (e) { /* ignore */ }
   }, [tab]);
+
+  // AUDIT MEDIUM #4: make the browser Back/Forward buttons actually change the
+  // screen. Without this, pressing Back moved the URL hash (e.g. #expenses ->
+  // #home) but `tab` state never updated, so the view stayed stuck on the old
+  // screen. Listen for `hashchange` and follow the URL — but only to a tab this
+  // role may see (an out-of-range hash falls back to Home, same as the guard
+  // above), and skip if it already matches to avoid a redundant re-render.
+  useEffect(() => {
+    const onHashChange = () => {
+      const h = (window.location.hash || '').replace(/^#/, '').trim() || 'home';
+      const groups = user ? (TAB_GROUPS_BY_ROLE[user.role] || []) : [];
+      const allowed = new Set([...BASE_TABS.map(t => t.id), ...groups.flatMap(g => g.tabs).map(t => t.id)]);
+      const next = allowed.has(h) ? h : 'home';
+      setTab(prev => (prev === next ? prev : next));
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, [user]);
 
   // Guard: once the user (role) is known, if the tab restored from the hash isn't
   // valid for this role, fall back to Home — so a stale/foreign hash (e.g. an
