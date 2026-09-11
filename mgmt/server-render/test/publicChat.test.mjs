@@ -68,6 +68,46 @@ test('per-person lookup resolves the ID to a real name and lists their rows', ()
   assert.doesNotMatch(s, /USER0001/);
 });
 
+test('top contributors are aggregated PER PERSON (no duplicate rows for the same person)', () => {
+  const data = {
+    users: [{ ID: 'U1', Name: 'Dhapru Mahto' }, { ID: 'U2', Name: 'Govind Verma' }],
+    collections: [
+      { Year: 2026, Name: 'U1', Amount: 587 },
+      { Year: 2026, Name: 'U1', Amount: 522 }, // same person, 2nd entry
+      { Year: 2026, Name: 'U2', Amount: 2100 },
+    ],
+  };
+  const s = summarizePortalData(data, 'top contributors');
+  const line = s.split('\n').find(l => l.startsWith('Top contributors 2026:')) || '';
+  // Dhapru Mahto appears ONCE with the combined total 587+522 = 1109.
+  assert.equal((line.match(/Dhapru Mahto/g) || []).length, 1, 'Dhapru Mahto must appear once');
+  assert.match(line, /Dhapru Mahto \(₹1,109\)/);
+  assert.match(line, /Govind Verma \(₹2,100\)/);
+});
+
+test('per-person block includes a public download link when a generated file exists', () => {
+  const data = {
+    users: [{ ID: 'U1', Name: 'Amit Kumar' }],
+    // __rowIndex ties the collection row to the generated file's record_id.
+    collections: [{ Year: 2026, Name: 'U1', Amount: 189, __rowIndex: 42 }],
+    generatedFiles: [{ doc_type: 'receipt', year: 2026, record_id: 'receipt-2026-42', public_link: 'https://files.test/amit.pdf' }],
+  };
+  const s = summarizePortalData(data, 'Amit ke downloadable files ka link');
+  assert.match(s, /Contributions by "Amit Kumar"/);
+  assert.match(s, /https:\/\/files\.test\/amit\.pdf/);
+  assert.match(s, /Download links:/);
+});
+
+test('per-person block says no files when none are generated', () => {
+  const data = {
+    users: [{ ID: 'U1', Name: 'Amit Kumar' }],
+    collections: [{ Year: 2026, Name: 'U1', Amount: 189, __rowIndex: 42 }],
+    generatedFiles: [],
+  };
+  const s = summarizePortalData(data, 'Amit ka download link');
+  assert.match(s, /No downloadable files are available for this person/);
+});
+
 test('a single distinctive name word matches (amit -> Amit Kumar)', () => {
   const data = {
     users: [{ ID: 'U9', Name: 'Amit Kumar' }],
