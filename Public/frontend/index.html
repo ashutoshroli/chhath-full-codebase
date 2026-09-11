@@ -102,7 +102,7 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round">
   </noscript>
 
-  <link rel="stylesheet" href="style.css?v=chatbot1">
+  <link rel="stylesheet" href="style.css?v=chatbot2">
   <!-- Footer language toggle lives INLINE here (not in style.css) on purpose:
        style.css is cached for a day (max-age=86400), but this HTML is always
        revalidated (max-age=0). Keeping the show/hide rule with the markup means
@@ -309,8 +309,8 @@
     style="position:fixed; right:18px; bottom:146px; z-index:201; width:min(380px, calc(100vw - 36px)); height:min(70vh, 520px); background:#fff; border-radius:16px; overflow:hidden; flex-direction:column; box-shadow:0 12px 40px rgba(0,0,0,0.28); border:1px solid #eef0f2;">
     <div class="chat-header" style="display:flex; align-items:center; justify-content:space-between; padding:12px 14px; background:#F27A1A; color:#fff;">
       <span id="chat-title" class="chat-title" style="font-weight:700; font-size:0.95rem;">
-        <span data-lang="en">Ask about our Chhath data</span>
-        <span data-lang="hi">छठ डेटा के बारे में पूछें</span>
+        <span data-lang="en">Chhath Assistant</span>
+        <span data-lang="hi">छठ सहायक</span>
       </span>
       <button id="chat-close" class="chat-close" aria-label="Close chat" style="background:transparent; border:none; color:#fff; cursor:pointer; display:flex; padding:2px;">
         <span class="material-icons-round">close</span>
@@ -318,8 +318,8 @@
     </div>
     <div id="chat-messages" class="chat-messages" style="flex:1; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:10px;">
       <div class="chat-msg chat-msg-bot">
-        <span data-lang="en">Namaste! Ask me about collections, expenses, contributors or committee — I answer from this portal's public data.</span>
-        <span data-lang="hi">नमस्ते! संग्रह, व्यय, योगदानकर्ता या समिति के बारे में पूछें — मैं इस पोर्टल के सार्वजनिक डेटा से उत्तर देता हूँ।</span>
+        <span data-lang="en">Namaste 🙏 I am the Chhath Assistant. You can ask me about collections, expenses, contributors, loans or committee members — I answer using the public records shown here.</span>
+        <span data-lang="hi">नमस्ते 🙏 मैं छठ सहायक हूँ। आप मुझसे संग्रह, व्यय, योगदानकर्ता, ऋण या समिति सदस्यों के बारे में पूछ सकते हैं — मैं यहाँ दिखाए गए सार्वजनिक रिकॉर्ड के आधार पर उत्तर देता हूँ।</span>
       </div>
     </div>
     <form id="chat-form" class="chat-input-row" autocomplete="off" style="display:flex; gap:8px; padding:10px; border-top:1px solid #eef0f2;">
@@ -337,7 +337,7 @@
        reserved content areas) before running the app script, instead of blocking
        on it. Improves LCP with no behaviour change — the script still runs before
        DOMContentLoaded, in order, exactly as an end-of-body script did. -->
-  <script defer src="script.js?v=chatbot1"></script>
+  <script defer src="script.js?v=chatbot2"></script>
 
   <!-- Vercel Web Analytics (privacy-friendly, cookie-less visitor/pageview
        counts in the Vercel dashboard). This is the plain-HTML integration: the
