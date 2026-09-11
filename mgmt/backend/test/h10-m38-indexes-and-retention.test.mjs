@@ -78,6 +78,9 @@ const SCHEMA_FOR_MIGRATION = {
   // ADD COLUMN migration, so it is in SCHEMA_ONLY_MIGRATIONS below (a second run
   // legitimately errors on the duplicate column) and asserted separately.
   '22-login-users-totp.sql': 'core.sql',
+  // ai_providers.purpose — a real ADD COLUMN (like 09/22), so it is in
+  // SCHEMA_ONLY_MIGRATIONS below and asserted for idempotency-failure separately.
+  '24-ai-providers-purpose.sql': 'logs.sql',
   // render_jobs table (Render offload). CREATE TABLE/INDEX IF NOT EXISTS against
   // the misc DB (schema/misc.sql already defines it), so it applies on a fresh
   // schema and a second run is a no-op — like 15/17/20/21.
@@ -87,7 +90,7 @@ const SCHEMA_FOR_MIGRATION = {
 // Migrations that legitimately do more than CREATE INDEX. Keep this list as short
 // as possible: everything on it opts out of the "cannot drop, delete, update or
 // alter" guarantee that makes the rest safe to run unattended.
-const SCHEMA_ONLY_MIGRATIONS = new Set(['09-error-log-client-ip.sql', '22-login-users-totp.sql']);
+const SCHEMA_ONLY_MIGRATIONS = new Set(['09-error-log-client-ip.sql', '22-login-users-totp.sql', '24-ai-providers-purpose.sql']);
 
 const DAY = 86400000;
 const isoAgo = (d) => new Date(Date.now() - d * DAY).toISOString();

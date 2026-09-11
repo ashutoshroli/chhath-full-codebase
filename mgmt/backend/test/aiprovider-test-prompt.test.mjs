@@ -11,14 +11,23 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { makeD1, schemaFor } from './helpers/stubs.mjs';
 import { saveAiProvider, testAiProvider } from '../src/aiConfig.js';
 
 const SUPER = { name: 'USER0001', role: 'Superadmin' };
 
+// logs.sql defines ai_providers WITHOUT the `purpose` column (that column is added
+// by migration 24). saveAiProvider now writes purpose, so bring the test DB up to
+// the migrated schema — same pattern the 2FA test uses for the totp columns.
+function logsSchemaWithPurpose() {
+  const migration = readFileSync(new URL('../../db/migration/2026-09-05/24-ai-providers-purpose.sql', import.meta.url), 'utf8');
+  return schemaFor('logs.sql') + '\n' + migration;
+}
+
 function makeEnv() {
   return {
-    DB_LOGS: makeD1(schemaFor('logs.sql')),
+    DB_LOGS: makeD1(logsSchemaWithPurpose()),
     AI_CONFIG_SECRET: 'a-very-strong-random-secret-value-123456',
   };
 }

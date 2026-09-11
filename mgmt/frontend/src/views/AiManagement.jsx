@@ -15,7 +15,15 @@ const TYPES = [
   { value: 'openai-compatible', label: 'OpenAI-compatible (OpenAI / OpenRouter / Groq / DeepSeek / Gemini / local)' },
 ];
 
-const BLANK = { providerId: null, name: '', type: 'openai-compatible', baseUrl: '', model: '', apiKey: '' };
+// What the provider is used for. 'fix' = Error Log "Fix using AI"; 'public_chat'
+// = the public portal chatbot. Each purpose has its own default.
+const PURPOSES = [
+  { value: 'fix', label: 'AI Fixes (Error Log “Fix using AI”)' },
+  { value: 'public_chat', label: 'Public Chatbot (public portal)' },
+];
+const purposeLabel = (p) => (PURPOSES.find(x => x.value === p) || PURPOSES[0]).label;
+
+const BLANK = { providerId: null, name: '', type: 'openai-compatible', baseUrl: '', model: '', apiKey: '', purpose: 'fix' };
 
 export default function AiManagement() {
   const [providers, setProviders] = useState(null);
@@ -38,7 +46,7 @@ export default function AiManagement() {
   const startEdit = (p) => {
     setError('');
     // apiKey left blank on edit = keep existing key.
-    setForm({ providerId: p.provider_id, name: p.name, type: p.type, baseUrl: p.base_url || '', model: p.model || '', apiKey: '' });
+    setForm({ providerId: p.provider_id, name: p.name, type: p.type, baseUrl: p.base_url || '', model: p.model || '', apiKey: '', purpose: p.purpose || 'fix' });
   };
 
   const save = async () => {
@@ -57,6 +65,7 @@ export default function AiManagement() {
         type: form.type,
         baseUrl: form.baseUrl.trim(),
         model: form.model.trim(),
+        purpose: form.purpose || 'fix',
         // Only send the key if the user typed one (blank on edit = keep existing).
         ...(form.apiKey.trim() ? { apiKey: form.apiKey } : {}),
       });
@@ -85,7 +94,9 @@ export default function AiManagement() {
 
   const clearDefault = async () => {
     setBusyId('__clear__');
-    try { await api.setDefaultAiProvider(''); refresh(); }
+    // Clears the FIX default only (that's the one with the ANTHROPIC_API_KEY
+    // fallback). The public_chat default, if any, is left alone.
+    try { await api.setDefaultAiProvider('', 'fix'); refresh(); }
     catch (err) { alert(err.message); }
     finally { setBusyId(null); }
   };
@@ -111,7 +122,8 @@ export default function AiManagement() {
     }
   };
 
-  const anyDefault = (providers || []).some(p => p.is_default);
+  // The ANTHROPIC_API_KEY fallback banner is about the FIX purpose specifically.
+  const anyFixDefault = (providers || []).some(p => p.is_default && (p.purpose || 'fix') === 'fix');
 
   if (form) {
     return (
@@ -128,6 +140,15 @@ export default function AiManagement() {
             <select value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}>
               {TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
+          </div>
+          <div className="form-group">
+            <label>Use for</label>
+            <select value={form.purpose} onChange={e => setForm({ ...form, purpose: e.target.value })}>
+              {PURPOSES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </select>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
+              “AI Fixes” powers the Error Log fixer. “Public Chatbot” answers questions on the public portal. Each has its own default.
+            </div>
           </div>
           {form.type === 'openai-compatible' && (
             <div className="form-group">
@@ -170,9 +191,9 @@ export default function AiManagement() {
       </p>
       {error && <div className="error-banner">{error}</div>}
 
-      {!anyDefault && (
+      {!anyFixDefault && (
         <div style={{ background: '#DBEAFE', color: '#1E40AF', borderRadius: 8, padding: '8px 10px', fontSize: '0.8rem', marginBottom: 12 }}>
-          No default selected → AI-fix uses the built-in <strong>ANTHROPIC_API_KEY</strong> secret.
+          No AI-Fixes default selected → AI-fix uses the built-in <strong>ANTHROPIC_API_KEY</strong> secret.
         </div>
       )}
 
@@ -191,9 +212,11 @@ export default function AiManagement() {
               <div>
                 <strong>{p.name}</strong>
                 {p.is_default && <span className="badge badge-ok" style={{ marginLeft: 8 }}>Default</span>}
+                {p.is_default && <span className="badge" style={{ marginLeft: 8, background: '#ede9fe', color: '#5b21b6' }}>{p.purpose === 'public_chat' ? 'Chatbot' : 'Fixes'}</span>}
                 <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>
                   {p.type} · model: <code>{p.model || '—'}</code>{p.base_url ? <> · {p.base_url}</> : null}
                 </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Used for: {purposeLabel(p.purpose)}</div>
                 <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Key: {p.has_key ? p.key_hint || '••••••••' : '(none)'}</div>
                 {busyId === 'test:' + p.provider_id && (
                   <div style={{ fontSize: '0.72rem', marginTop: 4, color: 'var(--text-muted)' }}>
@@ -260,9 +283,9 @@ export default function AiManagement() {
         );
       })}
 
-      {anyDefault && (
+      {anyFixDefault && (
         <button type="button" className="btn-submit" style={{ width: 'auto', marginTop: 6, padding: '5px 12px', fontSize: '0.75rem', background: '#e5e7eb', color: '#111' }} onClick={clearDefault} disabled={busyId === '__clear__'}>
-          Clear default (use ANTHROPIC_API_KEY secret)
+          Clear AI-Fixes default (use ANTHROPIC_API_KEY secret)
         </button>
       )}
     </>
