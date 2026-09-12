@@ -470,13 +470,69 @@ const app = {
     form.addEventListener('submit', (e) => { e.preventDefault(); app.sendChat(); });
   },
 
+  // ---- Linkify bot replies, XSS-safe by construction ----
+  //
+  // The chatbot answer is UNTRUSTED model output. We still want Markdown links
+  // `[label](url)` and bare http(s):// URLs to render as clickable <a> tags.
+  //
+  // ORDERING IS THE SECURITY PROPERTY: escape-FIRST-then-linkify.
+  //   (1) escapeHtml() the WHOLE reply first, so every < > & " ' the model produced
+  //       is neutralised. After this step the string contains NO live markup at all.
+  //   (2) Only THEN run the linkify regex over the already-escaped string. Because
+  //       escapeHtml does not touch [ ] ( ), a Markdown link is still matchable, and
+  //       an http(s):// URL has no raw < > so it survives intact.
+  //   (3) Every candidate URL is passed through safeUrl(): if it is not http(s)
+  //       (javascript:, data:, vbscript:, …) safeUrl returns '' and we DO NOT build
+  //       a link — the text stays as its already-escaped, inert form.
+  // The consequence: the ONLY HTML that can ever appear in the output is the <a>
+  // tags THIS function emits, and their href is constrained to http(s) by safeUrl.
+  // Nothing the model returns can create any other element or attribute. This is
+  // why appendChatMsg may safely assign the result to innerHTML for the bot bubble.
+  //
+  // escapeHtml + safeUrl are passed in as arguments (dependency injection) so this
+  // function is pure and can be evaluated by the Node test harness without a DOM.
+  linkifyBotText: (text, escapeHtmlFn, safeUrlFn) => {
+    const escaped = escapeHtmlFn(text);
+    // Markdown-link branch FIRST (so a URL inside a Markdown link is not also caught
+    // by the bare-URL branch), then the bare-URL branch. Left-to-right replace.
+    const re = /\[([^\]]+)\]\(([^)\s]+)\)|(https?:\/\/[^\s<]+)/g;
+    return escaped.replace(re, (match, mdLabel, mdUrl, bareUrl) => {
+      if (bareUrl !== undefined) {
+        // Trim common trailing punctuation so 'see https://x/y.pdf.' keeps the URL
+        // clean and the period stays as sentence text after the link.
+        let url = bareUrl;
+        let trailing = '';
+        const trailingRe = /[.,;:)\]}'"]+$/;
+        const tm = url.match(trailingRe);
+        if (tm) { trailing = tm[0]; url = url.slice(0, url.length - trailing.length); }
+        const safe = safeUrlFn(url);
+        if (!safe) return match; // not http(s) — leave the escaped text as-is
+        return '<a href="' + escapeHtmlFn(safe) + '" target="_blank" rel="noopener noreferrer nofollow">' + url + '</a>' + trailing;
+      }
+      // Markdown branch. mdUrl/mdLabel are already HTML-escaped (escape ran first).
+      const safe = safeUrlFn(mdUrl);
+      if (!safe) return match; // dangerous scheme — leave the escaped [label](url) text
+      return '<a href="' + escapeHtmlFn(safe) + '" target="_blank" rel="noopener noreferrer nofollow">' + mdLabel + '</a>';
+    });
+  },
+
   // Append a message bubble. kind: 'user' | 'bot' | 'error'. Returns the node.
   appendChatMsg: (text, kind) => {
     const wrap = document.getElementById('chat-messages');
     if (!wrap) return null;
     const div = document.createElement('div');
     div.className = 'chat-msg chat-msg-' + (kind === 'user' ? 'user' : kind === 'error' ? 'error' : 'bot');
-    div.textContent = text; // textContent — never innerHTML (answer is untrusted model output)
+    if (kind === 'user' || kind === 'error') {
+      // User echo + error strings stay textContent — never innerHTML. They are the
+      // user's own input / our own copy, and there is no reason to render markup.
+      div.textContent = text;
+    } else {
+      // Bot bubble only: render CLICKABLE links. This is safe because
+      // linkifyBotText escapes the ENTIRE reply BEFORE building any markup, and the
+      // only HTML it ever emits is <a> tags whose href is validated as http(s) by
+      // safeUrl. Untrusted model output can therefore not inject any other markup.
+      div.innerHTML = app.linkifyBotText(text, escapeHtml, safeUrl);
+    }
     wrap.appendChild(div);
     wrap.scrollTop = wrap.scrollHeight;
     return div;
