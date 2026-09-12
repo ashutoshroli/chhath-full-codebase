@@ -1,0 +1,72 @@
+---
+// Full SEO / social-link-preview <head> block for the v2 public portal.
+//
+// WHY A DEDICATED COMPONENT
+// This reproduces, with full parity, the SEO:START..SEO:END block the old
+// plain-static site kept in index.html (and that build.mjs regenerated). Social
+// crawlers (WhatsApp, Facebook, X) read only the initial HTML and never run JS,
+// so every one of these tags MUST be server-rendered. Factoring it into Seo.astro
+// keeps Layout readable and lets every page get identical, complete metadata.
+//
+// The values come from the framework-free src/lib/seo.js builder, driven by the
+// resolved config (config.siteUrl) with per-page overrides (title/description/
+// pathname). Every field has a hardcoded default ported from the old index.html,
+// and config.siteUrl itself falls back to the production origin — so a missing
+// env var can NEVER produce empty tags or break the build.
+import config from '../config.js';
+import { seoTags, organizationJsonLd } from '../lib/seo.js';
+
+export interface Props {
+  title?: string;
+  description?: string;
+  pathname?: string;
+}
+
+const { title, description, pathname } = Astro.props;
+
+const seo = seoTags(config, {
+  title,
+  description,
+  // Prefer the explicitly-passed pathname; otherwise use the current request
+  // path so the canonical/og:url is correct per page.
+  pathname: pathname || Astro.url.pathname,
+});
+
+// The Organization JSON-LD is emitted via set:html of a JSON.stringify'd object
+// so per-page interpolation can never break the JSON syntax.
+const orgJsonLd = JSON.stringify(organizationJsonLd(config));
+---
+
+<title>{seo.title}</title>
+<meta name="description" content={seo.description} />
+<meta name="keywords" content={seo.keywords} />
+<link rel="canonical" href={seo.canonical} />
+<meta name="robots" content={seo.robots} />
+<meta name="theme-color" content={seo.themeColor} />
+
+<!-- Geo signals -->
+<meta name="geo.region" content={seo.geoRegion} />
+<meta name="geo.placename" content={seo.geoPlacename} />
+<meta name="geo.position" content={seo.geoPosition} />
+<meta name="ICBM" content={seo.icbm} />
+
+<!-- Open Graph (WhatsApp / Facebook / LinkedIn) -->
+<meta property="og:type" content={seo.ogType} />
+<meta property="og:site_name" content={seo.ogSiteName} />
+<meta property="og:title" content={seo.ogTitle} />
+<meta property="og:description" content={seo.ogDescription} />
+<meta property="og:url" content={seo.ogUrl} />
+<meta property="og:image" content={seo.ogImage} />
+<meta property="og:image:width" content={seo.ogImageWidth} />
+<meta property="og:image:height" content={seo.ogImageHeight} />
+<meta property="og:locale" content={seo.ogLocale} />
+<meta property="og:locale:alternate" content={seo.ogLocaleAlternate} />
+
+<!-- Twitter / X card -->
+<meta name="twitter:card" content={seo.twitterCard} />
+<meta name="twitter:title" content={seo.twitterTitle} />
+<meta name="twitter:description" content={seo.twitterDescription} />
+<meta name="twitter:image" content={seo.twitterImage} />
+
+<!-- Structured data: helps search engines show a rich organisation result. -->
+<script type="application/ld+json" set:html={orgJsonLd} />

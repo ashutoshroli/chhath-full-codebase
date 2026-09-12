@@ -1,0 +1,70 @@
+---
+// Analytics for the v2 public portal — CSP-friendly and non-render-blocking.
+//
+// TWO INDEPENDENT INTEGRATIONS (ported from Public/frontend/index.html):
+//   1) Google Tag Manager (GA4 + Clarity are configured as tags INSIDE GTM).
+//      PERFORMANCE: the loader boots on window 'load' (after first paint) so
+//      analytics never delays LCP. The <noscript> iframe is the no-JS fallback.
+//   2) Vercel Web Analytics (privacy-friendly, cookie-less). The inline stub
+//      queues events until the first-party /_vercel/insights/script.js loads;
+//      ad-blockers that block Google leave this first-party path alone, so its
+//      counts are usually more complete. Loaded with `defer` so it never blocks
+//      rendering.
+//
+// The GTM container id is resolved via the framework-free analytics helper
+// (PUBLIC_GTM_ID env override, production fallback). It is a PUBLIC container id
+// (not a secret), so shipping the literal default is fine.
+//
+// USAGE: rendered by Layout.astro so every page carries analytics. The GTM
+// <script> loader belongs in <head> (via a <slot name="head" />-fed include or
+// the head slot), and the <noscript> iframe must be first in <body>; this
+// component emits BOTH and Layout places it high in the body — the loader script
+// still runs from anywhere because it self-injects into the DOM on 'load'.
+import { resolveGtmId } from '../lib/analytics.js';
+
+// import.meta.env is available at build; fall back to production default.
+const runtimeEnv =
+  (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : {};
+const gtmId = resolveGtmId(runtimeEnv);
+---
+
+<!-- Google Tag Manager (noscript). Must render for no-JS visitors. -->
+<noscript>
+  <iframe
+    src={`https://www.googletagmanager.com/ns.html?id=${gtmId}`}
+    height="0"
+    width="0"
+    style="display:none;visibility:hidden"
+    title="gtm"
+  ></iframe>
+</noscript>
+
+<!-- Google Tag Manager loader. Boots on window 'load' (after first paint) so
+     analytics never delays LCP. The id is injected via define:vars so no
+     interpolation happens inside the minified snippet body. -->
+<script is:inline define:vars={{ gtmId }}>
+  window.dataLayer = window.dataLayer || [];
+  window.addEventListener('load', function () {
+    (function (w, d, s, l, i) {
+      w[l] = w[l] || [];
+      w[l].push({ 'gtm.start': new Date().getTime(), event: 'gtm.js' });
+      var f = d.getElementsByTagName(s)[0],
+        j = d.createElement(s),
+        dl = l != 'dataLayer' ? '&l=' + l : '';
+      j.async = true;
+      j.src = 'https://www.googletagmanager.com/gtm.js?id=' + i + dl;
+      f.parentNode.insertBefore(j, f);
+    })(window, document, 'script', 'dataLayer', gtmId);
+  });
+</script>
+
+<!-- Vercel Web Analytics: inline stub queues events until the first-party script
+     served from this deployment's /_vercel/insights/ path loads (deferred). -->
+<script is:inline>
+  window.va =
+    window.va ||
+    function () {
+      (window.vaq = window.vaq || []).push(arguments);
+    };
+</script>
+<script defer src="/_vercel/insights/script.js"></script>
