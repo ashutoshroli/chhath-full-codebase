@@ -365,6 +365,22 @@ test('year-scoped: a question naming a known year yields ONLY that year and excl
   assert.match(s, /only that year's data is shown below/);
 });
 
+test('year-scoped: the no-developer-instructions guardrail is present on the year path too', () => {
+  // Review issue #2: buildYearScopedContext pushes NO_DEV_INSTRUCTIONS_LINE, but no
+  // test asserted it there, so a partial revert of that one push would pass CI. This
+  // question names a year present in the multi-year data, so summarizePortalData
+  // routes through buildYearScopedContext (confirmed by the year-scoping preamble
+  // and the year-only totals asserted below).
+  const s = summarizePortalData(YEAR_SCOPED_SAMPLE, '2019 me total collection kitna tha?');
+  // Confirm we are on the year-scoped branch (not the general aggregated path).
+  assert.match(s, /only that year's data is shown below/);
+  assert.match(s, /Year 2019: collections ₹8,000/);
+  assert.doesNotMatch(s, /Year 2024:/);
+  // The shared guardrail line is carried on this branch as well.
+  assert.match(s, /NEVER give technical, developer, or integration instructions/);
+  assert.match(s, /do not mention HTML, Markdown, rendering, libraries \(e\.g\. linkify\), APIs, parsing/);
+});
+
 test('year-scoped: loans / guarantors / committee for the year resolve IDs to names (no leak)', () => {
   const s = summarizePortalData(YEAR_SCOPED_SAMPLE, 'show me 2019');
   assert.match(s, /Loans 2019: Suresh Gupta: ₹10,000/);

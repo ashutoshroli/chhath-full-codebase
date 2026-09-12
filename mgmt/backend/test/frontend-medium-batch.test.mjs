@@ -363,6 +363,32 @@ test('FEAT-001(b2): a trailing sentence period is kept out of the href', () => {
   assert.equal(out, 'see <a href="https://x/y.pdf" target="_blank" rel="noopener noreferrer nofollow">https://x/y.pdf</a>.');
 });
 
+test('FEAT-001(b3): a query-string & is NOT double-escaped in the href (single &, real URL)', () => {
+  // Regression for the review's confirmed bug: the href was built from the
+  // already-escaped URL and escaped AGAIN, turning ?a=1&b=2 into ...&amp;amp;b=2 and
+  // breaking parameterised receipt/certificate links. The href must carry a single
+  // HTML entity for the '&' (i.e. '&amp;', never '&amp;amp;') and otherwise be the
+  // real URL, while the visible label stays single-escaped too.
+  const bareOut = linkify('Receipt: https://x/y?a=1&b=2');
+  // The emitted href attribute value, decoded, must be the real URL.
+  const bareHref = bareOut.match(/href="([^"]*)"/);
+  assert.ok(bareHref, 'a link is emitted for the bare URL');
+  assert.equal(bareHref[1], 'https://x/y?a=1&amp;b=2', 'href has a single &amp; (not &amp;amp;)');
+  assert.ok(!bareHref[1].includes('&amp;amp;'), 'the ampersand is not double-escaped');
+
+  // Same for a Markdown link whose URL carries a query string.
+  const mdOut = linkify('[Download](https://x/y?a=1&b=2)');
+  const mdHref = mdOut.match(/href="([^"]*)"/);
+  assert.ok(mdHref, 'a link is emitted for the Markdown URL');
+  assert.equal(mdHref[1], 'https://x/y?a=1&amp;b=2', 'Markdown href has a single &amp; too');
+  assert.ok(!mdHref[1].includes('&amp;amp;'), 'the ampersand is not double-escaped');
+});
+
+test('FEAT-001(b4): an uppercase bare HTTPS:// scheme is still linkified (case-insensitive)', () => {
+  const out = linkify('See HTTPS://x/y.pdf here');
+  assert.match(out, /<a href="HTTPS:\/\/x\/y\.pdf"/, 'uppercase bare scheme is linkified');
+});
+
 test('FEAT-001(c): dangerous schemes are NOT linked and remain inert escaped text', () => {
   // Built via concatenation so no suspicious literal appears in the file.
   const js = 'java' + 'script:' + 'alert(1)';
