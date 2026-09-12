@@ -279,6 +279,30 @@ test('summary preamble broadens guidance yet keeps the guardrail line', () => {
   assert.match(s, /Only say you do not have the information if the answer genuinely is not in the data below/);
 });
 
+test('no-developer-instructions guardrail is present in both summary and full contexts, and reinforced for document questions', () => {
+  // The live bot has replied to ordinary end users with developer/integration
+  // advice (linkify, HTML/Markdown rendering, [download: URL] parse). The
+  // guardrail must forbid that in EVERY mode and just hand back links plainly.
+  const summary = summarizePortalData(SAMPLE, '');
+  const full = buildFullContext(SAMPLE, '');
+  // Summary mode carries the shared guardrail line.
+  assert.match(summary, /NEVER give technical, developer, or integration instructions/);
+  assert.match(summary, /do not mention HTML, Markdown, rendering, libraries \(e\.g\. linkify\), APIs, parsing/);
+  // Full mode carries the identical shared guardrail line.
+  assert.match(full, /NEVER give technical, developer, or integration instructions/);
+  assert.match(full, /present the link plainly and in a friendly, user-facing way/);
+  // The existing over-refusing guardrails must not be weakened.
+  assert.match(summary, /Only say you do not have the information if the answer genuinely is not in the data below/);
+  assert.match(full, /Only say you do not have the information if it genuinely is not below/);
+  // A document-intent question reinforces the guardrail at the DOCUMENT LINKS block.
+  const doc = summarizePortalData(SAMPLE, 'mujhe receipt ka download link chahiye');
+  assert.match(doc, /DOCUMENT LINKS/);
+  assert.match(doc, /Give NO developer, rendering, library, or parsing advice/);
+  // The existing DOCUMENT LINKS example and PDF clause are preserved.
+  assert.match(doc, /Yahan hai 2024 ki receipt: <link>/);
+  assert.match(doc, /Do NOT describe or open the PDF/);
+});
+
 test('summary with the new sections still stays under its char bound on a large dataset', () => {
   const collections = [];
   const expenses = [];
