@@ -8,8 +8,6 @@ import { isSuperadmin, isAdminOrAbove } from '../permissions.js';
 const STATUS_LABEL = { pending: 'Pending', accepted: 'Accepted', declined: 'Declined', replaced: 'Replaced' };
 const STATUS_BADGE = { pending: 'badge-warn', accepted: 'badge-ok', declined: 'badge-danger', replaced: 'badge-warn' };
 
-// loan: the LOANS row (needs 'Loan ID' + 'Loan Status'). contributorOptions: for the
-// "replace guarantor" picker — pass the same list Loans.jsx uses for issuing loans.
 export default function LoanConsentModal({ loan, open, onClose, role, contributorOptions, onChanged }) {
   const [consents, setConsents] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -29,7 +27,7 @@ export default function LoanConsentModal({ loan, open, onClose, role, contributo
     api.getLoanConsents(loanId).then(setConsents).catch(err => setError(err.message)).finally(() => setLoading(false));
   };
 
-  useEffect(() => { if (open) load(); /* eslint-disable-next-line */ }, [open, loanId]);
+  useEffect(() => { if (open) load();  }, [open, loanId]);
 
   if (!loanId) {
     return (
@@ -91,11 +89,7 @@ export default function LoanConsentModal({ loan, open, onClose, role, contributo
   };
 
   const allAccepted = (consents || []).filter(c => c.status !== 'replaced').every(c => c.status === 'accepted') && (consents || []).length > 0;
-  // Disbursing is now allowed for Admin and Superadmin (guarantor resend/replace
-  // above stays Superadmin-only).
   const canDisburse = isAdminOrAbove(role) && loan['Loan Status'] === 'Approved';
-  // The total disbursed must EQUAL the sanctioned loan amount (backend enforces
-  // this hard; the UI mirrors it so the button is disabled until they match).
   const loanAmount = parseFloat(loan && (loan.Amount ?? loan['Amount'])) || 0;
   const disburseTotal = (parseFloat(cashAmount) || 0) + (parseFloat(onlineAmount) || 0);
   const disburseMatches = Math.abs(disburseTotal - loanAmount) <= 0.01;

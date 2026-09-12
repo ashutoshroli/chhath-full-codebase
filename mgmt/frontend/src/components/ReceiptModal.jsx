@@ -10,26 +10,13 @@ import { generateQrDataUrl, publicRecordUrl } from '../qrCode.js';
 import Modal from './Modal.jsx';
 import ReportErrorButton from './ReportErrorButton.jsx';
 
-// docType: 'receipt' | 'receipt_work' | 'certificate' | 'samaan' — same preview engine, different
-// backend data source. Preview always stays the Markdown view below; Download
-// uses a Superadmin-uploaded .docx template if one exists for this (docType,
-// year) — filled client-side (docxtemplater) then converted to PDF via Drive
-// on the backend — otherwise it falls back to snapshotting the preview
-// itself, so nothing ever breaks even for years with no docx template yet.
 const DOC_CONFIG = {
   receipt: { label: 'Receipt', docNoKey: 'RECEIPT_NO', fetch: (rowIndex, year) => api.getReceiptData(rowIndex, year) },
-  // Work receipt: same data + doc number as a receipt, its own .docx template.
   receipt_work: { label: 'Work Receipt', docNoKey: 'RECEIPT_NO', fetch: (rowIndex, year) => api.getReceiptData(rowIndex, year) },
   certificate: { label: 'Certificate', docNoKey: 'CERT_NO', fetch: (rowIndex, year) => api.getCertificateData(rowIndex, year) },
   samaan: { label: 'Material Receipt', docNoKey: 'SAMAAN_NO', fetch: (rowIndex, year) => api.getSamaanData(rowIndex, year) },
 };
 
-// The Drive link is cross-origin, so the `download` attribute is IGNORED by the
-// browser (the file always arrives with Drive's own name) — that made the old
-// `a.download = '...pdf'` dead code. The anchor was also never appended to the
-// DOM and .click() ran several awaits after the user's gesture, so Safari and
-// strict popup blockers swallowed it and the user just saw the spinner stop.
-// Appending the node and falling back to window.location makes it reliable.
 function openDownload(url) {
   if (!url) throw new Error('The server did not return a download link.');
   const a = document.createElement('a');
@@ -40,32 +27,21 @@ function openDownload(url) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  // If a popup blocker ate the click, navigate directly.
   setTimeout(() => {
     if (!document.hidden) {
-      try { window.location.assign(url); } catch (e) { /* user can still copy the link */ }
+      try { window.location.assign(url); } catch (e) {  }
     }
   }, 1200);
 }
 
-// Rasterised fallback used ONLY when no .docx template exists for the year.
-//
-// The old version put ONE html2canvas snapshot onto ONE page sized to the
-// template's page size, so any receipt taller than a single A5/A4 page was
-// silently CROPPED with no warning (the preview container is `minHeight`, so it
-// can legitimately grow). This slices the canvas across as many pages as needed.
-// It also waits for document.fonts, without which Devanagari text could be
-// captured as tofu (□□□) INTO the archived PDF — there is no font embedding
-// anywhere in this pipeline, the Hindi only survives because it's rasterised.
 async function snapshotToPdf(node, pageSizeKey, fileName) {
   if (document.fonts && document.fonts.ready) {
-    try { await document.fonts.ready; } catch (e) { /* proceed with system fonts */ }
+    try { await document.fonts.ready; } catch (e) {  }
   }
   const canvas = await html2canvas(node, { scale: 3, useCORS: true, backgroundColor: '#ffffff' });
   const { width, height } = PAGE_SIZES_MM[pageSizeKey] || PAGE_SIZES_MM.A5;
   const doc = new jsPDF({ unit: 'mm', format: [width, height] });
 
-  // Height of one page's worth of source pixels.
   const pxPerMm = canvas.width / width;
   const pageHeightPx = Math.floor(height * pxPerMm);
   const totalPages = Math.max(1, Math.ceil(canvas.height / pageHeightPx));
@@ -107,18 +83,13 @@ export default function ReceiptModal({ row, year, open, onClose, docType = 'rece
     setError('');
     setQrCode('');
     fetchData(row.__rowIndex, year).then(setData).catch(err => setError(err.message)).finally(() => setLoading(false));
-    // QR points to the public portal, carrying the same recordId scheme already
-    // used for Download Center / GENERATED_FILES matching.
     const recordId = `${docType}-${year}-${row.__rowIndex}`;
     generateQrDataUrl(publicRecordUrl(recordId))
       .then(setQrCode)
-      // Was `.catch(() => {})`. A QR failure meant the archived PDF got a blank
-      // QR and the public "Verified Record" scan for it broke — silently.
       .catch(err => {
         setQrWarning(true);
         reportClientError('ReceiptModal', `QR generation failed for ${recordId}`, err, { docType, year, recordId });
       });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, row, year, docType]);
 
   const download = async () => {
@@ -133,16 +104,11 @@ export default function ReceiptModal({ row, year, open, onClose, docType = 'rece
       try {
         docxRow = await api.getDocxTemplateForDoc(docType, year);
       } catch (err) {
-        // Was `.catch(() => null)`, which turned a REAL failure (permissions, a
-        // Drive error, the base64 stack overflow on templates with a logo) into
-        // the misleading "no template exists" path — and then silently produced a
-        // rasterised fallback PDF instead of the proper document.
         reportClientError('ReceiptModal', `Template fetch failed for ${docType} ${year}`, err, { docType, year, recordId });
         throw new Error(`Failed to load the ${label} template: ${err.message}`);
       }
 
       if (docxRow && (docxRow.base64 || docxRow.downloadUrl)) {
-        // Superadmin-uploaded .docx exists for this year — fill it and convert via Drive.
         const filledBase64 = await fillDocxTemplateFromRow(docxRow, placeholders);
 
         const rep = getLastRenderReport();
@@ -154,15 +120,8 @@ export default function ReceiptModal({ row, year, open, onClose, docType = 'rece
         }
 
         const fileName = `${label}-${placeholders[docNoKey]}.docx`;
-        // mode 'single' — one row's own document. This call used to omit the flag
-        // entirely, which made the server demand Superadmin, so Admin/Subadmin
-        // always got "Only a Superadmin can perform this action." even though the
-        // download icon renders for every role.
         const res = await api.convertDocxToPdf(docType, year, recordId, filledBase64, fileName);
 
-        // indexFailed was returned by the backend but checked by only 1 of the 6
-        // callers — so the user got a working file while the public portal would
-        // show "Not Available" forever, with nobody told.
         if (res && res.indexFailed) {
           setWarning(res.error || 'The PDF was generated but was not indexed on the public portal.');
           reportClientError('ReceiptModal', `PDF generated but NOT indexed: ${recordId}`, null,
@@ -171,10 +130,7 @@ export default function ReceiptModal({ row, year, open, onClose, docType = 'rece
 
         openDownload(res.publicLink);
       } else {
-        // No .docx template for this year yet — fall back to a snapshot of the preview.
         if (!previewRef.current) {
-          // Was a bare `return` from inside the try: the spinner just stopped and
-          // NOTHING was shown to the user or logged.
           throw new Error('The preview is not ready — please close the modal and open it again.');
         }
         await snapshotToPdf(previewRef.current, data.pageSize, `${label}-${placeholders[docNoKey]}.pdf`);
@@ -185,8 +141,6 @@ export default function ReceiptModal({ row, year, open, onClose, docType = 'rece
       }
     } catch (err) {
       setError('An error occurred while generating the PDF: ' + err.message);
-      // Client-side docx-fill / canvas / jsPDF failures never pass through
-      // api.js's call(), so this was previously invisible in the Error Log.
       reportClientError('ReceiptModal', `PDF generation failed for ${recordId}`, err, { docType, year, recordId });
     } finally {
       setDownloading(false);

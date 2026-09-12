@@ -1,18 +1,4 @@
 ---
-// Expenses page for the v2 public portal.
-//
-// Reproduces the old site's renderExpenses(): a responsive ledger of every
-// expense for the selected year (or the lifetime 'All' view), each row showing a
-// localized description (the schema's misspelled 'Discription' column, falling
-// back to 'Description' then '-') and the amount rendered NEGATIVE in a danger
-// colour. In the 'All' view each row also gets a [Year] tag.
-//
-// Astro output is static, so the fetch + all re-rendering happen in the client
-// island below, which imports the same framework-free lib modules the Home page
-// uses (finance, portalData, homeRender, i18n) so the ported logic stays shared,
-// unit-testable and `node --check`able. The page reacts to the shared header
-// year dropdown and to the header's cpm:langchange event (to re-localize DATA,
-// not just the static [data-i18n] labels).
 import Layout from '../layouts/Layout.astro';
 import { t } from '../i18n.js';
 
@@ -20,12 +6,10 @@ const lang = 'en';
 ---
 
 <Layout title="Expenses | Chhath Puja Transparency Portal">
-  <!-- Loader / cold-failure host: shown until the first render resolves. -->
   <div id="page-loader" class="mx-auto max-w-6xl px-4 py-16 text-center text-slate-500 dark:text-slate-400">
     <span class="material-icons-round animate-spin align-middle" aria-hidden="true">progress_activity</span>
   </div>
 
-  <!-- Stale-data notice host (populated by the island only when showing cache). -->
   <div id="stale-data-notice" class="hidden"></div>
 
   <section id="expenses" class="mx-auto hidden max-w-6xl flex-col gap-6 px-4 py-8 pb-24 sm:py-12 md:pb-12" data-page-root>
@@ -39,7 +23,6 @@ const lang = 'en';
   </section>
 </Layout>
 
-<!-- CLIENT ISLAND -->
 <script>
   import { apiBase } from '../config.js';
   import { fmt } from '../lib/finance.js';
@@ -66,9 +49,6 @@ const lang = 'en';
       return v === 'All' ? 'All' : parseInt(v);
     }
 
-    // Populate the shared header #year-select from the payload years (newest
-    // first) + an 'All' lifetime option. Each page owns this because only the
-    // island has the payload (see index.astro for the full rationale).
     function populateYears() {
       if (!yearSel) return;
       var years = collectYears(state.data);
@@ -78,7 +58,6 @@ const lang = 'en';
       yearSel.value = String(years[0]);
     }
 
-    // Rebuild the ledger for the selected year + language. Mirrors renderExpenses.
     function renderExpenses() {
       var lang = currentLang();
       var year = selectedYear();
@@ -91,8 +70,6 @@ const lang = 'en';
       var rows = isAll ? (d.expenses || []) : (d.expenses || []).filter(function (r) { return parseInt(r.Year) === year; });
 
       var html = rows.map(function (r) {
-        // Prefer the Hindi description when Hindi is active (localize on the
-        // schema's misspelled 'Discription'); fall back to 'Description', then '-'.
         var desc = localize(r, 'Discription', lang) || r.Description || '-';
         var yrTag = isAll
           ? '<span class="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">[' + escapeHtml(r.Year) + ']</span>'
@@ -129,9 +106,6 @@ const lang = 'en';
       renderStaleNotice();
     }
 
-    // Re-resolve elements each swap (see index.astro for the full rationale):
-    // under View Transitions the <body> is swapped, so parse-time node refs go
-    // stale on every client navigation.
     function refreshEls() {
       loaderEl = document.getElementById('page-loader');
       pageEl = document.querySelector('[data-page-root]');
@@ -157,23 +131,6 @@ const lang = 'en';
       }
     }
 
-    // ---- Per-navigation init (View Transitions) ----------------------------
-    // STRATEGY: re-init on astro:page-load so the ledger + #year-select options
-    // rebuild for the freshly-swapped DOM. Fires on the initial real load AND
-    // every client swap, so boot() is NOT also called at parse time (no
-    // double-boot).
-    //
-    // PAGE-IDENTITY GUARD (why this exists): the handler is registered on
-    // `document`, which is NOT swapped by the router and is never removed, so
-    // this page's handler stays live and fires on EVERY later swap even when a
-    // different page is mounted. Without a guard, each swap would re-run this
-    // page's boot() (a redundant loadPortalData() fetch) and re-bind
-    // renderExpenses to the SAME persisted #year-select. addEventListener only
-    // de-dupes identical (node,type,fn) triples, so every visited page's
-    // distinct renderX stays bound and one year change fires them all against
-    // unmounted DOM. FIX: bail unless THIS page is the mounted one. The four
-    // data pages share `[data-page-root]`, so we gate on this page's UNIQUE
-    // element id (#exp-list) instead — absent = not this page = no-op.
     document.addEventListener('astro:page-load', function () {
       if (!document.getElementById('exp-list')) return;
       refreshEls();
@@ -181,8 +138,6 @@ const lang = 'en';
       if (yearSel) yearSel.addEventListener('change', renderExpenses);
     });
 
-    // Window-level cpm:langchange bound exactly ONCE (a window listener survives
-    // swaps, so re-adding it per page-load would stack duplicates).
     if (!window.__cpmExpensesLangBound) {
       window.__cpmExpensesLangBound = true;
       window.addEventListener('cpm:langchange', onLangChange);

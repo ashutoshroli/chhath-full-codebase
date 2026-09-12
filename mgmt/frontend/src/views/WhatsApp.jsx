@@ -33,24 +33,13 @@ const LOAN_TEMPLATE_TYPES = [
 ];
 
 const CONTRIBUTION_TYPES = [['1', 'Cash (Money)'], ['2', 'Material (Item)'], ['3', 'Service (Work)']];
-// Resell has no contributor at all — a personal WhatsApp message makes no sense for it,
-// so this 4th type is offered only on Group templates, never Person templates.
 const GROUP_CONTRIBUTION_TYPES = [...CONTRIBUTION_TYPES, ['4', 'Resell (Item)']];
 const RESELL_PLACEHOLDER_HINT = 'Placeholders: {ItemName} {Amount} {Year}';
 const DOC_SUB_TYPES = [['', 'Both (Receipt + Certificate)'], ['Receipt', 'Receipt Only'], ['Certificate', 'Certificate Only']];
-// Person/Group templates only (Loan templates don't have this concept, unchanged
-// below). Instead of pasting a static link, pick WHICH generated document this
-// template should carry — the recipient's own file gets auto-attached when the
-// message is queued (right after that PDF finishes generating).
 const FILE_DOC_TYPE_OPTIONS = [['receipt', 'Receipt'], ['receipt_work', 'Work Receipt'], ['certificate', 'Certificate'], ['samaan', 'Material Receipt']];
-// Default auto-attach doc type per Contribution Type. Type 3 (Service/Work) now
-// defaults to the work receipt so the attachment matches what the collection
-// actually generates (backend resolveCollectionDocType returns receipt_work).
 const DEFAULT_FILE_DOC_TYPE = { '1': 'receipt', '2': 'samaan', '3': 'receipt_work' };
 
-// ============ Templates (Person / Group / Loan incl. OTP) ============
 function TemplateList({ kind, loanType, titleLabel }) {
-  // kind: 'person' | 'group' | 'loan' (loan needs loanType, one of LOAN_TEMPLATE_TYPES' first values)
   const hasContributionType = kind === 'person' || kind === 'group';
   const get = useCallback(() => {
     if (kind === 'person') return api.getPersonTemplates();
@@ -67,7 +56,7 @@ function TemplateList({ kind, loanType, titleLabel }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showAdd, setShowAdd] = useState(false);
-  const [editing, setEditing] = useState(null); // the row being edited, or null for "add"
+  const [editing, setEditing] = useState(null);
   const [text, setText] = useState('');
   const [messageType, setMessageType] = useState('normal');
   const [contributionType, setContributionType] = useState('1');
@@ -96,9 +85,6 @@ function TemplateList({ kind, loanType, titleLabel }) {
 
   const closeModal = () => { setShowAdd(false); setEditing(null); resetForm(); };
 
-  // Open the modal pre-filled from an existing row (Edit). contribution_type is a
-  // REAL column, so normalise the number back to the '1'/'2'/'3' string the form
-  // selects use.
   const openEdit = (r) => {
     setEditing(r);
     setText(r.text || '');
@@ -110,8 +96,6 @@ function TemplateList({ kind, loanType, titleLabel }) {
     const link = r.file_link || '';
     setFileDocType(fdt);
     setFileLink(link);
-    // "has file" is on if either an auto-attach doc type (contribution templates)
-    // or a manual link (loan templates) is set.
     setHasFile(hasContributionType ? !!fdt : !!link);
     setShowAdd(true);
   };
@@ -127,12 +111,9 @@ function TemplateList({ kind, loanType, titleLabel }) {
       const fdt = (hasFile && hasContributionType) ? fileDocType : '';
       const dst = (hasContributionType && contributionType === '3') ? docSubType : '';
       if (editing) {
-        // Update in place. `active` is left undefined so it is not changed here
-        // (the Active/Inactive badge toggles that separately).
         if (hasContributionType) {
           await update(editing.__rowIndex, text.trim(), undefined, messageType, contributionType, link, dst, fdt);
         } else {
-          // Loan templates: update(rowIndex, text, active, messageType, fileLink)
           await update(editing.__rowIndex, text.trim(), undefined, messageType, link);
         }
       } else {
@@ -207,11 +188,6 @@ function TemplateList({ kind, loanType, titleLabel }) {
                 {isPriority ? '⚡ Priority' : 'Normal'}
               </span>
               {hasContributionType && (() => {
-                // contribution_type is stored as a REAL column, so D1 hands it back
-                // as the NUMBER 1/2/3 (or 1.0). The options table is keyed by the
-                // STRING '1'/'2'/'3', so `t[0] === r.contribution_type` was always
-                // false (1 !== '1') and every badge fell back to the literal 'Cash'.
-                // Normalise to a string (dropping any ".0") before matching.
                 const ct = String(parseInt(r.contribution_type, 10) || 1);
                 const label = (contributionTypeOptions.find(t => t[0] === ct) || [])[1] || 'Cash (Money)';
                 return (
@@ -323,7 +299,6 @@ function TemplateList({ kind, loanType, titleLabel }) {
   );
 }
 
-// ============ Group Info ============
 function GroupInfoList() {
   const [rows, setRows] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -438,27 +413,21 @@ function GroupInfoList() {
   );
 }
 
-// ============ Message Log (view-only + Resend for failed, auto-refresh) ============
 function MessageLog() {
-  const [tab, setTab] = useState('person'); // person | group
+  const [tab, setTab] = useState('person');
   const [rows, setRows] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [resendingId, setResendingId] = useState(null);
 
-  // Messages queued but never delivered. Nothing in this repo transitions a row
-  // from 'pending' to sent/failed (only the external sender script does), so a
-  // rotated API key / stale script URL / dead host used to accumulate 'pending'
-  // rows FOREVER with no alert, no threshold and nothing in the UI to notice it.
   const [stuck, setStuck] = useState(null);
 
   const load = useCallback((silent) => {
     if (!silent) setLoading(true);
     api.getMessageLog().then(setRows).catch(err => setError(err.message)).finally(() => setLoading(false));
-    api.getStuckMessages(30).then(setStuck).catch(() => { /* panel is advisory only */ });
+    api.getStuckMessages(30).then(setStuck).catch(() => {  });
   }, []);
 
-  // 12s auto-refresh, paused while the tab is hidden (audit P-8).
   usePolling(() => load(true), 12000, [load]);
 
   const badgeClass = (status) => status === 'sent' ? 'badge-ok' : status === 'failed' ? 'badge-warn' : 'badge-pending';
@@ -520,10 +489,8 @@ function MessageLog() {
               {m.attempts > 0 && <> · {m.attempts} attempt{m.attempts === 1 ? '' : 's'}</>}
               {m.sent_at && <> · finished {m.sent_at}</>}
             </div>
-            {/* Was `m.status === 'failed'` only. Since nothing in this codebase ever
-                sets 'failed' (only the external sender does), a message stuck at
-                'pending'/'sending' was completely unrecoverable from the UI — the
-                row just sat there with a "pending" chip and no action. */}
+            {
+}
             {m.status !== 'sent' && (
               <button
                 className="btn-submit" style={{ width: 'auto', padding: '4px 12px', fontSize: '0.8rem' }}
@@ -539,7 +506,6 @@ function MessageLog() {
   );
 }
 
-// ============ Settings (OTP/Consent sender number) ============
 function WhatsAppSettings() {
   const [value, setValue] = useState('');
   const [loading, setLoading] = useState(true);
@@ -589,10 +555,9 @@ function WhatsAppSettings() {
   );
 }
 
-// ============ Root: WhatsApp tab with Template / Group Info / Message / Settings subtabs ============
 export default function WhatsApp({ role }) {
-  const [section, setSection] = useState('template'); // template | groupinfo | message | email | settings
-  const [templateKind, setTemplateKind] = useState('person'); // person | group | loan
+  const [section, setSection] = useState('template');
+  const [templateKind, setTemplateKind] = useState('person');
   const [loanTemplateType, setLoanTemplateType] = useState(LOAN_TEMPLATE_TYPES[0][0]);
 
   return (

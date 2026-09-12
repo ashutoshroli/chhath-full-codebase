@@ -1,5 +1,3 @@
-// Unit tests for the framework-free budget math.
-// Runs under plain `node --test` — imports ONLY src/lib/finance.js (no Astro).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fmt, parseAmt, isResellRow, computeBudget } from '../src/lib/finance.js';
@@ -24,28 +22,24 @@ test('isResellRow is truthy for true / "TRUE" / " true "', () => {
 });
 
 test('fmt renders the amount digits with Indian grouping', () => {
-  // Assert loosely on the digits/grouping rather than a brittle exact glyph.
   const out = fmt(1200);
   assert.match(out, /1,200/);
   assert.match(fmt(0), /0/);
 });
 
 test('computeBudget: prior-year loan interest math for a specific year', () => {
-  // Loan in year 2022 is RETURNED (with interest) in 2023's budget.
-  // principal 10000, Intrest Rate 2 %/mo, Tenure 6 -> interest = 10000*(2/100)*6 = 1200
-  // returned = 10000 + 1200 = 11200.
   const collections = [
     { Year: '2023', Amount: '5000' },
     { Year: '2023', Amount: '2500' },
-    { Year: '2022', Amount: '9999' }, // wrong year, must be ignored for 2023
+    { Year: '2022', Amount: '9999' },
   ];
   const loans = [
     { Year: '2022', Amount: '10000', 'Intrest Rate': '2', Tenure: '6' },
-    { Year: '2023', Amount: '99999', 'Intrest Rate': '5', Tenure: '12' }, // not year-1, ignored
+    { Year: '2023', Amount: '99999', 'Intrest Rate': '5', Tenure: '12' },
   ];
   const expenses = [
     { Year: '2023', Amount: '3000' },
-    { Year: '2021', Amount: '500' }, // wrong year, ignored
+    { Year: '2021', Amount: '500' },
   ];
 
   const b = computeBudget(collections, loans, expenses, 2023);
@@ -57,17 +51,13 @@ test('computeBudget: prior-year loan interest math for a specific year', () => {
 });
 
 test('computeBudget: "Interest Rate" correct-spelling fallback is honored', () => {
-  // Only the correctly-spelled column is present -> still parsed.
   const loans = [{ Year: '2020', Amount: '1000', 'Interest Rate': '1', Tenure: '10' }];
-  // interest = 1000*(1/100)*10 = 100; returned = 1100.
   const b = computeBudget([], loans, [], 2021);
   assert.equal(b.pastLoanReturned, 1100);
 });
 
 test('computeBudget: misspelled "Intrest Rate" is preferred over "Interest Rate"', () => {
-  // Both present: the misspelling is checked FIRST (matches the old site).
   const loans = [{ Year: '2020', Amount: '1000', 'Intrest Rate': '2', 'Interest Rate': '9', Tenure: '5' }];
-  // interest uses 2 %/mo -> 1000*(2/100)*5 = 100; returned = 1100.
   const b = computeBudget([], loans, [], 2021);
   assert.equal(b.pastLoanReturned, 1100);
 });
@@ -78,8 +68,8 @@ test('computeBudget: isAll="All" sums every year and every loan', () => {
     { Year: '2023', Amount: '2000' },
   ];
   const loans = [
-    { Year: '2021', Amount: '5000', 'Intrest Rate': '0', Tenure: '0' }, // interest 0 -> returned 5000
-    { Year: '2022', Amount: '3000', 'Intrest Rate': '0', Tenure: '0' }, // returned 3000
+    { Year: '2021', Amount: '5000', 'Intrest Rate': '0', Tenure: '0' },
+    { Year: '2022', Amount: '3000', 'Intrest Rate': '0', Tenure: '0' },
   ];
   const expenses = [
     { Year: '2022', Amount: '400' },

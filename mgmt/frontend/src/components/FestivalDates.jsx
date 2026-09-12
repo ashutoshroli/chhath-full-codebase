@@ -1,9 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 
-// Small Superadmin panel — the Diwali/Nahay-Khay/Chhath Arghya dates change every
-// year on the Hindu lunar calendar and can't be auto-computed, so they're set
-// manually once per fund-year. Used to fill loan consent page placeholders.
 export default function FestivalDates({ years }) {
   const [year, setYear] = useState((years && years[0]) || new Date().getFullYear());
   const [dates, setDates] = useState({ diwali: '', nahayKhay: '', chhathArghya: '' });

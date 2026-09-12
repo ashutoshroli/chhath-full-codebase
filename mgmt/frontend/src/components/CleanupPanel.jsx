@@ -2,19 +2,14 @@ import { useState } from 'react';
 import { api } from '../api.js';
 import { isSuperadmin } from '../permissions.js';
 
-// Reusable "clean up old data" panel (Superadmin only). Drop it into a section
-// with the matching `target`:
-//   whatsapp_messages | noreply_mails | error_log | activity_log
-// Modes: All | Sent | Failed | keep last N days. Sent/Failed only apply to the
-// message/mail targets (they have a status); logs offer only All / keep-N-days.
 export default function CleanupPanel({ target, label, role, hasStatus = false, onDone }) {
-  const [mode, setMode] = useState('olderThan'); // olderThan | all | sent | failed
+  const [mode, setMode] = useState('olderThan');
   const [days, setDays] = useState('30');
   const [count, setCount] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  if (!isSuperadmin(role)) return null; // Superadmin-only feature
+  if (!isSuperadmin(role)) return null;
 
   const preview = async () => {
     setError(''); setCount(null); setBusy(true);

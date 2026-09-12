@@ -1,5 +1,3 @@
-// Unit tests for the framework-free analytics-id resolver.
-// Runs under plain `node --test` — imports ONLY src/lib/analytics.js (no Astro).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveGtmId, DEFAULT_GTM_ID } from '../src/lib/analytics.js';

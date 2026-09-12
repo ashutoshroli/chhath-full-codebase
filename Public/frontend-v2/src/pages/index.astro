@@ -1,16 +1,4 @@
 ---
-// Home page for the v2 public portal.
-//
-// PHASE 2 SCOPE: the real, data-driven Home page — a budget/collection HERO card
-// and a Contributors List with live name search, wired to the Header's year
-// dropdown, theme- and i18n-aware. Astro output is static, so the data fetch and
-// all re-rendering happen in the client island at the bottom of this file. The
-// island imports the framework-free lib modules (finance, portalData, homeRender,
-// i18n) so the porting-sensitive logic stays unit-testable and `node --check`able.
-//
-// SERVER RENDER: the markup below is the light shell (labels from the i18n
-// dictionary, all containers with stable IDs the island fills). Numbers show a
-// '—' placeholder until the client fetch resolves.
 import Layout from '../layouts/Layout.astro';
 import { t } from '../i18n.js';
 
@@ -18,16 +6,13 @@ const lang = 'en';
 ---
 
 <Layout title="Chhath Puja Transparency Portal">
-  <!-- Loader / cold-failure host: shown until the first render resolves. -->
   <div id="home-loader" class="mx-auto max-w-6xl px-4 py-16 text-center text-slate-500 dark:text-slate-400">
     <span class="material-icons-round animate-spin align-middle" aria-hidden="true">progress_activity</span>
   </div>
 
-  <!-- Stale-data notice host (populated by the island only when showing a cached copy). -->
   <div id="stale-data-notice" class="hidden"></div>
 
   <section id="home" class="mx-auto hidden max-w-6xl flex-col gap-8 px-4 py-8 sm:py-12" data-home-root>
-    <!-- ===== BUDGET / COLLECTION HERO ===== -->
     <div class="rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-5 shadow-sm dark:border-slate-800 dark:from-slate-900 dark:to-slate-950 sm:p-7">
       <div class="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
         <h1 class="text-xl font-bold text-slate-900 dark:text-white sm:text-2xl" data-i18n="master_calc">{t(lang, 'master_calc')}</h1>
@@ -35,27 +20,22 @@ const lang = 'en';
       </div>
 
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <!-- Past loan returned -->
         <div class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
           <div id="lbl-past-loan" class="text-xs font-medium text-slate-500 dark:text-slate-400">{t(lang, 'past_loan_returned')}</div>
           <div id="h-past-loan" class="mt-1 text-lg font-bold text-slate-800 dark:text-slate-100">—</div>
         </div>
-        <!-- Current-year collection -->
         <div class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
           <div id="lbl-cur-col" class="text-xs font-medium text-slate-500 dark:text-slate-400">{t(lang, 'current_year_collection')}</div>
           <div id="h-cur-col" class="mt-1 text-lg font-bold text-emerald-600 dark:text-emerald-400">—</div>
         </div>
-        <!-- TOTAL BUDGET (accent) -->
         <div class="rounded-xl border border-brand-200 bg-brand-50 p-4 dark:border-brand-900/50 dark:bg-brand-900/20">
           <div class="text-xs font-semibold text-brand-700 dark:text-brand-300" data-i18n="total_budget">{t(lang, 'total_budget')}</div>
           <div id="h-tot-bud" class="mt-1 text-xl font-extrabold text-brand-700 dark:text-brand-300">—</div>
         </div>
-        <!-- Total expense -->
         <div class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
           <div class="text-xs font-medium text-slate-500 dark:text-slate-400" data-i18n="total_expense">{t(lang, 'total_expense')}</div>
           <div id="h-tot-exp" class="mt-1 text-lg font-bold text-red-600 dark:text-red-400">—</div>
         </div>
-        <!-- Net surplus -->
         <div class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
           <div class="text-xs font-medium text-slate-500 dark:text-slate-400" data-i18n="net_surplus">{t(lang, 'net_surplus')}</div>
           <div id="h-surplus" class="mt-1 text-lg font-bold text-slate-800 dark:text-slate-100">—</div>
@@ -63,7 +43,6 @@ const lang = 'en';
       </div>
     </div>
 
-    <!-- ===== CONTRIBUTORS LIST ===== -->
     <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-6">
       <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 class="text-lg font-bold text-slate-900 dark:text-white" data-i18n="contributors_list">{t(lang, 'contributors_list')}</h2>
@@ -80,10 +59,6 @@ const lang = 'en';
   </section>
 </Layout>
 
-<!-- CLIENT ISLAND
-     All interactivity lives here. It imports the pure lib modules (bundled by
-     Astro/Vite) so the ported logic is shared with the unit tests. Kept minimal:
-     one fetch, then event-driven re-renders. -->
 <script>
   import { apiBase } from '../config.js';
   import { computeBudget, fmt } from '../lib/finance.js';
@@ -98,14 +73,10 @@ const lang = 'en';
   import { t, normalizeLang, LANG_KEY } from '../i18n.js';
 
   (function () {
-    // Current UI language, read from the same localStorage key the Header uses so
-    // the two stay in lockstep without a shared bundle-level global.
     function currentLang() {
       try { return normalizeLang(localStorage.getItem(LANG_KEY)); } catch (e) { return 'en'; }
     }
 
-    // Module-scoped state: the loaded payload + the derived user lookup + a
-    // per-session cache the loader keys by data version (reuse-on-unchanged).
     var state = { data: null, userMap: {}, savedAt: 0, fromCache: false };
     var sessionCache = {};
 
@@ -115,28 +86,20 @@ const lang = 'en';
     var yearSel = document.getElementById('year-select');
     var searchEl = document.getElementById('home-search');
 
-    // The year currently selected: a Number, or the string 'All' (lifetime).
     function selectedYear() {
       var v = yearSel ? yearSel.value : '';
       return v === 'All' ? 'All' : parseInt(v);
     }
 
-    // Populate the Header's #year-select from the years in the payload (newest
-    // first) plus an 'All' lifetime option, selecting the newest by default.
-    // WHY here (not in the Header): the option list is DATA-derived, and only the
-    // Home island has the payload. The Header owns the control's theme/label; the
-    // Home island owns its contents and reacts to its 'change' event.
     function populateYears() {
       if (!yearSel) return;
       var years = collectYears(state.data);
       var opts = years.map(function (y) { return '<option value="' + y + '">' + y + '</option>'; });
-      // 'All' = lifetime view. Label localized so it reads in the active language.
       opts.push('<option value="All">' + t(currentLang(), 'lifetime_budget_overview') + '</option>');
       yearSel.innerHTML = opts.join('');
       yearSel.value = String(years[0]);
     }
 
-    // Recompute the hero figures + labels for the selected year and language.
     function renderHero() {
       var lang = currentLang();
       var year = selectedYear();
@@ -159,7 +122,6 @@ const lang = 'en';
       set('h-surplus', fmt(b.netSurplus));
     }
 
-    // Rebuild the contributors list for the selected year, language and search.
     function renderList() {
       var lang = currentLang();
       var year = selectedYear();
@@ -172,10 +134,6 @@ const lang = 'en';
 
     function renderAll() { renderHero(); renderList(); }
 
-    // Re-resolve the year/search elements each client navigation. Under View
-    // Transitions the <body> is swapped, so the DOM nodes captured at parse time
-    // are discarded on every swap — the astro:page-load handler below re-queries
-    // them so we always bind to the LIVE nodes on the freshly-swapped page.
     function refreshEls() {
       loaderEl = document.getElementById('home-loader');
       homeEl = document.querySelector('[data-home-root]');
@@ -184,9 +142,6 @@ const lang = 'en';
       searchEl = document.getElementById('home-search');
     }
 
-    // Show / hide the non-blocking stale-data banner (only when rendering a cached
-    // copy because the network/backend was unreachable). Re-run on language change
-    // so the banner copy switches too.
     function renderStaleNotice() {
       if (!noticeEl) return;
       if (!state.fromCache) { noticeEl.classList.add('hidden'); noticeEl.textContent = ''; return; }
@@ -195,8 +150,6 @@ const lang = 'en';
       noticeEl.textContent = staleNoticeText(currentLang(), state.savedAt);
     }
 
-    // Cold failure: everything failed AND no snapshot. Render the friendly retry
-    // card in place of the loader; the Retry button reloads the page.
     function renderColdFailure() {
       if (!loaderEl) return;
       loaderEl.innerHTML = coldFailureHtml(currentLang());
@@ -205,23 +158,13 @@ const lang = 'en';
       if (btn) btn.addEventListener('click', function () { location.reload(); });
     }
 
-    // Re-render everything when the Header language toggle fires. The Header
-    // persists the new language to LANG_KEY then re-applies [data-i18n] text; it
-    // does NOT know about the data-driven list, so we listen for a lightweight
-    // custom event the Header dispatches (see Header wiring) OR fall back to the
-    // toggle button's own click. We choose a custom event ('cpm:langchange') as
-    // the cleanest contract: no shared global, and the Home island stays in sync
-    // regardless of how many controls trigger a language change.
     function onLangChange() {
-      // Refresh the 'All' option label + placeholder in the active language, then
-      // re-render figures and list so DATA (not just static labels) re-localizes.
       populateYears();
       if (searchEl) searchEl.setAttribute('placeholder', t(currentLang(), 'search_by_name'));
       renderAll();
       renderStaleNotice();
     }
 
-    // ---- Boot ----
     async function boot() {
       try {
         var result = await loadPortalData({ apiBase: apiBase, sessionCache: sessionCache });
@@ -235,36 +178,13 @@ const lang = 'en';
         renderAll();
         renderStaleNotice();
 
-        // Reveal the page, hide the loader.
         if (loaderEl) loaderEl.classList.add('hidden');
         if (homeEl) { homeEl.classList.remove('hidden'); homeEl.classList.add('flex'); }
       } catch (e) {
-        // Cold failure (no cached copy + everything failed).
         renderColdFailure();
       }
     }
 
-    // ---- Per-navigation init (View Transitions) ----------------------------
-    // STRATEGY: re-init on astro:page-load. This page's markup + #year-select
-    // options are page-specific DATA, so the island must re-run for the
-    // freshly-swapped DOM after every client navigation. astro:page-load fires
-    // on the INITIAL real load AND after every client swap, so it is the single
-    // correct hook — we do NOT also call boot() at parse time (that would
-    // double-boot on the first load).
-    //
-    // PAGE-IDENTITY GUARD (why this exists): the handler is registered on
-    // `document`, which is NOT swapped by the View Transitions router and is
-    // never removed for the rest of the session. So EVERY data page's handler
-    // stays live and fires on EVERY later swap, regardless of which page is now
-    // mounted. Without a guard, visiting several data pages would make each swap
-    // re-run every prior page's boot() (redundant loadPortalData() fetches) and
-    // re-bind each prior page's distinct renderX to the SAME persisted
-    // #year-select — addEventListener only de-dupes identical (node,type,fn)
-    // triples, so those distinct renderers would all stay bound and a single
-    // year change would drive stale renderers against unmounted DOM.
-    // FIX: bail immediately unless THIS page's unique root is in the swapped-in
-    // DOM. `[data-home-root]` exists only on the Home page, so the handler
-    // no-ops (never fetches, never binds to #year-select) on every other page.
     document.addEventListener('astro:page-load', function () {
       if (!document.querySelector('[data-home-root]')) return;
       refreshEls();
@@ -273,13 +193,8 @@ const lang = 'en';
       if (searchEl) searchEl.addEventListener('input', renderList);
     });
 
-    // WINDOW-LEVEL listener guard: unlike element listeners, a window listener is
-    // NOT discarded on swap, so re-adding it each page-load would stack duplicate
-    // handlers. Register the cpm:langchange subscription exactly ONCE via a
-    // module-level flag so only a single handler is ever live.
     if (!window.__cpmHomeLangBound) {
       window.__cpmHomeLangBound = true;
-      // Header dispatches this after it persists the new language + re-applies labels.
       window.addEventListener('cpm:langchange', onLangChange);
     }
   })();

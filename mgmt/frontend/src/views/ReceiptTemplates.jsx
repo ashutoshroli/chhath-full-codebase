@@ -5,11 +5,6 @@ import { api } from '../api.js';
 import { renderReceiptTemplate, PAGE_SIZES_MM } from '../receiptTemplate.js';
 import { generateQrDataUrl, publicRecordUrl } from '../qrCode.js';
 
-// DETAIL and YEAR are both returned by the backend's getReceiptData() and were
-// documented in the Word/.docx editor, but were missing here — AND missing from
-// SAMPLE_PLACEHOLDERS below, which meant the seeded receipt sample's own
-// `{{#IF DETAIL}}...{{/IF}}` block silently disappeared in this editor's preview
-// even though it renders perfectly on a real receipt. Very confusing for admins.
 const SAMPLE_PLACEHOLDERS = {
   RECEIPT_NO: 'NCS-2026-1', NAME: 'Ramesh Verma', DATE: '2026-08-10', YEAR: '2026',
   FATHER_NAME: 'Suresh Verma', VILLAGE: 'Shaharpura', DESIGNATION: '', MOBILE: '9876543210',
@@ -33,12 +28,6 @@ export default function ReceiptTemplates() {
   const [sampleQr, setSampleQr] = useState('');
 
   useEffect(() => {
-    // Deliberately silent: this QR is only a decorative THUMBNAIL shown next to the
-    // placeholder hints in this editor (record id "sample-preview"). It never ends
-    // up in a generated document, so a failure here has no consequence worth
-    // reporting. The QR used in real documents is generated in ReceiptModal /
-    // Home / Bulk / DownloadCenter / ConsentPage, and every one of those DOES
-    // report a failure now.
     generateQrDataUrl(publicRecordUrl('sample-preview')).then(setSampleQr).catch(() => {});
   }, []);
 
@@ -49,7 +38,7 @@ export default function ReceiptTemplates() {
     }).catch(err => setError(err.message));
   };
 
-  useEffect(() => { refreshList(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { refreshList();  }, []);
 
   useEffect(() => {
     if (year === null) { setLoading(false); return; }

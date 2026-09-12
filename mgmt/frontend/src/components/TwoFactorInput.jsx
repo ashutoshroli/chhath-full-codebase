@@ -1,12 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 
-// Mobile-friendly 6-box TOTP input with auto-advance, backspace-to-previous, and
-// full paste support (pasting a 6-digit code fills every box). Calls onComplete
-// with the 6-digit string when all boxes are filled. A "use a backup code"
-// fallback swaps to a single free-text field for backup / recovery codes.
-//
-// Controlled from the parent: `disabled` (while verifying) and `resetKey` (bump to
-// clear the boxes after a failed attempt).
 export default function TwoFactorInput({ onSubmit, disabled, error, resetKey }) {
   const LEN = 6;
   const [digits, setDigits] = useState(Array(LEN).fill(''));
@@ -14,11 +7,10 @@ export default function TwoFactorInput({ onSubmit, disabled, error, resetKey }) 
   const [backup, setBackup] = useState('');
   const inputs = useRef([]);
 
-  // Clear on resetKey change (parent bumps it after a wrong code).
   useEffect(() => {
     setDigits(Array(LEN).fill(''));
     if (!useBackup && inputs.current[0]) inputs.current[0].focus();
-  }, [resetKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [resetKey]);
 
   useEffect(() => {
     if (!useBackup && inputs.current[0]) inputs.current[0].focus();
@@ -32,13 +24,11 @@ export default function TwoFactorInput({ onSubmit, disabled, error, resetKey }) 
   const handleChange = (i, val) => {
     const only = val.replace(/\D/g, '');
     if (!only) {
-      // clearing this box
       const next = [...digits];
       next[i] = '';
       setDigits(next);
       return;
     }
-    // If the user typed/pasted more than one digit, distribute across boxes.
     const chars = only.split('');
     const next = [...digits];
     let idx = i;

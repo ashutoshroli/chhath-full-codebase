@@ -1,17 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
 import { canEdit, canDelete } from '../permissions.js';
 
-// A compact 3-dot (⋮) menu for row actions. Replaces the old always-visible
-// edit/delete icon pair — this takes almost no horizontal space (fixing the
-// cramped/overlapping card layouts) and reveals Edit/Delete on tap.
-// `disabled` renders nothing regardless of role (All-Years view, locked years).
 export default function RowActions({ role, onEdit, onDelete, disabled }) {
   const showEdit = !disabled && canEdit(role) && onEdit;
   const showDelete = !disabled && canDelete(role) && onDelete;
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
-  // Close on any outside click / Escape.
   useEffect(() => {
     if (!open) return;
     const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };

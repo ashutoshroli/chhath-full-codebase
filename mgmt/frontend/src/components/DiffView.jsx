@@ -1,6 +1,3 @@
-// Minimal unified-diff renderer for the AI fix preview. Colours added/removed/
-// hunk lines like a normal code review. Presentational only — takes a raw diff
-// string and displays it; it does not parse or apply anything.
 function lineStyle(line) {
   if (line.startsWith('+++') || line.startsWith('---')) {
     return { color: '#6b7280', fontWeight: 600 };

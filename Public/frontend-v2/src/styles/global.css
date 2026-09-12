@@ -1,34 +1,16 @@
-/* Tailwind entry point for the v2 portal.
-   The three @tailwind directives are replaced at build time with Tailwind's
-   base reset, component classes, and the generated utilities. Any small custom
-   layer (brand CSS vars, base element tweaks) goes below so components can lean
-   on both utilities and a couple of shared tokens. */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    /* Brand accent exposed as a CSS var too, so non-Tailwind contexts (inline
-       SVG fills, third-party widgets) can reuse the exact saffron. */
     --brand: #F27A1A;
   }
 
   html {
-    /* Smooth in-page anchor jumps for the future single-page nav. */
     scroll-behavior: smooth;
   }
 
-  /* ACCESSIBILITY: a clearly visible keyboard focus ring.
-     The header controls, nav links, chatbot buttons and skip link relied on the
-     browser default outline, which is easy to lose against the saffron/slate
-     palette (and some resets suppress it). We add ONE explicit :focus-visible
-     ring in brand saffron with an offset so it reads on both the light (white)
-     and dark (slate-950) backgrounds. :focus-visible (not :focus) means the ring
-     only appears for keyboard/AT navigation, never on mouse click — so we keep
-     the a11y win without the "clicked button has an ugly outline" complaint.
-     We intentionally do NOT set `outline: none` anywhere, so focus is never
-     removed, only enhanced. */
   :focus-visible {
     outline: 2px solid var(--brand);
     outline-offset: 2px;
@@ -41,12 +23,6 @@
     font-family: theme('fontFamily.sans');
   }
 
-  /* Bilingual show/hide driven by <html lang>, ported from the old
-     privacy.html / terms.html. The v2 Header already manages <html lang> and
-     dispatches cpm:langchange, so the static legal pages reuse the exact same
-     [data-lang] span approach with no per-page script: default (English) hides
-     the Hindi spans; when lang=hi, hide the English spans and reveal Hindi.
-     `list-item` is restored for <li> so a translated bullet stays a bullet. */
   span[data-lang='hi'],
   li[data-lang='hi'] {
     display: none;

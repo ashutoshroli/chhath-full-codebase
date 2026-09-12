@@ -3,7 +3,6 @@ import { api, clearSession } from '../api.js';
 import Modal from './Modal.jsx';
 import TwoFactorSettings from './TwoFactorSettings.jsx';
 
-// Turns an ISO timestamp into a short "X min/hours/days ago" label.
 function timeAgo(iso) {
   if (!iso) return '';
   const then = Date.parse(iso);
@@ -15,9 +14,6 @@ function timeAgo(iso) {
   const d = Math.floor(h / 24); return `${d} day${d > 1 ? 's' : ''} ago`;
 }
 
-// Self-service settings: update own contact info (Mobile/Email/WhatsApp) and
-// change own password. userId = the ID the person logged in with (this is also
-// their USERS.ID and their COMMITEE MEMBERS.Name).
 export default function SettingsModal({ open, onClose, userId }) {
   const [profile, setProfile] = useState({ Mobile: '', Email: '', WhatsApp: '' });
   const [loading, setLoading] = useState(false);
@@ -26,12 +22,9 @@ export default function SettingsModal({ open, onClose, userId }) {
 
   const [pwForm, setPwForm] = useState({ current: '', next: '', confirm: '' });
   const [pwSaving, setPwSaving] = useState(false);
-  // Inline validation/result for the password form (audit LOW #6: no more blocking
-  // alert() for empty/mismatched fields). pwError is red, pwMsg is a green success.
   const [pwError, setPwError] = useState('');
   const [pwMsg, setPwMsg] = useState('');
 
-  // Active devices / sessions
   const [sessions, setSessions] = useState([]);
   const [sessLoading, setSessLoading] = useState(false);
   const [sessError, setSessError] = useState('');
@@ -39,12 +32,10 @@ export default function SettingsModal({ open, onClose, userId }) {
 
   useEffect(() => {
     if (!open || !userId) return;
-    setPwError(''); setPwMsg(''); // don't carry stale password messages across opens
+    setPwError(''); setPwMsg('');
     setLoading(true);
     api.getUserProfile(userId)
       .then(d => setProfile({ Mobile: d.user.Mobile || '', Email: d.user.Email || '', WhatsApp: d.user.WhatsApp || '' }))
-      // Was `.catch(() => {})`, so a failed load left the form silently blank and
-      // saving it would then WIPE the stored mobile/email/WhatsApp.
       .catch(err => setLoadError(err.message))
       .finally(() => setLoading(false));
     loadSessions();
@@ -59,8 +50,6 @@ export default function SettingsModal({ open, onClose, userId }) {
       .finally(() => setSessLoading(false));
   };
 
-  // Logging out the CURRENT device (or "all other" when it also caught the
-  // current one) clears the local session and reloads to the login screen.
   const afterMaybeSelfLogout = (wasCurrent) => {
     if (wasCurrent) { clearSession(); window.location.reload(); }
   };
@@ -101,22 +90,17 @@ export default function SettingsModal({ open, onClose, userId }) {
     }
   };
 
-  // Update a password field and clear any stale inline messages as the user types.
   const setPw = (patch) => { setPwForm(f => ({ ...f, ...patch })); setPwError(''); setPwMsg(''); };
 
   const savePassword = async (e) => {
     e.preventDefault();
     setPwError('');
     setPwMsg('');
-    // Inline validation instead of a blocking browser alert (audit LOW #6).
     if (!pwForm.current || !pwForm.next || !pwForm.confirm) return setPwError('Please fill in all fields.');
     if (pwForm.next !== pwForm.confirm) return setPwError('The new passwords do not match.');
     setPwSaving(true);
     try {
       const res = await api.changePassword(pwForm.current, pwForm.next);
-      // audit H-15: other devices are now signed out by the change. Say so, so the
-      // person knows the action actually cut off whoever had the old password —
-      // the whole reason for changing it.
       setPwMsg((res && res.message) || 'Password changed successfully.');
       setPwForm({ current: '', next: '', confirm: '' });
     } catch (err) {
@@ -178,11 +162,11 @@ export default function SettingsModal({ open, onClose, userId }) {
             <button className="btn-submit" disabled={pwSaving}>{pwSaving ? 'Saving...' : 'Change Password'}</button>
           </form>
 
-          {/* ---- Two-Factor Authentication (Superadmin only; the component
-               self-hides for other roles based on get2FAStatus.eligible) ---- */}
+          {
+}
           <TwoFactorSettings />
 
-          {/* ---- Active Devices (all roles: your own logins) ---- */}
+          {}
           <h4 style={{ margin: '28px 0 6px' }}>Active Devices</h4>
           <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 10 }}>
             Everywhere you are currently logged in. Log out any device you don't recognise.

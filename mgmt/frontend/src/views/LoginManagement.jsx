@@ -8,10 +8,6 @@ import RowActions from '../components/RowActions.jsx';
 const ROLES = ['Superadmin', 'Admin', 'Subadmin'];
 const BLANK = { userId: '', password: '', role: '', mobile: '', email: '' };
 
-// Superadmin: full add/edit/delete on the LOGIN sheet (Name=USERS.ID / Password
-// / Role) — separate from Committee Members, which is now just per-year public
-// membership. Admin: read-only list + can add a Subadmin login only (no edit/
-// delete, no Admin/Superadmin logins) — role prop drives which mode renders.
 export default function LoginManagement({ users, role }) {
   const isSuperadmin = role === 'Superadmin';
   const { data, loading, error, refresh } = useViewData('loginusers', () => api.getLoginUsers());
@@ -29,9 +25,6 @@ export default function LoginManagement({ users, role }) {
     setShowAdd(true);
   };
 
-  // When adding a new login, picking the User auto-fills Mobile/Email from
-  // their USERS record (convenience) — admin can still edit/override before
-  // saving, and the backend will catch any duplicate against another login.
   const selectUser = (userId) => {
     const u = (users || []).find(x => x.ID === userId);
     setForm(f => ({ ...f, userId, mobile: f.mobile || (u && u.Mobile) || '', email: f.email || (u && u.Email) || '' }));

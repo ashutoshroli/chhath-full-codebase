@@ -4,15 +4,9 @@ import AppFooter from './AppFooter.jsx';
 import TwoFactorInput from './TwoFactorInput.jsx';
 import ForgotPassword from './ForgotPassword.jsx';
 
-// The Google Cloud OAuth 2.0 Web client id, baked in at build time. Must match
-// GOOGLE_SIGNIN_CLIENT_ID on the Worker (that's what the server verifies the
-// token's `aud` against). If it's not set, the Google button is simply hidden and
-// password login works exactly as before.
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 const GIS_SRC = 'https://accounts.google.com/gsi/client';
 
-// Load the Google Identity Services script once, resolving when window.google is
-// ready. Safe to call repeatedly.
 let gisPromise = null;
 function loadGis() {
   if (gisPromise) return gisPromise;
@@ -45,23 +39,16 @@ export default function Login({ onLogin }) {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const googleBtnRef = useRef(null);
-  // `remember` can change after the button renders, so read it live in the
-  // credential callback via a ref.
   const rememberRef = useRef(remember);
   useEffect(() => { rememberRef.current = remember; }, [remember]);
 
-  // ---- 2FA (second factor) state ----
-  // When the backend answers a correct password with {requires2FA, tempToken}, we
-  // switch the form to a code-entry step instead of completing the login.
-  const [twoFA, setTwoFA] = useState(null);      // { tempToken, remember } | null
+  const [twoFA, setTwoFA] = useState(null);
   const [twoFAError, setTwoFAError] = useState('');
   const [twoFAResetKey, setTwoFAResetKey] = useState(0);
 
-  // ---- Forgot password state ----
-  const [forgot, setForgot] = useState(false);   // showing the reset flow?
-  const [resetDone, setResetDone] = useState(''); // success banner after a reset
+  const [forgot, setForgot] = useState(false);
+  const [resetDone, setResetDone] = useState('');
 
-  // Finish a login once we have a real session object (from login or verify2FA).
   const completeLogin = (res, rememberNow) => {
     saveSession(res, rememberNow);
     onLogin({ name: res.name, role: res.role });
@@ -75,7 +62,6 @@ export default function Login({ onLogin }) {
     try {
       const res = await api.login(name, password, remember);
       if (res && res.requires2FA) {
-        // Superadmin with 2FA on — collect the second factor.
         setTwoFA({ tempToken: res.tempToken, remember });
         return;
       }
@@ -87,7 +73,6 @@ export default function Login({ onLogin }) {
     }
   };
 
-  // Called by TwoFactorInput with a 6-digit TOTP or a backup code.
   const submitTwoFA = async (code) => {
     setTwoFAError('');
     setLoading(true);
@@ -96,7 +81,7 @@ export default function Login({ onLogin }) {
       completeLogin(res, twoFA.remember);
     } catch (err) {
       setTwoFAError(err.message || 'Invalid or expired code.');
-      setTwoFAResetKey(k => k + 1); // clear the boxes for another try
+      setTwoFAResetKey(k => k + 1);
     } finally {
       setLoading(false);
     }
@@ -108,7 +93,6 @@ export default function Login({ onLogin }) {
     setPassword('');
   };
 
-  // Called by Google Identity Services with the signed ID token.
   const handleGoogleCredential = useCallback(async (response) => {
     setError('');
     setGoogleLoading(true);
@@ -128,9 +112,8 @@ export default function Login({ onLogin }) {
     }
   }, [onLogin]);
 
-  // Initialise and render the Google button once the script is ready.
   useEffect(() => {
-    if (!GOOGLE_CLIENT_ID) return; // feature off — no client id configured
+    if (!GOOGLE_CLIENT_ID) return;
     let cancelled = false;
     loadGis()
       .then(() => {

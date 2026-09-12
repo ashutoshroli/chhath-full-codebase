@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 
-// options: [{ value, label, sub }]  sub = optional secondary line (e.g. village)
 export default function SearchableSelect({ options, value, onChange, placeholder = 'Search...', onAddNew }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);

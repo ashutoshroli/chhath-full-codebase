@@ -1,10 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 
-// Superadmin-only tab: shows where each year's uploaded files live (R2 vs Drive)
-// and lets you archive a year — move all of that year's R2 files (generated PDFs
-// + consent photos/signatures) to Google Drive. Popups are never moved (they are
-// year-independent and stay on R2).
 function fmtBytes(n) {
   const b = Number(n) || 0;
   if (b < 1024) return b + ' B';

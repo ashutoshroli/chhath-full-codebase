@@ -1,27 +1,3 @@
-// Build-time SEO injection for the public portal.
-//
-// WHY THIS EXISTS
-// Social crawlers (WhatsApp, Facebook, X) and, most reliably, search engines
-// read the tags that are present in the INITIAL HTML — they do not run the
-// page's JavaScript. So to let a Superadmin change the link-preview title,
-// description, keywords and image from the management portal AND have those
-// changes actually show up in previews, we bake the current values into
-// index.html whenever the site is (re)built. The management portal triggers a
-// rebuild via a Vercel Deploy Hook after the settings are saved.
-//
-// FAIL-SAFE BY DESIGN
-// If the settings API is unreachable or returns anything unexpected, this
-// script logs a warning and leaves the hardcoded defaults in index.html
-// untouched. A deploy must never fail just because the settings service had a
-// hiccup — a slightly stale preview is always better than a broken build.
-//
-// WHAT IT DOES
-//   1. Fetches SEO settings from the public Worker endpoint (action=publicGetSeo).
-//   2. Replaces the block between <!--SEO:START--> and <!--SEO:END--> in
-//      index.html with freshly rendered tags.
-//   3. Rewrites sitemap.xml with today's <lastmod>.
-//
-// Runs on Node 18+ (global fetch). No dependencies.
 
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -29,13 +5,11 @@ import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// The public Worker base URL. Overridable via env for preview/staging deploys.
 const SEO_API_BASE =
   process.env.SEO_API_BASE || 'https://chhath-public-worker.shaharpura.com';
 const SITE_URL = process.env.SITE_URL || 'https://chhath.shaharpura.com';
 const FETCH_TIMEOUT_MS = 8000;
 
-// HTML-escape a value before placing it inside an attribute.
 function esc(value) {
   return String(value == null ? '' : value)
     .replace(/&/g, '&amp;')
@@ -45,7 +19,6 @@ function esc(value) {
     .replace(/'/g, '&#39;');
 }
 
-// JSON-escape for embedding a string inside the JSON-LD block.
 function jsonStr(value) {
   return JSON.stringify(String(value == null ? '' : value));
 }
@@ -58,7 +31,6 @@ async function fetchSeo() {
     const res = await fetch(url, { signal: controller.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    // The endpoint returns { status: true, seo: {...} } on success.
     if (!data || data.status === false || !data.seo) return null;
     return data.seo;
   } catch (err) {
@@ -69,8 +41,6 @@ async function fetchSeo() {
   }
 }
 
-// Render the full SEO block from a settings object. Any missing field falls back
-// to the sensible committee/village default so the output is always complete.
 function renderSeoBlock(seo) {
   const title =
     seo.title || 'Navyuvak Chhath Puja Samiti Shaharpura | Chhath Puja Transparency Portal';
@@ -180,7 +150,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  // Never fail the deploy on an SEO problem.
   console.warn(`[build] Non-fatal build.mjs error: ${err.message}`);
   process.exit(0);
 });

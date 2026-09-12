@@ -5,14 +5,6 @@ import { setDataVersion } from './cache.js';
 import { isSuperadmin } from './permissions.js';
 import Login from './components/Login.jsx';
 import AppFooter from './components/AppFooter.jsx';
-// PERFORMANCE (LCP): only the FIRST screen a logged-in user sees (Home) and the
-// small always-mounted UI (Login, ProfileMenu, SettingsModal, Modal, ErrorBoundary,
-// LoginPopups) are imported eagerly. Every OTHER tab/view is lazy-loaded, so the
-// initial JS bundle shrinks dramatically — the browser no longer downloads +
-// parses 19 screens' worth of code (and their heavy deps like jsPDF, docxtemplater,
-// PizZip) just to render Home. Each view's chunk is fetched on the first click of
-// its tab (fast, behind a Suspense spinner). All lazy views render inside a single
-// <Suspense> below, so behaviour is identical — just deferred.
 import Home from './views/Home.jsx';
 const Expenses = lazy(() => import('./views/Expenses.jsx'));
 const Loans = lazy(() => import('./views/Loans.jsx'));
@@ -32,7 +24,6 @@ const ErrorLog = lazy(() => import('./views/ErrorLog.jsx'));
 const QueueMonitor = lazy(() => import('./views/QueueMonitor.jsx'));
 const PopupManagement = lazy(() => import('./views/PopupManagement.jsx'));
 const AnnouncementPortal = lazy(() => import('./views/AnnouncementPortal.jsx'));
-// These were already lazy (heavy deps: docxtemplater / pizzip / jsPDF).
 const DocxTemplates = lazy(() => import('./views/DocxTemplates.jsx'));
 const BulkGeneratePdfs = lazy(() => import('./views/BulkGeneratePdfs.jsx'));
 const DownloadCenter = lazy(() => import('./views/DownloadCenter.jsx'));
@@ -78,29 +69,18 @@ const SEO_TAB = { id: 'seo', label: 'SEO & Link Preview', icon: 'travel_explore'
 const AUDIT_TAB = { id: 'auditlogs', label: 'Activity & Login Logs', icon: 'security' };
 const UPLOAD_CSV_TAB = { id: 'uploadcsvs', label: 'Upload CSVs', icon: 'upload_file' };
 const AI_MGMT_TAB = { id: 'aimanagement', label: 'AI Management', icon: 'smart_toy' };
-// Superadmin: everything below, tucked behind a single "More" button instead of
-// crowding the nav bar (there'd be 14 tabs otherwise). Grouped into categories
-// so the More menu is scannable instead of one long flat list.
 const SUPERADMIN_TAB_GROUPS = [
-  // Receipt/Certificate/Material HTML template tabs removed — the committee uses
-  // DOCX templates (Document Templates) for all documents.
   { title: '📄 Documents & Templates', tabs: [DOCX_TEMPLATES_TAB, BULK_GENERATE_TAB, DOWNLOAD_CENTER_TAB, PDF_TAB] },
   { title: '🤝 Loan Consent', tabs: [CONSENT_TEMPLATES_TAB, CONSENT_REVIEW_TAB] },
   { title: '💬 Communication', tabs: [WHATSAPP_TAB, EMAIL_TAB, EMAIL_OFFICIAL_TAB, POPUP_MGMT_TAB, ANNOUNCEMENT_TAB] },
   { title: '⚙️ Data & Settings', tabs: [LOCK_TAB, LIST_TAB, UPLOAD_CSV_TAB, STORAGE_TAB, BACKUP_TAB, QUEUE_MONITOR_TAB, ERROR_LOG_TAB, AI_MGMT_TAB, LOGIN_MGMT_TAB, SEO_TAB, AUDIT_TAB] },
 ];
-// Admin: a smaller subset — no data-editing/config tools (Templates, Lock Data,
-// WhatsApp, List Management, Error Log), and Download Center is view/download
-// only (no manual "Generate Now" — that stays Superadmin-only within the tab
-// itself). Login Management here can only ADD a Subadmin login (view is
-// read-only, no edit/delete) — also enforced within the tab itself.
 const ADMIN_ROLE_TAB_GROUPS = [
   { title: '📄 Documents & Templates', tabs: [DOWNLOAD_CENTER_TAB, PDF_TAB] },
   { title: '🤝 Loan Consent', tabs: [CONSENT_REVIEW_TAB] },
   { title: '💬 Communication', tabs: [POPUP_MGMT_TAB, ANNOUNCEMENT_TAB] },
   { title: '⚙️ Data & Settings', tabs: [LOGIN_MGMT_TAB] },
 ];
-// Subadmin: just Download Center (view/download only, same as Admin).
 const SUBADMIN_ROLE_TAB_GROUPS = [
   { title: '📄 Documents & Templates', tabs: [DOWNLOAD_CENTER_TAB] },
 ];
@@ -112,34 +92,17 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [checkedSession, setCheckedSession] = useState(false);
   const [freshLogin, setFreshLogin] = useState(false);
-  // Initialise the tab from the URL hash (e.g. "#loans") so a REFRESH stays on the
-  // section the user was viewing instead of snapping back to Home. Any string is
-  // accepted here; if it turns out the role can't access it, the render + the
-  // guard effect below fall back to 'home'. Empty/no hash -> 'home'.
   const [tab, setTab] = useState(() => {
     try {
       const h = (window.location.hash || '').replace(/^#/, '').trim();
       return h || 'home';
     } catch (e) { return 'home'; }
   });
-  // Default is empty until the years list loads (right after login), then the
-  // effect below selects the LATEST year. The "All Years" option was removed from
-  // the dropdown, so a specific year is always selected in normal use. The
-  // `year === 'All'` branches elsewhere are kept intact (harmless dead paths) so
-  // nothing that referenced them can break.
   const [year, setYear] = useState('');
   const [yearInitialized, setYearInitialized] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdminMenu, setShowAdminMenu] = useState(false);
 
-  // Keep the URL hash in sync with the current tab so a refresh restores it (see
-  // the initial state above), AND so the browser Back/Forward buttons work (audit
-  // MEDIUM #4). We PUSH a history entry when the tab genuinely changes, so Back
-  // returns to the previous screen (Home -> Expenses -> Back -> Home); we only
-  // REPLACE when the hash already equals this tab (the first sync after a refresh,
-  // or a hashchange we are echoing), so we never create a duplicate entry or spam
-  // history. The `hashchange` listener below already applied a Back/Forward hash
-  // to `tab`, so that case hits the replace branch and adds nothing.
   useEffect(() => {
     try {
       const current = (window.location.hash || '').replace(/^#/, '').trim();
@@ -148,15 +111,9 @@ export default function App() {
       } else {
         window.history.pushState(null, '', '#' + tab);
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) {  }
   }, [tab]);
 
-  // AUDIT MEDIUM #4: make the browser Back/Forward buttons actually change the
-  // screen. Without this, pressing Back moved the URL hash (e.g. #expenses ->
-  // #home) but `tab` state never updated, so the view stayed stuck on the old
-  // screen. Listen for `hashchange` and follow the URL — but only to a tab this
-  // role may see (an out-of-range hash falls back to Home, same as the guard
-  // above), and skip if it already matches to avoid a redundant re-render.
   useEffect(() => {
     const onHashChange = () => {
       const h = (window.location.hash || '').replace(/^#/, '').trim() || 'home';
@@ -169,26 +126,13 @@ export default function App() {
     return () => window.removeEventListener('hashchange', onHashChange);
   }, [user]);
 
-  // Guard: once the user (role) is known, if the tab restored from the hash isn't
-  // valid for this role, fall back to Home — so a stale/foreign hash (e.g. an
-  // Admin refreshing on a Superadmin-only "#errorlog") can never leave a blank
-  // screen. BASE_TABS are available to every role; tool tabs depend on the role.
   useEffect(() => {
     if (!user) return;
     const groups = TAB_GROUPS_BY_ROLE[user.role] || [];
     const allowed = new Set([...BASE_TABS.map(t => t.id), ...groups.flatMap(g => g.tabs).map(t => t.id)]);
     if (!allowed.has(tab)) setTab('home');
-    // Only needs to run when the user (role) becomes known; tab changes are
-    // already validated at click time.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
-  // Tab switching inside the authenticated portal is internal React state, not
-  // a URL route change (see the single "*" route in main.jsx) — so GTM's
-  // History Change trigger never fires for it. This pushes a `pageview` event
-  // to dataLayer every time `tab` changes, giving GA4/Clarity real per-screen
-  // visibility (Home, Users, Loans, ...) instead of one pageview for the whole
-  // session. Same dataLayer event name/shape as main.jsx's route-level tracker.
   useEffect(() => {
     window.dataLayer = window.dataLayer || [];
     window.dataLayer.push({ event: 'pageview', page: '/app/' + tab });
@@ -200,31 +144,15 @@ export default function App() {
     setCheckedSession(true);
   }, []);
 
-  // Years list — small, cheap, fetched once after login. Sorted newest-first by backend.
   const { data: years, refresh: refreshYears } = useViewData('years', () => api.getYears(), [user]);
 
-  // Locked years — Superadmin's "Lock Data" list. Affects add/edit/delete everywhere.
   const lockedYearsView = useViewData('lockedYears', () => api.getLockedYears(), [user]);
   const lockedYearsSet = useMemo(() => new Set(lockedYearsView.list.map(y => parseInt(y))), [lockedYearsView.data]);
 
-  // Users list — needed for name lookups across every view, fetched once (not per-tab) but only after login.
   const usersView = useViewData('users', () => api.getUsers(), [user]);
 
-  // Committee (all years) — needed by Loans view to block committee members as guarantors.
   const committeeAllView = useViewData('committee:All', () => api.getCommittee('All'), [user]);
 
-  // Data-version gate (mgmt caching, mirrors the Public portal's ?v= idea).
-  //
-  // cache.js optimistically hydrated the in-memory cache from localStorage at
-  // module load, so on a browser refresh the shell (years/lockedYears/users/
-  // committee) rendered INSTANTLY from the last-known-good copy. Here we fetch
-  // the authoritative server data-version ONCE and reconcile:
-  //   - version matches what we hydrated  -> cache is valid, nothing refetches
-  //     (a refresh then costs ~1 tiny getDataVersion call instead of 4 full
-  //     table scans of users + all-committee).
-  //   - version changed (someone saved)   -> setDataVersion() cleared the stale
-  //     cache; we refresh the shell views so they pull fresh data.
-  // Fails safe: any error just refreshes everything (old behaviour).
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
@@ -234,7 +162,6 @@ export default function App() {
         const v = res && res.v != null ? res.v.toString() : null;
         const stillValid = setDataVersion(v);
         if (!stillValid) {
-          // Stale (or first-ever) cache was cleared — pull fresh shell data.
           refreshYears();
           lockedYearsView.refresh();
           usersView.refresh();
@@ -242,9 +169,6 @@ export default function App() {
         }
       })
       .catch(() => {
-        // Couldn't confirm the version — don't trust a possibly-stale mirror.
-        // Clearing + refetching is exactly the pre-cache behaviour, so this is
-        // strictly safe.
         setDataVersion(null);
         refreshYears();
         lockedYearsView.refresh();
@@ -252,13 +176,8 @@ export default function App() {
         committeeAllView.refresh();
       });
     return () => { cancelled = true; };
-    // Only when the user (session) becomes known, i.e. once per load/login.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
-  // Which years the logged-in user themselves was a Committee member in — used
-  // to gate add/edit/delete for Admin/Subadmin (rule: they can only touch years
-  // they were actually on the committee for; other years are read-only to them).
   const myCommitteeYears = useMemo(() => {
     const set = new Set();
     committeeAllView.list.forEach(r => {
@@ -267,7 +186,6 @@ export default function App() {
     return set;
   }, [committeeAllView.data, user]);
 
-  // Default the year selector to the latest year once years load (instead of "All Years").
   useEffect(() => {
     if (years && years.length && !yearInitialized) {
       setYear(String(years[0]));
@@ -288,18 +206,13 @@ export default function App() {
   const isAdminTabActive = toolTabs.some(t => t.id === tab);
   const openTab = (id) => { setTab(id); setShowAdminMenu(false); };
 
-  // A specific year is editable (add/edit/delete) only when it's actually selected
-  // (not "All Years"), a Superadmin hasn't locked it, and — for Admin/Subadmin —
-  // the logged-in user was themselves a Committee member that year. "All Years"
-  // and locked years are read-only everywhere except Users (Users has no Year,
-  // unaffected by any of this).
   const isAllYears = year === 'All';
   const isYearLocked = !isAllYears && lockedYearsSet.has(parseInt(year));
   const isMyCommitteeYear = isSuperadmin(user.role) || (!isAllYears && myCommitteeYears.has(parseInt(year)));
   const editable = !isAllYears && !isYearLocked && isMyCommitteeYear;
 
   const logout = async () => {
-    try { await api.logout(); } catch (err) { /* even if this fails, still clear locally */ }
+    try { await api.logout(); } catch (err) {  }
     clearSession();
     setUser(null);
   };
@@ -310,8 +223,8 @@ export default function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <img src="/logo.svg" alt="Navyuvak Chhath Puja Samiti" width="34" height="34" style={{ width: 34, height: 34, flex: 'none' }} />
           <select className="year-selector" value={year} onChange={e => setYear(e.target.value)}>
-            {/* Placeholder shown only for the brief moment before the years list
-                loads and the effect selects the latest year. Never selectable. */}
+            {
+}
             {!year && <option value="" disabled>Year…</option>}
             {(years || []).map(y => (
               <option key={y} value={y}>{y}{lockedYearsSet.has(parseInt(y)) ? ' 🔒' : ''}</option>
@@ -340,16 +253,11 @@ export default function App() {
       <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} userId={user.name} />
 
       <main className="page-view">
-        {/* There was no ErrorBoundary anywhere, so one render throw white-screened
-            the entire app and was only "logged" as a stackless "Script error.".
-            Keyed on `tab` so navigating away resets the boundary rather than
-            leaving it permanently stuck in its error state. */}
+        {
+}
         <ErrorBoundary key={tab} name={`tab:${tab}`}>
-        {/* All views except Home are lazy-loaded now, so the whole tab block is
-            wrapped in ONE Suspense (a lazy component rendered without a Suspense
-            ancestor would throw). The spinner only shows for the brief moment a
-            tab's chunk is fetched the first time; after that it's cached. Home is
-            eager, so the first screen never shows this fallback. */}
+        {
+}
         <Suspense fallback={<div className="inline-spinner">Loading...</div>}>
         {tab === 'home' && <Home year={year} users={usersView.data} onUserCreated={usersView.refresh} role={user.role} editable={editable} />}
         {tab === 'expenses' && <Expenses year={year} role={user.role} editable={editable} />}

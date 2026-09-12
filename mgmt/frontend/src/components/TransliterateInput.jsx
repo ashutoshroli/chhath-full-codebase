@@ -1,11 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { transliterate } from '../transliterate.js';
 
-// value = { en, hi }, onChange({ en, hi })
-// Auto-fills `hi` from `en` as the user types (debounced), unless the user has
-// manually edited the Hindi field themselves (edit pencil) — a manual edit
-// "locks" hi so further English typing doesn't overwrite their correction,
-// until English is cleared and retyped from empty.
 export default function TransliterateInput({ label, value, onChange, placeholder, listId }) {
   const en = value?.en || '';
   const hi = value?.hi || '';
@@ -22,7 +17,6 @@ export default function TransliterateInput({ label, value, onChange, placeholder
       onChange({ en, hi: result });
     }, 400);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [en]);
 
   return (

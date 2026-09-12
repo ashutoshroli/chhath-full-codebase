@@ -16,8 +16,6 @@ export default function LoginPopups() {
   const [popups, setPopups] = useState(null);
   const [popupIndex, setPopupIndex] = useState(0);
   const [slideIndex, setSlideIndex] = useState(0);
-  // Auto-play pauses while the pointer is over the card (mirrors the public
-  // portal), and re-arms when the shown slide changes.
   const pausedRef = useRef(false);
   const timerRef = useRef(null);
 
@@ -30,18 +28,12 @@ export default function LoginPopups() {
   const slideCount = popup ? popup.slides.length : 0;
 
   useEffect(() => {
-    // Within a popup, auto-advance through its slides on each slide's own
-    // duration and LOOP back to the first slide (login popups don't auto-jump to
-    // the NEXT popup — the visitor uses Skip/Next Announcement for that, matching
-    // the previous manual behaviour). No timer for a single-slide popup or while
-    // paused. Cleanup clears the timer so they never stack.
     if (!popup || slideCount <= 1 || pausedRef.current) return undefined;
     const ms = clampDurationMs(popup.slides[slideIndex] && popup.slides[slideIndex].duration_ms);
     timerRef.current = setTimeout(() => {
       setSlideIndex((i) => (i + 1) % slideCount);
     }, ms);
     return () => { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; } };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slideIndex, slideCount, popupIndex]);
 
   if (!valid) return null;
@@ -55,7 +47,7 @@ export default function LoginPopups() {
   const goNextPopup = () => {
     clearTimer();
     if (isLastPopup) {
-      setPopups([]); // done — closes for good this session
+      setPopups([]);
     } else {
       setPopupIndex((i) => i + 1);
       setSlideIndex(0);
@@ -79,9 +71,6 @@ export default function LoginPopups() {
             src={driveImageUrl(slide.image_url)}
             alt=""
             style={{ maxWidth: '100%', maxHeight: 320, borderRadius: 10, marginBottom: 15 }}
-            // If lh3 fails, first try the thumbnail endpoint; only hide the image
-            // if both fail — there's no point showing every user a broken icon at
-            // login.
             onError={(e) => {
               const img = e.currentTarget;
               if (img.dataset.driveFallbackTried !== '1') {

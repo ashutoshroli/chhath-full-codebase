@@ -2,22 +2,16 @@ import { useState, useEffect } from 'react';
 import { api } from '../api.js';
 import { generateQrDataUrl } from '../qrCode.js';
 
-// Superadmin-only "Two-Factor Authentication" settings panel, embedded in
-// SettingsModal. Handles: enroll (QR + backup codes + 32-char recovery key shown
-// ONCE), confirm with a 6-digit code, disable (password-confirmed), and regenerate
-// backup codes. Only rendered when the backend reports the account is eligible.
 export default function TwoFactorSettings() {
-  const [status, setStatus] = useState(null); // { enabled, eligible, backupCodesRemaining }
+  const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // Enrollment working state.
-  const [enroll, setEnroll] = useState(null); // { secret, otpauthUri, backupCodes, recoveryKey, qrDataUrl }
+  const [enroll, setEnroll] = useState(null);
   const [code, setCode] = useState('');
 
-  // Codes to display once after confirm / regenerate.
-  const [showBackup, setShowBackup] = useState(null); // { backupCodes, recoveryKey? }
+  const [showBackup, setShowBackup] = useState(null);
 
   const [disablePw, setDisablePw] = useState('');
   const [regenPw, setRegenPw] = useState('');
@@ -36,7 +30,7 @@ export default function TwoFactorSettings() {
     try {
       const res = await api.enroll2FA();
       let qrDataUrl = '';
-      try { qrDataUrl = await generateQrDataUrl(res.otpauthUri, 220); } catch (e) { /* manual entry fallback */ }
+      try { qrDataUrl = await generateQrDataUrl(res.otpauthUri, 220); } catch (e) {  }
       setEnroll({ ...res, qrDataUrl });
       setShowBackup(null);
     } catch (e) { setErr(e.message); }
@@ -47,7 +41,6 @@ export default function TwoFactorSettings() {
     setErr(''); setBusy(true);
     try {
       await api.confirm2FA(code.replace(/\D/g, ''), enroll.backupCodes, enroll.recoveryKey);
-      // Show the saved codes one last time, then reflect enabled status.
       setShowBackup({ backupCodes: enroll.backupCodes, recoveryKey: enroll.recoveryKey });
       setEnroll(null);
       setCode('');
@@ -101,7 +94,7 @@ export default function TwoFactorSettings() {
   };
 
   if (loading) return <div className="inline-spinner">Loading 2FA…</div>;
-  if (!status || !status.eligible) return null; // non-Superadmin: no 2FA UI
+  if (!status || !status.eligible) return null;
 
   const box = { border: '1px solid var(--border, #e2e2e2)', borderRadius: 10, padding: 12, marginTop: 10 };
   const codeGrid = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontFamily: 'monospace', fontSize: '0.95rem', margin: '8px 0' };
@@ -114,7 +107,7 @@ export default function TwoFactorSettings() {
       </p>
       {err && <div className="error-banner" style={{ marginBottom: 10 }}>{err}</div>}
 
-      {/* Codes shown once after confirm / regenerate */}
+      {}
       {showBackup && (
         <div style={{ ...box, borderColor: 'var(--success, #16a34a)' }}>
           <strong>Save these now — shown only once.</strong>
@@ -131,7 +124,7 @@ export default function TwoFactorSettings() {
         </div>
       )}
 
-      {/* Enrollment in progress */}
+      {}
       {enroll && (
         <div style={box}>
           <p style={{ marginTop: 0, fontSize: '0.9rem' }}>1. Scan this QR in your authenticator app:</p>
@@ -156,7 +149,7 @@ export default function TwoFactorSettings() {
         </div>
       )}
 
-      {/* Not enrolling: show enable OR manage */}
+      {}
       {!enroll && !status.enabled && (
         <button type="button" className="btn-submit" disabled={busy} onClick={startEnroll}>
           {busy ? 'Starting…' : 'Enable Two-Factor Authentication'}

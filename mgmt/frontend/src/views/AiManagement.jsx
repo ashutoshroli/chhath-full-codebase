@@ -1,30 +1,18 @@
 import { useEffect, useState } from 'react';
 import { api, reportClientError } from '../api.js';
 
-// AI Management (Superadmin-only). Add multiple AI providers — each with its own
-// API key, base URL and model — and pick a DEFAULT. The AI-fix engine uses the
-// default; if none is set (or its key is unusable) it falls back to the
-// ANTHROPIC_API_KEY Cloudflare secret, so AI-fix keeps working no matter what.
-//
-// SECURITY: the API key is sent to the backend only when set/changed; it is
-// stored encrypted and the backend NEVER returns it. The list shows a masked
-// hint only. "Test" runs on the backend — the key never reaches this screen.
 
 const TYPES = [
   { value: 'anthropic', label: 'Anthropic (Claude — native)' },
   { value: 'openai-compatible', label: 'OpenAI-compatible (OpenAI / OpenRouter / Groq / DeepSeek / Gemini / local)' },
 ];
 
-// What the provider is used for. 'fix' = Error Log "Fix using AI"; 'public_chat'
-// = the public portal chatbot. Each purpose has its own default.
 const PURPOSES = [
   { value: 'fix', label: 'AI Fixes (Error Log “Fix using AI”)' },
   { value: 'public_chat', label: 'Public Chatbot (public portal)' },
 ];
 const purposeLabel = (p) => (PURPOSES.find(x => x.value === p) || PURPOSES[0]).label;
 
-// How much portal data a public_chat provider sends to the model. Only meaningful
-// for the public_chat purpose (ignored for 'fix'). Default 'summary'.
 const DATA_MODES = [
   { value: 'summary', label: 'Summary (fast, cheap - default)' },
   { value: 'full', label: 'Full dataset (cache-only)' },
@@ -35,12 +23,12 @@ const BLANK = { providerId: null, name: '', type: 'openai-compatible', baseUrl: 
 export default function AiManagement() {
   const [providers, setProviders] = useState(null);
   const [error, setError] = useState('');
-  const [form, setForm] = useState(null); // null = not editing; object = add/edit form
+  const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [testResult, setTestResult] = useState({}); // providerId -> { ok, message, reply? }
+  const [testResult, setTestResult] = useState({});
   const [busyId, setBusyId] = useState(null);
-  const [promptOpen, setPromptOpen] = useState({}); // providerId -> bool (custom-prompt box shown)
-  const [promptText, setPromptText] = useState({}); // providerId -> string
+  const [promptOpen, setPromptOpen] = useState({});
+  const [promptText, setPromptText] = useState({});
 
   const refresh = () => {
     api.getAiProviders()
@@ -52,7 +40,6 @@ export default function AiManagement() {
   const startAdd = () => { setError(''); setForm({ ...BLANK }); };
   const startEdit = (p) => {
     setError('');
-    // apiKey left blank on edit = keep existing key.
     setForm({ providerId: p.provider_id, name: p.name, type: p.type, baseUrl: p.base_url || '', model: p.model || '', apiKey: '', purpose: p.purpose || 'fix', data_mode: p.data_mode || 'summary' });
   };
 
@@ -73,9 +60,7 @@ export default function AiManagement() {
         baseUrl: form.baseUrl.trim(),
         model: form.model.trim(),
         purpose: form.purpose || 'fix',
-        // Only meaningful for public_chat; harmless (ignored) for 'fix'.
         data_mode: form.data_mode || 'summary',
-        // Only send the key if the user typed one (blank on edit = keep existing).
         ...(form.apiKey.trim() ? { apiKey: form.apiKey } : {}),
       });
       setForm(null);
@@ -101,15 +86,14 @@ export default function AiManagement() {
     finally { setBusyId(null); }
   };
 
-  // Move a provider up/down within its purpose's fallback order (dir = -1 up / +1 down).
   const move = async (p, dir) => {
     const purpose = p.purpose || 'fix';
     const group = (providers || []).filter(x => (x.purpose || 'fix') === purpose);
     const idx = group.findIndex(x => x.provider_id === p.provider_id);
     const j = idx + dir;
-    if (idx < 0 || j < 0 || j >= group.length) return; // already at the edge
+    if (idx < 0 || j < 0 || j >= group.length) return;
     const ids = group.map(x => x.provider_id);
-    [ids[idx], ids[j]] = [ids[j], ids[idx]]; // swap
+    [ids[idx], ids[j]] = [ids[j], ids[idx]];
     setBusyId('move:' + p.provider_id);
     try { await api.reorderAiProviders(purpose, ids); refresh(); }
     catch (err) { alert(err.message); }
@@ -118,15 +102,11 @@ export default function AiManagement() {
 
   const clearDefault = async () => {
     setBusyId('__clear__');
-    // Clears the FIX default only (that's the one with the ANTHROPIC_API_KEY
-    // fallback). The public_chat default, if any, is left alone.
     try { await api.setDefaultAiProvider('', 'fix'); refresh(); }
     catch (err) { alert(err.message); }
     finally { setBusyId(null); }
   };
 
-  // `prompt` empty/undefined -> quick connectivity ping; non-empty -> exercise the
-  // model and show its reply. maxTokens is capped server-side (1024).
   const test = async (providerId, prompt) => {
     const custom = (prompt || '').trim();
     setBusyId('test:' + providerId);
@@ -146,7 +126,6 @@ export default function AiManagement() {
     }
   };
 
-  // The ANTHROPIC_API_KEY fallback banner is about the FIX purpose specifically.
   const anyFixDefault = (providers || []).some(p => p.is_default && (p.purpose || 'fix') === 'fix');
 
   if (form) {
@@ -243,9 +222,6 @@ export default function AiManagement() {
       {(providers || []).map((p, i) => {
         const tr = testResult[p.provider_id];
         const purpose = p.purpose || 'fix';
-        // Rank of this provider within its purpose (1-based) + a purpose header on
-        // the first row of each purpose. providers[] is already sorted by
-        // purpose, priority from the backend.
         const sameBefore = (providers || []).slice(0, i).filter(x => (x.purpose || 'fix') === purpose).length;
         const sameTotal = (providers || []).filter(x => (x.purpose || 'fix') === purpose).length;
         const rank = sameBefore + 1;

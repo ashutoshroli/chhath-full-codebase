@@ -1,50 +1,6 @@
 ---
-// Announcement popup for the v2 public portal.
-//
-// WHAT IT IS
-// A centered modal overlay showing the FIRST active "Public" popup authored in
-// the mgmt Popup Management screen. Each popup has one or more slides (image /
-// text / link); with more than one slide it autoplays on a per-slide timer with
-// prev/next arrows and an "i / n" indicator. Ported behaviour-for-behaviour from
-// Public/frontend (app.loadPopup / renderPopupSlide / scheduleAutoAdvance /
-// setupPopupAutoPlayPause / popupPrev/NextSlide / closePopup), rebuilt as a
-// self-contained Astro island so it drops into Layout and appears on every page.
-//
-// FETCHED FRESH ON EVERY REAL DOCUMENT LOAD (no localStorage dismissal memory)
-// — matches the requirement that it shows again on each refresh, not just once
-// per browser.
-//
-// VIEW-TRANSITIONS GATING (fixes "popup re-fires on every tab switch"):
-// With <ViewTransitions /> enabled in Layout, internal tab navigation is a
-// CLIENT SWAP, not a full document load. This bundled module <script> runs only
-// for a real document load and is NOT re-executed on swaps, so loadPopup() fires
-// ONLY on a first visit + manual refresh (F5), never on tab navigation. There is
-// deliberately NO astro:page-load listener here. See the detailed comment at the
-// loadPopup() call site below.
-//
-// WHY A BUNDLED ISLAND (no framework hydration, NO define:vars)
-// Like Chatbot.astro, this is a handful of DOM handlers + timers. We keep the
-// logic in a PLAIN <script> (NO define:vars) so Astro bundles it and its ESM
-// imports resolve — it pulls apiBase from config.js, the version helpers from
-// portalData.js, the audited XSS helpers from dom-escape.js, the Drive image
-// helpers from drive.js, the pure popup logic from lib/popup.js, and the i18n
-// strings from i18n.js. define:vars would implicitly make the script is:inline,
-// which Astro does NOT bundle, so the `import`s would ship verbatim and fail.
-//
-// THE XSS-SAFETY CONTRACT (enforced in lib/popup.js buildSlideHtml)
-// All four author-supplied slide values (image_url, text, link_url, link_text)
-// are escaped, and image_url/link_url are gated by safeUrl (http(s) only) so a
-// `javascript:`/`data:` URL renders no <img>/<a>. See src/lib/popup.js.
-//
-// FIRE-AND-FORGET
-// The whole flow is wrapped so a version-resolution or activePopups fetch
-// failure NEVER blocks the rest of the page (the popup is non-critical): a
-// version failure falls back to the un-versioned URL, and any error is swallowed
-// (console.debug), exactly mirroring the old site's fire-and-forget contract.
 ---
 
-<!-- Overlay + card. Hidden by default (display:none) until the client script
-     finds an eligible popup. Theme-aware via Tailwind dark: classes. -->
 <div
   id="popup-overlay"
   role="dialog"
@@ -56,7 +12,6 @@
   <div
     class="popup-card relative flex w-[min(420px,calc(100vw-2rem))] max-h-[85vh] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-900"
   >
-    <!-- Close (X) button -->
     <button
       id="popup-close"
       type="button"
@@ -67,14 +22,12 @@
       <span class="material-icons-round text-lg" aria-hidden="true">close</span>
     </button>
 
-    <!-- Slide content. innerHTML is set from buildSlideHtml (escaped + gated). -->
     <div
       id="popup-slide-content"
       class="flex flex-col overflow-y-auto text-center text-slate-800 dark:text-slate-100 [&_.popup-slide-img]:block [&_.popup-slide-img]:w-full [&_.popup-slide-img]:max-h-[70vh] [&_.popup-slide-img]:object-contain [&_.popup-slide-text]:px-5 [&_.popup-slide-text]:pt-4 [&_.popup-slide-text]:text-sm [&_.popup-slide-text]:leading-relaxed [&_.popup-slide-link]:block [&_.popup-slide-link]:px-5 [&_.popup-slide-link]:pb-4 [&_.popup-slide-link]:pt-3 [&_.popup-slide-link]:font-semibold [&_.popup-slide-link]:text-brand-600 [&_.popup-slide-link]:underline dark:[&_.popup-slide-link]:text-brand-400"
     >
     </div>
 
-    <!-- Nav: prev/next + "i / n" dots. Hidden until >1 slide. -->
     <div
       id="popup-slide-nav"
       class="hidden items-center justify-between border-t border-slate-200 px-4 py-3 dark:border-slate-800"
@@ -101,8 +54,6 @@
   </div>
 </div>
 
-<!-- Client wiring. A PLAIN bundled <script> (NO define:vars) so Astro processes
-     it and its ESM imports resolve. Mirrors Chatbot.astro's approach. -->
 <script>
   import { apiBase } from '../config.js';
   import { buildDataVersionUrl, parseVersion } from '../lib/portalData.js';
@@ -125,23 +76,16 @@
     var closeBtn = document.getElementById('popup-close');
     var prevBtn = document.getElementById('popup-prev');
     var nextBtn = document.getElementById('popup-next');
-    if (!overlay || !content) return; // markup missing — nothing to wire
+    if (!overlay || !content) return;
 
-    // --- Language (matches the header) --------------------------------------
     var lang = 'en';
     try { lang = normalizeLang(localStorage.getItem(LANG_KEY)); } catch (e) { lang = 'en'; }
-    // Keep the localized aria-label / default link label in sync with a toggle.
     window.addEventListener('cpm:langchange', function (e) {
       lang = normalizeLang(e && e.detail && e.detail.lang);
       if (closeBtn) closeBtn.setAttribute('aria-label', t(lang, 'close'));
     });
     if (closeBtn) closeBtn.setAttribute('aria-label', t(lang, 'close'));
 
-    // --- Auto-play state ----------------------------------------------------
-    // `slides` holds the current popup's slides, `index` the shown one,
-    // `_popupTimer` the pending setTimeout id (null = none), and `_popupPaused`
-    // is set while the visitor interacts (hover / touch) so a slide never jumps
-    // out from under them.
     var slides = [];
     var index = 0;
     var _popupTimer = null;
@@ -151,9 +95,6 @@
       if (_popupTimer) { clearTimeout(_popupTimer); _popupTimer = null; }
     }
 
-    // (Re)arm the timer for the CURRENT slide. Called after every render so each
-    // slide is shown for its own duration. Does nothing for a single-slide popup
-    // or while paused. nextIndex gives the loop (wraps to 0 after the last).
     function scheduleAutoAdvance() {
       clearAutoAdvance();
       if (slides.length <= 1 || _popupPaused) return;
@@ -166,8 +107,6 @@
       }, ms);
     }
 
-    // Render the current slide: escaped/gated HTML from the pure buildSlideHtml,
-    // show/hide the nav + set the "i / n" dots only when >1 slide, then re-arm.
     function renderSlide() {
       var slide = slides[index];
       if (!slide) return;
@@ -177,8 +116,6 @@
         driveImageUrl: driveImageUrl,
         driveImageFallbackUrl: driveImageFallbackUrl,
       });
-      // Localize a link with no explicit label to the current language (the pure
-      // module defaults to the English 'Learn more'; here we can localize it).
       var link = content.querySelector('.popup-slide-link');
       if (link && slide.link_url && !slide.link_text) {
         link.textContent = t(lang, 'learn_more');
@@ -194,14 +131,6 @@
       scheduleAutoAdvance();
     }
 
-    // Pause auto-play while the visitor interacts, RESUME as soon as they stop —
-    // so the popup never gets stuck. Bound ONCE (guarded by a data flag) so
-    // repeated opens don't stack handlers.
-    //
-    // Touch pauses ONLY while the finger is down (touchstart) and resumes on
-    // touchend/touchcancel — reproducing the fix for the persistent-pause
-    // "kabhi chalta hai kabhi nahi" bug where a single tap killed auto-play for
-    // the whole session on phones.
     function setupAutoPlayPause() {
       var card = overlay.querySelector('.popup-card');
       if (!card || card.dataset.autoplayBound === '1') return;
@@ -227,7 +156,6 @@
       overlay.classList.remove('flex');
     }
 
-    // Arrows: prev/next + re-render (which resets the timer for the new slide).
     if (prevBtn) prevBtn.addEventListener('click', function () {
       index = prevIndex(index, slides.length);
       renderSlide();
@@ -241,12 +169,6 @@
       if (e.key === 'Escape' && overlay.style.display !== 'none') close();
     });
 
-    // --- Fire-and-forget load ----------------------------------------------
-    // Resolve the data version the SAME way portalData does (fresh version ping
-    // -> parseVersion), then fetch activePopups with that version (falling back
-    // to the un-versioned URL on any version failure). The ENTIRE flow is
-    // wrapped so a failure NEVER blocks the page — errors are swallowed via
-    // console.debug, matching the old site's non-critical popup contract.
     function loadPopup() {
       resolveVersion()
         .then(function (version) {
@@ -255,28 +177,21 @@
         })
         .then(function (popups) {
           var popup = pickFirstEligiblePopup(popups);
-          if (!popup) return; // nothing eligible — do nothing
+          if (!popup) return;
           slides = popup.slides;
           index = 0;
-          // Reset the pause flag on every fresh open: a stray touch/hover left
-          // over from a previous session must not silently disable auto-play.
           _popupPaused = false;
-          // Bind pause handlers BEFORE the first render so the render's
-          // scheduleAutoAdvance() sees the correct (unpaused) state.
           setupAutoPlayPause();
           show();
           renderSlide();
         })
         .catch(function (err) {
-          // Non-critical: never surface a popup failure to the visitor.
           if (typeof console !== 'undefined' && console.debug) {
             console.debug('Public popup load skipped:', err && err.message);
           }
         });
     }
 
-    // Version resolution mirrors portalData: any failure resolves to '' so the
-    // caller falls back to the un-versioned activePopups URL. Never rejects.
     function resolveVersion() {
       return fetch(buildDataVersionUrl(apiBase))
         .then(function (r) { return r && r.ok ? r.json() : null; })
@@ -284,29 +199,6 @@
         .catch(function () { return ''; });
     }
 
-    // --- REAL-LOAD-ONLY GATING (View Transitions) ---------------------------
-    // THE FIX for "popup baar baar aa raha hai on every tab switch": this popup
-    // must show ONLY on a real document load (first visit + manual refresh/F5),
-    // NOT on internal tab navigation.
-    //
-    // HOW IT IS GATED:
-    //   - Real document load  => this bundled module <script> executes => the
-    //     IIFE runs => loadPopup() is called => the popup shows.
-    //   - Client swap (tab nav under <ViewTransitions />) => a bundled module
-    //     script is NOT re-executed for a swapped page => this IIFE does NOT run
-    //     again => loadPopup() is NOT called => the popup stays closed.
-    //
-    // So the PRIMARY guarantee is simply that we do NOT listen to astro:page-load
-    // and do NOT re-wrap loadPopup() — there is deliberately no astro:page-load
-    // handler here. We do NOT use a sessionStorage/localStorage "once ever" flag
-    // because the popup MUST reappear on every manual refresh (the user's
-    // explicit ask). The overlay markup is intentionally NOT transition:persist,
-    // so it is torn down with the body between navigations.
-    //
-    // `booted` is a small defensive guard against an accidental double-invoke
-    // within the SAME document (e.g. if this IIFE were ever evaluated twice in
-    // one real load); it is not the swap guard (a genuinely re-executed module
-    // would reset it) — the "not wrapped in astro:page-load" contract above is.
     if (!window.__cpmPopupBooted) {
       window.__cpmPopupBooted = true;
       loadPopup();

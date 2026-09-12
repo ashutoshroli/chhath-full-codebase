@@ -17,12 +17,10 @@ export default function Loans({ year, users, committee, role, editable }) {
   const [saving, setSaving] = useState(false);
   const [contributorIds, setContributorIds] = useState(null);
   const [contribLoading, setContribLoading] = useState(false);
-  const [editing, setEditing] = useState(null); // editing loan row — only Amount/Rate/Tenure are editable
-  const [statusLoan, setStatusLoan] = useState(null); // loan whose consent/status modal is open
-  const [available, setAvailable] = useState(null); // ₹ still lendable this year (surplus − loans given)
+  const [editing, setEditing] = useState(null);
+  const [statusLoan, setStatusLoan] = useState(null);
+  const [available, setAvailable] = useState(null);
 
-  // Load how much is still available to lend this year whenever the Add form
-  // opens for a NEW loan (not an edit — an edit's amount cap is handled server-side).
   useEffect(() => {
     if (!showAdd || editing) { setAvailable(null); return; }
     const loanYear = year === 'All' ? new Date().getFullYear() : year;
@@ -42,7 +40,6 @@ export default function Loans({ year, users, committee, role, editable }) {
     api.getYearContributors(year).then(ids => setContributorIds(new Set(ids))).finally(() => setContribLoading(false));
   }, [year]);
 
-  // Only contributors of the live/selected year qualify as receiver or guarantor (loan rule).
   const contributorOptions = useMemo(() => {
     if (!contributorIds) return [];
     return (users || []).filter(u => contributorIds.has(u.ID)).map(u => ({ value: u.ID, label: u.Name, sub: u.Village }));
@@ -66,7 +63,6 @@ export default function Loans({ year, users, committee, role, editable }) {
       if (!form.Amount) return alert('Amount is required');
       setSaving(true);
       try {
-        // Receiver/guarantors aren't editable here (loan rules depend on them) — only the terms.
         await api.updateRecord('LOANS', editing.__rowIndex, { Year: editing.Year, Name: editing.Name, Amount: form.Amount, 'Intrest Rate': form.Rate, Tenure: form.Tenure, 'Final Repayment Date': form.FinalRepaymentDate, Status: form.Status, 'Created By': editing['Created By'] });
         invalidate('loans:');
         closeModal();
@@ -85,7 +81,6 @@ export default function Loans({ year, users, committee, role, editable }) {
     if ([g1, g2, g3].some(g => committeeIds.has(g))) return alert('Rule Violation: A Committee Member cannot be a Guarantor');
     if (!Amount) return alert('Amount is required');
     if (!FinalRepaymentDate) return alert('Final Repayment Date is required');
-    // Yearly budget cap (backend enforces this hard; this is a friendly pre-check).
     if (available !== null && (parseFloat(Amount) || 0) > available + 0.01) {
       return alert(`This loan (₹${parseFloat(Amount) || 0}) exceeds what is still available to lend this year: ₹${Math.max(0, Math.round(available * 100) / 100)}.`);
     }
@@ -130,8 +125,6 @@ export default function Loans({ year, users, committee, role, editable }) {
       {loans.length === 0 && <div className="glass-card" style={{ textAlign: 'center', padding: 20 }}>Not Distributed Yet</div>}
 
       {loans.map((loan, idx) => {
-        // When the receiver isn't in USERS (deleted user, or an ID/name mismatch),
-        // show the raw identifier instead of a bare "Unknown" so it can be traced.
         const uReceiver = userMap[loan.Name] || { Name: loan.Name ? `${loan.Name} (not in Users)` : 'Unknown' };
         const guars = loan['Loan ID']
           ? guarantors.filter(g => (g['Loan ID'] || '').toString().trim() === loan['Loan ID'].toString().trim())

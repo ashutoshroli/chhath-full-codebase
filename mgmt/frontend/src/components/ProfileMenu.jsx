@@ -1,7 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
 
-// Replaces the old plain "Logout" button. Click the avatar to see Name + Role,
-// then either open Settings or Logout.
 export default function ProfileMenu({ name, role, onOpenSettings, onLogout }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);

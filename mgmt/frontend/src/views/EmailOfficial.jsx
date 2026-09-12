@@ -4,10 +4,6 @@ import { api } from '../api.js';
 import { usePolling } from '../usePolling.js';
 import Modal from '../components/Modal.jsx';
 
-// The official two-way mailbox for chhath@shaharpura.com — a small Gmail-style
-// client: Inbox / Sent list → open a message (shows the whole thread) → Reply,
-// plus a Compose button. Sending goes through Resend (from chhath@); inbound
-// arrives via the Resend receiving webhook. Superadmin-only (App gates the tab).
 
 function fmtDate(s) {
   if (!s) return '';
@@ -15,7 +11,6 @@ function fmtDate(s) {
   return isNaN(d) ? s : d.toLocaleString();
 }
 
-// Render a stored message body safely: prefer sanitized HTML, else text→<br>.
 function BodyView({ html, text }) {
   if (html && html.trim()) {
     const clean = DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
@@ -28,25 +23,23 @@ function BodyView({ html, text }) {
 }
 
 export default function EmailOfficial() {
-  const [box, setBox] = useState('inbox'); // inbox | sent
+  const [box, setBox] = useState('inbox');
   const [rows, setRows] = useState(null);
   const [unread, setUnread] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [openMsg, setOpenMsg] = useState(null); // { message, thread }
+  const [openMsg, setOpenMsg] = useState(null);
   const [opening, setOpening] = useState(false);
 
-  // Compose / reply modal
   const [composeOpen, setComposeOpen] = useState(false);
-  const [replyTo, setReplyTo] = useState(null); // message_id when replying, else null
+  const [replyTo, setReplyTo] = useState(null);
   const [form, setForm] = useState({ to: '', cc: '', subject: '', body: '' });
-  const [attachments, setAttachments] = useState([]); // [{ filename, content(base64) }]
+  const [attachments, setAttachments] = useState([]);
   const [sending, setSending] = useState(false);
 
-  // Read chosen files -> base64 for Resend. Cap total ~2 MB (backend also enforces).
   const onFiles = async (e) => {
     const files = Array.from(e.target.files || []);
-    e.target.value = ''; // allow re-selecting the same file
+    e.target.value = '';
     const read = (file) => new Promise((resolve, reject) => {
       const r = new FileReader();
       r.onload = () => resolve({ filename: file.name, content: (r.result || '').toString().split(',')[1] || '' });
@@ -72,7 +65,6 @@ export default function EmailOfficial() {
   }, [box]);
 
   useEffect(() => { load(); }, [load]);
-  // Light refresh (inbox may get new mail); 60s to stay easy on D1.
   usePolling(() => load(true), 60000, [load]);
 
   const openMessage = async (m) => {
@@ -80,7 +72,7 @@ export default function EmailOfficial() {
     try {
       const res = await api.getOfficialEmail(m.message_id);
       setOpenMsg(res);
-      if (box === 'inbox' && !m.is_read) load(true); // refresh unread count
+      if (box === 'inbox' && !m.is_read) load(true);
     } catch (e) { alert(e.message); } finally { setOpening(false); }
   };
 
@@ -164,7 +156,7 @@ export default function EmailOfficial() {
 
       <button className="fab" onClick={startCompose} title="Compose"><span className="material-icons-round">edit</span></button>
 
-      {/* ---- Read a message + its thread ---- */}
+      {}
       <Modal open={!!openMsg} onClose={() => setOpenMsg(null)}>
         {opening && <div className="inline-spinner">Opening...</div>}
         {openMsg && (
@@ -194,7 +186,7 @@ export default function EmailOfficial() {
         )}
       </Modal>
 
-      {/* ---- Compose / Reply ---- */}
+      {}
       <Modal open={composeOpen} onClose={() => setComposeOpen(false)}>
         <h3 style={{ marginBottom: 12 }}>{replyTo ? 'Reply' : 'Compose'}</h3>
         <form onSubmit={submitSend}>

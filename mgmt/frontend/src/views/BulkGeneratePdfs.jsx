@@ -3,44 +3,22 @@ import { api, reportClientError } from '../api.js';
 import { fillDocxTemplateFromRow, getLastRenderReport } from '../docxFill.js';
 import { generateQrDataUrl, publicRecordUrl } from '../qrCode.js';
 
-// Bulk generation hammers the Google Drive conversion pipeline (~8-11 Drive
-// subrequests per PDF) with NO throttle, NO backoff and NO retry. A Drive 429
-// therefore became a per-record "failed" line in an in-memory UI log that
-// disappeared on refresh, with nothing in the Error Log.
 const RETRY_ATTEMPTS = 3;
 const BASE_BACKOFF_MS = 1500;
-const THROTTLE_MS = 350; // small gap between records to stay under Drive's per-user limit
+const THROTTLE_MS = 350;
 
-// audit P-3 — bounded concurrency. The loop used to be strictly serial (one record,
-// then a 350ms gap), which is subrequest-safe but slow for a big year. We now run a
-// small POOL of workers so a few conversions are in flight at once, cutting a
-// several-hundred-record run's wall-clock time roughly CONCURRENCY-fold — WITHOUT
-// changing the "each conversion is its own request" property that keeps us clear of
-// the 50-subrequest-per-invocation free-plan cap (moving this server-side is exactly
-// what would breach it). Kept deliberately LOW: Drive's per-user quota is the limit,
-// and each worker still throttles + retries with backoff, so N=3 in flight with a
-// per-worker gap stays comfortably under the rate that produced 429s before.
 const CONCURRENCY = 3;
 
-// BATCHING: instead of one Worker call per record, we fill BATCH_SIZE docs in the
-// browser and send them in ONE convertDocxToPdfBatch call — far fewer Worker
-// requests + D1 writes for a big year. 10 is the default; 20 is the server's hard
-// cap (payload/memory). The docx FILL still happens per record in the browser.
 const BATCH_SIZE = 10;
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-// Split an array into chunks of `size`.
 function chunk(arr, size) {
   const out = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
 }
 
-// Run `worker(item, index)` over `items` with at most `limit` in flight at once.
-// Workers pull from a shared cursor, so a slow record never blocks the others and
-// the pool naturally drains. Never rejects — each worker call is expected to handle
-// its own errors (as processRecord does); this just bounds parallelism.
 async function runPool(items, limit, worker) {
   let cursor = 0;
   const next = async () => {
@@ -76,9 +54,6 @@ async function withRetry(fn, onRetry) {
   throw lastErr;
 }
 
-// Which service actually converts the .docx -> PDF. The backend reports this per
-// batch (see api.convertDocxToPdfBatch); we surface it so a slow/fallback run is
-// obvious instead of a mystery.
 const ENGINE_LABELS = {
   render: 'Render (offload service)',
   worker: 'Cloudflare Worker (fallback)',
@@ -91,7 +66,6 @@ const ENGINE_REASONS = {
   'render-unreachable': 'Render could not be reached, so the Worker fell back to converting in-process.',
   'all-already-generated': 'Every record already had a PDF, so nothing needed converting.',
 };
-// A short, readable job reference for support (full id stays in the Error Log).
 const shortJobId = (id) => (id ? `${String(id).slice(0, 10)}…` : '');
 
 const DOC_TYPES = [
@@ -107,17 +81,12 @@ export default function BulkGeneratePdfs() {
   const [years, setYears] = useState([]);
   const [year, setYear] = useState('');
   const [running, setRunning] = useState(false);
-  const [progress, setProgress] = useState({}); // docType -> { done, total, skipped, failed, notIndexed }
+  const [progress, setProgress] = useState({});
   const [error, setError] = useState('');
   const [log, setLog] = useState([]);
-  // Per-record lines are OFF by default: a big year would otherwise bury the batch
-  // summaries and the failures under hundreds of lines. Failures are ALWAYS logged.
   const [showDetails, setShowDetails] = useState(false);
-  // Live engine/batch telemetry for the run.
   const [eng, setEng] = useState(null);
 
-  // Read through a ref so toggling "details" mid-run takes effect immediately
-  // (runOne's closures would otherwise keep the value from when the run started).
   const detailsRef = useRef(showDetails);
   useEffect(() => { detailsRef.current = showDetails; }, [showDetails]);
 
@@ -126,15 +95,12 @@ export default function BulkGeneratePdfs() {
   }, []);
 
   const appendLog = (line) => setLog(l => [...l, line]);
-  // A per-record detail line — only shown when "details" is on.
   const appendDetail = (line) => { if (detailsRef.current) appendLog(line); };
 
-  // Fold one batch's engine report into the run-wide totals.
   const noteEngine = (meta, batchRecords) => setEng(prev => {
     const cur = prev || { render: 0, worker: 0, none: 0, jobIds: [], reasons: [], batchesDone: 0, batchesTotal: 0 };
     const engine = (meta && meta.engine) || 'unknown';
     const next = { ...cur, batchesDone: cur.batchesDone + 1 };
-    // Count RECORDS by the engine that converted them (skipped ones converted nowhere).
     const converted = Math.max(0, (meta && meta.dispatchedCount) || 0);
     if (engine === 'render') next.render = cur.render + converted;
     else if (engine === 'worker') next.worker = cur.worker + converted;
@@ -153,9 +119,6 @@ export default function BulkGeneratePdfs() {
     try {
       templateRow = await api.getDocxTemplateForDoc(docType, year);
     } catch (err) {
-      // Was `.catch(() => null)` -> a permissions/Drive/base64 failure was
-      // reported to the user as "no template found", which is a completely
-      // different (and self-inflicted-looking) problem.
       appendLog(`❌ ${label}: template load FAILED — ${err.message}`);
       reportClientError('BulkGeneratePdfs', `Template load failed for ${docType} ${year}`, err, { docType, year });
       return;
@@ -172,7 +135,6 @@ export default function BulkGeneratePdfs() {
       return;
     }
 
-    // How many Worker calls this doc-type will take (one per batch).
     const batchCount = Math.ceil(records.length / BATCH_SIZE);
     setEng(prev => {
       const cur = prev || { render: 0, worker: 0, none: 0, jobIds: [], reasons: [], batchesDone: 0, batchesTotal: 0 };
@@ -180,9 +142,6 @@ export default function BulkGeneratePdfs() {
     });
     appendLog(`${label}: ${records.length} records → ${batchCount} batch${batchCount === 1 ? '' : 'es'} of up to ${BATCH_SIZE}`);
 
-    // Fill ONE record's .docx in the browser (QR + placeholders). Returns the item
-    // { recordId, base64, fileName } for the batch, or null on a fill failure
-    // (counted as failed). The docx fill stays client-side exactly as before.
     const fillRecord = async (rec) => {
       try {
         let qrCode = '';
@@ -212,12 +171,9 @@ export default function BulkGeneratePdfs() {
       }
     };
 
-    // Process the records in BATCHES: fill each batch in the browser (up to
-    // CONCURRENCY fills in flight), then send the whole batch in ONE Worker call.
     let batchNo = 0;
     for (const group of chunk(records, BATCH_SIZE)) {
       batchNo++;
-      // Fill this batch's docs (bounded concurrency for the CPU-heavy fill).
       const items = [];
       await runPool(group, CONCURRENCY, async (rec) => {
         const it = await fillRecord(rec);
@@ -231,7 +187,6 @@ export default function BulkGeneratePdfs() {
           (attempt, wait) => appendLog(`↻ ${label}: batch retry ${attempt}/${RETRY_ATTEMPTS - 1} in ${Math.round(wait / 1000)}s`)
         );
         const { results } = res;
-        // Record + report WHICH service handled this batch.
         noteEngine(res);
         const engine = res.engine || 'unknown';
         const via = engine === 'render'
@@ -244,20 +199,9 @@ export default function BulkGeneratePdfs() {
         for (const r of (results || [])) byId[r.recordId] = r;
         for (const it of items) {
           const r = byId[it.recordId];
-          // The Worker returns the TRANSLATED shape ({ success, error }). As a
-          // belt-and-suspenders guard we also honour the RAW Render shape ({ ok })
-          // in case it ever leaks through — a raw ok:true record is a real success.
-          // A record flagged `skipped` was ALREADY generated: that is a success, so
-          // it must never be counted or logged as a failure even if `success` is
-          // absent from the entry.
           const skipped = !!(r && r.skipped);
           const ok = !!(r && (r.success || r.ok || r.skipped));
           if (!ok) {
-            // Distinguish a genuine per-record failure (r.error is set by the
-            // Worker/Render) from a record that never came back in the results at
-            // all (r is undefined) — the latter means the batch job completed but
-            // dropped this record, which is otherwise invisible. Always surface a
-            // concrete, non-empty reason so the Error Log is actionable.
             const reason = r
               ? (r.error || 'conversion failed (server returned no error detail — check Render logs)')
               : 'no result returned from server for this record';
@@ -278,13 +222,10 @@ export default function BulkGeneratePdfs() {
           });
         }
       } catch (err) {
-        // The whole batch call failed (network/timeout after retries) — count every
-        // item in it as failed.
         appendLog(`❌ ${label}: batch of ${items.length} failed — ${err.message}`);
         reportClientError('BulkGeneratePdfs', `Batch failed (${items.length} records)`, err, { docType, year, count: items.length });
         setProgress(p => { const cur = p[docType]; return { ...p, [docType]: { ...cur, done: cur.done + items.length, failed: cur.failed + items.length } }; });
       }
-      // Small gap between batches to pace Drive's per-user rate limit.
       await sleep(THROTTLE_MS);
     }
     appendLog(`✓ ${label} complete.`);
@@ -312,8 +253,6 @@ export default function BulkGeneratePdfs() {
     }
   };
 
-  // One run can span several batches, and Render could go away mid-run — so derive
-  // the engine from what actually converted records, not from the last batch alone.
   const engineKey = !eng ? null
     : (eng.render > 0 && eng.worker > 0) ? 'mixed'
       : eng.render > 0 ? 'render'

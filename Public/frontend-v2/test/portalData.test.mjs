@@ -1,7 +1,3 @@
-// Unit tests for the framework-free portal-data cache helpers.
-// Runs under plain `node --test` — imports ONLY src/lib/portalData.js (no Astro,
-// no network). The pure helpers are the contract; the fetch orchestration is not
-// exercised here (it needs a network / DOM).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -35,8 +31,8 @@ test('buildDataVersionUrl shape', () => {
 test('shouldReuseCache is true only on an unchanged non-empty version', () => {
   assert.ok(shouldReuseCache('5', '5'));
   assert.ok(!shouldReuseCache('5', '6'));
-  assert.ok(!shouldReuseCache('', ''));      // blank never reuses
-  assert.ok(!shouldReuseCache('5', ''));     // new blank never reuses
+  assert.ok(!shouldReuseCache('', ''));
+  assert.ok(!shouldReuseCache('5', ''));
   assert.ok(!shouldReuseCache(undefined, '5'));
   assert.ok(!shouldReuseCache('5', undefined));
 });
@@ -86,19 +82,7 @@ test('LOCAL_SNAPSHOT_KEY is the v2-specific key', () => {
   assert.equal(LOCAL_SNAPSHOT_KEY, 'cpm_public_v2_portalData_v1');
 });
 
-// ---- loadPortalData orchestration ------------------------------------------
-// These lock down the async branch selection the pure helpers can't cover:
-// fresh load, session reuse, cold failure, and the un-versioned fallback path.
-//
-// A fake fetchImpl routes by URL substring and returns objects shaped like the
-// slice of the Response the loader actually uses: { ok, status, json() }. No DOM
-// is needed — under node there is no localStorage, so saveLocalSnapshot /
-// loadLocalSnapshot are guarded no-ops (snapshot behaviour is exercised via the
-// injected sessionCache instead). All fixtures are plain strings/objects.
 
-// Build a fetchImpl from a route map keyed by an action substring. Each handler
-// returns the object the fake Response's json() resolves to (or throws to
-// simulate a network/HTTP failure). Records every requested URL for assertions.
 function makeFetch(routes) {
   const calls = [];
   const impl = async (url) => {
@@ -114,7 +98,6 @@ function makeFetch(routes) {
   return impl;
 }
 
-// A successful fake Response whose json() yields `body`.
 function ok(body) {
   return { ok: true, status: 200, json: async () => body };
 }
@@ -132,11 +115,9 @@ test('loadPortalData: fresh load returns {fromCache:false} and populates session
   assert.equal(result.fromCache, false);
   assert.equal(result.savedAt, 0);
   assert.deepEqual(result.data.collections, REAL_PAYLOAD.collections);
-  assert.deepEqual(result.data.loans, []); // coalesced
-  // sessionCache is keyed by the resolved version and holds the coalesced data.
+  assert.deepEqual(result.data.loans, []);
   assert.equal(sessionCache.version, '7');
   assert.ok(sessionCache.data);
-  // Exactly one dataVersion ping + one versioned portalData fetch.
   assert.equal(fetchImpl.calls.length, 2);
   assert.ok(fetchImpl.calls.some((u) => u.indexOf('action=portalData&v=7') !== -1));
 });
@@ -146,15 +127,13 @@ test('loadPortalData: unchanged non-empty version reuses sessionCache without a 
     dataVersion: () => ok({ v: 7 }),
     portalData: () => { throw new Error('portalData should NOT be fetched on reuse'); },
   });
-  // Pre-seed the session cache as though a prior load stored version '7'.
   const priorData = coalescePortalData(REAL_PAYLOAD);
   const sessionCache = { version: '7', data: priorData };
 
   const result = await loadPortalData({ apiBase: 'https://host', fetchImpl, sessionCache });
 
   assert.equal(result.fromCache, false);
-  assert.equal(result.data, priorData); // same object reused
-  // Only the dataVersion ping happened — no portalData fetch.
+  assert.equal(result.data, priorData);
   assert.equal(fetchImpl.calls.length, 1);
   assert.ok(fetchImpl.calls[0].indexOf('action=dataVersion') !== -1);
 });
@@ -162,9 +141,8 @@ test('loadPortalData: unchanged non-empty version reuses sessionCache without a 
 test('loadPortalData: a payload failing looksReal with NO snapshot throws (cold failure)', async () => {
   const fetchImpl = makeFetch({
     dataVersion: () => ok({ v: 9 }),
-    portalData: () => ok({ status: false }), // soft failure, not a real payload
+    portalData: () => ok({ status: false }),
   });
-  // No localStorage under node => loadLocalSnapshot() returns null => cold throw.
   await assert.rejects(
     loadPortalData({ apiBase: 'https://host', fetchImpl, sessionCache: {} }),
     /no usable data/,
@@ -173,10 +151,8 @@ test('loadPortalData: a payload failing looksReal with NO snapshot throws (cold 
 
 test('loadPortalData: a dataVersion failure still resolves to the un-versioned portalData URL and succeeds', async () => {
   const fetchImpl = makeFetch({
-    // dataVersion network failure -> version resolves to '' -> un-versioned URL.
     dataVersion: () => { throw new Error('dataVersion unreachable'); },
     portalData: (url) => {
-      // Confirm the URL carries NO &v= segment when the version is blank.
       assert.equal(url.indexOf('&v='), -1, 'un-versioned URL must omit &v=');
       return ok(REAL_PAYLOAD);
     },
@@ -186,5 +162,5 @@ test('loadPortalData: a dataVersion failure still resolves to the un-versioned p
 
   assert.equal(result.fromCache, false);
   assert.deepEqual(result.data.collections, REAL_PAYLOAD.collections);
-  assert.equal(sessionCache.version, ''); // blank version cached (won't reuse next time)
+  assert.equal(sessionCache.version, '');
 });

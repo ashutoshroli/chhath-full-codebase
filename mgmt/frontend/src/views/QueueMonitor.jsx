@@ -2,12 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { usePolling } from '../usePolling.js';
 
-// Superadmin-only tab: full monitor for the background Collection Queue (PDF +
-// WhatsApp jobs). Unlike the compact QueueStatus strip on Home (last few jobs,
-// any staff role), this shows EVERY user's jobs, lets you filter by status, and
-// gives a Retry button on failed/stuck jobs (resets attempts and re-queues).
-//
-// It auto-refreshes every 10s so a Superadmin can watch the queue drain live.
 
 const STATUS_FILTERS = [
   { id: '', label: 'All' },
@@ -54,10 +48,8 @@ export default function QueueMonitor() {
     }
   };
 
-  // Initial load + 10s auto-refresh, but only while the tab is VISIBLE (audit P-8).
   usePolling(() => load(false), 10000);
 
-  // Re-load immediately when the status filter changes.
   useEffect(() => { load(true); }, [status]);
 
   const retry = async (jobId) => {
@@ -87,7 +79,7 @@ export default function QueueMonitor() {
         This view refreshes automatically every 10 seconds.
       </p>
 
-      {/* Summary cards */}
+      {}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 15 }}>
         {[
           { key: 'pending', label: 'Pending', color: '#1d4ed8', bg: '#eff6ff' },
@@ -102,7 +94,7 @@ export default function QueueMonitor() {
         ))}
       </div>
 
-      {/* Status filter */}
+      {}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 15 }}>
         {STATUS_FILTERS.map(f => (
           <button
@@ -128,10 +120,8 @@ export default function QueueMonitor() {
       {error && <div className="error-banner">{error}</div>}
       {loading && !data && <div className="inline-spinner">Loading...</div>}
 
-      {/* The table is given a minWidth (760) so it is WIDER than a phone screen;
-          that makes the wrapping div's overflowX:auto scroll sideways. Without it,
-          width:100% squeezed all 8 columns to a few px and every cell wrapped one
-          letter per line. whiteSpace:nowrap on the cells keeps them legible. */}
+      {
+}
       {data && (
         <div className="glass-card" style={{ padding: 0, overflowX: 'auto' }}>
           {jobs.length === 0 ? (

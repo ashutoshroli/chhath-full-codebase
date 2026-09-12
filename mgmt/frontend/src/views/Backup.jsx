@@ -1,22 +1,6 @@
 import { useState } from 'react';
 import { api, reportClientError } from '../api.js';
 
-// ============ FULL BACKUP & RESTORE (Superadmin) ============
-//
-// Download: pulls every D1 table's rows from the backend (api.exportBackup),
-// then builds a .zip CLIENT-SIDE with PizZip (already a dependency, lazy-loaded
-// here) so the Worker never has to hold a big binary. The zip contains one
-// pretty-printed JSON per database plus a manifest.json, and — most importantly —
-// a single backup.json that is the exact object restore expects.
-//
-// Restore: reads a previously downloaded backup (.zip or .json), shows what it
-// contains, and only proceeds after the operator types RESTORE. Restore is
-// destructive; the backend takes an automatic safety snapshot first and returns
-// it so we immediately offer it as a rollback download.
-//
-// NOTE: uploaded FILES (photos/PDFs) are NOT inside the backup — they stay on
-// R2/Drive and the restored rows keep pointing at them. This is documented in
-// the UI so nobody expects images inside the zip.
 
 function tsStamp() {
   const d = new Date();
@@ -35,13 +19,10 @@ function downloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-// Build a .zip from the backup object using PizZip (lazy import).
 async function buildZip(backupObj) {
   const { default: PizZip } = await import('pizzip');
   const zip = new PizZip();
-  // The canonical, restore-ready file.
   zip.file('backup.json', JSON.stringify(backupObj, null, 2));
-  // Human-friendly: one file per database + a manifest.
   const manifest = {
     formatVersion: backupObj.formatVersion,
     createdAt: backupObj.createdAt,
@@ -57,16 +38,13 @@ async function buildZip(backupObj) {
   return zip.generate({ type: 'blob', compression: 'DEFLATE' });
 }
 
-// Extract the restore-ready backup object from an uploaded file (.zip or .json).
 async function readBackupFile(file) {
   const name = (file.name || '').toLowerCase();
   if (name.endsWith('.json')) {
     const text = await file.text();
     const obj = JSON.parse(text);
-    // Accept either the bare backup object or a {backup:{...}} wrapper.
     return obj.data ? obj : (obj.backup && obj.backup.data ? obj.backup : obj);
   }
-  // .zip — pull backup.json out of it.
   const { default: PizZip } = await import('pizzip');
   const buf = await file.arrayBuffer();
   const zip = new PizZip(buf);
@@ -80,15 +58,10 @@ export default function Backup() {
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
 
-  // Restore state
-  const [pendingBackup, setPendingBackup] = useState(null); // parsed object awaiting confirm
+  const [pendingBackup, setPendingBackup] = useState(null);
   const [pendingName, setPendingName] = useState('');
   const [confirmText, setConfirmText] = useState('');
   const [restoreReport, setRestoreReport] = useState(null);
-  // audit H-16: the backend no longer builds a full safety snapshot in-request
-  // (it could run out of memory on a large DB mid-restore). The operator must
-  // confirm they have downloaded a current backup, and the restore then runs
-  // ONE database at a time so a failure can't straddle multiple databases.
   const [ackCurrentBackup, setAckCurrentBackup] = useState(false);
 
   const doDownload = async () => {
@@ -113,7 +86,7 @@ export default function Backup() {
   const onFilePicked = async (e) => {
     setError(''); setStatus(''); setRestoreReport(null); setConfirmText('');
     const file = e.target.files && e.target.files[0];
-    e.target.value = ''; // allow re-picking the same file
+    e.target.value = '';
     if (!file) return;
     setBusy(true);
     try {
@@ -129,7 +102,6 @@ export default function Backup() {
     }
   };
 
-  // Merge a per-binding report into the running aggregate report.
   const mergeReport = (agg, r) => {
     if (!r) return agg;
     for (const k of ['restoredTables', 'partialTables', 'emptyTables', 'skippedTables']) {
@@ -147,15 +119,11 @@ export default function Backup() {
     }
     setError(''); setStatus(''); setBusy(true);
     try {
-      // 1) PLANNING call — validate + get the list of databases to restore, one at
-      //    a time. Touches no data. (audit H-16)
       setStatus('Preparing restore...');
       const plan = await api.restoreBackup(pendingBackup, confirmText, { snapshotAcknowledged: true });
       const bindings = (plan && plan.bindings) || [];
       if (!bindings.length) throw new Error('The backup contains no known databases to restore.');
 
-      // 2) Restore each database in its OWN request so a failure can't straddle
-      //    databases and a large DB can't blow the Worker memory in one shot.
       const agg = { restoredTables: {}, partialTables: {}, emptyTables: {}, skippedTables: {}, errors: [] };
       for (let i = 0; i < bindings.length; i++) {
         const b = bindings[i];
@@ -192,7 +160,7 @@ export default function Backup() {
       {status && <div className="glass-card" style={{ padding: 12, marginBottom: 12, color: 'var(--success, #16a34a)' }}>{status}</div>}
       {error && <div className="error-banner" style={{ margin: '12px 0' }}>{error}</div>}
 
-      {/* ---- Download ---- */}
+      {}
       <div className="glass-card" style={{ padding: 18, marginBottom: 18 }}>
         <h3 style={{ marginTop: 0 }}>1. Full Backup Download</h3>
         <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
@@ -206,7 +174,7 @@ export default function Backup() {
         </button>
       </div>
 
-      {/* ---- Restore ---- */}
+      {}
       <div className="glass-card" style={{ padding: 18, border: '1px solid #f0c000' }}>
         <h3 style={{ marginTop: 0, color: '#b45309' }}>2. Restore from Backup</h3>
         <div style={{ background: '#fff7ed', border: '1px solid #fdba74', borderRadius: 8, padding: 12, marginBottom: 14, fontSize: '0.88rem', color: '#7c2d12' }}>

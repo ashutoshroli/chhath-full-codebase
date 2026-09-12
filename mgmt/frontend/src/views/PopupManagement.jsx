@@ -4,21 +4,14 @@ import { isTruthyFlag } from '../flags.js';
 import { prepareImageForUpload } from '../imagePrep.js';
 import Modal from '../components/Modal.jsx';
 import PopupSlideshow from '../components/PopupSlideshow.jsx';
-// Older rows may contain a Drive viewer-page URL or `uc?export=view` — neither
-// renders in the browser. driveUrl.js converts them all to the lh3 CDN form.
 import { driveImageUrl, driveImgOnError } from '../driveUrl.js';
 
 const ROLES = ['Superadmin', 'Admin', 'Subadmin', 'Public'];
-// durationMs = how long this slide stays on screen during auto-play (public
-// portal + login popup). Kept in ms internally (matches the backend column and
-// the API); the editor shows/edits it in whole SECONDS. Default 5000ms.
 const DEFAULT_DURATION_MS = 5000;
 const MIN_DURATION_MS = 1000;
 const MAX_DURATION_MS = 60000;
 const BLANK_SLIDE = { imageUrl: '', text: '', linkUrl: '', linkText: '', durationMs: DEFAULT_DURATION_MS };
 
-// Clamp identically to the backend (normalizeDurationMs) so what the editor sends
-// is exactly what gets stored and shown.
 function clampDurationMs(ms) {
   const n = parseInt(ms, 10);
   if (!Number.isFinite(n) || n <= 0) return DEFAULT_DURATION_MS;
@@ -26,31 +19,15 @@ function clampDurationMs(ms) {
   if (n > MAX_DURATION_MS) return MAX_DURATION_MS;
   return n;
 }
-// Each slide carries a stable client-side `_key` so React tracks it correctly
-// across reordering (moveSlide) — array-index keys made the wrong slide's fields
-// appear to jump on a move (audit L-20). The `_key` is UI-only and is stripped
-// before saving.
 let __slideKeySeq = 0;
 const newSlide = (data) => ({ ...BLANK_SLIDE, ...(data || {}), _key: `sl_${Date.now()}_${__slideKeySeq++}` });
 
-// `datetime-local` gives a bare wall-clock string like "2026-09-01T01:12" with NO
-// timezone, and that used to be stored verbatim. The Worker then did
-// `new Date(start_at) > now`, and a bare date-time is interpreted as LOCAL time —
-// which inside a Worker means UTC. So an admin in IST picking 2:31 PM produced a
-// window that actually opened at 2:31 PM UTC = 8:01 PM IST, i.e. 5.5 hours late.
-// Converting to a real instant here (the browser DOES know the local zone) makes
-// the stored value unambiguous.
 function fromLocalInputValue(local) {
   if (!local) return '';
-  const d = new Date(local); // parsed in the BROWSER's zone — this is the point
+  const d = new Date(local);
   return isNaN(d.getTime()) ? '' : d.toISOString();
 }
 
-// Legacy rows are '2026-08-22 14:31:00' (space, no zone) and are read as UTC —
-// which is how the Worker has always compared them. The zone is appended BEFORE
-// parsing, because Chrome would otherwise happily read the string as IST wall time
-// and show the admin a window 5.5h away from the one the server actually enforces.
-// Keep in step with parseStoredDate in mgmt/backend/src/popups.js.
 function normalizeStamp(raw) {
   const hasZone = /([zZ]|[+-]\d{2}:?\d{2})$/.test(raw);
   let d = new Date(raw.replace(' ', 'T') + (hasZone ? '' : 'Z'));
@@ -67,24 +44,15 @@ function toLocalInputValue(iso) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-// Same normalization for display, so the list never shows "Invalid Date".
 function fmtStamp(v) {
   if (!v) return null;
   const d = normalizeStamp(v.toString().trim());
   return d ? d.toLocaleString('en-IN') : null;
 }
 
-// Everything the DB can hand back is nullable, and the migrated slide row has
-// text/link_url/link_text = NULL. Coercing here (as well as on the backend) means
-// no `.trim()` in this file can ever hit null again.
 const str = (v) => (v === undefined || v === null ? '' : v.toString());
 
-// NOTE: there used to be a `fileToBase64()` here that sent the file as-is. It was
-// replaced by `prepareImageForUpload()` in `imagePrep.js` — the reason is in the
-// comment there (payload size + Worker CPU + iPhone HEIC).
 
-// A button that looks like a link. The `btn-link` class does NOT exist in styles.css,
-// so we use an inline style — otherwise it would show the default grey browser button.
 const linkBtnStyle = {
   background: 'none', border: 'none', padding: 0, font: 'inherit',
   color: 'var(--primary-saffron)', textDecoration: 'underline', cursor: 'pointer',
@@ -93,14 +61,14 @@ const linkBtnStyle = {
 export default function PopupManagement() {
   const [popups, setPopups] = useState(null);
   const [error, setError] = useState('');
-  const [editingId, setEditingId] = useState(null); // null = not editing, 'new' = creating
+  const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ title: '', roles: [...ROLES], active: true, startAt: '', endAt: '' });
   const [slides, setSlides] = useState([newSlide()]);
   const [saving, setSaving] = useState(false);
   const [uploadingSlide, setUploadingSlide] = useState(null);
-  const [preview, setPreview] = useState(null);       // "Preview as Public" result
+  const [preview, setPreview] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
-  const [showLivePreview, setShowLivePreview] = useState(false); // visual slideshow preview of the slides being edited
+  const [showLivePreview, setShowLivePreview] = useState(false);
 
   const refresh = () => {
     api.getPopups().then(setPopups).catch(err => setError(err.message));
@@ -125,9 +93,6 @@ export default function PopupManagement() {
         startAt: toLocalInputValue(popup.start_at),
         endAt: toLocalInputValue(popup.end_at),
       });
-      // str() everywhere: a NULL text/link from the DB used to arrive as `null`,
-      // and save()'s `s.text.trim()` then threw a TypeError OUTSIDE its try/catch —
-      // so the Save button silently did nothing at all.
       setSlides(existingSlides.length
         ? existingSlides.map(s => newSlide({ imageUrl: str(s.image_url), text: str(s.text), linkUrl: str(s.link_url), linkText: str(s.link_text), durationMs: clampDurationMs(s.duration_ms) }))
         : [newSlide()]);
@@ -144,8 +109,6 @@ export default function PopupManagement() {
 
   const addSlide = () => setSlides(s => [...s, newSlide()]);
   const removeSlide = (i) => setSlides(s => s.filter((_, idx) => idx !== i));
-  // Slide order decides the display sequence but there was no way to change it
-  // without deleting and re-adding every slide.
   const moveSlide = (i, dir) => setSlides(s => {
     const j = i + dir;
     if (j < 0 || j >= s.length) return s;
@@ -158,27 +121,14 @@ export default function PopupManagement() {
   const uploadSlideImage = async (i, file) => {
     setUploadingSlide(i);
     setError('');
-    // Clear the previous attempt's error/flag, otherwise the old message stays
-    // stuck on the new upload too.
     updateSlide(i, { imageError: '', imageBroken: false });
     try {
-      // The file used to be sent as-is. A phone photo is 3-8 MB (+33% as base64),
-      // and the Worker's decode burnt over half a second of CPU on it — large
-      // photos failed to upload. prepareImageForUpload downscales to 1600px + JPEG
-      // right in the browser (~200-400 KB), and also converts iOS HEIC photos to
-      // JPEG.
       const prepped = await prepareImageForUpload(file);
       const res = await api.uploadPopupImage(prepped.base64, prepped.fileName, prepped.mimeType);
-      // `res.url` is the Drive VIEWER PAGE (…/file/d/<id>/view) — an HTML document,
-      // not an image, so <img src> rendered nothing. `imageUrl`/`directUrl` is the
-      // actual image (…/uc?export=view&id=<id>). Every popup image uploaded through
-      // this screen was broken in the editor, at login AND on the public portal.
       const imageUrl = res.imageUrl || res.directUrl || res.url;
       if (!imageUrl) throw new Error('The server did not return an image URL.');
       updateSlide(i, { imageUrl, imageError: '', imageBroken: false });
     } catch (err) {
-      // `alert()` is sometimes suppressed on mobile, and then the admin thinks
-      // "nothing happened at all". So the error is shown inside the slide as well.
       updateSlide(i, { imageError: err.message || 'Upload failed.' });
       setError(`Slide ${i + 1} image upload failed: ${err.message}`);
       reportClientError('PopupManagement', 'Popup image upload failed', err, {
@@ -190,17 +140,12 @@ export default function PopupManagement() {
   };
 
   const save = async () => {
-    // Validation moved INSIDE the try. It used to sit outside, so a TypeError from
-    // `s.text.trim()` on a NULL text escaped as an unhandled rejection and the
-    // Save button did nothing — no alert, no banner, no clue.
     setSaving(true);
     setError('');
     try {
       const title = str(form.title).trim();
       if (!title) throw new Error('Please enter a title');
 
-      // Send only the 4 persisted fields. `imageError`/`imageBroken` are UI-only
-      // state — sending them in the request is wasted payload.
       const usable = slides
         .filter(s => str(s.imageUrl) || str(s.text).trim())
         .map(s => ({
@@ -216,8 +161,6 @@ export default function PopupManagement() {
       const popupId = editingId === 'new' ? undefined : editingId;
       const res = await api.savePopup(
         popupId, title, form.roles, form.active,
-        // Converted to a real instant so the window isn't 5.5 h off (see
-        // fromLocalInputValue).
         fromLocalInputValue(form.startAt), fromLocalInputValue(form.endAt)
       );
       const finalId = popupId || res.popup_id;
@@ -332,7 +275,7 @@ export default function PopupManagement() {
                 <input type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif" onChange={e => e.target.files[0] && uploadSlideImage(i, e.target.files[0])} />
                 {uploadingSlide === i && <div className="inline-spinner">Uploading...</div>}
 
-                {/* The upload error is shown right here — we don't rely on alert() alone. */}
+                {}
                 {slide.imageError && (
                   <div style={{ marginTop: 8, padding: '8px 10px', borderRadius: 8, background: '#fdecea', color: 'var(--danger)', fontSize: '0.8rem' }}>
                     {slide.imageError}
@@ -344,10 +287,6 @@ export default function PopupManagement() {
                     src={driveImageUrl(slide.imageUrl)}
                     alt=""
                     style={{ maxWidth: '100%', maxHeight: 150, marginTop: 8, borderRadius: 8 }}
-                    // This used to be `display='none'` — if the image failed to
-                    // load it disappeared SILENTLY, so the admin had no idea whether
-                    // the upload succeeded. Now it tries the fallback endpoint first,
-                    // then shows a clear placeholder.
                     onError={(e) => {
                       const img = e.currentTarget;
                       if (img.dataset.driveFallbackTried !== '1') {
@@ -391,9 +330,8 @@ export default function PopupManagement() {
                 </div>
               )}
 
-              {/* Per-slide auto-play duration. Edited in whole seconds, stored in
-                  ms. Only meaningful when the popup has 2+ slides (auto-play does
-                  not run for a single slide), so the hint says so. */}
+              {
+}
               <div className="form-group">
                 <label style={{ fontSize: '0.8rem' }}>Auto-play duration (seconds)</label>
                 <input
@@ -403,8 +341,6 @@ export default function PopupManagement() {
                   step={1}
                   value={Math.round((slide.durationMs ?? DEFAULT_DURATION_MS) / 1000)}
                   onChange={e => {
-                    // Keep the raw seconds while typing; clamp to ms on blur so an
-                    // empty/partial value doesn't fight the user mid-edit.
                     const secs = parseInt(e.target.value, 10);
                     updateSlide(i, { durationMs: Number.isFinite(secs) ? secs * 1000 : '' });
                   }}
@@ -434,9 +370,8 @@ export default function PopupManagement() {
           <button type="button" className="btn-submit" style={{ width: 'auto', background: '#e5e7eb', color: '#111' }} onClick={cancelEdit}>Cancel</button>
         </div>
 
-        {/* Visual live preview — renders the slides EXACTLY as the public portal
-            will (auto-play, loop, pause-on-hover), using the unsaved edits so the
-            author sees the real thing before saving. */}
+        {
+}
         {showLivePreview && (
           <Modal open onClose={() => setShowLivePreview(false)}>
             <h3 style={{ marginTop: 0, marginBottom: 6 }}>Live Preview</h3>
@@ -464,8 +399,8 @@ export default function PopupManagement() {
           {previewLoading ? 'Checking...' : '👁 Preview as Public'}
         </button>
       </div>
-      {/* Popups are NOT year-scoped, but this screen sits under the app's global
-          year selector, which made it look as though they were. */}
+      {
+}
       <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 12 }}>
         Popups are independent of the year — the year selector above does not apply to them.
       </p>
@@ -515,10 +450,6 @@ export default function PopupManagement() {
         const now = Date.now();
         const notYet = p.start_at && new Date(p.start_at).getTime() > now;
         const over = p.end_at && new Date(p.end_at).getTime() < now;
-        // "Active" only means the flag is on. Whether it is actually being SHOWN
-        // also depends on the date window and on having at least one slide — the
-        // badge used to imply all three, which is how a popup could read "Active"
-        // and still never appear anywhere.
         const liveNow = isActive && !noSlides && !notYet && !over;
         return (
           <div className="glass-card" key={p.popup_id} style={{ padding: 15, marginBottom: 10 }}>
