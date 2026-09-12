@@ -21,12 +21,18 @@ const lang = 'en';
 
 // The real site routes. Each new Astro page is its own URL (multi-page static
 // site), so the nav links to concrete paths (Phase 2 shipped placeholders).
+// `icon` is a Material Icons Round glyph name, used by the mobile bottom-nav
+// (icon above label, like a native app tab bar). These are the EXACT same glyphs
+// the two reference portals use, so v2 looks identical:
+// Public/frontend/index.html (~L252) and Public/frontend-v3/index.html (~L263)
+// both use home / receipt_long / handshake / groups / download.
+// The desktop top nav stays text-only, also matching both references.
 const navItems = [
-  { href: '/', key: 'nav_home' },
-  { href: '/expenses', key: 'nav_expenses' },
-  { href: '/loans', key: 'nav_loans' },
-  { href: '/committee', key: 'nav_committee' },
-  { href: '/downloads', key: 'nav_downloads' },
+  { href: '/', key: 'nav_home', icon: 'home' },
+  { href: '/expenses', key: 'nav_expenses', icon: 'receipt_long' },
+  { href: '/loans', key: 'nav_loans', icon: 'handshake' },
+  { href: '/committee', key: 'nav_committee', icon: 'groups' },
+  { href: '/downloads', key: 'nav_downloads', icon: 'download' },
 ];
 
 // Current path for active-state styling. Astro serves '/expenses' and, with the
@@ -194,10 +200,19 @@ const isActive = (href) => isActivePath(currentPath, href);
     <a
       href={item.href}
       data-nav-href={item.href}
-      class={`px-2 ${isActive(item.href) ? 'font-bold text-brand-600 dark:text-brand-400' : 'text-slate-600 dark:text-slate-300'}`}
+      class={`flex w-1/5 flex-col items-center gap-0.5 px-1 leading-none ${isActive(item.href) ? 'font-bold text-brand-600 dark:text-brand-400' : 'text-slate-600 dark:text-slate-300'}`}
       aria-current={isActive(item.href) ? 'page' : undefined}
-      data-i18n={item.key}
-    >{t(lang, item.key)}</a>
+    >
+      {/* Icon above the label — the native app tab-bar look both reference
+          portals use. aria-hidden because the adjacent label already names the
+          destination, so screen readers must not announce the glyph name. */}
+      <span class="material-icons-round text-xl" aria-hidden="true">{item.icon}</span>
+      {/* ⚠️ data-i18n sits on THIS label span, NOT on the parent <a>. The
+          language script re-localizes by assigning node.textContent, which would
+          WIPE the sibling icon span if the hook were on the <a>. Both reference
+          portals tag the label span for the same reason. */}
+      <span data-i18n={item.key}>{t(lang, item.key)}</span>
+    </a>
   ))}
 </nav>
 
