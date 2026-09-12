@@ -337,6 +337,27 @@ const app = {
     form.addEventListener('submit', (e) => { e.preventDefault(); app.sendChat(); });
   },
 
+  // ---- Linkify bot replies, XSS-safe by construction ----
+  //
+  // The chatbot answer is UNTRUSTED model output. We still want Markdown links
+  // `[label](url)` and bare http(s):// URLs to render as clickable <a> tags.
+  //
+  // ORDERING IS THE SECURITY PROPERTY: escape-FIRST-then-linkify.
+  //   (1) escapeHtml() the WHOLE reply first, so every < > & " ' the model produced
+  //       is neutralised. After this step the string contains NO live markup at all.
+  //   (2) Only THEN run the linkify regex over the already-escaped string. Because
+  //       escapeHtml does not touch [ ] ( ), a Markdown link is still matchable, and
+  //       an http(s):// URL has no raw < > so it survives intact.
+  //   (3) Every candidate URL is passed through safeUrl(): if it is not http(s)
+  //       (javascript:, data:, vbscript:, …) safeUrl returns '' and we DO NOT build
+  //       a link — the text stays as its already-escaped, inert form.
+  // The consequence: the ONLY HTML that can ever appear in the output is the <a>
+  // tags THIS function emits, and their href is constrained to http(s) by safeUrl.
+  // Nothing the model returns can create any other element or attribute. This is
+  // why appendChatMsg may safely assign the result to innerHTML for the bot bubble.
+  //
+  // escapeHtml + safeUrl are passed in as arguments (dependency injection) so this
+  // function is pure and can be evaluated by the Node test harness without a DOM.
   linkifyBotText: (text, escapeHtmlFn, safeUrlFn) => {
     const escaped = escapeHtmlFn(text);
     const unescapeHtml = (s) => s
