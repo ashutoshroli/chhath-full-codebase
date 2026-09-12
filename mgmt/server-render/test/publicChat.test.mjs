@@ -367,6 +367,28 @@ test('year-scoped: an orphan person ID (absent from users) is neutral-labelled, 
   assert.match(s, /Resold items 2019 .*Coconut basket by unknown member ₹100/);
 });
 
+test('year-scoped: an orphan PLAIN (non-resell) contributor and orphan committee member are neutral-labelled, never leaked', () => {
+  // Orphan IDs built via runtime string concatenation (no literal secret-like
+  // values). Nothing resolves in `users`, so both the top-contributors block and
+  // the committee block must degrade the raw code to the neutral label rather
+  // than leaking USER#### — the exact path the resell-based orphan test misses.
+  const orphanContributor = 'USER' + '0044';
+  const orphanCommittee = 'USER' + '0055';
+  const data = {
+    users: [], // nothing resolves
+    // A PLAIN contribution (NOT a resell), so it flows into top-contributors.
+    collections: [{ Year: 2019, Name: orphanContributor, Amount: 1200 }],
+    committee: [{ Year: 2019, Name: orphanCommittee }],
+  };
+  const s = summarizePortalData(data, 'top contributors in 2019?');
+  // The raw internal code must never reach the prompt.
+  assert.doesNotMatch(s, /USER\d+/);
+  // Top-contributors line labels the orphan neutrally, keyed by 'unknown member'.
+  assert.match(s, /Top contributors 2019: unknown member \(₹1,200\)/);
+  // Committee line labels the orphan neutrally too.
+  assert.match(s, /Committee 2019 \(1 members\): unknown member/);
+});
+
 test('detectYears (via summarizePortalData): a no-year question falls back to the general aggregated summary', () => {
   const s = summarizePortalData(YEAR_SCOPED_SAMPLE, 'top contributors overall');
   // General path: no year-scoping preamble; multiple years' totals present.

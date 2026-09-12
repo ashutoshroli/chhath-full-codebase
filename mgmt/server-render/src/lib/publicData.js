@@ -337,7 +337,11 @@ function buildYearScopedContext(data, question, years) {
     const totals = new Map();
     for (const c of cols) {
       if (c['Is Resell'] === 'TRUE' || c['Is Resell'] === true) continue;
-      const nm = nameOf(c.Name);
+      // safeName (not bare nameOf) so an orphan non-resell contributor ID absent
+      // from `users` degrades to the neutral 'unknown member' label instead of
+      // leaking a raw USER#### code into the prompt. Aggregation stays keyed by
+      // the resolved display name, exactly as before.
+      const nm = safeName(c.Name);
       if (!nm) continue;
       totals.set(nm, (totals.get(nm) || 0) + num(c.Amount));
     }
@@ -348,7 +352,9 @@ function buildYearScopedContext(data, question, years) {
     // Committee for the year — deduped, real names.
     const cNames = [...new Set(
       committee.filter(m => parseInt(m.Year || m.year) === y)
-        .map(m => nameOf((m.Name || m.name || '').toString().trim()))
+        // safeName (not bare nameOf) so an orphan committee ID degrades to the
+        // neutral 'unknown member' label rather than leaking a raw USER#### code.
+        .map(m => safeName((m.Name || m.name || '').toString().trim()))
         .filter(Boolean)
     )];
     if (cNames.length) lines.push(`Committee ${y} (${cNames.length} members): ${cNames.join(', ')}.`);
