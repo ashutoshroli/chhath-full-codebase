@@ -40,8 +40,13 @@ const isActive = (href) => currentPath === href;
   class="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90"
 >
   <div class="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
-    <!-- Brand: emblem + bilingual title -->
-    <a href="/" class="flex items-center gap-2" aria-label="Home">
+    <!-- Brand: emblem + bilingual title.
+         min-w-0 on the anchor AND the text wrapper lets flexbox actually shrink
+         the brand below its content width on narrow screens (a flex child will
+         not shrink past its intrinsic content size without min-w-0), and
+         truncate keeps the long bilingual title on one line each so it can never
+         push into the grouped controls. The logo stays flex-none. -->
+    <a href="/" class="flex min-w-0 items-center gap-2" aria-label="Home">
       <img
         src="/logo.svg"
         alt="Navyuvak Chhath Puja Samiti"
@@ -50,11 +55,11 @@ const isActive = (href) => currentPath === href;
         class="h-10 w-10 flex-none"
         decoding="async"
       />
-      <span class="leading-tight">
-        <span class="block text-base font-bold text-brand-600 dark:text-brand-400" data-i18n="app_title">
+      <span class="min-w-0 leading-tight">
+        <span class="block truncate text-base font-bold text-brand-600 dark:text-brand-400" data-i18n="app_title">
           {t(lang, 'app_title')}
         </span>
-        <span class="block text-xs text-slate-500 dark:text-slate-400" data-i18n="app_subtitle">
+        <span class="block truncate text-xs text-slate-500 dark:text-slate-400" data-i18n="app_subtitle">
           {t(lang, 'app_subtitle')}
         </span>
       </span>
@@ -72,8 +77,13 @@ const isActive = (href) => currentPath === href;
       ))}
     </nav>
 
-    <!-- THE THREE CONTROLS, grouped together -->
-    <div class="flex items-center gap-2">
+    <!-- THE THREE CONTROLS, grouped together.
+         flex-none keeps the whole group at its natural width so it never shrinks
+         or wraps into the brand; the brand (with min-w-0 + truncate) absorbs the
+         squeeze instead. A slightly tighter gap on the smallest screens
+         (gap-1.5) widens to gap-2 at sm so all three controls stay tappable at
+         ~320-375px without overlapping the title. -->
+    <div class="flex flex-none items-center gap-1.5 sm:gap-2">
       <!-- 1) Language toggle -->
       <button
         id="lang-toggle"
