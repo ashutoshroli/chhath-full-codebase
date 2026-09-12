@@ -161,10 +161,21 @@ const lang = 'en';
     // STRATEGY: re-init on astro:page-load so the ledger + #year-select options
     // rebuild for the freshly-swapped DOM. Fires on the initial real load AND
     // every client swap, so boot() is NOT also called at parse time (no
-    // double-boot). The element 'change' listener is re-bound against the live
-    // #year-select each page-load; addEventListener de-dupes it on the persisted
-    // select so no duplicate handler accumulates.
+    // double-boot).
+    //
+    // PAGE-IDENTITY GUARD (why this exists): the handler is registered on
+    // `document`, which is NOT swapped by the router and is never removed, so
+    // this page's handler stays live and fires on EVERY later swap even when a
+    // different page is mounted. Without a guard, each swap would re-run this
+    // page's boot() (a redundant loadPortalData() fetch) and re-bind
+    // renderExpenses to the SAME persisted #year-select. addEventListener only
+    // de-dupes identical (node,type,fn) triples, so every visited page's
+    // distinct renderX stays bound and one year change fires them all against
+    // unmounted DOM. FIX: bail unless THIS page is the mounted one. The four
+    // data pages share `[data-page-root]`, so we gate on this page's UNIQUE
+    // element id (#exp-list) instead — absent = not this page = no-op.
     document.addEventListener('astro:page-load', function () {
+      if (!document.getElementById('exp-list')) return;
       refreshEls();
       boot();
       if (yearSel) yearSel.addEventListener('change', renderExpenses);

@@ -252,13 +252,21 @@ const lang = 'en';
     // correct hook — we do NOT also call boot() at parse time (that would
     // double-boot on the first load).
     //
-    // Element listeners (yearSel 'change', searchEl 'input') are (re)bound here
-    // against the LIVE nodes: page-content elements (searchEl) die with the old
-    // DOM each swap, and #year-select lives in the transition:persist header —
-    // re-querying + re-binding it every page-load is safe because addEventListener
-    // de-dupes identical (node, type, fn) triples, so the persisted select never
-    // accumulates duplicate 'change' handlers.
+    // PAGE-IDENTITY GUARD (why this exists): the handler is registered on
+    // `document`, which is NOT swapped by the View Transitions router and is
+    // never removed for the rest of the session. So EVERY data page's handler
+    // stays live and fires on EVERY later swap, regardless of which page is now
+    // mounted. Without a guard, visiting several data pages would make each swap
+    // re-run every prior page's boot() (redundant loadPortalData() fetches) and
+    // re-bind each prior page's distinct renderX to the SAME persisted
+    // #year-select — addEventListener only de-dupes identical (node,type,fn)
+    // triples, so those distinct renderers would all stay bound and a single
+    // year change would drive stale renderers against unmounted DOM.
+    // FIX: bail immediately unless THIS page's unique root is in the swapped-in
+    // DOM. `[data-home-root]` exists only on the Home page, so the handler
+    // no-ops (never fetches, never binds to #year-select) on every other page.
     document.addEventListener('astro:page-load', function () {
+      if (!document.querySelector('[data-home-root]')) return;
       refreshEls();
       boot();
       if (yearSel) yearSel.addEventListener('change', renderAll);

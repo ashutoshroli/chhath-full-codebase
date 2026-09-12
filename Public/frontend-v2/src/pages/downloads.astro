@@ -331,10 +331,21 @@ const lang = 'en';
     // (no double-boot). All element listeners below bind to page-content nodes
     // that are re-created each swap (villageSel/searchInput/searchBtn/
     // peopleWrap/docsWrap) — binding fresh is correct because the OLD nodes are
-    // discarded with the old DOM. The 'change' on #year-select targets the
-    // persisted header select; addEventListener de-dupes it so no duplicate
-    // handler accumulates.
+    // discarded with the old DOM.
+    //
+    // PAGE-IDENTITY GUARD (why this exists): the handler is registered on
+    // `document`, which is NOT swapped by the router and is never removed, so
+    // this page's handler stays live and fires on EVERY later swap even when a
+    // different page is mounted. Without a guard, each swap would re-run this
+    // page's boot() (a redundant loadPortalData() fetch) and re-bind onYearChange
+    // to the SAME persisted #year-select. addEventListener only de-dupes
+    // identical (node,type,fn) triples, so every visited page's distinct renderX
+    // stays bound and one year change fires them all against unmounted DOM.
+    // FIX: bail unless THIS page is the mounted one. The four data pages share
+    // `[data-page-root]`, so we gate on this page's UNIQUE element id
+    // (#dc-village) instead — absent = not this page = no-op.
     document.addEventListener('astro:page-load', function () {
+      if (!document.getElementById('dc-village')) return;
       refreshEls();
       boot();
 

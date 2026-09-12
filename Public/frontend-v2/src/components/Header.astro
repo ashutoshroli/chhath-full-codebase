@@ -252,6 +252,18 @@ const isActive = (href) => currentPath === href;
     // persisted toggle state. Registered once (this IIFE runs once). Guarded so
     // repeated navigations never stack the handler even if Astro were to re-run
     // the script for any reason.
+    //
+    // LOCALIZATION HOOK SPLIT (static labels vs DATA): the STATIC [data-i18n]
+    // chrome is re-localized here on astro:after-swap; the data pages re-render
+    // their DATA-built markup (localized in the same read of LANG_KEY) on
+    // astro:page-load. Both hooks read the identical persisted language, and both
+    // run before the browser paints the swapped body (astro:after-swap fires
+    // during the swap, astro:page-load right after it, both ahead of the first
+    // post-swap paint), so there is no flash of English DATA — the swapped-in
+    // content is already localized when it becomes visible. This ordering is a
+    // runtime concern that cannot be exercised in the sandbox; confirm on a
+    // Vercel preview (toggle to हिं, then tab across pages: labels AND data must
+    // stay Hindi with no English flash).
     if (!window.__cpmHeaderSwapBound) {
       window.__cpmHeaderSwapBound = true;
       document.addEventListener('astro:after-swap', function () { applyLang(); });
