@@ -136,7 +136,10 @@ const { title, description, lang = 'en' } = Astro.props;
          the GTM loader self-boots on window 'load' from anywhere. -->
     <Analytics />
     <Header />
-    <main id="main-content">
+    <!-- pb-20 reserves space on mobile so page content is never hidden behind the
+         fixed bottom-nav; removed at md (md:pb-0) where the nav moves into the
+         header. Mirrors the old portal's body bottom padding for its 65px bar. -->
+    <main id="main-content" class="pb-20 md:pb-0">
       <slot />
     </main>
     <!-- Floating chatbot: present on every page. -->
