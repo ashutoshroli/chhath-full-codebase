@@ -1,0 +1,27 @@
+/* Tailwind entry point for the v2 portal.
+   The three @tailwind directives are replaced at build time with Tailwind's
+   base reset, component classes, and the generated utilities. Any small custom
+   layer (brand CSS vars, base element tweaks) goes below so components can lean
+   on both utilities and a couple of shared tokens. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Brand accent exposed as a CSS var too, so non-Tailwind contexts (inline
+       SVG fills, third-party widgets) can reuse the exact saffron. */
+    --brand: #F27A1A;
+  }
+
+  html {
+    /* Smooth in-page anchor jumps for the future single-page nav. */
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-white text-slate-900 antialiased;
+    @apply dark:bg-slate-950 dark:text-slate-100;
+    font-family: theme('fontFamily.sans');
+  }
+}
