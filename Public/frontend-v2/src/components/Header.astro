@@ -172,6 +172,22 @@ const lang = 'en';
         var key = nodes[i].getAttribute('data-i18n');
         nodes[i].textContent = tr(lang, key);
       }
+      // Re-apply placeholders tagged with data-i18n-placeholder. WHY this lives
+      // here (with the toggle) rather than only in the Home island: the toggle
+      // owns the language contract, so the general [data-i18n-placeholder] loop
+      // belongs alongside the [data-i18n] loop, mirroring the old
+      // Public/frontend/script.js (~line 246). This way ANY placeholder outside
+      // the Home island (a future search box, filter, etc.) re-localizes for
+      // free, instead of silently freezing in the boot-time language. The Home
+      // island keeps its own explicit placeholder set as harmless
+      // belt-and-suspenders: it runs on first boot (before any toggle) and after
+      // its cpm:langchange re-render, and setting the same attribute twice is a
+      // no-op.
+      var phNodes = document.querySelectorAll('[data-i18n-placeholder]');
+      for (var p = 0; p < phNodes.length; p++) {
+        var phKey = phNodes[p].getAttribute('data-i18n-placeholder');
+        phNodes[p].setAttribute('placeholder', tr(lang, phKey));
+      }
       if (langLabel) {
         // Offer the language you'd switch TO.
         langLabel.textContent = lang === 'hi' ? 'EN' : 'हिं';
@@ -188,6 +204,16 @@ const lang = 'en';
           /* private mode — session-only language is fine */
         }
         applyLang();
+        // Notify data-driven islands (the Home budget hero + contributors list)
+        // that the language changed, so they re-localize their DATA — not just the
+        // static [data-i18n] labels this header re-applies. A custom event is the
+        // cleanest contract here: no shared bundle-level global, and every island
+        // that cares can subscribe independently.
+        try {
+          window.dispatchEvent(new CustomEvent('cpm:langchange', { detail: { lang: lang } }));
+        } catch (e) {
+          /* CustomEvent unsupported (very old browser) — labels still switched */
+        }
       });
     }
   })();
