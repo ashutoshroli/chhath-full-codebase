@@ -296,6 +296,142 @@ test('summary with the new sections still stays under its char bound on a large 
   assert.ok(s.length <= 6100, 'enriched summary must still be capped (~6000 chars) regardless of data size');
 });
 
+// ---- PHASE 1: year-scoped retrieval ----
+// When the question names a year that is present in the data, the summary is built
+// from ONLY that year's rows so the context stays bounded as years accumulate. A
+// no-year (or not-present-year) question falls through to the general aggregated
+// path. CACHE-ONLY: no code path added here may call fetch / touch D1.
+
+// A multi-year fixture with a DISTINCTIVE contributor unique to each year, so a
+// year-scoped context can be asserted to include the right year and exclude an
+// unrelated year's individual rows.
+const YEAR_SCOPED_SAMPLE = {
+  users: [
+    { ID: 'USER0001', Name: 'Ramesh Verma' },   // 2019 only
+    { ID: 'USER0002', Name: 'Suresh Gupta' },    // 2019
+    { ID: 'USER0003', Name: 'Zephyrina Quobble' }, // 2024 only — distinctive
+  ],
+  collections: [
+    { Year: 2019, Name: 'USER0001', Amount: 5000 },
+    { Year: 2019, Name: 'USER0002', Amount: 3000 },
+    { Year: 2024, Name: 'USER0003', Amount: 7000 },
+  ],
+  expenses: [
+    { Year: 2019, Amount: 1000, Discription: 'Tent and lighting' },
+    { Year: 2024, Amount: 2000, Discription: 'Sound system' },
+  ],
+  loans: [{ Year: 2019, Name: 'USER0002', Amount: 10000, 'Intrest Rate': '5%', Tenure: '12 months', 'Loan ID': 'L-7' }],
+  guarantors: [{ Year: 2019, Loaner: 'USER0002', Guarantor: 'USER0001', 'Loan ID': 'L-7' }],
+  committee: [
+    { Year: 2019, Name: 'USER0001' },
+    { Year: 2024, Name: 'USER0003' },
+  ],
+};
+
+test('year-scoped: a question naming a known year yields ONLY that year and excludes an unrelated year', () => {
+  const s = summarizePortalData(YEAR_SCOPED_SAMPLE, '2019 me total collection kitna tha?');
+  // 2019 totals + rows present.
+  assert.match(s, /Year 2019: collections ₹8,000/);
+  assert.match(s, /Top contributors 2019:/);
+  assert.match(s, /Ramesh Verma/);
+  // The unrelated 2024-only contributor must NOT appear.
+  assert.doesNotMatch(s, /Zephyrina Quobble/);
+  assert.doesNotMatch(s, /Year 2024:/);
+  // Scoping preamble present.
+  assert.match(s, /only that year's data is shown below/);
+});
+
+test('year-scoped: loans / guarantors / committee for the year resolve IDs to names (no leak)', () => {
+  const s = summarizePortalData(YEAR_SCOPED_SAMPLE, 'show me 2019');
+  assert.match(s, /Loans 2019: Suresh Gupta: ₹10,000/);
+  assert.match(s, /interest 5%/);
+  assert.match(s, /tenure 12 months/);
+  assert.match(s, /Loan L-7/);
+  assert.match(s, /Guarantors 2019: Ramesh Verma guarantees Suresh Gupta \(Loan L-7\)/);
+  assert.match(s, /Committee 2019 \(1 members\): Ramesh Verma/);
+  assert.match(s, /Expenses 2019: Tent and lighting/);
+  assert.doesNotMatch(s, /USER\d+/);
+});
+
+test('year-scoped: an orphan person ID (absent from users) is neutral-labelled, never leaked', () => {
+  const data = {
+    users: [], // nothing resolves
+    collections: [{ Year: 2019, Name: 'USER0066', Amount: 100, Detail: 'Coconut basket', 'Is Resell': 'TRUE' }],
+    loans: [{ Year: 2019, Name: 'USER0099', Amount: 5000, 'Intrest Rate': '5%', Tenure: '12m', 'Loan ID': 'L-1' }],
+    guarantors: [{ Year: 2019, Loaner: 'USER0088', Guarantor: 'USER0077', 'Loan ID': 'L-2' }],
+  };
+  const s = summarizePortalData(data, 'what happened in 2019?');
+  assert.doesNotMatch(s, /USER\d+/);
+  assert.match(s, /Loans 2019: unknown member: ₹5,000/);
+  assert.match(s, /Guarantors 2019: unknown member guarantees unknown member \(Loan L-2\)/);
+  assert.match(s, /Resold items 2019 .*Coconut basket by unknown member ₹100/);
+});
+
+test('detectYears (via summarizePortalData): a no-year question falls back to the general aggregated summary', () => {
+  const s = summarizePortalData(YEAR_SCOPED_SAMPLE, 'top contributors overall');
+  // General path: no year-scoping preamble; multiple years' totals present.
+  assert.doesNotMatch(s, /only that year's data is shown below/);
+  assert.match(s, /Year 2019:/);
+  assert.match(s, /Year 2024:/);
+  assert.match(s, /Top contributors 2019:/);
+  assert.match(s, /Top contributors 2024:/);
+});
+
+test('detectYears (via summarizePortalData): a year NOT present in the data falls back to general (not scoped)', () => {
+  // 2011 is a valid 4-digit year but absent from the data -> no scoping.
+  const s = summarizePortalData(YEAR_SCOPED_SAMPLE, 'total collection in 2011?');
+  assert.doesNotMatch(s, /only that year's data is shown below/);
+  assert.match(s, /Year 2019:/);
+  assert.match(s, /Year 2024:/);
+});
+
+test('year-scoped: per-person block is included when the question names someone alongside the year', () => {
+  const s = summarizePortalData(YEAR_SCOPED_SAMPLE, 'Ramesh Verma ne 2019 me kitna diya?');
+  assert.match(s, /only that year's data is shown below/);
+  assert.match(s, /Contributions by "Ramesh Verma"/);
+  assert.match(s, /total ₹5,000/);
+  assert.doesNotMatch(s, /USER\d+/);
+});
+
+test('year-scoped and general contexts both stay <= 6100 chars on a 10-year dataset', () => {
+  const users = [];
+  const collections = [];
+  const expenses = [];
+  const loans = [];
+  const guarantors = [];
+  const committee = [];
+  // 10 years x hundreds of rows each.
+  for (let yi = 0; yi < 10; yi++) {
+    const year = 2015 + yi;
+    for (let i = 0; i < 300; i++) {
+      const uid = 'USER' + (yi * 1000 + i);
+      users.push({ ID: uid, Name: 'Person Number ' + (yi * 1000 + i) });
+      collections.push({ Year: year, Name: uid, Amount: (i + 1) });
+      expenses.push({ Year: year, Amount: (i + 1), Discription: 'Spend item ' + i });
+      loans.push({ Year: year, Name: uid, Amount: (i + 1), 'Intrest Rate': '5%', Tenure: '12m', 'Loan ID': 'L' + (yi * 1000 + i) });
+      guarantors.push({ Year: year, Loaner: uid, Guarantor: uid, 'Loan ID': 'L' + (yi * 1000 + i) });
+      committee.push({ Year: year, Name: uid });
+    }
+  }
+  const big = { users, collections, expenses, loans, guarantors, committee };
+  const scoped = summarizePortalData(big, 'total collection in 2018?');
+  const general = summarizePortalData(big, 'overall totals');
+  assert.ok(scoped.length <= 6100, 'year-scoped summary stays capped on a 10-year dataset');
+  assert.ok(general.length <= 6100, 'general summary stays capped on a 10-year dataset');
+});
+
+test('year-scoped context is CACHE-ONLY: it never calls fetch (does not touch D1)', () => {
+  const orig = globalThis.fetch;
+  globalThis.fetch = () => { throw new Error('year-scoped context must not fetch'); };
+  try {
+    let out;
+    assert.doesNotThrow(() => { out = summarizePortalData(YEAR_SCOPED_SAMPLE, '2019 collection details'); });
+    assert.equal(typeof out, 'string');
+    assert.ok(out.length > 0, 'returns a non-empty context string with no network access');
+    assert.match(out, /only that year's data is shown below/);
+  } finally { globalThis.fetch = orig; }
+});
+
 test('getPortalData reuses the cache when the version is unchanged (no portalData refetch)', async () => {
   _resetCache();
   const calls = [];
