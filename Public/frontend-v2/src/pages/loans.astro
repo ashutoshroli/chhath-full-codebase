@@ -1,0 +1,201 @@
+---
+// Loans page for the v2 public portal.
+//
+// Reproduces the old site's renderLoans(): one card per surplus loan for the
+// selected year (or the 'All' lifetime view), showing the receiver name, an
+// amount / interest-rate / tenure grid, and the list of verified guarantors.
+//
+// THE GUARANTOR RULE (audit-corrected — do NOT regress):
+// The only committee rule (mgmt saveLoanTransaction) is "a committee member
+// cannot be a guarantor". There is NO requirement that a guarantor also be a
+// contributor that year. So ONLY a committee-member guarantor is a
+// 'Rule Violation'; everyone else is a 'Valid Guarantor'. The Contributor /
+// Committee yes-no line is still shown as informational context.
+//
+// GUARANTOR MATCHING: when the loan has a 'Loan ID' we match guarantors by it (a
+// person can hold several loans in one year, so matching by Year+Loaner alone
+// mixed their guarantors); older records without a Loan ID fall back to matching
+// on Year + Loaner id.
+//
+// Static Astro output — fetch + rendering happen in the client island, which
+// escapes EVERY interpolated value (names/villages/rates come from an
+// authenticated author and must never be an injection vector).
+import Layout from '../layouts/Layout.astro';
+import { t } from '../i18n.js';
+
+const lang = 'en';
+---
+
+<Layout title="Loans | Chhath Puja Transparency Portal">
+  <div id="page-loader" class="mx-auto max-w-6xl px-4 py-16 text-center text-slate-500 dark:text-slate-400">
+    <span class="material-icons-round animate-spin align-middle">progress_activity</span>
+  </div>
+
+  <div id="stale-data-notice" class="hidden"></div>
+
+  <section id="loans" class="mx-auto hidden max-w-6xl flex-col gap-6 px-4 py-8 pb-24 sm:py-12 md:pb-12" data-page-root>
+    <div class="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+      <h1 class="text-lg font-bold text-slate-900 dark:text-white sm:text-xl" data-i18n="loan_distribution">{t(lang, 'loan_distribution')}</h1>
+      <p id="disp-year-title" class="text-sm font-semibold text-brand-600 dark:text-brand-400">&nbsp;</p>
+    </div>
+    <div id="loans-dynamic-list" class="flex flex-col gap-5"></div>
+  </section>
+</Layout>
+
+<!-- CLIENT ISLAND -->
+<script>
+  import { apiBase } from '../config.js';
+  import { fmt } from '../lib/finance.js';
+  import { loadPortalData } from '../lib/portalData.js';
+  import { buildUserMap, getUser, collectYears, staleNoticeText, coldFailureHtml } from '../lib/homeRender.js';
+  import { escapeHtml } from '../lib/dom-escape.js';
+  import { t, localize, normalizeLang, LANG_KEY } from '../i18n.js';
+
+  (function () {
+    function currentLang() {
+      try { return normalizeLang(localStorage.getItem(LANG_KEY)); } catch (e) { return 'en'; }
+    }
+
+    var state = { data: null, userMap: {}, savedAt: 0, fromCache: false };
+    var sessionCache = {};
+
+    var loaderEl = document.getElementById('page-loader');
+    var pageEl = document.querySelector('[data-page-root]');
+    var noticeEl = document.getElementById('stale-data-notice');
+    var yearSel = document.getElementById('year-select');
+
+    function selectedYear() {
+      var v = yearSel ? yearSel.value : '';
+      return v === 'All' ? 'All' : parseInt(v);
+    }
+
+    function populateYears() {
+      if (!yearSel) return;
+      var years = collectYears(state.data);
+      var opts = years.map(function (y) { return '<option value="' + y + '">' + y + '</option>'; });
+      opts.push('<option value="All">' + t(currentLang(), 'lifetime_budget_overview') + '</option>');
+      yearSel.innerHTML = opts.join('');
+      yearSel.value = String(years[0]);
+    }
+
+    // Build one guarantor sub-card. Escapes name/village; the badge encodes the
+    // corrected rule (committee member => violation, else valid).
+    function guarantorHtml(row, lYear, lang, d) {
+      var gid = row.Guarantor || row['Guarantor ID'] || row['Guarantor 1'];
+      var uGuarantor = getUser(state.userMap, gid);
+
+      var isCont = (d.collections || []).some(function (c) { return parseInt(c.Year) === parseInt(lYear) && (c.ID === gid || c.Name === gid); });
+      var isCom = (d.committee || []).some(function (c) { return parseInt(c.Year) === parseInt(lYear) && (c.ID === gid || c.Name === gid); });
+
+      var badge = isCom
+        ? '<span class="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">' + escapeHtml(t(lang, 'rule_violation')) + '</span>'
+        : '<span class="inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200">' + escapeHtml(t(lang, 'valid_guarantor')) + '</span>';
+
+      return '<div class="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">'
+        + '<div class="flex items-center justify-between gap-2">'
+        + '<strong class="min-w-0 break-words text-slate-800 dark:text-slate-100">' + escapeHtml(localize(uGuarantor, 'Name', lang)) + '</strong>'
+        + '<span class="flex-shrink-0">' + badge + '</span>'
+        + '</div>'
+        + '<div class="mt-1.5 text-xs text-slate-500 dark:text-slate-400">'
+        + escapeHtml(t(lang, 'village')) + ': ' + escapeHtml(localize(uGuarantor, 'Village', lang) || '-')
+        + ' | ' + escapeHtml(t(lang, 'contributor_yes_no')) + ': ' + escapeHtml(isCont ? t(lang, 'yes') : t(lang, 'no'))
+        + ' | ' + escapeHtml(t(lang, 'committee_yes_no')) + ': ' + escapeHtml(isCom ? t(lang, 'yes') : t(lang, 'no'))
+        + '</div></div>';
+    }
+
+    function renderLoans() {
+      var lang = currentLang();
+      var year = selectedYear();
+      var isAll = year === 'All';
+      var d = state.data || {};
+
+      var titleEl = document.getElementById('disp-year-title');
+      if (titleEl) titleEl.textContent = isAll ? t(lang, 'lifetime_budget_overview') : (year + '');
+
+      var listEl = document.getElementById('loans-dynamic-list');
+      if (!listEl) return;
+
+      var targetLoans = isAll ? (d.loans || []) : (d.loans || []).filter(function (l) { return parseInt(l.Year) === year; });
+      if (targetLoans.length === 0) {
+        listEl.innerHTML = '<div class="rounded-2xl border border-slate-200 bg-white p-6 text-center text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">' + escapeHtml(t(lang, 'not_distributed')) + '</div>';
+        return;
+      }
+
+      var finalHtml = targetLoans.map(function (curLoan) {
+        var lYear = curLoan.Year;
+        var receiverId = curLoan.ID || curLoan.Name || curLoan.Receiver;
+        var uReceiver = getUser(state.userMap, receiverId);
+        var loanId = (curLoan['Loan ID'] || '').toString().trim();
+
+        // Match guarantors by Loan ID when present, else by Year + Loaner id.
+        var guars = loanId
+          ? (d.guarantors || []).filter(function (g) { return (g['Loan ID'] || '').toString().trim() === loanId; })
+          : (d.guarantors || []).filter(function (g) { return parseInt(g.Year) === parseInt(lYear) && (g.Loaner === receiverId || g.ID === receiverId || g.Name === receiverId); });
+
+        var gHtml = guars.map(function (row) { return guarantorHtml(row, lYear, lang, d); }).join('');
+
+        var rate = curLoan['Intrest Rate'] || curLoan['Interest Rate'] || '0';
+        return '<div class="rounded-2xl border border-amber-300 bg-amber-50 p-5 shadow-sm dark:border-amber-900/50 dark:bg-amber-900/10">'
+          + '<h3 class="text-base font-bold text-amber-800 dark:text-amber-300">' + escapeHtml(t(lang, 'surplus_loan')) + ' ' + (isAll ? '(' + escapeHtml(lYear) + ')' : '') + '</h3>'
+          + '<p class="mb-4 text-sm text-amber-700 dark:text-amber-400">' + escapeHtml(t(lang, 'given_to_verified')) + '</p>'
+          + '<div class="mb-4 rounded-xl border border-amber-200 bg-white p-4 dark:border-amber-900/40 dark:bg-slate-900">'
+          + '<div class="text-xs text-slate-500 dark:text-slate-400">' + escapeHtml(t(lang, 'receiver_name')) + '</div>'
+          + '<div class="mb-3 break-words text-xl font-bold text-slate-900 dark:text-white">' + escapeHtml(localize(uReceiver, 'Name', lang)) + '</div>'
+          + '<div class="grid grid-cols-3 gap-2 text-slate-700 dark:text-slate-200">'
+          + '<div><span class="text-xs text-slate-500 dark:text-slate-400">' + escapeHtml(t(lang, 'amount')) + '</span><br><strong class="text-sm">' + escapeHtml(fmt(curLoan.Amount)) + '</strong></div>'
+          + '<div><span class="text-xs text-slate-500 dark:text-slate-400">' + escapeHtml(t(lang, 'int_rate')) + '</span><br><strong class="text-sm">' + escapeHtml(rate) + '%</strong></div>'
+          + '<div><span class="text-xs text-slate-500 dark:text-slate-400">' + escapeHtml(t(lang, 'tenure')) + '</span><br><strong class="text-sm">' + escapeHtml(curLoan.Tenure || '0') + ' Mo</strong></div>'
+          + '</div></div>'
+          + '<h4 class="mb-2.5 font-semibold text-amber-800 dark:text-amber-300">' + escapeHtml(t(lang, 'verified_guarantors')) + '</h4>'
+          + '<div class="flex flex-col gap-2.5">' + (gHtml || '<p class="text-sm text-slate-500 dark:text-slate-400">' + escapeHtml(t(lang, 'no_guarantors')) + '</p>') + '</div>'
+          + '</div>';
+      }).join('');
+
+      listEl.innerHTML = finalHtml;
+    }
+
+    function renderStaleNotice() {
+      if (!noticeEl) return;
+      if (!state.fromCache) { noticeEl.classList.add('hidden'); noticeEl.textContent = ''; return; }
+      noticeEl.className = 'bg-amber-100 px-3 py-1.5 text-center text-sm leading-snug text-amber-800 dark:bg-amber-900/40 dark:text-amber-200';
+      noticeEl.setAttribute('role', 'status');
+      noticeEl.textContent = staleNoticeText(currentLang(), state.savedAt);
+    }
+
+    function renderColdFailure() {
+      if (!loaderEl) return;
+      loaderEl.innerHTML = coldFailureHtml(currentLang());
+      loaderEl.classList.remove('hidden');
+      var btn = loaderEl.querySelector('[data-cold-retry]');
+      if (btn) btn.addEventListener('click', function () { location.reload(); });
+    }
+
+    function onLangChange() {
+      populateYears();
+      renderLoans();
+      renderStaleNotice();
+    }
+
+    (async function boot() {
+      try {
+        var result = await loadPortalData({ apiBase: apiBase, sessionCache: sessionCache });
+        state.data = result.data || {};
+        state.userMap = buildUserMap(state.data.users);
+        state.fromCache = !!result.fromCache;
+        state.savedAt = result.savedAt || 0;
+
+        populateYears();
+        renderLoans();
+        renderStaleNotice();
+
+        if (loaderEl) loaderEl.classList.add('hidden');
+        if (pageEl) { pageEl.classList.remove('hidden'); pageEl.classList.add('flex'); }
+      } catch (e) {
+        renderColdFailure();
+      }
+    })();
+
+    if (yearSel) yearSel.addEventListener('change', renderLoans);
+    window.addEventListener('cpm:langchange', onLangChange);
+  })();
+</script>

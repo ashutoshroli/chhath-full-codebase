@@ -1,0 +1,326 @@
+---
+// Download Center for the v2 public portal.
+//
+// Reproduces the old site's download center: pick a Village, then search a
+// person by name; opening a person shows every downloadable document filed for
+// them in three sections — Collections (receipt/certificate/material), consents
+// As Loaner, and consents As Guarantor. The porting-sensitive document logic
+// lives in the framework-free src/lib/downloads.js (unit-tested); this island
+// wires the i18n/finance/user helpers into it and renders the (escaped) HTML.
+//
+// NO GLOBAL `app`: the old site used inline onclick="app.selectDownloadPerson()".
+// This Astro island has no global object, so clicks are handled by attaching
+// event listeners in the island (delegated on the people list) — same behaviour,
+// XSS-safe, no globals.
+//
+// YEAR-CHANGE RESET (audit MEDIUM #5): the year dropdown is shared. If a
+// person's documents are open when the year changes, reset back to the people
+// list so the open card never shows a stale year context. (A language change
+// deliberately keeps the open card and just re-localizes it.)
+import Layout from '../layouts/Layout.astro';
+import { t } from '../i18n.js';
+
+const lang = 'en';
+---
+
+<Layout title="Download Center | Chhath Puja Transparency Portal">
+  <div id="page-loader" class="mx-auto max-w-6xl px-4 py-16 text-center text-slate-500 dark:text-slate-400">
+    <span class="material-icons-round animate-spin align-middle">progress_activity</span>
+  </div>
+
+  <div id="stale-data-notice" class="hidden"></div>
+
+  <section id="downloads" class="mx-auto hidden max-w-4xl flex-col gap-5 px-4 py-8 pb-24 sm:py-12 md:pb-12" data-page-root>
+    <h1 class="text-lg font-bold text-slate-900 dark:text-white sm:text-xl" data-i18n="download_center">{t(lang, 'download_center')}</h1>
+
+    <!-- Village + name search controls -->
+    <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+        <div class="flex-1">
+          <label for="dc-village" class="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400" data-i18n="village">{t(lang, 'village')}</label>
+          <select
+            id="dc-village"
+            class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+          ></select>
+        </div>
+        <div class="flex-1">
+          <label for="dc-search" class="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400" data-i18n="name">{t(lang, 'name')}</label>
+          <input
+            id="dc-search"
+            type="search"
+            disabled
+            placeholder={t(lang, 'select_village_first')}
+            class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+          />
+        </div>
+        <button
+          id="dc-search-btn"
+          type="button"
+          disabled
+          class="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50"
+          data-i18n="search"
+        >{t(lang, 'search')}</button>
+      </div>
+    </div>
+
+    <!-- People list (search results) -->
+    <div id="dc-people-wrap"></div>
+    <!-- Selected person's documents -->
+    <div id="dc-docs-wrap" class="flex flex-col gap-2"></div>
+  </section>
+</Layout>
+
+<!-- CLIENT ISLAND -->
+<script>
+  import { apiBase } from '../config.js';
+  import { fmt } from '../lib/finance.js';
+  import { loadPortalData } from '../lib/portalData.js';
+  import { buildUserMap, getUser, collectYears, staleNoticeText, coldFailureHtml } from '../lib/homeRender.js';
+  import { buildPersonDownloads } from '../lib/downloads.js';
+  import { escapeHtml, safeUrl } from '../lib/dom-escape.js';
+  import { t, localize, normalizeLang, LANG_KEY } from '../i18n.js';
+
+  (function () {
+    function currentLang() {
+      try { return normalizeLang(localStorage.getItem(LANG_KEY)); } catch (e) { return 'en'; }
+    }
+
+    var state = { data: null, userMap: {}, savedAt: 0, fromCache: false };
+    var sessionCache = {};
+    var dcSelectedId = null; // the person whose docs are open (null = list view)
+
+    var loaderEl = document.getElementById('page-loader');
+    var pageEl = document.querySelector('[data-page-root]');
+    var noticeEl = document.getElementById('stale-data-notice');
+    var yearSel = document.getElementById('year-select');
+    var villageSel = document.getElementById('dc-village');
+    var searchInput = document.getElementById('dc-search');
+    var searchBtn = document.getElementById('dc-search-btn');
+    var peopleWrap = document.getElementById('dc-people-wrap');
+    var docsWrap = document.getElementById('dc-docs-wrap');
+
+    function selectedYear() {
+      var v = yearSel ? yearSel.value : '';
+      return v === 'All' ? 'All' : parseInt(v);
+    }
+
+    function populateYears() {
+      if (!yearSel) return;
+      var years = collectYears(state.data);
+      var opts = years.map(function (y) { return '<option value="' + y + '">' + y + '</option>'; });
+      opts.push('<option value="All">' + t(currentLang(), 'lifetime_budget_overview') + '</option>');
+      yearSel.innerHTML = opts.join('');
+      yearSel.value = String(years[0]);
+    }
+
+    // Populate the village <select> from unique, trimmed user villages, sorted by
+    // localeCompare, with a leading "select village" prompt option.
+    function renderVillages() {
+      if (!villageSel) return;
+      var villages = {};
+      (state.data.users || []).forEach(function (u) { if (u.Village) villages[u.Village.trim()] = true; });
+      var arr = Object.keys(villages).sort(function (a, b) { return a.localeCompare(b); });
+      villageSel.innerHTML = '<option value="">' + escapeHtml(t(currentLang(), 'select_village')) + '</option>'
+        + arr.map(function (v) { return '<option value="' + escapeHtml(v) + '">' + escapeHtml(v) + '</option>'; }).join('');
+      villageSel.value = '';
+    }
+
+    // Enable/disable the name controls when a village is (de)selected, resetting
+    // any open person view + prior results.
+    function onVillageChange() {
+      var lang = currentLang();
+      var village = villageSel ? villageSel.value : '';
+      if (peopleWrap) peopleWrap.innerHTML = '';
+      if (docsWrap) docsWrap.innerHTML = '';
+      dcSelectedId = null;
+
+      if (village) {
+        searchInput.disabled = false;
+        searchInput.setAttribute('placeholder', t(lang, 'search_by_name'));
+        searchBtn.disabled = false;
+      } else {
+        searchInput.disabled = true;
+        searchInput.value = '';
+        searchInput.setAttribute('placeholder', t(lang, 'select_village_first'));
+        searchBtn.disabled = true;
+      }
+    }
+
+    // List up to 50 users in the chosen village whose English OR Hindi name
+    // matches the query (so search works regardless of display language). Each
+    // row is a button that opens that person's documents. We store the user ID in
+    // a data-id attribute (escaped) and read it back on click — no inline onclick,
+    // no global.
+    function searchPeople() {
+      var lang = currentLang();
+      var village = villageSel ? villageSel.value : '';
+      if (!village) { return; }
+      var q = (searchInput ? searchInput.value : '').toLowerCase().trim();
+
+      dcSelectedId = null;
+      if (docsWrap) docsWrap.innerHTML = '';
+
+      var list = (state.data.users || [])
+        .filter(function (u) { return (u.Village || '').trim() === village; })
+        .filter(function (u) {
+          return !q
+            || (u.Name || '').toLowerCase().indexOf(q) !== -1
+            || (u['Name (Hindi)'] || '').toString().toLowerCase().indexOf(q) !== -1;
+        })
+        .slice(0, 50);
+
+      var html = list.map(function (u) {
+        var idAttr = escapeHtml((u.ID || '').toString());
+        return '<button type="button" data-dc-person="' + idAttr + '" class="flex w-full items-center justify-between gap-3 border-b border-slate-100 py-3 text-left last:border-0 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50">'
+          + '<div class="min-w-0">'
+          + '<strong class="block break-words text-slate-800 dark:text-slate-100">' + escapeHtml(localize(u, 'Name', lang)) + '</strong>'
+          + '<span class="text-xs text-slate-500 dark:text-slate-400">' + escapeHtml(localize(u, 'Village', lang) || '-') + '</span>'
+          + '</div>'
+          + '<span class="material-icons-round flex-shrink-0 text-brand-500">chevron_right</span>'
+          + '</button>';
+      }).join('');
+
+      if (peopleWrap) {
+        peopleWrap.innerHTML = '<div id="dc-people-list" class="rounded-2xl border border-slate-200 bg-white px-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">'
+          + (html || '<div class="py-6 text-center text-slate-500 dark:text-slate-400">' + escapeHtml(t(lang, 'no_matches')) + '</div>')
+          + '</div>';
+        peopleWrap.style.display = '';
+      }
+    }
+
+    function selectPerson(id) {
+      dcSelectedId = id;
+      if (peopleWrap) peopleWrap.style.display = 'none';
+      renderDocs();
+      if (docsWrap) docsWrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function backToList() {
+      dcSelectedId = null;
+      if (docsWrap) docsWrap.innerHTML = '';
+      if (peopleWrap) peopleWrap.style.display = '';
+    }
+
+    // Render the open person's three document sections. Uses the framework-free
+    // buildPersonDownloads with i18n/finance/user helpers injected (bound to the
+    // active language). A download link is shown ONLY when publicLink passes the
+    // http(s)-only safeUrl gate; otherwise a "not available" badge.
+    function renderDocs() {
+      var id = dcSelectedId;
+      if (!docsWrap) return;
+      if (!id) { docsWrap.innerHTML = ''; return; }
+
+      var lang = currentLang();
+      var u = getUser(state.userMap, id);
+      var deps = {
+        t: function (key) { return t(lang, key); },
+        fmt: fmt,
+        localize: function (row, field) { return localize(row, field, lang); },
+        getUser: function (uid) { return getUser(state.userMap, uid); },
+      };
+      var sections = buildPersonDownloads(state.data, id, deps);
+
+      var rowHtml = function (item) {
+        var link = item.publicLink && safeUrl(item.publicLink);
+        var right = link
+          ? '<a href="' + escapeHtml(link) + '" target="_blank" rel="noopener noreferrer" class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800 no-underline hover:bg-emerald-200 dark:bg-emerald-900/50 dark:text-emerald-200">' + escapeHtml(t(lang, 'download')) + '</a>'
+          : '<span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-400 dark:bg-slate-800 dark:text-slate-500">' + escapeHtml(t(lang, 'not_available')) + '</span>';
+        return '<div class="flex items-center justify-between gap-3 border-b border-slate-100 py-2.5 last:border-0 dark:border-slate-800">'
+          + '<strong class="min-w-0 break-words text-sm text-slate-800 dark:text-slate-100">' + escapeHtml(item.label) + '</strong>'
+          + right + '</div>';
+      };
+
+      var section = function (title, items) {
+        return '<h4 class="mt-4 mb-1.5 font-semibold text-slate-800 dark:text-slate-100">' + escapeHtml(title) + '</h4>'
+          + '<div class="rounded-2xl border border-slate-200 bg-white px-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">'
+          + (items.length ? items.map(rowHtml).join('') : '<div class="py-3 text-center text-sm text-slate-500 dark:text-slate-400">' + escapeHtml(t(lang, 'no_docs')) + '</div>')
+          + '</div>';
+      };
+
+      docsWrap.innerHTML = '<div class="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">'
+        + '<div class="min-w-0">'
+        + '<strong class="block break-words text-base text-slate-900 dark:text-white">' + escapeHtml(localize(u, 'Name', lang)) + '</strong>'
+        + '<span class="text-xs text-slate-500 dark:text-slate-400">' + escapeHtml(localize(u, 'Village', lang) || '-') + '</span>'
+        + '</div>'
+        + '<button type="button" data-dc-back class="flex-shrink-0 rounded-lg bg-slate-200 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600">' + escapeHtml(t(lang, 'back')) + '</button>'
+        + '</div>'
+        + section(t(lang, 'dc_collections'), sections.collections)
+        + section(t(lang, 'dc_as_loaner'), sections.loanerItems)
+        + section(t(lang, 'dc_as_guarantor'), sections.guarantorItems);
+    }
+
+    // Year change: if a person's docs are open, reset to the people list (audit
+    // MEDIUM #5). Nothing else on this page is year-scoped.
+    function onYearChange() {
+      if (dcSelectedId) { backToList(); }
+    }
+
+    function renderStaleNotice() {
+      if (!noticeEl) return;
+      if (!state.fromCache) { noticeEl.classList.add('hidden'); noticeEl.textContent = ''; return; }
+      noticeEl.className = 'bg-amber-100 px-3 py-1.5 text-center text-sm leading-snug text-amber-800 dark:bg-amber-900/40 dark:text-amber-200';
+      noticeEl.setAttribute('role', 'status');
+      noticeEl.textContent = staleNoticeText(currentLang(), state.savedAt);
+    }
+
+    function renderColdFailure() {
+      if (!loaderEl) return;
+      loaderEl.innerHTML = coldFailureHtml(currentLang());
+      loaderEl.classList.remove('hidden');
+      var btn = loaderEl.querySelector('[data-cold-retry]');
+      if (btn) btn.addEventListener('click', function () { location.reload(); });
+    }
+
+    // Language change: re-localize the village list + control placeholders, and
+    // re-render whichever view is open (the people list OR the open docs — a
+    // language switch keeps the open card, matching the old site).
+    function onLangChange() {
+      var lang = currentLang();
+      populateYears();
+      renderVillages();
+      if (searchInput) {
+        searchInput.setAttribute('placeholder', searchInput.disabled ? t(lang, 'select_village_first') : t(lang, 'search_by_name'));
+      }
+      if (dcSelectedId) { renderDocs(); }
+      else if (villageSel && villageSel.value) { searchPeople(); }
+      renderStaleNotice();
+    }
+
+    (async function boot() {
+      try {
+        var result = await loadPortalData({ apiBase: apiBase, sessionCache: sessionCache });
+        state.data = result.data || {};
+        state.userMap = buildUserMap(state.data.users);
+        state.fromCache = !!result.fromCache;
+        state.savedAt = result.savedAt || 0;
+
+        populateYears();
+        renderVillages();
+        renderStaleNotice();
+
+        if (loaderEl) loaderEl.classList.add('hidden');
+        if (pageEl) { pageEl.classList.remove('hidden'); pageEl.classList.add('flex'); }
+      } catch (e) {
+        renderColdFailure();
+      }
+    })();
+
+    // ---- Event wiring ----
+    if (villageSel) villageSel.addEventListener('change', onVillageChange);
+    if (searchBtn) searchBtn.addEventListener('click', searchPeople);
+    if (searchInput) searchInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') searchPeople(); });
+    // Delegate people-list clicks (rows are added dynamically): find the nearest
+    // element carrying a person id and open it.
+    if (peopleWrap) peopleWrap.addEventListener('click', function (e) {
+      var el = e.target && e.target.closest ? e.target.closest('[data-dc-person]') : null;
+      if (el) selectPerson(el.getAttribute('data-dc-person'));
+    });
+    // Delegate the "back" button inside the docs view.
+    if (docsWrap) docsWrap.addEventListener('click', function (e) {
+      var el = e.target && e.target.closest ? e.target.closest('[data-dc-back]') : null;
+      if (el) backToList();
+    });
+    if (yearSel) yearSel.addEventListener('change', onYearChange);
+    window.addEventListener('cpm:langchange', onLangChange);
+  })();
+</script>
