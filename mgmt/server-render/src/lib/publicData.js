@@ -105,6 +105,16 @@ export function summarizePortalData(data, question) {
   const years = [...new Set(collections.map(c => parseInt(c.Year)).filter(Boolean))].sort((a, b) => b - a);
   const latestYear = years[0];
 
+  // PHASE 1 — year-scoped retrieval. If the question names one (or more) of the
+  // years actually present in the data, answer from ONLY those year(s)' rows so
+  // the context stays bounded no matter how many years accumulate (no RAG, no
+  // datastore — just a slice of the already-cached `data`). A no-year question
+  // falls through to the GENERAL aggregated path below, unchanged.
+  const scopedYears = detectYears(question, years);
+  if (scopedYears.length) {
+    return buildYearScopedContext(data, question, scopedYears);
+  }
+
   const lines = [];
   lines.push('You are the warm, helpful assistant of the Navyuvak Chhath Puja Samiti (Shaharpura & Gardih). Below is the committee\'s public data — use it to answer people\'s questions in a friendly, clear way.');
   lines.push('You MAY add up amounts, count entries, rank people, and summarise across years. Amounts are in Indian Rupees (₹).');
@@ -242,6 +252,171 @@ export function summarizePortalData(data, question) {
   // Hard cap: never send an oversized prompt (a huge dataset was producing
   // Model HTTP 500). Trim from the end (per-year + person detail survive; the
   // long committee-name list is what gets cut first if anything).
+  if (out.length > SUMMARY_MAX_CHARS) out = out.slice(0, SUMMARY_MAX_CHARS) + '\n…(data truncated)';
+  return out;
+}
+
+// ---- PHASE 1: year-scoped retrieval helpers ------------------------------------
+// The scaling problem: as more years of structured data accumulate, a summary that
+// touches every year keeps growing. When a user asks about a SPECIFIC year, we do
+// not need any other year — so detect the year(s) named in the question and build
+// context from ONLY those year(s)' rows. This is CACHE-ONLY (operates on the
+// passed-in `data`; never fetches / touches D1) and stays within SUMMARY_MAX_CHARS.
+
+// Extract 4-digit years from the question (regex /\b(19|20)\d{2}\b/g) and intersect
+// them with the set of years actually present in the data (`knownYears`). Returns
+// the matched years as numbers (in the order they appear in the question, deduped),
+// or an empty array when the question names no year, or only year(s) not in the
+// data. Kept deliberately simple/robust; relative phrases like 'last year' are NOT
+// handled (they are ambiguous without a reliable "current year") — a bare year is
+// the core case.
+function detectYears(question, knownYears) {
+  const q = (question || '').toString();
+  if (!q) return [];
+  const known = new Set((knownYears || []).map(y => parseInt(y)).filter(Boolean));
+  if (!known.size) return [];
+  const found = q.match(/\b(?:19|20)\d{2}\b/g) || [];
+  const out = [];
+  for (const m of found) {
+    const y = parseInt(m);
+    if (known.has(y) && !out.includes(y)) out.push(y);
+  }
+  return out;
+}
+
+// Build a compact context scoped to ONLY the matched year(s): per-year totals,
+// top contributors (aggregated per person, resell excluded), committee (deduped,
+// real names), loans (borrower + amount + interest + tenure + Loan ID), guarantors
+// for the year, and resold items — reusing the same ID->real-name resolver and the
+// neutral-label degradation the general path uses. Includes the per-person block
+// when the question names someone. Honors SUMMARY_MAX_CHARS exactly like the
+// general path.
+function buildYearScopedContext(data, question, years) {
+  const d = data || {};
+  const collections = Array.isArray(d.collections) ? d.collections : [];
+  const expenses = Array.isArray(d.expenses) ? d.expenses : [];
+  const loans = Array.isArray(d.loans) ? d.loans : [];
+  const committee = Array.isArray(d.committee) ? d.committee : (Array.isArray(d.committeeMembers) ? d.committeeMembers : []);
+  const guarantors = Array.isArray(d.guarantors) ? d.guarantors : [];
+  const users = Array.isArray(d.users) ? d.users : [];
+  const generatedFiles = Array.isArray(d.generatedFiles) ? d.generatedFiles : [];
+
+  const nameOf = buildNameResolver(users);
+  // Same neutral-label degradation the general path uses at each person-ID call
+  // site: any value that resolves to itself AND looks like a raw ID (USER####)
+  // becomes 'unknown member' so no internal code ever leaks into the prompt.
+  const looksLikeRawId = (raw, resolved) => raw && resolved === raw && /^USER\d+$/i.test(raw);
+  const safeName = (val) => {
+    const raw = (val || '').toString().trim();
+    const resolved = nameOf(raw);
+    return looksLikeRawId(raw, resolved) ? 'unknown member' : resolved;
+  };
+
+  // Newest-first, only the matched years present in the data.
+  const scoped = [...new Set(years.map(y => parseInt(y)).filter(Boolean))].sort((a, b) => b - a);
+  const inScope = (v) => scoped.includes(parseInt(v));
+
+  const lines = [];
+  // Same friendly preamble/guardrail lines the general summary uses.
+  lines.push('You are the warm, helpful assistant of the Navyuvak Chhath Puja Samiti (Shaharpura & Gardih). Below is the committee\'s public data — use it to answer people\'s questions in a friendly, clear way.');
+  lines.push('You MAY add up amounts, count entries, rank people, and summarise across years. Amounts are in Indian Rupees (₹).');
+  lines.push('You can answer questions such as: totals collected or spent per year; how much a specific person gave (across years, with any receipt/certificate download links); the top contributors in a year; who was on the committee in a given year and their roles; what money was spent on (expenses by description); loans (borrower, amount, interest rate, tenure); who guaranteed whose loan; and resold items.');
+  lines.push('If the specific PERSON DETAILS block for a named person is present below, use it to answer about that person — their yearly amounts, total, and any download links for their receipts/certificates.');
+  lines.push('Be generous and helpful: draw on every section below before concluding anything is missing. Only say you do not have the information if the answer genuinely is not in the data below. Reply briefly and clearly.');
+  lines.push(`The question is about ${scoped.join(', ')}, so only that year's data is shown below.`);
+
+  for (const y of scoped) {
+    const cols = collections.filter(c => parseInt(c.Year) === y);
+    const exps = expenses.filter(e => parseInt(e.Year) === y);
+    const totalCol = cols.reduce((s, c) => s + num(c.Amount), 0);
+    const totalExp = exps.reduce((s, e) => s + num(e.Amount), 0);
+    lines.push(`Year ${y}: collections ${inr(totalCol)} from ${cols.length} entries; expenses ${inr(totalExp)}; net ${inr(totalCol - totalExp)}.`);
+
+    // Top contributors for the year — aggregated per PERSON (resell excluded so
+    // amounts are not double-counted), real names.
+    const totals = new Map();
+    for (const c of cols) {
+      if (c['Is Resell'] === 'TRUE' || c['Is Resell'] === true) continue;
+      // safeName (not bare nameOf) so an orphan non-resell contributor ID absent
+      // from `users` degrades to the neutral 'unknown member' label instead of
+      // leaking a raw USER#### code into the prompt. Aggregation stays keyed by
+      // the resolved display name, exactly as before.
+      const nm = safeName(c.Name);
+      if (!nm) continue;
+      totals.set(nm, (totals.get(nm) || 0) + num(c.Amount));
+    }
+    const top = [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10)
+      .map(([nm, amt]) => `${nm} (${inr(amt)})`);
+    if (top.length) lines.push(`Top contributors ${y}: ${top.join(', ')}.`);
+
+    // Committee for the year — deduped, real names.
+    const cNames = [...new Set(
+      committee.filter(m => parseInt(m.Year || m.year) === y)
+        // safeName (not bare nameOf) so an orphan committee ID degrades to the
+        // neutral 'unknown member' label rather than leaking a raw USER#### code.
+        .map(m => safeName((m.Name || m.name || '').toString().trim()))
+        .filter(Boolean)
+    )];
+    if (cNames.length) lines.push(`Committee ${y} (${cNames.length} members): ${cNames.join(', ')}.`);
+
+    // Expenses for the year, grouped by description (NOTE the app's 'Discription'
+    // spelling; there is NO public Category), summed, bounded.
+    const byDesc = new Map();
+    for (const e of exps) {
+      const desc = (e.Discription || e['Discription (Hindi)'] || '').toString().trim();
+      if (!desc) continue;
+      byDesc.set(desc, (byDesc.get(desc) || 0) + num(e.Amount));
+    }
+    const expItems = [...byDesc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10)
+      .map(([desc, amt]) => `${desc} (${inr(amt)})`);
+    if (expItems.length) lines.push(`Expenses ${y}: ${expItems.join(', ')}.`);
+
+    // Loans for the year — borrower real name + amount + interest + tenure + Loan
+    // ID (no public Status field, so none invented). Bounded.
+    const loanItems = loans.filter(l => parseInt(l.Year) === y).slice(0, 20).map(l => {
+      const who = safeName((l.Name || '').toString().trim()) || 'unknown borrower';
+      const rate = (l['Intrest Rate'] || '').toString().trim();
+      const tenure = (l.Tenure || '').toString().trim();
+      const id = (l['Loan ID'] || '').toString().trim();
+      const parts = [`${who}: ${inr(l.Amount)}`];
+      if (rate) parts.push(`interest ${rate}`);
+      if (tenure) parts.push(`tenure ${tenure}`);
+      if (id) parts.push(`Loan ${id}`);
+      return parts.join(', ');
+    });
+    if (loanItems.length) lines.push(`Loans ${y}: ${loanItems.join('; ')}.`);
+
+    // Guarantors tied to this year (via g.Year when present), resolved to names.
+    const gItems = guarantors.filter(g => parseInt(g.Year) === y).slice(0, 20).map(g => {
+      const guarantor = safeName((g.Guarantor || '').toString().trim()) || 'unknown member';
+      const borrower = safeName((g.Loaner || '').toString().trim());
+      const id = (g['Loan ID'] || '').toString().trim();
+      return `${guarantor} guarantees ${borrower || 'unknown borrower'}${id ? ` (Loan ${id})` : ''}`;
+    });
+    if (gItems.length) lines.push(`Guarantors ${y}: ${gItems.join('; ')}.`);
+
+    // Resold items for the year — Detail, person real name, amount. Already part of
+    // the collections total above (so the model must not double-count them).
+    const resells = cols.filter(c => c['Is Resell'] === 'TRUE' || c['Is Resell'] === true).slice(0, 20);
+    if (resells.length) {
+      const rItems = resells.map(c => {
+        const nm = safeName((c.Name || '').toString().trim()) || 'unknown member';
+        const detail = (c.Detail || '').toString().trim() || 'item';
+        return `${detail} by ${nm} ${inr(c.Amount)}`;
+      });
+      lines.push(`Resold items ${y} (already counted in the year's collections total above): ${rItems.join('; ')}.`);
+    }
+  }
+
+  // PER-PERSON lookup: if the question names contributor(s), add their focused
+  // block. It is intentionally scoped to the matched year(s)' collections so the
+  // block stays consistent with the year-scoped context.
+  const scopedCollections = collections.filter(c => inScope(c.Year));
+  const personBlock = personContributionsFor(question, scopedCollections, nameOf, generatedFiles);
+  if (personBlock) lines.push(personBlock);
+
+  let out = lines.join('\n');
+  // Same hard cap the general path applies.
   if (out.length > SUMMARY_MAX_CHARS) out = out.slice(0, SUMMARY_MAX_CHARS) + '\n…(data truncated)';
   return out;
 }
