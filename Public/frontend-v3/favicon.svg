@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Favicon — a simplified version of the Navyuvak Chhath Puja Samiti emblem,
+  drawn to read clearly at 16-32px: ring + rising sun + rays + water + soop.
+  The curved name/ribbon from the full logo are dropped (illegible that small).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Chhath Puja Samiti">
+  <defs>
+    <radialGradient id="fSun" cx="50%" cy="60%" r="60%">
+      <stop offset="0%" stop-color="#FFE49A"/>
+      <stop offset="50%" stop-color="#FCC24B"/>
+      <stop offset="100%" stop-color="#F5972A"/>
+    </radialGradient>
+    <linearGradient id="fBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFF7E8"/>
+      <stop offset="100%" stop-color="#FCD08A"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="31" fill="#FFFDF7" stroke="#F3B24A" stroke-width="2.5"/>
+  <clipPath id="fClip"><circle cx="32" cy="32" r="25"/></clipPath>
+  <g clip-path="url(#fClip)">
+    <rect x="7" y="7" width="50" height="50" fill="url(#fBg)"/>
+    <!-- rays -->
+    <g fill="#F6A82F" opacity="0.85">
+      <g id="fr"><polygon points="32,10 30.5,30 33.5,30"/></g>
+      <use href="#fr" transform="rotate(20 32 32)"/>
+      <use href="#fr" transform="rotate(40 32 32)"/>
+      <use href="#fr" transform="rotate(-20 32 32)"/>
+      <use href="#fr" transform="rotate(-40 32 32)"/>
+    </g>
+    <circle cx="32" cy="32" r="10.5" fill="url(#fSun)"/>
+    <!-- water -->
+    <rect x="7" y="36" width="50" height="21" fill="#FBE3B4"/>
+    <g stroke="#F6A82F" stroke-width="1.4" stroke-linecap="round" opacity="0.7">
+      <line x1="14" y1="40" x2="24" y2="40"/>
+      <line x1="40" y1="40" x2="50" y2="40"/>
+      <line x1="16" y1="45" x2="28" y2="45"/>
+      <line x1="38" y1="45" x2="49" y2="45"/>
+    </g>
+    <!-- soop + diya -->
+    <ellipse cx="32" cy="45" rx="13" ry="5" fill="#9B5F2C"/>
+    <ellipse cx="32" cy="43.5" rx="11" ry="4" fill="#D9B476"/>
+    <path d="M 28.5 43 q 3.5 2 7 0 q -0.6 1.6 -3.5 1.6 q -2.9 0 -3.5 -1.6 z" fill="#7E241C"/>
+    <path d="M 32 42 q -1 -2.4 0 -4.6 q 1 2.2 0 4.6 z" fill="#FFC93C"/>
+  </g>
+</svg>

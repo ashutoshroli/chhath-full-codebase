@@ -1,0 +1,17 @@
+{
+  "name": "chhath-public-frontend",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Public Chhath Puja transparency portal (static site, Tailwind CSS). build.mjs (SEO injection) stays optional/manual. \"build\" (env.js + compiled Tailwind CSS) IS required and runs automatically on deploy via vercel.json's buildCommand.",
+  "scripts": {
+    "build:env": "node generate-env.js",
+    "build:css": "tailwindcss -i ./src/input.css -o ./style.css --minify",
+    "build": "npm run build:env && npm run build:css",
+    "watch:css": "tailwindcss -i ./src/input.css -o ./style.css --watch",
+    "inject-seo": "node build.mjs"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.19"
+  }
+}

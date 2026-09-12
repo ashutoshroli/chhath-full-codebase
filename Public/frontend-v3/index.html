@@ -1,1 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
+  <!-- Site icon / favicon — the Samiti emblem. favicon.svg is a simplified
+       version that stays legible at 16-32px; logo.svg is the full badge (used
+       as the apple-touch icon and in the header). Kept OUTSIDE the SEO:START/END
+       block so build.mjs never overwrites them. -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="apple-touch-icon" href="/logo.svg">
+  <link rel="mask-icon" href="/favicon.svg" color="#F5972A">
+
+  <!-- Apply the saved (or system) theme BEFORE first paint so there's no
+       flash of the wrong theme. Reads the same key script.js's app.theme
+       reads/writes (cpm_public_theme). Safe to run before Tailwind's CSS
+       loads — it only toggles a class; the dark: rules are already compiled. -->
+  <script>
+  (function () {
+    try {
+      var t = localStorage.getItem('cpm_public_theme');
+      var wantDark = t === 'dark' || (!t && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      if (wantDark) document.documentElement.classList.add('dark');
+    } catch (e) { /* private mode — default to light */ }
+  })();
+  </script>
+
+  <!-- ==================================================================
+       SEO / SOCIAL LINK PREVIEW
+       ------------------------------------------------------------------
+       The block between the SEO:START and SEO:END markers below is
+       REGENERATED at build time by build.mjs, which pulls the latest
+       values (title / description / keywords / preview image) that a
+       Superadmin has saved in the management portal. The values you see
+       here are the HARDCODED DEFAULTS: they are what ships if the build
+       step is skipped or the settings API is unreachable, so the portal
+       always has a complete, valid set of tags and a working link
+       preview. Social crawlers (WhatsApp, Facebook, X) read only the
+       initial HTML and never run JavaScript, which is exactly why these
+       tags live in the HTML and are refreshed by a rebuild rather than
+       injected on the client.
+       Keywords intentionally include every common spelling of the
+       village names and the surrounding locality, in both English and
+       Hindi, so the portal is discoverable however people search.
+       ================================================================== -->
+  <!--SEO:START-->
+  <title>Navyuvak Chhath Puja Samiti Shaharpura | Chhath Puja Transparency Portal</title>
+  <meta name="description" content="Official transparency portal of Navyuvak Chhath Puja Samiti, Shaharpura & Gardih (Giridih, Jharkhand). View Chhath Puja collections, expenses, loans and committee details with full public transparency.">
+  <meta name="keywords" content="Chhath Puja, छठ पूजा, Chhath, छठ, Navyuvak Chhath Puja Samiti, नवयुवक छठ पूजा समिति, Chhath Puja Samiti, छठ पूजा समिति, Chhath transparency portal, Chhath collection, Chhath chanda, छठ चंदा, Chhath committee, Chhath donation, Chhath expenses, Chhath hisab, छठ हिसाब, Shaharpura, Saharpura, Sahaarpura, Shahpura, Sahpura, शहरपुरा, Gardih, Gardi, गरडीह, गड़ीह, Siyatand, सियाटांड, Bengabad, बेंगाबाद, Jamua, जमुआ, Giridih, गिरिडीह, Jharkhand, झारखंड, India, भारत, 815312, Shaharpura Chhath, शहरपुरा छठ, Chhath Giridih, Chhath Jharkhand">
+  <link rel="canonical" href="https://chhath.shaharpura.com/">
+  <meta name="robots" content="index, follow">
+  <meta name="theme-color" content="#F97316">
+
+  <!-- Geo signals -->
+  <meta name="geo.region" content="IN-JH">
+  <meta name="geo.placename" content="Shaharpura, Gardih, Giridih, Jharkhand">
+  <meta name="geo.position" content="24.18;86.30">
+  <meta name="ICBM" content="24.18, 86.30">
+
+  <!-- Open Graph (WhatsApp / Facebook / LinkedIn) -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Navyuvak Chhath Puja Samiti Shaharpura">
+  <meta property="og:title" content="Navyuvak Chhath Puja Samiti Shaharpura">
+  <meta property="og:description" content="Official transparency portal — Chhath Puja collections, expenses, loans and committee details for Shaharpura & Gardih, Giridih, Jharkhand.">
+  <meta property="og:url" content="https://chhath.shaharpura.com/">
+  <meta property="og:image" content="https://chhath.shaharpura.com/preview.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:locale" content="en_IN">
+  <meta property="og:locale:alternate" content="hi_IN">
+
+  <!-- Twitter / X card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Navyuvak Chhath Puja Samiti Shaharpura">
+  <meta name="twitter:description" content="Official Chhath Puja transparency portal for Shaharpura & Gardih, Giridih, Jharkhand.">
+  <meta name="twitter:image" content="https://chhath.shaharpura.com/preview.jpg">
+
+  <!-- Structured data: helps search engines show a rich organisation result -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": "Navyuvak Chhath Puja Samiti Shaharpura",
+    "alternateName": "नवयुवक छठ पूजा समिति शहरपुरा",
+    "url": "https://chhath.shaharpura.com/",
+    "logo": "https://chhath.shaharpura.com/preview.jpg",
+    "description": "Official transparency portal of Navyuvak Chhath Puja Samiti — Chhath Puja collections, expenses, loans and committee details for Shaharpura & Gardih.",
+    "address": {
+      "@type": "PostalAddress",
+      "streetAddress": "Shaharpura, Gardih, Post Siyatand, Via Bengabad",
+      "addressLocality": "Jamua",
+      "addressRegion": "Jharkhand",
+      "postalCode": "815312",
+      "addressCountry": "IN"
+    }
+  }
+  </script>
+  <!--SEO:END-->
+
+  <!-- PERFORMANCE: pre-connect to the font origins (faster font fetch -> better LCP). -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+  <!-- Fonts loaded NON-render-blocking (media=print + onload swap), with a
+       <noscript> fallback. This removes the render-blocking font fetch from the
+       critical path (helps LCP). `display=swap` keeps text/icons visible with a
+       fallback while the web font loads AND reduces layout shift (CLS).
+       Inter drops unused weight 800 (Tailwind config only uses 400/600/700) to
+       shrink the font payload; zero visual change. (Icons not subset via &text=
+       — that breaks the ligature glyphs.) -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round&display=swap" media="print" onload="this.media='all'">
+  <noscript>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round">
+  </noscript>
+
+  <!-- Compiled Tailwind CSS (generated by `npm run build:css` from src/input.css
+       — no hand-written CSS rules anywhere in this project). -->
+  <link rel="stylesheet" href="style.css?v=tw1">
+
+  <!-- Google Tag Manager — GA4 + Clarity are configured as tags inside GTM.
+       PERFORMANCE: boots on window 'load' (after first paint) so analytics never
+       delays LCP; pageviews are still captured via the dataLayer pushes in script.js. -->
+  <script>
+  window.dataLayer = window.dataLayer || [];
+  window.addEventListener('load', function () {
+    (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer','GTM-N6BF7NP7');
+  });
+  </script>
+  <!-- End Google Tag Manager -->
+</head>
+<body class="bg-offwhite text-gray-800 dark:bg-gray-900 dark:text-gray-100 font-sans pb-20 md:pb-0 [-webkit-tap-highlight-color:transparent] transition-colors">
+  <!-- Google Tag Manager (noscript) -->
+  <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-N6BF7NP7"
+  height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+  <!-- End Google Tag Manager (noscript) -->
+
+  <div id="loader" class="fixed inset-0 bg-white dark:bg-gray-900 z-[999] flex flex-col justify-center items-center">
+    <div class="border-4 border-[#FFE4D6] dark:border-gray-700 border-t-saffron rounded-full w-10 h-10 animate-spin mb-2.5"></div>
+    <p class="font-semibold">Loading...</p>
+  </div>
+
+  <header class="top-header fixed top-0 w-full h-[70px] bg-white/95 dark:bg-gray-900/95 backdrop-blur-md flex justify-between items-center px-4 sm:px-5 shadow-card dark:shadow-none dark:border-b dark:border-gray-800 z-[100]">
+    <div class="flex items-center gap-2 min-w-0">
+      <img src="/logo.svg" alt="Navyuvak Chhath Puja Samiti" width="40" height="40" class="w-10 h-10 flex-none" decoding="async">
+      <div class="min-w-0">
+        <h1 class="text-[1.1rem] leading-none truncate" data-i18n="app_title">Chhath Puja</h1>
+        <span class="text-[0.7rem] text-gray-500 dark:text-gray-400" data-i18n="app_subtitle">Transparency Portal</span>
+      </div>
+    </div>
+
+    <nav class="desktop-nav hidden md:flex gap-2.5">
+      <button class="nav-btn active bg-transparent border-0 text-gray-500 dark:text-gray-400 text-sm font-semibold px-4 py-2 rounded-lg cursor-pointer transition-colors [&.active]:bg-saffron-light dark:[&.active]:bg-gray-800 [&.active]:text-saffron hover:bg-gray-100 dark:hover:bg-gray-800" onclick="app.nav('home')" data-target="home" data-i18n="nav_home">Home</button>
+      <button class="nav-btn bg-transparent border-0 text-gray-500 dark:text-gray-400 text-sm font-semibold px-4 py-2 rounded-lg cursor-pointer transition-colors [&.active]:bg-saffron-light dark:[&.active]:bg-gray-800 [&.active]:text-saffron hover:bg-gray-100 dark:hover:bg-gray-800" onclick="app.nav('expenses')" data-target="expenses" data-i18n="nav_expenses">Expenses</button>
+      <button class="nav-btn bg-transparent border-0 text-gray-500 dark:text-gray-400 text-sm font-semibold px-4 py-2 rounded-lg cursor-pointer transition-colors [&.active]:bg-saffron-light dark:[&.active]:bg-gray-800 [&.active]:text-saffron hover:bg-gray-100 dark:hover:bg-gray-800" onclick="app.nav('loans')" data-target="loans" data-i18n="nav_loans">Loans</button>
+      <button class="nav-btn bg-transparent border-0 text-gray-500 dark:text-gray-400 text-sm font-semibold px-4 py-2 rounded-lg cursor-pointer transition-colors [&.active]:bg-saffron-light dark:[&.active]:bg-gray-800 [&.active]:text-saffron hover:bg-gray-100 dark:hover:bg-gray-800" onclick="app.nav('committee')" data-target="committee" data-i18n="nav_committee">Committee</button>
+      <button class="nav-btn bg-transparent border-0 text-gray-500 dark:text-gray-400 text-sm font-semibold px-4 py-2 rounded-lg cursor-pointer transition-colors [&.active]:bg-saffron-light dark:[&.active]:bg-gray-800 [&.active]:text-saffron hover:bg-gray-100 dark:hover:bg-gray-800" onclick="app.nav('downloads')" data-target="downloads" data-i18n="nav_downloads">Downloads</button>
+    </nav>
+
+    <div class="header-controls flex items-center gap-2 flex-none">
+      <button id="theme-toggle" class="theme-toggle flex items-center justify-center bg-white dark:bg-gray-800 text-saffron border-[1.5px] border-saffron px-2.5 py-1.5 rounded-lg outline-none cursor-pointer hover:bg-saffron-light dark:hover:bg-gray-700 active:scale-95 transition-transform" onclick="app.toggleTheme()" aria-label="Toggle dark mode" title="Toggle dark / light theme">
+        <span id="theme-toggle-icon" class="material-icons-round !text-[18px]">dark_mode</span>
+      </button>
+      <button id="lang-toggle" class="lang-toggle flex items-center gap-1 bg-white dark:bg-gray-800 text-saffron border-[1.5px] border-saffron px-2.5 sm:px-3 py-1.5 rounded-lg font-bold text-sm outline-none cursor-pointer leading-none hover:bg-saffron-light dark:hover:bg-gray-700 active:scale-95 transition-transform" onclick="app.toggleLang()" aria-label="Change language" title="Change language / भाषा बदलें">
+        <span class="material-icons-round !text-[18px]">translate</span>
+        <span id="lang-toggle-label">हिंदी</span>
+      </button>
+      <select id="global-year" class="year-selector bg-saffron text-white border-0 px-3 sm:px-4 py-2 rounded-lg font-bold text-sm outline-none cursor-pointer" onchange="app.onYearChange()"></select>
+    </div>
+  </header>
+
+  <section id="view-verify" class="page-view hidden [&.active-view]:block animate-fade max-w-[1000px] mx-auto mt-[90px] md:mt-[100px] px-4">
+    <div class="glass-card bg-white dark:bg-gray-800 rounded-xl p-5 shadow-card mb-4 border border-gray-100 dark:border-gray-700 [overflow-wrap:anywhere] m-3" id="record-verify-content"></div>
+    <div class="text-center m-3">
+      <button class="nav-btn active bg-transparent border-0 text-gray-500 dark:text-gray-400 text-sm font-semibold px-4 py-2 rounded-lg cursor-pointer [&.active]:bg-saffron-light dark:[&.active]:bg-gray-800 [&.active]:text-saffron" onclick="app.nav('home')" data-i18n="back_to_home">Back to Home</button>
+    </div>
+  </section>
+
+  <section id="view-home" class="page-view active-view hidden [&.active-view]:block animate-fade max-w-[1000px] mx-auto mt-[90px] md:mt-[100px] px-4">
+    <div class="glass-card budget-card bg-gradient-to-br from-gray-800 to-gray-900 text-white rounded-xl p-5 shadow-card mb-4 [overflow-wrap:anywhere]">
+      <div class="text-[0.85rem] text-gray-400 mb-1.5" data-i18n="master_calc">Master Financial Calculation</div>
+      <h2 class="mb-4 text-lg font-semibold" id="disp-year-title">Budget Overview</h2>
+
+      <div class="flex justify-between mb-2.5 text-[0.95rem]">
+        <span id="lbl-past-loan">(+) Past Loan Returned (with Int.)</span><strong id="h-past-loan">₹0</strong>
+      </div>
+      <div class="flex justify-between mb-4 text-[0.95rem]">
+        <span id="lbl-cur-col">(+) Current Year Collection</span><strong id="h-cur-col" class="text-emerald-400">₹0</strong>
+      </div>
+
+      <div class="border-t border-dashed border-gray-600 pt-4 flex justify-between items-center">
+        <span class="text-[1.1rem] font-bold" data-i18n="total_budget">TOTAL BUDGET</span>
+        <strong class="text-2xl text-saffron" id="h-tot-bud">₹0</strong>
+      </div>
+    </div>
+
+    <div class="grid-2 grid grid-cols-2 gap-4 mb-5">
+      <div class="stat-box bg-gray-100 dark:bg-gray-800 p-4 rounded-lg border-l-4 border-red-500">
+        <div class="text-[0.8rem] text-gray-500 dark:text-gray-400" data-i18n="total_expense">Total Expense</div>
+        <div class="text-lg font-bold text-red-500" id="h-tot-exp">₹0</div>
+      </div>
+      <div class="stat-box bg-gray-100 dark:bg-gray-800 p-4 rounded-lg border-l-4 border-emerald-500">
+        <div class="text-[0.8rem] text-gray-500 dark:text-gray-400" data-i18n="net_surplus">Net Surplus</div>
+        <div class="text-lg font-bold text-emerald-500" id="h-surplus">₹0</div>
+      </div>
+    </div>
+
+    <h3 class="mb-4 text-base font-semibold" data-i18n="contributors_list">Contributors List</h3>
+    <input type="text" id="home-search" class="search-bar w-full p-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-lg mb-4 text-base outline-none focus:border-saffron" data-i18n-placeholder="search_by_name" placeholder="Search by Name..." onkeyup="app.renderHomeList()">
+    <div class="glass-card bg-white dark:bg-gray-800 rounded-xl p-5 shadow-card mb-4 border border-gray-100 dark:border-gray-700 [overflow-wrap:anywhere] min-h-[200px]" id="home-col-list"></div>
+  </section>
+
+  <section id="view-expenses" class="page-view hidden [&.active-view]:block animate-fade max-w-[1000px] mx-auto mt-[90px] md:mt-[100px] px-4">
+    <h2 class="mb-4 text-lg font-semibold" data-i18n="expenses_ledger">Expenses Ledger</h2>
+    <div class="glass-card bg-white dark:bg-gray-800 rounded-xl p-5 shadow-card mb-4 border border-gray-100 dark:border-gray-700 [overflow-wrap:anywhere] min-h-[200px]" id="exp-list"></div>
+  </section>
+
+  <section id="view-loans" class="page-view hidden [&.active-view]:block animate-fade max-w-[1000px] mx-auto mt-[90px] md:mt-[100px] px-4">
+    <h2 class="mb-4 text-lg font-semibold" data-i18n="loan_distribution">Surplus Loan Distribution</h2>
+    <div class="min-h-[200px]" id="loans-dynamic-list"></div>
+  </section>
+
+  <section id="view-committee" class="page-view hidden [&.active-view]:block animate-fade max-w-[1000px] mx-auto mt-[90px] md:mt-[100px] px-4">
+    <div class="flex justify-between items-center mb-4 gap-2">
+      <h2 class="m-0 text-lg font-semibold" data-i18n="active_committee">Active Committee</h2>
+      <a id="mgmt-login-link" href="https://mgmt-chhath.shaharpura.com/" class="bg-saffron text-white no-underline px-3 py-1.5 rounded-md text-[0.85rem] font-bold flex items-center gap-1 flex-none">
+        <span class="material-icons-round !text-base">login</span> <span data-i18n="login">Login</span>
+      </a>
+    </div>
+    <div class="min-h-[200px]" id="com-list"></div>
+    <div class="glass-card bg-white dark:bg-gray-800 rounded-xl p-5 shadow-card mb-4 border border-gray-100 dark:border-gray-700 [overflow-wrap:anywhere] mt-5 text-center">
+      <h3 class="mb-1 font-semibold">नवयुवक छठ पूजा समिति</h3>
+      <p class="text-sm text-gray-500 dark:text-gray-400">शहरपूरा,गरडीह</p>
+    </div>
+  </section>
+
+  <section id="view-downloads" class="page-view hidden [&.active-view]:block animate-fade max-w-[1000px] mx-auto mt-[90px] md:mt-[100px] px-4">
+    <h2 class="mb-4 text-lg font-semibold" data-i18n="download_center">Download Center</h2>
+
+    <div class="glass-card bg-white dark:bg-gray-800 rounded-xl p-5 shadow-card mb-4 border border-gray-100 dark:border-gray-700 [overflow-wrap:anywhere]">
+      <label class="text-[0.8rem] text-gray-500 dark:text-gray-400 block mb-1.5" data-i18n="village">Village</label>
+      <select id="dc-village" class="w-full p-2.5 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 mb-3 text-[0.95rem]" onchange="app.onDcVillageChange()">
+        <option value="" data-i18n="select_village">-- Select Village --</option>
+      </select>
+
+      <label class="text-[0.8rem] text-gray-500 dark:text-gray-400 block mb-1.5" data-i18n="name">Name</label>
+      <input type="text" id="dc-search" class="search-bar w-full p-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 rounded-lg text-base outline-none focus:border-saffron mb-3" data-i18n-placeholder="select_village_first" placeholder="Please select a village first" disabled>
+
+      <button id="dc-search-btn" class="w-full bg-saffron text-white border-0 p-3 rounded-lg font-bold text-[0.95rem] cursor-pointer opacity-50" onclick="app.searchDownloadPeople()" disabled data-i18n="search">Search</button>
+    </div>
+
+    <div id="dc-people-wrap"></div>
+
+    <div id="dc-docs-wrap"></div>
+  </section>
+
+  <nav class="bottom-nav fixed bottom-0 w-full h-[65px] bg-white dark:bg-gray-800 flex justify-around items-center shadow-[0_-2px_10px_rgba(0,0,0,0.05)] dark:shadow-none dark:border-t dark:border-gray-700 z-[100] md:hidden">
+    <button class="nav-btn active flex flex-col items-center gap-0.5 bg-transparent border-0 text-gray-500 dark:text-gray-400 text-xs font-semibold w-1/5 cursor-pointer [&.active]:text-saffron" onclick="app.nav('home')" data-target="home"><span class="material-icons-round">home</span><span data-i18n="nav_home">Home</span></button>
+    <button class="nav-btn flex flex-col items-center gap-0.5 bg-transparent border-0 text-gray-500 dark:text-gray-400 text-xs font-semibold w-1/5 cursor-pointer [&.active]:text-saffron" onclick="app.nav('expenses')" data-target="expenses"><span class="material-icons-round">receipt_long</span><span data-i18n="nav_expenses">Expenses</span></button>
+    <button class="nav-btn flex flex-col items-center gap-0.5 bg-transparent border-0 text-gray-500 dark:text-gray-400 text-xs font-semibold w-1/5 cursor-pointer [&.active]:text-saffron" onclick="app.nav('loans')" data-target="loans"><span class="material-icons-round">handshake</span><span data-i18n="nav_loans">Loans</span></button>
+    <button class="nav-btn flex flex-col items-center gap-0.5 bg-transparent border-0 text-gray-500 dark:text-gray-400 text-xs font-semibold w-1/5 cursor-pointer [&.active]:text-saffron" onclick="app.nav('committee')" data-target="committee"><span class="material-icons-round">groups</span><span data-i18n="nav_committee">Committee</span></button>
+    <button class="nav-btn flex flex-col items-center gap-0.5 bg-transparent border-0 text-gray-500 dark:text-gray-400 text-xs font-semibold w-1/5 cursor-pointer [&.active]:text-saffron" onclick="app.nav('downloads')" data-target="downloads"><span class="material-icons-round">download</span><span data-i18n="nav_downloads">Downloads</span></button>
+  </nav>
+
+  <!-- Popup overlay — populated by app.loadPopup() on every page load/refresh.
+       Hidden by default; only shown if an active popup tagged "Public" is
+       returned. Multiple slides are swipeable via the arrows. -->
+  <div id="popup-overlay" class="popup-overlay fixed inset-0 bg-black/55 z-[1000] items-center justify-center p-5" style="display:none;">
+    <div class="popup-card bg-white dark:bg-gray-800 rounded-2xl max-w-[420px] w-full max-h-[85vh] overflow-y-auto relative shadow-2xl">
+      <button class="popup-close absolute top-2 right-2.5 bg-black/45 text-white border-0 rounded-full w-[30px] h-[30px] text-xl leading-none cursor-pointer z-[2] flex items-center justify-center" onclick="app.closePopup()" aria-label="Close">&times;</button>
+      <div id="popup-slide-content"></div>
+      <div id="popup-slide-nav" class="popup-slide-nav hidden items-center justify-center gap-3.5 pb-3">
+        <button class="bg-transparent border border-gray-300 rounded-full w-8 h-8 text-lg cursor-pointer text-saffron" onclick="app.popupPrevSlide()" aria-label="Previous">&#8249;</button>
+        <span id="popup-slide-dots" class="text-xs text-gray-500"></span>
+        <button class="bg-transparent border border-gray-300 rounded-full w-8 h-8 text-lg cursor-pointer text-saffron" onclick="app.popupNextSlide()" aria-label="Next">&#8250;</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Site footer — shown on every view (it sits outside the .page-view
+       sections that the SPA toggles). The year is filled by the inline script below so it
+       is always current with no rebuild. Bilingual show/hide is done purely with
+       Tailwind's arbitrary-variant selector on <html lang>, so no separate <style>
+       block (and no custom CSS file) is needed for it. -->
+  <footer class="site-footer max-w-[1000px] mx-auto mt-10 mb-6 md:mb-8 pt-[18px] px-4 border-t border-black/[0.08] dark:border-white/10 text-center text-gray-500 dark:text-gray-400 text-[0.78rem] leading-relaxed">
+    <p class="my-1">
+      © <span id="footer-yr"></span>
+      <span data-lang="en" class="inline [html[lang='hi']_&]:hidden">Navyuvak Chhath Puja Samiti, Shaharpura &amp; Gardih. All rights reserved.</span>
+      <span data-lang="hi" class="hidden [html[lang='hi']_&]:inline">नवयुवक छठ पूजा समिति, शहरपुरा एवं गरडीह। सर्वाधिकार सुरक्षित।</span>
+    </p>
+    <p class="my-1 opacity-90">
+      <span data-lang="en" class="inline [html[lang='hi']_&]:hidden">Made with <span class="text-[0.9rem] align-[-1px]" aria-label="love">🩷</span></span>
+      <span data-lang="hi" class="hidden [html[lang='hi']_&]:inline"><span class="text-[0.9rem] align-[-1px]" aria-label="प्रेम">🩷</span> से बनाया गया</span>
+    </p>
+  </footer>
+  <script>
+    // Self-contained year fill — independent of script.js so the footer is correct
+    // even if the app script fails to load.
+    (function () { var y = document.getElementById('footer-yr'); if (y) y.textContent = new Date().getFullYear(); })();
+  </script>
+
+  <!-- ==== AI Chatbot: floating button (bottom-right) + popup panel ==== -->
+  <!-- Opens in the SAME tab as an overlay panel (no navigation). Bilingual via the
+       data-lang spans (same arbitrary-variant technique as the footer). All
+       behaviour is in script.js (app.chat*). Hidden until wired; degrades
+       gracefully if the chatbot backend isn't reachable. -->
+  <button id="chat-fab" class="chat-fab fixed right-[18px] bottom-20 md:bottom-[18px] z-[200] w-14 h-14 rounded-full border-0 cursor-pointer bg-saffron text-white flex items-center justify-center shadow-lg hover:scale-105 transition-transform duration-150" aria-label="Open chat assistant" title="Ask a question">
+    <span class="material-icons-round !text-[26px]">chat</span>
+  </button>
+
+  <div id="chat-panel" class="chat-panel fixed right-[18px] bottom-[146px] md:bottom-[94px] z-[201] w-[min(380px,calc(100vw-36px))] h-[min(70vh,520px)] bg-white dark:bg-gray-800 rounded-2xl overflow-hidden flex-col shadow-2xl border border-gray-100 dark:border-gray-700" role="dialog" aria-modal="false" aria-labelledby="chat-title" hidden>
+    <div class="chat-header flex items-center justify-between px-3.5 py-3 bg-saffron text-white">
+      <span id="chat-title" class="chat-title font-bold text-[0.95rem]">
+        <span data-lang="en" class="inline [html[lang='hi']_&]:hidden">Chhath Assistant</span>
+        <span data-lang="hi" class="hidden [html[lang='hi']_&]:inline">छठ सहायक</span>
+      </span>
+      <button id="chat-close" class="chat-close bg-transparent border-0 text-white cursor-pointer flex p-0.5" aria-label="Close chat">
+        <span class="material-icons-round !text-[22px]">close</span>
+      </button>
+    </div>
+    <div id="chat-messages" class="chat-messages flex-1 overflow-y-auto p-3 flex flex-col gap-2.5 dark:bg-gray-800">
+      <div class="chat-msg chat-msg-bot max-w-[85%] px-3 py-2 rounded-xl rounded-bl text-[0.86rem] leading-snug whitespace-pre-wrap break-words self-start bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100">
+        <span data-lang="en" class="inline [html[lang='hi']_&]:hidden">Namaste 🙏 I am the Chhath Assistant. You can ask me about collections, expenses, contributors, loans or committee members — I answer using the public records shown here.</span>
+        <span data-lang="hi" class="hidden [html[lang='hi']_&]:inline">नमस्ते 🙏 मैं छठ सहायक हूँ। आप मुझसे संग्रह, व्यय, योगदानकर्ता, ऋण या समिति सदस्यों के बारे में पूछ सकते हैं — मैं यहाँ दिखाए गए सार्वजनिक रिकॉर्ड के आधार पर उत्तर देता हूँ।</span>
+      </div>
+    </div>
+    <form id="chat-form" class="chat-input-row flex gap-2 p-2.5 border-t border-gray-100 dark:border-gray-700 dark:bg-gray-800" autocomplete="off">
+      <input id="chat-input" class="chat-input flex-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 rounded-[10px] px-3 py-2 text-[0.88rem] outline-none focus:border-saffron" type="text" maxlength="1000"
+             data-i18n-placeholder="chat_placeholder" placeholder="Type your question…" />
+      <button id="chat-send" class="chat-send bg-saffron text-white border-0 rounded-[10px] w-[42px] cursor-pointer flex items-center justify-center disabled:opacity-50 disabled:cursor-default" type="submit" aria-label="Send">
+        <span class="material-icons-round !text-xl">send</span>
+      </button>
+    </form>
+  </div>
+
+  <!-- env.js MUST load before script.js (both `defer`, so they still run in this
+       document order) — it defines window.__ENV__, which script.js reads its
+       API/chatbot/login URLs from. Generated at build time by generate-env.js;
+       see .env.example for the variable names. -->
+  <script defer src="env.js?v=tw1"></script>
+
+  <!-- `defer`: let the browser finish parsing the HTML (and paint the header +
+       reserved content areas) before running the app script, instead of blocking
+       on it. Improves LCP with no behaviour change — the script still runs before
+       DOMContentLoaded, in order, exactly as an end-of-body script did. -->
+  <script defer src="script.js?v=tw1"></script>
+
+  <!-- Vercel Web Analytics (privacy-friendly, cookie-less visitor/pageview
+       counts in the Vercel dashboard). This is the plain-HTML integration: the
+       inline stub queues events until the script served from this deployment's
+       /_vercel/insights/ path loads. Independent of GTM/GA4 above; ad-blockers
+       that block Google leave this first-party path alone, so the counts are
+       usually more complete. Loaded with `defer` so it never blocks rendering. -->
+  <script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
+  <script defer src="/_vercel/insights/script.js"></script>
+</body>
+</html>
