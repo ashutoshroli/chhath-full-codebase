@@ -1,0 +1,176 @@
+---
+// Committee page for the v2 public portal.
+//
+// Reproduces the old site's renderCommittee(): an ID-card per active committee
+// member for the selected year (or the 'All' lifetime view) — a circular avatar
+// with the member's initial, name, a year badge, the role, mobile and village.
+//
+// ROLE SOURCE (audit fix H-2 — do NOT regress):
+// The committee role lives on the committee ROW's 'View Role' field (surfaced by
+// the Worker's REVERSE_MAPS from `view_role`). There is NO `Role` field on the
+// user, so the role MUST be read from the row first, then fall back to the user's
+// 'Designation', then to 'Member'. Reading it off the user silently hid the
+// committee role on the public site.
+//
+// Also renders the management-portal Login link (URL from config.mgmtLoginUrl —
+// never hardcoded) and a samiti footer block. Static Astro output; fetch +
+// rendering run in the client island, which escapes every interpolated value.
+import Layout from '../layouts/Layout.astro';
+import { t } from '../i18n.js';
+import { mgmtLoginUrl } from '../config.js';
+
+const lang = 'en';
+---
+
+<Layout title="Committee | Chhath Puja Transparency Portal">
+  <div id="page-loader" class="mx-auto max-w-6xl px-4 py-16 text-center text-slate-500 dark:text-slate-400">
+    <span class="material-icons-round animate-spin align-middle">progress_activity</span>
+  </div>
+
+  <div id="stale-data-notice" class="hidden"></div>
+
+  <section id="committee" class="mx-auto hidden max-w-6xl flex-col gap-6 px-4 py-8 pb-24 sm:py-12 md:pb-12" data-page-root>
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div class="flex flex-col gap-1">
+        <h1 class="text-lg font-bold text-slate-900 dark:text-white sm:text-xl" data-i18n="active_committee">{t(lang, 'active_committee')}</h1>
+        <p id="disp-year-title" class="text-sm font-semibold text-brand-600 dark:text-brand-400">&nbsp;</p>
+      </div>
+      <!-- Management-portal Login (env-driven URL, opens in a new tab). -->
+      <a
+        href={mgmtLoginUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="inline-flex w-fit items-center gap-1.5 rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-600"
+        data-i18n="login"
+      >{t(lang, 'login')}</a>
+    </div>
+
+    <div id="com-list" class="flex flex-col gap-3"></div>
+
+    <!-- Samiti footer block. -->
+    <footer class="mt-4 border-t border-slate-200 pt-5 text-center dark:border-slate-800">
+      <img src="/logo.svg" alt="" width="48" height="48" class="mx-auto mb-2 h-12 w-12" />
+      <p class="text-sm font-semibold text-slate-700 dark:text-slate-200" data-i18n="app_title">{t(lang, 'app_title')}</p>
+      <p class="text-xs text-slate-500 dark:text-slate-400" data-i18n="app_subtitle">{t(lang, 'app_subtitle')}</p>
+    </footer>
+  </section>
+</Layout>
+
+<!-- CLIENT ISLAND -->
+<script>
+  import { apiBase } from '../config.js';
+  import { loadPortalData } from '../lib/portalData.js';
+  import { buildUserMap, getUser, collectYears, staleNoticeText, coldFailureHtml } from '../lib/homeRender.js';
+  import { escapeHtml } from '../lib/dom-escape.js';
+  import { t, localize, normalizeLang, LANG_KEY } from '../i18n.js';
+
+  (function () {
+    function currentLang() {
+      try { return normalizeLang(localStorage.getItem(LANG_KEY)); } catch (e) { return 'en'; }
+    }
+
+    var state = { data: null, userMap: {}, savedAt: 0, fromCache: false };
+    var sessionCache = {};
+
+    var loaderEl = document.getElementById('page-loader');
+    var pageEl = document.querySelector('[data-page-root]');
+    var noticeEl = document.getElementById('stale-data-notice');
+    var yearSel = document.getElementById('year-select');
+
+    function selectedYear() {
+      var v = yearSel ? yearSel.value : '';
+      return v === 'All' ? 'All' : parseInt(v);
+    }
+
+    function populateYears() {
+      if (!yearSel) return;
+      var years = collectYears(state.data);
+      var opts = years.map(function (y) { return '<option value="' + y + '">' + y + '</option>'; });
+      opts.push('<option value="All">' + t(currentLang(), 'lifetime_budget_overview') + '</option>');
+      yearSel.innerHTML = opts.join('');
+      yearSel.value = String(years[0]);
+    }
+
+    function renderCommittee() {
+      var lang = currentLang();
+      var year = selectedYear();
+      var isAll = year === 'All';
+      var d = state.data || {};
+
+      var titleEl = document.getElementById('disp-year-title');
+      if (titleEl) titleEl.textContent = isAll ? t(lang, 'lifetime_budget_overview') : (year + '');
+
+      var target = isAll ? (d.committee || []) : (d.committee || []).filter(function (r) { return parseInt(r.Year) === year; });
+
+      var html = target.map(function (r) {
+        var u = getUser(state.userMap, r.ID || r.Name);
+        // Coerce Name to a string BEFORE charAt — a missing name once threw and
+        // blanked the whole list.
+        var nameStr = (localize(u, 'Name', lang) || '').toString();
+        var initial = (nameStr.charAt(0) || '?').toUpperCase();
+        // Role: committee ROW's 'View Role' first (audit H-2), then Designation, then Member.
+        var role = localize(r, 'View Role', lang) || localize(u, 'Designation', lang) || t(lang, 'member');
+
+        return '<div class="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">'
+          + '<div class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-brand-100 text-lg font-bold text-brand-600 dark:bg-brand-900/40 dark:text-brand-300">' + escapeHtml(initial) + '</div>'
+          + '<div class="min-w-0 flex-grow">'
+          + '<div class="flex items-start justify-between gap-2">'
+          + '<strong class="min-w-0 break-words text-base text-slate-900 dark:text-white">' + escapeHtml(nameStr || '-') + '</strong>'
+          + '<span class="flex-shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">' + escapeHtml(r.Year) + '</span>'
+          + '</div>'
+          + '<div class="mb-1 text-sm font-semibold text-brand-600 dark:text-brand-400">' + escapeHtml(role) + '</div>'
+          + '<div class="flex flex-wrap gap-3 text-xs text-slate-500 dark:text-slate-400">'
+          + '<span class="flex items-center gap-1"><span class="material-icons-round text-xs">call</span>' + escapeHtml(u.Mobile || t(lang, 'na')) + '</span>'
+          + '<span class="flex items-center gap-1"><span class="material-icons-round text-xs">place</span>' + escapeHtml(localize(u, 'Village', lang) || t(lang, 'na')) + '</span>'
+          + '</div></div></div>';
+      }).join('');
+
+      var listEl = document.getElementById('com-list');
+      if (listEl) listEl.innerHTML = html || '<div class="rounded-2xl border border-slate-200 bg-white p-6 text-center text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">' + escapeHtml(t(lang, 'no_committee')) + '</div>';
+    }
+
+    function renderStaleNotice() {
+      if (!noticeEl) return;
+      if (!state.fromCache) { noticeEl.classList.add('hidden'); noticeEl.textContent = ''; return; }
+      noticeEl.className = 'bg-amber-100 px-3 py-1.5 text-center text-sm leading-snug text-amber-800 dark:bg-amber-900/40 dark:text-amber-200';
+      noticeEl.setAttribute('role', 'status');
+      noticeEl.textContent = staleNoticeText(currentLang(), state.savedAt);
+    }
+
+    function renderColdFailure() {
+      if (!loaderEl) return;
+      loaderEl.innerHTML = coldFailureHtml(currentLang());
+      loaderEl.classList.remove('hidden');
+      var btn = loaderEl.querySelector('[data-cold-retry]');
+      if (btn) btn.addEventListener('click', function () { location.reload(); });
+    }
+
+    function onLangChange() {
+      populateYears();
+      renderCommittee();
+      renderStaleNotice();
+    }
+
+    (async function boot() {
+      try {
+        var result = await loadPortalData({ apiBase: apiBase, sessionCache: sessionCache });
+        state.data = result.data || {};
+        state.userMap = buildUserMap(state.data.users);
+        state.fromCache = !!result.fromCache;
+        state.savedAt = result.savedAt || 0;
+
+        populateYears();
+        renderCommittee();
+        renderStaleNotice();
+
+        if (loaderEl) loaderEl.classList.add('hidden');
+        if (pageEl) { pageEl.classList.remove('hidden'); pageEl.classList.add('flex'); }
+      } catch (e) {
+        renderColdFailure();
+      }
+    })();
+
+    if (yearSel) yearSel.addEventListener('change', renderCommittee);
+    window.addEventListener('cpm:langchange', onLangChange);
+  })();
+</script>

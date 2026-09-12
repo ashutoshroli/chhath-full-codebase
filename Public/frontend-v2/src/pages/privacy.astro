@@ -1,0 +1,103 @@
+---
+// Privacy Policy page for the v2 public portal.
+//
+// The bilingual copy is ported VERBATIM from the old Public/frontend/privacy.html
+// (both the English and Hindi text). The originals showed/hid [data-lang="en"] /
+// [data-lang="hi"] spans via <html lang>; the v2 Header already manages <html
+// lang> and the lang toggle, and the show/hide CSS now lives in global.css, so
+// this page just carries the content inside the shared Layout — theme-aware
+// (Tailwind dark: classes) and responsive. The © year is filled by a tiny inline
+// script (there is no data fetch on this static legal page).
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout
+  title="Privacy Policy | Navyuvak Chhath Puja Samiti, Shaharpura"
+  description="Privacy Policy of the Navyuvak Chhath Puja Samiti, Shaharpura & Gardih internal portal — what data is collected and how it is used."
+>
+  <main class="mx-auto max-w-3xl px-4 py-8 pb-24 sm:py-12 md:pb-12">
+    <a class="text-sm font-semibold text-brand-600 hover:text-brand-500 dark:text-brand-400" href="/">
+      ← <span data-lang="en">Home</span><span data-lang="hi">होम</span>
+    </a>
+
+    <h1 class="mt-4 text-2xl font-bold text-slate-900 dark:text-white">
+      <span data-lang="en">Privacy Policy</span><span data-lang="hi">गोपनीयता नीति</span>
+    </h1>
+    <p class="mb-5 mt-1 text-sm text-slate-500 dark:text-slate-400">
+      <span data-lang="en">Navyuvak Chhath Puja Samiti, Shaharpura & Gardih — internal community portal</span>
+      <span data-lang="hi">नवयुवक छठ पूजा समिति, शहरपुरा एवं गरडीह — आंतरिक सामुदायिक पोर्टल</span>
+    </p>
+
+    <div class="mb-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <h2 class="mb-2 text-base font-bold text-brand-600 dark:text-brand-400"><span data-lang="en">Who this is for</span><span data-lang="hi">यह किसके लिए है</span></h2>
+      <p class="text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+        <span data-lang="en">This portal and its services are for the internal use of the members and community of <strong>Navyuvak Chhath Puja Samiti, Shaharpura & Gardih</strong> only. It is not a public service and is not intended for the general public.</span>
+        <span data-lang="hi">यह पोर्टल और इसकी सेवाएँ केवल <strong>नवयुवक छठ पूजा समिति, शहरपुरा एवं गरडीह</strong> के सदस्यों और समुदाय के आंतरिक उपयोग के लिए हैं। यह कोई सार्वजनिक सेवा नहीं है और आम जनता के लिए नहीं है।</span>
+      </p>
+    </div>
+
+    <div class="mb-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <h2 class="mb-2 text-base font-bold text-brand-600 dark:text-brand-400"><span data-lang="en">What data we collect</span><span data-lang="hi">हम कौन-सा डेटा एकत्र करते हैं</span></h2>
+      <p class="text-sm leading-relaxed text-slate-700 dark:text-slate-300"><span data-lang="en">To maintain the Samiti's records we may store:</span><span data-lang="hi">समिति के रिकॉर्ड रखने के लिए हम निम्न जानकारी संग्रहित कर सकते हैं:</span></p>
+      <ul class="ml-5 mt-2 list-disc text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+        <li><span data-lang="en">Name, father's name and village/address of members and contributors</span><span data-lang="hi">सदस्यों और चंदा देने वालों का नाम, पिता का नाम और गाँव/पता</span></li>
+        <li><span data-lang="en">Phone / WhatsApp number</span><span data-lang="hi">फ़ोन / व्हाट्सऐप नंबर</span></li>
+        <li><span data-lang="en">Donation and contribution (chanda) records</span><span data-lang="hi">दान एवं चंदा (योगदान) के रिकॉर्ड</span></li>
+        <li><span data-lang="en">Committee records, expenses and internal loan records</span><span data-lang="hi">समिति रिकॉर्ड, खर्च एवं आंतरिक ऋण रिकॉर्ड</span></li>
+        <li><span data-lang="en">Generated receipts / certificates (as PDF)</span><span data-lang="hi">जनरेट की गई रसीदें / प्रमाणपत्र (PDF के रूप में)</span></li>
+      </ul>
+    </div>
+
+    <div class="mb-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <h2 class="mb-2 text-base font-bold text-brand-600 dark:text-brand-400"><span data-lang="en">How we use it</span><span data-lang="hi">हम इसका उपयोग कैसे करते हैं</span></h2>
+      <p class="text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+        <span data-lang="en">This data is used <strong>only for the Samiti's internal record-keeping</strong> — recording chanda, generating receipts, and maintaining transparent accounts for the community. We do not use it for advertising or any purpose outside the Samiti.</span>
+        <span data-lang="hi">यह डेटा <strong>केवल समिति के आंतरिक रिकॉर्ड रखने</strong> के लिए उपयोग होता है — चंदा दर्ज करना, रसीद बनाना, और समुदाय के लिए पारदर्शी हिसाब रखना। हम इसका उपयोग विज्ञापन या समिति के बाहर किसी उद्देश्य के लिए नहीं करते।</span>
+      </p>
+    </div>
+
+    <div class="mb-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <h2 class="mb-2 text-base font-bold text-brand-600 dark:text-brand-400"><span data-lang="en">Sharing & third parties</span><span data-lang="hi">साझा करना एवं तृतीय पक्ष</span></h2>
+      <p class="text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+        <span data-lang="en">We <strong>do not sell or share</strong> your data with any third party. The only external service used is <strong>Google Drive</strong>, and it is used solely to store the PDF receipts/certificates generated by the portal. No personal data is shared for any other purpose.</span>
+        <span data-lang="hi">हम आपका डेटा किसी भी तृतीय पक्ष को <strong>न बेचते हैं न साझा करते हैं</strong>। एकमात्र बाहरी सेवा <strong>Google Drive</strong> है, जिसका उपयोग केवल पोर्टल द्वारा बनाई गई PDF रसीदें/प्रमाणपत्र संग्रहित करने के लिए होता है। किसी अन्य उद्देश्य के लिए कोई व्यक्तिगत डेटा साझा नहीं किया जाता।</span>
+      </p>
+    </div>
+
+    <div class="mb-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <h2 class="mb-2 text-base font-bold text-brand-600 dark:text-brand-400"><span data-lang="en">Data security & retention</span><span data-lang="hi">डेटा सुरक्षा एवं रखरखाव</span></h2>
+      <p class="text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+        <span data-lang="en">Records are kept for as long as needed for the Samiti's accounts. Access to the management portal is restricted to authorised Samiti members through login. You may request correction or removal of your information by contacting us.</span>
+        <span data-lang="hi">रिकॉर्ड तब तक रखे जाते हैं जब तक समिति के हिसाब के लिए आवश्यक हो। प्रबंधन पोर्टल तक पहुँच केवल अधिकृत समिति सदस्यों को लॉगिन के माध्यम से है। आप हमसे संपर्क करके अपनी जानकारी में सुधार या हटाने का अनुरोध कर सकते हैं।</span>
+      </p>
+    </div>
+
+    <div class="mb-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <h2 class="mb-2 text-base font-bold text-brand-600 dark:text-brand-400"><span data-lang="en">Contact</span><span data-lang="hi">संपर्क</span></h2>
+      <p class="text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+        <span data-lang="en">For any privacy question, contact:</span>
+        <span data-lang="hi">किसी भी गोपनीयता संबंधी प्रश्न के लिए संपर्क करें:</span>
+        <br /><a class="font-semibold text-brand-600 hover:text-brand-500 dark:text-brand-400" href="mailto:chhath@shaharpura.com">chhath@shaharpura.com</a>
+      </p>
+    </div>
+
+    <p class="mt-6 text-center text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+      <a class="font-semibold text-brand-600 hover:text-brand-500 dark:text-brand-400" href="/terms"><span data-lang="en">Terms of Service</span><span data-lang="hi">सेवा की शर्तें</span></a>
+      &nbsp;·&nbsp; © <span id="yr"></span>
+      <span data-lang="en">Navyuvak Chhath Puja Samiti, Shaharpura &amp; Gardih. All rights reserved.</span>
+      <span data-lang="hi">नवयुवक छठ पूजा समिति, शहरपुरा एवं गरडीह। सर्वाधिकार सुरक्षित।</span>
+      <br />
+      <span data-lang="en">Made with 🩷</span>
+      <span data-lang="hi">🩷 से बनाया गया</span>
+    </p>
+  </main>
+</Layout>
+
+<!-- Fill the © year. The Header manages <html lang> + the bilingual toggle, so
+     this page needs no language script of its own. -->
+<script is:inline>
+  (function () {
+    var y = document.getElementById('yr');
+    if (y) y.textContent = new Date().getFullYear();
+  })();
+</script>

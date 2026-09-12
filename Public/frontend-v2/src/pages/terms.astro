@@ -1,0 +1,104 @@
+---
+// Terms of Service page for the v2 public portal.
+//
+// The bilingual copy is ported VERBATIM from the old Public/frontend/terms.html.
+// Same approach as privacy.astro: [data-lang] spans hidden/shown by <html lang>
+// (CSS in global.css), inside the shared Layout, theme-aware and responsive. The
+// Header manages <html lang> + the language toggle, so this static legal page
+// carries only the content and a tiny © year script.
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout
+  title="Terms of Service | Navyuvak Chhath Puja Samiti, Shaharpura"
+  description="Terms of Service of the Navyuvak Chhath Puja Samiti, Shaharpura & Gardih internal portal."
+>
+  <main class="mx-auto max-w-3xl px-4 py-8 pb-24 sm:py-12 md:pb-12">
+    <a class="text-sm font-semibold text-brand-600 hover:text-brand-500 dark:text-brand-400" href="/">
+      ← <span data-lang="en">Home</span><span data-lang="hi">होम</span>
+    </a>
+
+    <h1 class="mt-4 text-2xl font-bold text-slate-900 dark:text-white">
+      <span data-lang="en">Terms of Service</span><span data-lang="hi">सेवा की शर्तें</span>
+    </h1>
+    <p class="mb-5 mt-1 text-sm text-slate-500 dark:text-slate-400">
+      <span data-lang="en">Navyuvak Chhath Puja Samiti, Shaharpura & Gardih — internal community portal</span>
+      <span data-lang="hi">नवयुवक छठ पूजा समिति, शहरपुरा एवं गरडीह — आंतरिक सामुदायिक पोर्टल</span>
+    </p>
+
+    <div class="mb-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <h2 class="mb-2 text-base font-bold text-brand-600 dark:text-brand-400"><span data-lang="en">1. Who may use this portal</span><span data-lang="hi">1. इस पोर्टल का उपयोग कौन कर सकता है</span></h2>
+      <p class="text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+        <span data-lang="en">This portal is provided solely for the members and community of <strong>Navyuvak Chhath Puja Samiti, Shaharpura & Gardih</strong>, for internal record-keeping. It is not a public service and is not intended for use by the general public.</span>
+        <span data-lang="hi">यह पोर्टल केवल <strong>नवयुवक छठ पूजा समिति, शहरपुरा एवं गरडीह</strong> के सदस्यों और समुदाय के लिए, आंतरिक रिकॉर्ड रखने हेतु प्रदान किया गया है। यह कोई सार्वजनिक सेवा नहीं है और आम जनता के उपयोग के लिए नहीं है।</span>
+      </p>
+    </div>
+
+    <div class="mb-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <h2 class="mb-2 text-base font-bold text-brand-600 dark:text-brand-400"><span data-lang="en">2. Purpose</span><span data-lang="hi">2. उद्देश्य</span></h2>
+      <p class="text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+        <span data-lang="en">The portal is used to record donations/chanda, generate receipts, and keep transparent accounts (contributions, expenses, committee and internal records) for the Samiti.</span>
+        <span data-lang="hi">पोर्टल का उपयोग दान/चंदा दर्ज करने, रसीद बनाने, और समिति के लिए पारदर्शी हिसाब (योगदान, खर्च, समिति एवं आंतरिक रिकॉर्ड) रखने के लिए होता है।</span>
+      </p>
+    </div>
+
+    <div class="mb-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <h2 class="mb-2 text-base font-bold text-brand-600 dark:text-brand-400"><span data-lang="en">3. Accuracy of information</span><span data-lang="hi">3. जानकारी की सटीकता</span></h2>
+      <p class="text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+        <span data-lang="en">The accuracy of the information entered (names, amounts, records) is the responsibility of the user entering it. The Samiti relies on authorised members to enter correct data.</span>
+        <span data-lang="hi">दर्ज की गई जानकारी (नाम, राशि, रिकॉर्ड) की सटीकता उसे दर्ज करने वाले उपयोगकर्ता की जिम्मेदारी है। समिति सही डेटा दर्ज करने के लिए अधिकृत सदस्यों पर निर्भर करती है।</span>
+      </p>
+    </div>
+
+    <div class="mb-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <h2 class="mb-2 text-base font-bold text-brand-600 dark:text-brand-400"><span data-lang="en">4. Acceptable use</span><span data-lang="hi">4. स्वीकार्य उपयोग</span></h2>
+      <ul class="ml-5 mt-2 list-disc text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+        <li><span data-lang="en">Use the portal only for legitimate Samiti record-keeping.</span><span data-lang="hi">पोर्टल का उपयोग केवल वैध समिति रिकॉर्ड रखने के लिए करें।</span></li>
+        <li><span data-lang="en">Do not attempt to access, alter or misuse data you are not authorised for.</span><span data-lang="hi">जिस डेटा के लिए आप अधिकृत नहीं हैं, उस तक पहुँचने, बदलने या दुरुपयोग का प्रयास न करें।</span></li>
+        <li><span data-lang="en">Keep your login confidential; you are responsible for activity under your account.</span><span data-lang="hi">अपना लॉगिन गोपनीय रखें; आपके खाते के अंतर्गत की गई गतिविधि की जिम्मेदारी आपकी है।</span></li>
+      </ul>
+    </div>
+
+    <div class="mb-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <h2 class="mb-2 text-base font-bold text-brand-600 dark:text-brand-400"><span data-lang="en">5. Provided "as-is"</span><span data-lang="hi">5. "जैसा है" के आधार पर</span></h2>
+      <p class="text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+        <span data-lang="en">The portal is provided on an "as-is" basis, without warranties of any kind. The Samiti is not liable for any loss arising from use of, or inability to use, the portal. Services may change or be discontinued at any time.</span>
+        <span data-lang="hi">पोर्टल "जैसा है" के आधार पर, बिना किसी प्रकार की वारंटी के प्रदान किया जाता है। पोर्टल के उपयोग या उपयोग न कर पाने से होने वाली किसी हानि के लिए समिति उत्तरदायी नहीं है। सेवाएँ किसी भी समय बदली या बंद की जा सकती हैं।</span>
+      </p>
+    </div>
+
+    <div class="mb-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <h2 class="mb-2 text-base font-bold text-brand-600 dark:text-brand-400"><span data-lang="en">6. Privacy</span><span data-lang="hi">6. गोपनीयता</span></h2>
+      <p class="text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+        <span data-lang="en">Data handling is described in our </span><span data-lang="hi">डेटा का प्रबंधन हमारी </span><a class="font-semibold text-brand-600 hover:text-brand-500 dark:text-brand-400" href="/privacy"><span data-lang="en">Privacy Policy</span><span data-lang="hi">गोपनीयता नीति</span></a><span data-lang="hi"> में वर्णित है।</span><span data-lang="en">.</span>
+      </p>
+    </div>
+
+    <div class="mb-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <h2 class="mb-2 text-base font-bold text-brand-600 dark:text-brand-400"><span data-lang="en">Contact</span><span data-lang="hi">संपर्क</span></h2>
+      <p class="text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+        <span data-lang="en">For any question about these terms, contact:</span>
+        <span data-lang="hi">इन शर्तों के बारे में किसी भी प्रश्न के लिए संपर्क करें:</span>
+        <br /><a class="font-semibold text-brand-600 hover:text-brand-500 dark:text-brand-400" href="mailto:chhath@shaharpura.com">chhath@shaharpura.com</a>
+      </p>
+    </div>
+
+    <p class="mt-6 text-center text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+      <a class="font-semibold text-brand-600 hover:text-brand-500 dark:text-brand-400" href="/privacy"><span data-lang="en">Privacy Policy</span><span data-lang="hi">गोपनीयता नीति</span></a>
+      &nbsp;·&nbsp; © <span id="yr"></span>
+      <span data-lang="en">Navyuvak Chhath Puja Samiti, Shaharpura &amp; Gardih. All rights reserved.</span>
+      <span data-lang="hi">नवयुवक छठ पूजा समिति, शहरपुरा एवं गरडीह। सर्वाधिकार सुरक्षित।</span>
+      <br />
+      <span data-lang="en">Made with 🩷</span>
+      <span data-lang="hi">🩷 से बनाया गया</span>
+    </p>
+  </main>
+</Layout>
+
+<!-- Fill the © year. The Header manages <html lang> + the bilingual toggle. -->
+<script is:inline>
+  (function () {
+    var y = document.getElementById('yr');
+    if (y) y.textContent = new Date().getFullYear();
+  })();
+</script>

@@ -1,0 +1,153 @@
+---
+// Expenses page for the v2 public portal.
+//
+// Reproduces the old site's renderExpenses(): a responsive ledger of every
+// expense for the selected year (or the lifetime 'All' view), each row showing a
+// localized description (the schema's misspelled 'Discription' column, falling
+// back to 'Description' then '-') and the amount rendered NEGATIVE in a danger
+// colour. In the 'All' view each row also gets a [Year] tag.
+//
+// Astro output is static, so the fetch + all re-rendering happen in the client
+// island below, which imports the same framework-free lib modules the Home page
+// uses (finance, portalData, homeRender, i18n) so the ported logic stays shared,
+// unit-testable and `node --check`able. The page reacts to the shared header
+// year dropdown and to the header's cpm:langchange event (to re-localize DATA,
+// not just the static [data-i18n] labels).
+import Layout from '../layouts/Layout.astro';
+import { t } from '../i18n.js';
+
+const lang = 'en';
+---
+
+<Layout title="Expenses | Chhath Puja Transparency Portal">
+  <!-- Loader / cold-failure host: shown until the first render resolves. -->
+  <div id="page-loader" class="mx-auto max-w-6xl px-4 py-16 text-center text-slate-500 dark:text-slate-400">
+    <span class="material-icons-round animate-spin align-middle">progress_activity</span>
+  </div>
+
+  <!-- Stale-data notice host (populated by the island only when showing cache). -->
+  <div id="stale-data-notice" class="hidden"></div>
+
+  <section id="expenses" class="mx-auto hidden max-w-6xl flex-col gap-6 px-4 py-8 pb-24 sm:py-12 md:pb-12" data-page-root>
+    <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-6">
+      <div class="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <h1 class="text-lg font-bold text-slate-900 dark:text-white sm:text-xl" data-i18n="expenses_ledger">{t(lang, 'expenses_ledger')}</h1>
+        <p id="disp-year-title" class="text-sm font-semibold text-brand-600 dark:text-brand-400">&nbsp;</p>
+      </div>
+      <div id="exp-list" class="divide-y divide-slate-100 dark:divide-slate-800"></div>
+    </div>
+  </section>
+</Layout>
+
+<!-- CLIENT ISLAND -->
+<script>
+  import { apiBase } from '../config.js';
+  import { fmt } from '../lib/finance.js';
+  import { loadPortalData } from '../lib/portalData.js';
+  import { collectYears, staleNoticeText, coldFailureHtml } from '../lib/homeRender.js';
+  import { escapeHtml } from '../lib/dom-escape.js';
+  import { t, localize, normalizeLang, LANG_KEY } from '../i18n.js';
+
+  (function () {
+    function currentLang() {
+      try { return normalizeLang(localStorage.getItem(LANG_KEY)); } catch (e) { return 'en'; }
+    }
+
+    var state = { data: null, savedAt: 0, fromCache: false };
+    var sessionCache = {};
+
+    var loaderEl = document.getElementById('page-loader');
+    var pageEl = document.querySelector('[data-page-root]');
+    var noticeEl = document.getElementById('stale-data-notice');
+    var yearSel = document.getElementById('year-select');
+
+    function selectedYear() {
+      var v = yearSel ? yearSel.value : '';
+      return v === 'All' ? 'All' : parseInt(v);
+    }
+
+    // Populate the shared header #year-select from the payload years (newest
+    // first) + an 'All' lifetime option. Each page owns this because only the
+    // island has the payload (see index.astro for the full rationale).
+    function populateYears() {
+      if (!yearSel) return;
+      var years = collectYears(state.data);
+      var opts = years.map(function (y) { return '<option value="' + y + '">' + y + '</option>'; });
+      opts.push('<option value="All">' + t(currentLang(), 'lifetime_budget_overview') + '</option>');
+      yearSel.innerHTML = opts.join('');
+      yearSel.value = String(years[0]);
+    }
+
+    // Rebuild the ledger for the selected year + language. Mirrors renderExpenses.
+    function renderExpenses() {
+      var lang = currentLang();
+      var year = selectedYear();
+      var isAll = year === 'All';
+      var d = state.data || {};
+
+      var titleEl = document.getElementById('disp-year-title');
+      if (titleEl) titleEl.textContent = isAll ? t(lang, 'lifetime_budget_overview') : (year + '');
+
+      var rows = isAll ? (d.expenses || []) : (d.expenses || []).filter(function (r) { return parseInt(r.Year) === year; });
+
+      var html = rows.map(function (r) {
+        // Prefer the Hindi description when Hindi is active (localize on the
+        // schema's misspelled 'Discription'); fall back to 'Description', then '-'.
+        var desc = localize(r, 'Discription', lang) || r.Description || '-';
+        var yrTag = isAll
+          ? '<span class="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">[' + escapeHtml(r.Year) + ']</span>'
+          : '';
+        return '<div class="flex items-center justify-between gap-3 border-b border-slate-100 py-3 last:border-0 dark:border-slate-800">'
+          + '<div><strong class="block max-w-[240px] text-slate-800 dark:text-slate-100 sm:max-w-none">' + escapeHtml(desc) + ' ' + yrTag + '</strong></div>'
+          + '<strong class="whitespace-nowrap text-red-600 dark:text-red-400">-' + escapeHtml(fmt(r.Amount)) + '</strong>'
+          + '</div>';
+      }).join('');
+
+      var listEl = document.getElementById('exp-list');
+      if (listEl) listEl.innerHTML = html || '<div class="py-6 text-center text-slate-500 dark:text-slate-400">' + escapeHtml(t(lang, 'no_expenses')) + '</div>';
+    }
+
+    function renderStaleNotice() {
+      if (!noticeEl) return;
+      if (!state.fromCache) { noticeEl.classList.add('hidden'); noticeEl.textContent = ''; return; }
+      noticeEl.className = 'bg-amber-100 px-3 py-1.5 text-center text-sm leading-snug text-amber-800 dark:bg-amber-900/40 dark:text-amber-200';
+      noticeEl.setAttribute('role', 'status');
+      noticeEl.textContent = staleNoticeText(currentLang(), state.savedAt);
+    }
+
+    function renderColdFailure() {
+      if (!loaderEl) return;
+      loaderEl.innerHTML = coldFailureHtml(currentLang());
+      loaderEl.classList.remove('hidden');
+      var btn = loaderEl.querySelector('[data-cold-retry]');
+      if (btn) btn.addEventListener('click', function () { location.reload(); });
+    }
+
+    function onLangChange() {
+      populateYears();
+      renderExpenses();
+      renderStaleNotice();
+    }
+
+    (async function boot() {
+      try {
+        var result = await loadPortalData({ apiBase: apiBase, sessionCache: sessionCache });
+        state.data = result.data || {};
+        state.fromCache = !!result.fromCache;
+        state.savedAt = result.savedAt || 0;
+
+        populateYears();
+        renderExpenses();
+        renderStaleNotice();
+
+        if (loaderEl) loaderEl.classList.add('hidden');
+        if (pageEl) { pageEl.classList.remove('hidden'); pageEl.classList.add('flex'); }
+      } catch (e) {
+        renderColdFailure();
+      }
+    })();
+
+    if (yearSel) yearSel.addEventListener('change', renderExpenses);
+    window.addEventListener('cpm:langchange', onLangChange);
+  })();
+</script>
