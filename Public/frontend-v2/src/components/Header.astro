@@ -84,11 +84,11 @@ const isActive = (href) => isActivePath(currentPath, href);
     <!-- Desktop-only top nav: real routes with active-state styling. Shown ONLY
          from `lg` (1024px) up — i.e. true desktop. On phones AND tablets the top
          row stays just brand + the three controls (so nothing crowds/clips the
-         header), and the tabs live in the fixed bottom-nav below (lg:hidden).
+         header), and the tabs live in the fixed bottom-nav below (md:hidden).
          Using `lg` rather than `md` guarantees wide phones / small tablets get
          the bottom-nav, matching the requested "mobile me neeche, desktop me
          jaisa hai waisa" behaviour. -->
-    <nav class="hidden items-center gap-5 text-sm font-medium lg:flex">
+    <nav class="hidden items-center gap-5 text-sm font-medium md:flex">
       {navItems.map((item) => (
         <a
           href={item.href}
@@ -157,12 +157,13 @@ const isActive = (href) => isActivePath(currentPath, href);
     </div>
   </div>
 
-  <!-- Mobile + tablet bottom-nav: same real routes + active state as the desktop
-       top nav. Shown up to `lg` (hidden from 1024px), the exact complement of the
-       top nav's `lg:flex`, so on phones AND tablets the tabs sit at the bottom and
-       only true desktop shows them in the header. -->
+  <!-- Mobile bottom-nav: same real routes + active state as the desktop top nav.
+       Shown below `md` (hidden from 768px), the exact complement of the top nav's
+       `md:flex`, so on mobile the tabs sit at the bottom and only desktop shows
+       them in the header — matching the old portal (.desktop-nav/.bottom-nav flip
+       at 768px) and frontend-v3 (md:flex / md:hidden) references exactly. -->
   <nav
-    class="fixed inset-x-0 bottom-0 z-40 flex items-center justify-around border-t border-slate-200 bg-white/95 py-2 text-xs backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 lg:hidden"
+    class="fixed inset-x-0 bottom-0 z-40 flex items-center justify-around border-t border-slate-200 bg-white/95 py-2 text-xs backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 md:hidden"
     aria-label="Mobile navigation"
   >
     {navItems.map((item) => (
