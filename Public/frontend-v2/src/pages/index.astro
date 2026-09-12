@@ -172,6 +172,18 @@ const lang = 'en';
 
     function renderAll() { renderHero(); renderList(); }
 
+    // Re-resolve the year/search elements each client navigation. Under View
+    // Transitions the <body> is swapped, so the DOM nodes captured at parse time
+    // are discarded on every swap — the astro:page-load handler below re-queries
+    // them so we always bind to the LIVE nodes on the freshly-swapped page.
+    function refreshEls() {
+      loaderEl = document.getElementById('home-loader');
+      homeEl = document.querySelector('[data-home-root]');
+      noticeEl = document.getElementById('stale-data-notice');
+      yearSel = document.getElementById('year-select');
+      searchEl = document.getElementById('home-search');
+    }
+
     // Show / hide the non-blocking stale-data banner (only when rendering a cached
     // copy because the network/backend was unreachable). Re-run on language change
     // so the banner copy switches too.
@@ -210,7 +222,7 @@ const lang = 'en';
     }
 
     // ---- Boot ----
-    (async function boot() {
+    async function boot() {
       try {
         var result = await loadPortalData({ apiBase: apiBase, sessionCache: sessionCache });
         state.data = result.data || {};
@@ -230,12 +242,45 @@ const lang = 'en';
         // Cold failure (no cached copy + everything failed).
         renderColdFailure();
       }
-    })();
+    }
 
-    // ---- Event wiring ----
-    if (yearSel) yearSel.addEventListener('change', renderAll);
-    if (searchEl) searchEl.addEventListener('input', renderList);
-    // Header dispatches this after it persists the new language + re-applies labels.
-    window.addEventListener('cpm:langchange', onLangChange);
+    // ---- Per-navigation init (View Transitions) ----------------------------
+    // STRATEGY: re-init on astro:page-load. This page's markup + #year-select
+    // options are page-specific DATA, so the island must re-run for the
+    // freshly-swapped DOM after every client navigation. astro:page-load fires
+    // on the INITIAL real load AND after every client swap, so it is the single
+    // correct hook — we do NOT also call boot() at parse time (that would
+    // double-boot on the first load).
+    //
+    // PAGE-IDENTITY GUARD (why this exists): the handler is registered on
+    // `document`, which is NOT swapped by the View Transitions router and is
+    // never removed for the rest of the session. So EVERY data page's handler
+    // stays live and fires on EVERY later swap, regardless of which page is now
+    // mounted. Without a guard, visiting several data pages would make each swap
+    // re-run every prior page's boot() (redundant loadPortalData() fetches) and
+    // re-bind each prior page's distinct renderX to the SAME persisted
+    // #year-select — addEventListener only de-dupes identical (node,type,fn)
+    // triples, so those distinct renderers would all stay bound and a single
+    // year change would drive stale renderers against unmounted DOM.
+    // FIX: bail immediately unless THIS page's unique root is in the swapped-in
+    // DOM. `[data-home-root]` exists only on the Home page, so the handler
+    // no-ops (never fetches, never binds to #year-select) on every other page.
+    document.addEventListener('astro:page-load', function () {
+      if (!document.querySelector('[data-home-root]')) return;
+      refreshEls();
+      boot();
+      if (yearSel) yearSel.addEventListener('change', renderAll);
+      if (searchEl) searchEl.addEventListener('input', renderList);
+    });
+
+    // WINDOW-LEVEL listener guard: unlike element listeners, a window listener is
+    // NOT discarded on swap, so re-adding it each page-load would stack duplicate
+    // handlers. Register the cpm:langchange subscription exactly ONCE via a
+    // module-level flag so only a single handler is ever live.
+    if (!window.__cpmHomeLangBound) {
+      window.__cpmHomeLangBound = true;
+      // Header dispatches this after it persists the new language + re-applies labels.
+      window.addEventListener('cpm:langchange', onLangChange);
+    }
   })();
 </script>

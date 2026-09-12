@@ -129,7 +129,17 @@ const lang = 'en';
       renderStaleNotice();
     }
 
-    (async function boot() {
+    // Re-resolve elements each swap (see index.astro for the full rationale):
+    // under View Transitions the <body> is swapped, so parse-time node refs go
+    // stale on every client navigation.
+    function refreshEls() {
+      loaderEl = document.getElementById('page-loader');
+      pageEl = document.querySelector('[data-page-root]');
+      noticeEl = document.getElementById('stale-data-notice');
+      yearSel = document.getElementById('year-select');
+    }
+
+    async function boot() {
       try {
         var result = await loadPortalData({ apiBase: apiBase, sessionCache: sessionCache });
         state.data = result.data || {};
@@ -145,9 +155,37 @@ const lang = 'en';
       } catch (e) {
         renderColdFailure();
       }
-    })();
+    }
 
-    if (yearSel) yearSel.addEventListener('change', renderExpenses);
-    window.addEventListener('cpm:langchange', onLangChange);
+    // ---- Per-navigation init (View Transitions) ----------------------------
+    // STRATEGY: re-init on astro:page-load so the ledger + #year-select options
+    // rebuild for the freshly-swapped DOM. Fires on the initial real load AND
+    // every client swap, so boot() is NOT also called at parse time (no
+    // double-boot).
+    //
+    // PAGE-IDENTITY GUARD (why this exists): the handler is registered on
+    // `document`, which is NOT swapped by the router and is never removed, so
+    // this page's handler stays live and fires on EVERY later swap even when a
+    // different page is mounted. Without a guard, each swap would re-run this
+    // page's boot() (a redundant loadPortalData() fetch) and re-bind
+    // renderExpenses to the SAME persisted #year-select. addEventListener only
+    // de-dupes identical (node,type,fn) triples, so every visited page's
+    // distinct renderX stays bound and one year change fires them all against
+    // unmounted DOM. FIX: bail unless THIS page is the mounted one. The four
+    // data pages share `[data-page-root]`, so we gate on this page's UNIQUE
+    // element id (#exp-list) instead — absent = not this page = no-op.
+    document.addEventListener('astro:page-load', function () {
+      if (!document.getElementById('exp-list')) return;
+      refreshEls();
+      boot();
+      if (yearSel) yearSel.addEventListener('change', renderExpenses);
+    });
+
+    // Window-level cpm:langchange bound exactly ONCE (a window listener survives
+    // swaps, so re-adding it per page-load would stack duplicates).
+    if (!window.__cpmExpensesLangBound) {
+      window.__cpmExpensesLangBound = true;
+      window.addEventListener('cpm:langchange', onLangChange);
+    }
   })();
 </script>

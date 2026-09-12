@@ -36,12 +36,31 @@ const currentPath = rawPath.length > 1 ? rawPath.replace(/\/$/, '') : rawPath;
 const isActive = (href) => currentPath === href;
 ---
 
+<!-- VIEW-TRANSITIONS STRATEGY: transition:persist.
+     The header (theme toggle + language toggle + #year-select) is marked
+     transition:persist so its DOM and its already-bound click handlers + the
+     in-memory `lang` state SURVIVE client swaps unchanged. That means the inline
+     IIFE below binds its listeners exactly ONCE (on the real load) and is never
+     re-run on navigation, so there is no risk of double-bound toggles.
+     CAVEAT (year options): #year-select lives inside this persisted header, so
+     its <option>s persist too — but each destination page's populateYears()
+     runs on astro:page-load and REPLACES yearSel.innerHTML, so the year list is
+     always refreshed for the new page (see the data pages).
+     THEME across swaps: the no-flash <head> script sets the `dark` class on
+     <html> on the real load; View Transitions does NOT replace the <html>
+     element on a swap, so the theme class simply persists — no re-apply needed. -->
 <header
+  transition:persist
   class="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90"
 >
   <div class="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
-    <!-- Brand: emblem + bilingual title -->
-    <a href="/" class="flex items-center gap-2" aria-label="Home">
+    <!-- Brand: emblem + bilingual title.
+         min-w-0 on the anchor AND the text wrapper lets flexbox actually shrink
+         the brand below its content width on narrow screens (a flex child will
+         not shrink past its intrinsic content size without min-w-0), and
+         truncate keeps the long bilingual title on one line each so it can never
+         push into the grouped controls. The logo stays flex-none. -->
+    <a href="/" class="flex min-w-0 items-center gap-2" aria-label="Home">
       <img
         src="/logo.svg"
         alt="Navyuvak Chhath Puja Samiti"
@@ -50,11 +69,11 @@ const isActive = (href) => currentPath === href;
         class="h-10 w-10 flex-none"
         decoding="async"
       />
-      <span class="leading-tight">
-        <span class="block text-base font-bold text-brand-600 dark:text-brand-400" data-i18n="app_title">
+      <span class="min-w-0 leading-tight">
+        <span class="block truncate text-base font-bold text-brand-600 dark:text-brand-400" data-i18n="app_title">
           {t(lang, 'app_title')}
         </span>
-        <span class="block text-xs text-slate-500 dark:text-slate-400" data-i18n="app_subtitle">
+        <span class="block truncate text-xs text-slate-500 dark:text-slate-400" data-i18n="app_subtitle">
           {t(lang, 'app_subtitle')}
         </span>
       </span>
@@ -72,8 +91,13 @@ const isActive = (href) => currentPath === href;
       ))}
     </nav>
 
-    <!-- THE THREE CONTROLS, grouped together -->
-    <div class="flex items-center gap-2">
+    <!-- THE THREE CONTROLS, grouped together.
+         flex-none keeps the whole group at its natural width so it never shrinks
+         or wraps into the brand; the brand (with min-w-0 + truncate) absorbs the
+         squeeze instead. A slightly tighter gap on the smallest screens
+         (gap-1.5) widens to gap-2 at sm so all three controls stay tappable at
+         ~320-375px without overlapping the title. -->
+    <div class="flex flex-none items-center gap-1.5 sm:gap-2">
       <!-- 1) Language toggle -->
       <button
         id="lang-toggle"
@@ -217,6 +241,33 @@ const isActive = (href) => currentPath === href;
       }
     }
     applyLang();
+
+    // RE-LOCALIZE AFTER CLIENT SWAPS.
+    // Under View Transitions the header is persisted (this script runs once) but
+    // the SWAPPED-IN page content is server-rendered in English (`const lang =
+    // 'en'` in each page). After every swap we re-run applyLang() so the new
+    // page's [data-i18n] / [data-i18n-placeholder] nodes are localized to the
+    // saved language. We call applyLang() ONLY (never re-add listeners), reading
+    // the same in-memory `lang` (kept in sync with LANG_KEY) so it matches the
+    // persisted toggle state. Registered once (this IIFE runs once). Guarded so
+    // repeated navigations never stack the handler even if Astro were to re-run
+    // the script for any reason.
+    //
+    // LOCALIZATION HOOK SPLIT (static labels vs DATA): the STATIC [data-i18n]
+    // chrome is re-localized here on astro:after-swap; the data pages re-render
+    // their DATA-built markup (localized in the same read of LANG_KEY) on
+    // astro:page-load. Both hooks read the identical persisted language, and both
+    // run before the browser paints the swapped body (astro:after-swap fires
+    // during the swap, astro:page-load right after it, both ahead of the first
+    // post-swap paint), so there is no flash of English DATA — the swapped-in
+    // content is already localized when it becomes visible. This ordering is a
+    // runtime concern that cannot be exercised in the sandbox; confirm on a
+    // Vercel preview (toggle to हिं, then tab across pages: labels AND data must
+    // stay Hindi with no English flash).
+    if (!window.__cpmHeaderSwapBound) {
+      window.__cpmHeaderSwapBound = true;
+      document.addEventListener('astro:after-swap', function () { applyLang(); });
+    }
 
     if (langBtn) {
       langBtn.addEventListener('click', function () {

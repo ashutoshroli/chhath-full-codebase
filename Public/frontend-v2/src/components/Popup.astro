@@ -10,8 +10,17 @@
 // setupPopupAutoPlayPause / popupPrev/NextSlide / closePopup), rebuilt as a
 // self-contained Astro island so it drops into Layout and appears on every page.
 //
-// FETCHED FRESH ON EVERY LOAD (no localStorage dismissal memory) — matches the
-// requirement that it shows again on each refresh, not just once per browser.
+// FETCHED FRESH ON EVERY REAL DOCUMENT LOAD (no localStorage dismissal memory)
+// — matches the requirement that it shows again on each refresh, not just once
+// per browser.
+//
+// VIEW-TRANSITIONS GATING (fixes "popup re-fires on every tab switch"):
+// With <ViewTransitions /> enabled in Layout, internal tab navigation is a
+// CLIENT SWAP, not a full document load. This bundled module <script> runs only
+// for a real document load and is NOT re-executed on swaps, so loadPopup() fires
+// ONLY on a first visit + manual refresh (F5), never on tab navigation. There is
+// deliberately NO astro:page-load listener here. See the detailed comment at the
+// loadPopup() call site below.
 //
 // WHY A BUNDLED ISLAND (no framework hydration, NO define:vars)
 // Like Chatbot.astro, this is a handful of DOM handlers + timers. We keep the
@@ -275,6 +284,32 @@
         .catch(function () { return ''; });
     }
 
-    loadPopup();
+    // --- REAL-LOAD-ONLY GATING (View Transitions) ---------------------------
+    // THE FIX for "popup baar baar aa raha hai on every tab switch": this popup
+    // must show ONLY on a real document load (first visit + manual refresh/F5),
+    // NOT on internal tab navigation.
+    //
+    // HOW IT IS GATED:
+    //   - Real document load  => this bundled module <script> executes => the
+    //     IIFE runs => loadPopup() is called => the popup shows.
+    //   - Client swap (tab nav under <ViewTransitions />) => a bundled module
+    //     script is NOT re-executed for a swapped page => this IIFE does NOT run
+    //     again => loadPopup() is NOT called => the popup stays closed.
+    //
+    // So the PRIMARY guarantee is simply that we do NOT listen to astro:page-load
+    // and do NOT re-wrap loadPopup() — there is deliberately no astro:page-load
+    // handler here. We do NOT use a sessionStorage/localStorage "once ever" flag
+    // because the popup MUST reappear on every manual refresh (the user's
+    // explicit ask). The overlay markup is intentionally NOT transition:persist,
+    // so it is torn down with the body between navigations.
+    //
+    // `booted` is a small defensive guard against an accidental double-invoke
+    // within the SAME document (e.g. if this IIFE were ever evaluated twice in
+    // one real load); it is not the swap guard (a genuinely re-executed module
+    // would reset it) — the "not wrapped in astro:page-load" contract above is.
+    if (!window.__cpmPopupBooted) {
+      window.__cpmPopupBooted = true;
+      loadPopup();
+    }
   })();
 </script>

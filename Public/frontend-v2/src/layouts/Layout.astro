@@ -10,6 +10,7 @@
 //     so the canonical/OG origin is never hardcoded.
 //   - Render the Header (with the three grouped controls) and a page <slot/>.
 import '../styles/global.css';
+import { ViewTransitions } from 'astro:transitions';
 import Header from '../components/Header.astro';
 import Chatbot from '../components/Chatbot.astro';
 import Popup from '../components/Popup.astro';
@@ -69,6 +70,22 @@ const { title, description, lang = 'en' } = Astro.props;
          shared config (siteUrl) + optional per-page title/description props, all
          with fail-safe defaults ported from the old index.html. -->
     <Seo title={title} description={description} />
+
+    <!-- VIEW TRANSITIONS (client-side routing)
+         WHY: this is a multi-page static site, so every nav click USED to be a
+         full document load — which re-ran the announcement popup island on every
+         internal tab switch (the reported bug). <ViewTransitions /> upgrades
+         same-origin nav clicks into SPA-style client swaps (the <body> is
+         swapped in place, no full reload), so the popup island does NOT re-fire
+         on tab navigation. A first visit or a manual browser refresh (F5) is
+         still a REAL document load, so the popup still shows exactly there.
+         API NOTE: `ViewTransitions` imported from 'astro:transitions' is the
+         correct export for astro ^4.16 (the `ClientRouter` name is the Astro 5
+         rename; do NOT use it here). Because bundled <script> islands do NOT
+         auto re-run on client swaps, each island documents its own
+         persist-vs-re-init strategy (see Header/Chatbot/Popup/Analytics and the
+         data pages' astro:page-load handlers). -->
+    <ViewTransitions />
 
     <!-- PERFORMANCE: pre-connect to the font origins for a faster first fetch. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
