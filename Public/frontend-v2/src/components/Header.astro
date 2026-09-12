@@ -1,0 +1,194 @@
+---
+// Site header for the v2 public portal.
+//
+// THE THREE CONTROLS, GROUPED TOGETHER
+// Per the explicit request, the language toggle, the year dropdown, and the
+// dark/light theme toggle live SIDE BY SIDE in the header. Phase 1 wires the
+// language and theme toggles fully; the year dropdown is a placeholder that
+// Phase 2 will populate from the portal data payload.
+//
+// The interactive bits run in a small inline <script>: no framework hydration
+// is needed for three simple controls, which keeps the page fast. UI labels are
+// rendered server-side from the ported i18n dictionary, and the language toggle
+// re-applies data-i18n text on the client so switching is instant and offline.
+import { t, T, LANG_KEY, LANGS } from '../i18n.js';
+import { mgmtLoginUrl } from '../config.js';
+
+// Server-render everything in the default language; the client script re-applies
+// the saved language on load and on toggle.
+const lang = 'en';
+---
+
+<header
+  class="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90"
+>
+  <div class="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
+    <!-- Brand: emblem + bilingual title -->
+    <a href="/" class="flex items-center gap-2" aria-label="Home">
+      <img
+        src="/logo.svg"
+        alt="Navyuvak Chhath Puja Samiti"
+        width="40"
+        height="40"
+        class="h-10 w-10 flex-none"
+        decoding="async"
+      />
+      <span class="leading-tight">
+        <span class="block text-base font-bold text-brand-600 dark:text-brand-400" data-i18n="app_title">
+          {t(lang, 'app_title')}
+        </span>
+        <span class="block text-xs text-slate-500 dark:text-slate-400" data-i18n="app_subtitle">
+          {t(lang, 'app_subtitle')}
+        </span>
+      </span>
+    </a>
+
+    <!-- Desktop nav (placeholder targets; real routing lands in Phase 2) -->
+    <nav class="hidden items-center gap-5 text-sm font-medium md:flex">
+      <a href="#home" class="hover:text-brand-500" data-i18n="nav_home">{t(lang, 'nav_home')}</a>
+      <a href="#expenses" class="hover:text-brand-500" data-i18n="nav_expenses">{t(lang, 'nav_expenses')}</a>
+      <a href="#loans" class="hover:text-brand-500" data-i18n="nav_loans">{t(lang, 'nav_loans')}</a>
+      <a href="#committee" class="hover:text-brand-500" data-i18n="nav_committee">{t(lang, 'nav_committee')}</a>
+      <a href="#downloads" class="hover:text-brand-500" data-i18n="nav_downloads">{t(lang, 'nav_downloads')}</a>
+    </nav>
+
+    <!-- THE THREE CONTROLS, grouped together -->
+    <div class="flex items-center gap-2">
+      <!-- 1) Language toggle -->
+      <button
+        id="lang-toggle"
+        type="button"
+        class="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:border-brand-500 hover:text-brand-600 dark:border-slate-700 dark:text-slate-200"
+        aria-label="Toggle language"
+      >
+        <span data-lang-label>हिं</span>
+      </button>
+
+      <!-- 2) Year dropdown (placeholder — populated from data in Phase 2) -->
+      <label class="sr-only" for="year-select" data-i18n="year">{t(lang, 'year')}</label>
+      <select
+        id="year-select"
+        class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+        aria-label="Select year"
+      >
+        <option value="">{t(lang, 'year')}</option>
+      </select>
+
+      <!-- 3) Theme (dark/light) toggle -->
+      <button
+        id="theme-toggle"
+        type="button"
+        class="rounded-md border border-slate-300 px-2 py-1 text-slate-700 hover:border-brand-500 hover:text-brand-600 dark:border-slate-700 dark:text-slate-200"
+        aria-label="Toggle dark mode"
+      >
+        <span class="material-icons-round text-base align-middle" data-theme-icon aria-hidden="true">dark_mode</span>
+      </button>
+
+      <!-- Login link (management portal; URL is env-driven, never hardcoded here) -->
+      <a
+        id="mgmt-login"
+        href={mgmtLoginUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="hidden rounded-md bg-brand-500 px-3 py-1 text-xs font-semibold text-white hover:bg-brand-600 sm:inline-block"
+        data-i18n="login"
+      >
+        {t(lang, 'login')}
+      </a>
+    </div>
+  </div>
+
+  <!-- Mobile bottom-nav placeholder (fleshed out in Phase 2) -->
+  <nav
+    class="fixed inset-x-0 bottom-0 z-40 flex items-center justify-around border-t border-slate-200 bg-white/95 py-2 text-xs backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 md:hidden"
+    aria-label="Mobile navigation"
+  >
+    <a href="#home" class="px-2" data-i18n="nav_home">{t(lang, 'nav_home')}</a>
+    <a href="#expenses" class="px-2" data-i18n="nav_expenses">{t(lang, 'nav_expenses')}</a>
+    <a href="#loans" class="px-2" data-i18n="nav_loans">{t(lang, 'nav_loans')}</a>
+    <a href="#committee" class="px-2" data-i18n="nav_committee">{t(lang, 'nav_committee')}</a>
+    <a href="#downloads" class="px-2" data-i18n="nav_downloads">{t(lang, 'nav_downloads')}</a>
+  </nav>
+</header>
+
+<!-- Client wiring for the three controls. Kept inline (no framework) so the
+     controls work the instant the page loads. The i18n dictionary and the
+     localStorage key are injected as JSON via define:vars so the client uses the
+     exact same strings/key as the server render — no duplicated dictionary. -->
+<script define:vars={{ T, LANG_KEY, LANGS }}>
+  (function () {
+    var html = document.documentElement;
+
+    // --- THEME (dark/light) -------------------------------------------------
+    // The no-flash script in <head> already set the initial class; here we just
+    // reflect state in the icon and persist the user's explicit choice.
+    var themeBtn = document.getElementById('theme-toggle');
+    var themeIcon = themeBtn && themeBtn.querySelector('[data-theme-icon]');
+
+    function syncThemeIcon() {
+      if (!themeIcon) return;
+      // Show the icon for the action the click will perform.
+      themeIcon.textContent = html.classList.contains('dark') ? 'light_mode' : 'dark_mode';
+    }
+    syncThemeIcon();
+
+    if (themeBtn) {
+      themeBtn.addEventListener('click', function () {
+        var nowDark = html.classList.toggle('dark');
+        try {
+          localStorage.setItem('theme', nowDark ? 'dark' : 'light');
+        } catch (e) {
+          /* private mode — session-only toggle is fine */
+        }
+        syncThemeIcon();
+      });
+    }
+
+    // --- LANGUAGE -----------------------------------------------------------
+    function normalizeLang(l) {
+      return l === 'hi' ? 'hi' : 'en';
+    }
+    function tr(l, key) {
+      var lang = normalizeLang(l);
+      return (T[lang] && T[lang][key]) || T.en[key] || key;
+    }
+
+    var lang = 'en';
+    try {
+      lang = normalizeLang(localStorage.getItem(LANG_KEY));
+    } catch (e) {
+      lang = 'en';
+    }
+
+    var langBtn = document.getElementById('lang-toggle');
+    var langLabel = langBtn && langBtn.querySelector('[data-lang-label]');
+
+    // Re-apply every static string tagged with data-i18n, update <html lang>,
+    // and set the toggle to show the OTHER language's short label.
+    function applyLang() {
+      html.setAttribute('lang', lang);
+      var nodes = document.querySelectorAll('[data-i18n]');
+      for (var i = 0; i < nodes.length; i++) {
+        var key = nodes[i].getAttribute('data-i18n');
+        nodes[i].textContent = tr(lang, key);
+      }
+      if (langLabel) {
+        // Offer the language you'd switch TO.
+        langLabel.textContent = lang === 'hi' ? 'EN' : 'हिं';
+      }
+    }
+    applyLang();
+
+    if (langBtn) {
+      langBtn.addEventListener('click', function () {
+        lang = lang === 'hi' ? 'en' : 'hi';
+        try {
+          localStorage.setItem(LANG_KEY, lang);
+        } catch (e) {
+          /* private mode — session-only language is fine */
+        }
+        applyLang();
+      });
+    }
+  })();
+</script>

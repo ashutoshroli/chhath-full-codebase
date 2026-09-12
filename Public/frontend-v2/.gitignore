@@ -1,0 +1,15 @@
+# Dependencies — restored by `npm install`, never committed.
+node_modules/
+
+# Astro build output and internal type cache — generated, not source.
+dist/
+.astro/
+
+# Vercel local project link / build cache.
+.vercel/
+
+# Local environment overrides. The PUBLIC_* vars live in Vercel project
+# settings; these files (if present) hold local-only values and must never
+# be committed, so a developer's staging URLs can't leak into git.
+.env
+.env.*

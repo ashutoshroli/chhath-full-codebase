@@ -1,0 +1,114 @@
+---
+// Base HTML shell for every v2 page.
+//
+// Responsibilities:
+//   - No-flash theme: apply the `dark` class BEFORE first paint so users never
+//     see a light flash before their saved dark theme kicks in.
+//   - Non-render-blocking fonts (Inter + Material Icons) so the web font fetch
+//     stays off the critical path (better LCP), matching the old site's pattern.
+//   - Env-driven SEO defaults in <head>, sourced from the shared config module
+//     so the canonical/OG origin is never hardcoded.
+//   - Render the Header (with the three grouped controls) and a page <slot/>.
+import '../styles/global.css';
+import Header from '../components/Header.astro';
+import { siteUrl } from '../config.js';
+
+export interface Props {
+  title?: string;
+  description?: string;
+  lang?: string;
+}
+
+const {
+  title = 'Navyuvak Chhath Puja Samiti Shaharpura | Chhath Puja Transparency Portal',
+  description =
+    'Official transparency portal of Navyuvak Chhath Puja Samiti, Shaharpura & Gardih (Giridih, Jharkhand). View Chhath Puja collections, expenses, loans and committee details with full public transparency.',
+  lang = 'en',
+} = Astro.props;
+
+const canonical = new URL(Astro.url.pathname, siteUrl).href;
+---
+
+<!doctype html>
+<html lang={lang} class="scroll-smooth">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!-- NO-FLASH THEME
+         Runs synchronously in <head>, before any body paint. It reads the saved
+         choice ('theme' in localStorage) and, only when nothing is saved, falls
+         back to the OS preference. Setting the `dark` class here (rather than in
+         a deferred script) is what prevents the light-mode flash on load. -->
+    <script is:inline>
+      (function () {
+        try {
+          var saved = localStorage.getItem('theme');
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches;
+          if (saved === 'dark' || (!saved && prefersDark)) {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+        } catch (e) {
+          /* private mode / storage disabled — default to light, no crash */
+        }
+      })();
+    </script>
+
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#F27A1A" />
+
+    <!-- Social link preview (Open Graph + Twitter). Origin comes from config. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!-- PERFORMANCE: pre-connect to the font origins for a faster first fetch. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <!-- Fonts loaded NON-render-blocking (media=print + onload swap), with a
+         <noscript> fallback. Keeps the font fetch off the critical path so it
+         never delays LCP; `display=swap` shows fallback text meanwhile. -->
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap"
+      media="print"
+      onload="this.media='all'"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/icon?family=Material+Icons+Round&display=swap"
+      media="print"
+      onload="this.media='all'"
+    />
+    <noscript>
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap"
+      />
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/icon?family=Material+Icons+Round"
+      />
+    </noscript>
+
+    <!-- Per-page head extras (page-specific meta, JSON-LD, etc.). -->
+    <slot name="head" />
+  </head>
+  <body class="min-h-screen">
+    <Header />
+    <main>
+      <slot />
+    </main>
+  </body>
+</html>
