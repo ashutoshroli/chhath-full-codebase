@@ -156,27 +156,50 @@ const isActive = (href) => isActivePath(currentPath, href);
       </a>
     </div>
   </div>
-
-  <!-- Mobile bottom-nav: same real routes + active state as the desktop top nav.
-       Shown below `md` (hidden from 768px), the exact complement of the top nav's
-       `md:flex`, so on mobile the tabs sit at the bottom and only desktop shows
-       them in the header — matching the old portal (.desktop-nav/.bottom-nav flip
-       at 768px) and frontend-v3 (md:flex / md:hidden) references exactly. -->
-  <nav
-    class="fixed inset-x-0 bottom-0 z-40 flex items-center justify-around border-t border-slate-200 bg-white/95 py-2 text-xs backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 md:hidden"
-    aria-label="Mobile navigation"
-  >
-    {navItems.map((item) => (
-      <a
-        href={item.href}
-        data-nav-href={item.href}
-        class={`px-2 ${isActive(item.href) ? 'font-bold text-brand-600 dark:text-brand-400' : 'text-slate-600 dark:text-slate-300'}`}
-        aria-current={isActive(item.href) ? 'page' : undefined}
-        data-i18n={item.key}
-      >{t(lang, item.key)}</a>
-    ))}
-  </nav>
 </header>
+
+<!-- Mobile bottom-nav: same real routes + active state as the desktop top nav.
+     Shown below `md` (hidden from 768px), the exact complement of the top nav's
+     `md:flex`, so on mobile the tabs sit at the BOTTOM of the screen and only
+     desktop shows them in the header.
+
+     ⚠️ WHY THIS NAV LIVES OUTSIDE <header> (do NOT move it back inside)
+     This was a real bug: the nav used to be nested INSIDE <header>, and the
+     <header> carries `backdrop-blur` (backdrop-filter). Per CSS, an element with
+     a backdrop-filter other than `none` becomes a CONTAINING BLOCK for its
+     fixed-positioned descendants — so this nav's `fixed ... bottom-0` anchored to
+     the HEADER's box instead of the viewport. Because the header sits at the top
+     of the page and is only one row tall, the nav rendered directly under the
+     brand row at the TOP of the screen, overlapping/clipping the header — which
+     is exactly the reported symptom, and why changing the md/lg breakpoint never
+     helped (the element and its classes were always correct; only its
+     positioning container was wrong).
+     Keeping it as a SIBLING of <header> (a component can have multiple root
+     elements) puts it back in the viewport's containing block, so `bottom-0`
+     means the bottom of the screen. This mirrors the working references exactly:
+     old Public/frontend/index.html closes </header> at ~L166 with .bottom-nav at
+     ~L252, and Public/frontend-v3/index.html closes </header> at L176 with its
+     `fixed bottom-0 ... md:hidden` nav at L263 — both OUTSIDE the (also
+     backdrop-blurred) header.
+     NOTE: unlike <header> this nav is deliberately NOT transition:persist, so
+     each View Transitions swap re-renders it with the destination page's own
+     server-computed active state; the active-nav updater (which queries
+     [data-nav-href] document-wide on astro:page-load) keeps it in sync either
+     way, so the two never disagree. -->
+<nav
+  class="fixed inset-x-0 bottom-0 z-40 flex items-center justify-around border-t border-slate-200 bg-white/95 py-2 text-xs backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 md:hidden"
+  aria-label="Mobile navigation"
+>
+  {navItems.map((item) => (
+    <a
+      href={item.href}
+      data-nav-href={item.href}
+      class={`px-2 ${isActive(item.href) ? 'font-bold text-brand-600 dark:text-brand-400' : 'text-slate-600 dark:text-slate-300'}`}
+      aria-current={isActive(item.href) ? 'page' : undefined}
+      data-i18n={item.key}
+    >{t(lang, item.key)}</a>
+  ))}
+</nav>
 
 <!-- Client wiring for the three controls. Kept inline (no framework) so the
      controls work the instant the page loads. The i18n dictionary and the
