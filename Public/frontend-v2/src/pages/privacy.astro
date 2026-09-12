@@ -1,13 +1,4 @@
 ---
-// Privacy Policy page for the v2 public portal.
-//
-// The bilingual copy is ported VERBATIM from the old Public/frontend/privacy.html
-// (both the English and Hindi text). The originals showed/hid [data-lang="en"] /
-// [data-lang="hi"] spans via <html lang>; the v2 Header already manages <html
-// lang> and the lang toggle, and the show/hide CSS now lives in global.css, so
-// this page just carries the content inside the shared Layout — theme-aware
-// (Tailwind dark: classes) and responsive. The © year is filled by a tiny inline
-// script (there is no data fetch on this static legal page).
 import Layout from '../layouts/Layout.astro';
 ---
 
@@ -93,8 +84,6 @@ import Layout from '../layouts/Layout.astro';
   </main>
 </Layout>
 
-<!-- Fill the © year. The Header manages <html lang> + the bilingual toggle, so
-     this page needs no language script of its own. -->
 <script is:inline>
   (function () {
     var y = document.getElementById('yr');

@@ -18,8 +18,6 @@ function DownloadItem({ item, onGenerated, canGenerate }) {
       try {
         templateRow = await api.getDocxTemplateForDoc(item.docType, item.year);
       } catch (err) {
-        // Was `.catch(() => null)`, which turned a genuine load failure into the
-        // misleading "no template exists — upload one" message.
         reportClientError('DownloadCenter', `Template load failed for ${item.docType} ${item.year}`, err,
           { docType: item.docType, year: item.year, recordId: item.recordId });
         setError(`Template failed to load: ${err.message}`);
@@ -51,8 +49,6 @@ function DownloadItem({ item, onGenerated, canGenerate }) {
       const fileName = `${item.fileNameHint}.docx`;
       const res = await api.convertDocxToPdfBulk(item.docType, item.year, item.recordId, filledBase64, fileName);
 
-      // indexFailed was returned by the backend and ignored here, so the file
-      // looked generated while the public portal would show "Not Available".
       if (res && res.indexFailed) {
         setWarning(res.error || 'The PDF was generated but not indexed in the public portal.');
         reportClientError('DownloadCenter', `PDF generated but NOT indexed: ${item.recordId}`, null,

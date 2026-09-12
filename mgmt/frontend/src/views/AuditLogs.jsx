@@ -2,14 +2,6 @@ import { useEffect, useState } from 'react';
 import { api, reportClientError } from '../api.js';
 import CleanupPanel from '../components/CleanupPanel.jsx';
 
-// Activity & Login Logs (Superadmin only).
-//
-// Three tools over the audit DB:
-//  1. Login attempts — who logged in / failed, when, from which IP/device, and
-//     why a failure happened (wrong password / unknown user / locked out).
-//  2. Locked accounts — accounts/IPs currently locked out, with one-click unlock.
-//  3. User sessions — look up any user's active devices and force-log-out one or
-//     all of them.
 
 function timeAgo(iso) {
   if (!iso) return '';
@@ -30,7 +22,7 @@ const REASON_LABEL = {
 };
 
 export default function AuditLogs({ role }) {
-  const [tab, setTab] = useState('logins'); // logins | locked | sessions
+  const [tab, setTab] = useState('logins');
 
   return (
     <div>
@@ -62,7 +54,6 @@ export default function AuditLogs({ role }) {
   );
 }
 
-// ---- Activity trail: what users added / edited / deleted ----
 function ActivityTrail() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -77,7 +68,7 @@ function ActivityTrail() {
       .catch(err => { setError(err.message); reportClientError('AuditLogs', 'getActivityLog failed', err); })
       .finally(() => setLoading(false));
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { load();  }, []);
 
   return (
     <div>
@@ -107,13 +98,12 @@ function ActivityTrail() {
   );
 }
 
-// ---- 1. Login attempts ----
 function LoginAttempts() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [name, setName] = useState('');
-  const [filter, setFilter] = useState('all'); // all | failed | success
+  const [filter, setFilter] = useState('all');
 
   const load = () => {
     setLoading(true);
@@ -126,7 +116,7 @@ function LoginAttempts() {
       .catch(err => { setError(err.message); reportClientError('AuditLogs', 'getLoginAttempts failed', err); })
       .finally(() => setLoading(false));
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [filter]);
+  useEffect(() => { load();  }, [filter]);
 
   return (
     <div>
@@ -167,7 +157,6 @@ function LoginAttempts() {
   );
 }
 
-// ---- 2. Locked accounts ----
 function LockedAccounts() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -227,7 +216,6 @@ function LockedAccounts() {
   );
 }
 
-// ---- 3. Any user's active sessions + force logout ----
 function UserSessions() {
   const [targetName, setTargetName] = useState('');
   const [rows, setRows] = useState([]);

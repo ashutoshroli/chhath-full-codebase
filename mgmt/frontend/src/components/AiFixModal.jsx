@@ -3,31 +3,12 @@ import { api, reportClientError } from '../api.js';
 import Modal from './Modal.jsx';
 import DiffView from './DiffView.jsx';
 
-// "Fix using AI" preview modal.
-//
-// The heavy work (model call + GitHub reads/commits/PR) runs on the external
-// Render service, so the steps are ASYNC and REUSABLE:
-//   - On open we first ask getLatestAiFixForError(errorId): if a fix already exists
-//     we REUSE it (show the stored diff for a ready fix, or resume polling the live
-//     jobId for a still-'pending' one) instead of starting a new job.
-//   - Only when there is NO live fix do we call generateAiFix(). That call also
-//     prevents duplicates server-side; "Re-generate" passes force:true for a fresh
-//     attempt.
-//   - "Move to background" just closes the modal; the Render job keeps running and
-//     the result is saved, so re-opening the modal shows it.
-//
-// Superadmin-only (enforced by the backend; reachable only from the Superadmin
-// Error Log screen).
 
 const POLL_INTERVAL_MS = 2500;
-const POLL_TIMEOUT_MS = 3 * 60 * 1000; // give up the UI poll after 3 min
+const POLL_TIMEOUT_MS = 3 * 60 * 1000;
 
-// Poll getRenderJobStatus(jobId) until the job is completed/failed or we time out.
-// Returns the job object ({ status, result, error }). `isCancelled` lets the caller
-// abort when the modal closes / moves to background.
 async function pollRenderJob(jobId, isCancelled) {
   const start = Date.now();
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     if (isCancelled()) throw new Error('cancelled');
     if (Date.now() - start > POLL_TIMEOUT_MS) {
@@ -37,8 +18,6 @@ async function pollRenderJob(jobId, isCancelled) {
     try {
       res = await api.getRenderJobStatus(jobId);
     } catch (e) {
-      // getRenderJobStatus throws on {success:false} (e.g. job not found yet);
-      // treat transient errors as "keep waiting".
       res = null;
     }
     const job = res && res.job;
@@ -47,7 +26,6 @@ async function pollRenderJob(jobId, isCancelled) {
   }
 }
 
-// Shape a stored ai_fixes row into the modal's result object.
 function resultFromFixRow(fix) {
   let files = [];
   try { files = fix.files_json ? JSON.parse(fix.files_json) : []; } catch (e) { files = []; }
@@ -65,15 +43,12 @@ export default function AiFixModal({ error, onClose }) {
   const [loading, setLoading] = useState(true);
   const [statusMsg, setStatusMsg] = useState('Loading…');
   const [errMsg, setErrMsg] = useState('');
-  const [result, setResult] = useState(null); // { fixId, diff, reasoning, files, model, tokens }
+  const [result, setResult] = useState(null);
   const [creating, setCreating] = useState(false);
-  const [pr, setPr] = useState(null); // { prNumber, prUrl, branch } once the PR is created
-  // Optional developer guidance for a Re-generate — steers the next attempt
-  // (e.g. "don't hardcode the domain, read VITE_API_URL" / "only touch api.js").
+  const [pr, setPr] = useState(null);
   const [guidance, setGuidance] = useState('');
   const cancelledRef = useRef(false);
 
-  // Poll a running Render job for the GENERATE step and reflect its outcome.
   const pollGenerate = async (jobId, fixId, isCancelled) => {
     setStatusMsg('Generating a fix with AI… this runs in the background and can take a little while.');
     const job = await pollRenderJob(jobId, isCancelled);
@@ -86,8 +61,6 @@ export default function AiFixModal({ error, onClose }) {
     }
   };
 
-  // Kick off / resume the flow. `force` starts a fresh generation (Re-generate);
-  // `guidanceText` (only meaningful with force) steers that fresh attempt.
   const startFlow = async (force, guidanceText) => {
     const isCancelled = () => cancelledRef.current;
     setLoading(true);
@@ -96,12 +69,10 @@ export default function AiFixModal({ error, onClose }) {
     setPr(null);
     setStatusMsg(force ? 'Starting a new AI fix…' : 'Loading…');
     try {
-      // 1) REUSE an existing fix unless the caller forced a fresh one.
       if (!force) {
         const latest = await api.getLatestAiFixForError(error.error_id);
         const fix = latest && latest.fix;
         if (fix && (fix.status === 'fix_generated' || fix.status === 'pr_created' || fix.status === 'ci_running' || fix.status === 'ci_failed' || fix.status === 'needs_manual_review')) {
-          // A ready (or already-PR'd) fix — show it directly, no new job.
           setResult(resultFromFixRow(fix));
           if (fix.status === 'pr_created' && fix.pr_number) {
             setPr({ prNumber: fix.pr_number, prUrl: fix.pr_url, branch: fix.branch });
@@ -110,19 +81,14 @@ export default function AiFixModal({ error, onClose }) {
           return;
         }
         if (fix && fix.status === 'pending' && latest.jobId) {
-          // Still generating on Render — resume polling the SAME job.
           await pollGenerate(latest.jobId, fix.fix_id, isCancelled);
           if (!isCancelled()) setLoading(false);
           return;
         }
-        // No live fix (none yet, or the last one failed) -> fall through to generate.
       }
 
-      // 2) Start (or force) a generation. generateAiFix reuses server-side too.
-      // guidanceText only travels on a forced (Re-generate) attempt.
       const start = await api.generateAiFix(error.error_id, force, force ? (guidanceText || '') : '');
       if (start && start.reused && !start.jobId) {
-        // Server says a ready fix exists — load it.
         const row = await api.getAiFix(start.fixId);
         setResult(resultFromFixRow(row));
         if (row.status === 'pr_created' && row.pr_number) {
@@ -134,7 +100,7 @@ export default function AiFixModal({ error, onClose }) {
       if (start && start.jobId) {
         await pollGenerate(start.jobId, start.fixId, isCancelled);
       } else if (start) {
-        setResult(start); // back-compat synchronous result
+        setResult(start);
       }
     } catch (err) {
       if (isCancelled()) return;
@@ -149,11 +115,8 @@ export default function AiFixModal({ error, onClose }) {
     cancelledRef.current = false;
     startFlow(false);
     return () => { cancelledRef.current = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [error.error_id]);
 
-  // "Move to background": stop polling in the UI but leave the Render job running;
-  // its result is saved and re-opening the modal will show it.
   const moveToBackground = () => {
     cancelledRef.current = true;
     onClose();
@@ -221,8 +184,8 @@ export default function AiFixModal({ error, onClose }) {
         </>
       )}
 
-      {/* Optional guidance for Re-generate: only useful once there is a result (or
-          an error) to redo, and before a PR exists. Empty = a plain re-run. */}
+      {
+}
       {!loading && (result || errMsg) && !pr && (
         <div style={{ marginBottom: 12 }}>
           <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 4 }}>

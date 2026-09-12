@@ -1,5 +1,3 @@
-// Unit tests for the framework-free SEO metadata builder.
-// Runs under plain `node --test` — imports ONLY src/lib/seo.js (no Astro).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { seoTags, organizationJsonLd, SEO_DEFAULTS } from '../src/lib/seo.js';
@@ -12,7 +10,7 @@ test('seoTags applies ported defaults when no page props are given', () => {
   assert.equal(seo.description, SEO_DEFAULTS.description);
   assert.equal(seo.keywords, SEO_DEFAULTS.keywords);
   assert.equal(seo.robots, 'index, follow');
-  assert.equal(seo.themeColor, '#F97316'); // reconciled to the old SEO value
+  assert.equal(seo.themeColor, '#F97316');
 });
 
 test('seoTags derives canonical + og:url from the passed siteUrl and pathname', () => {
@@ -22,7 +20,6 @@ test('seoTags derives canonical + og:url from the passed siteUrl and pathname', 
 });
 
 test('seoTags root pathname yields the origin + / canonical (no double slash)', () => {
-  // Even when siteUrl carries a trailing slash, joining must not double up.
   const seo = seoTags({ siteUrl: 'https://chhath.shaharpura.com/' }, { pathname: '/' });
   assert.equal(seo.canonical, 'https://chhath.shaharpura.com/');
   assert.ok(!seo.canonical.includes('//expenses'));

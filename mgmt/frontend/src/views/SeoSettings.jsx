@@ -2,14 +2,6 @@ import { useEffect, useState } from 'react';
 import { api, reportClientError } from '../api.js';
 import { prepareImageForUpload } from '../imagePrep.js';
 
-// SEO & Link Preview (Superadmin).
-//
-// One place to control how BOTH portals appear when their links are shared
-// (WhatsApp, Facebook, X) or indexed by search engines: the title, description,
-// keywords and preview image. Values are saved to the server; pressing
-// "Publish" then rebuilds the chosen portal so the new values are baked into its
-// HTML (social crawlers read only the served HTML, so a rebuild is what actually
-// updates a link preview).
 
 const str = (v) => (v === undefined || v === null ? '' : v.toString());
 
@@ -19,8 +11,6 @@ const EMPTY = {
   deployHooks: { publicConfigured: false, mgmtConfigured: false },
 };
 
-// A small card that mimics how a shared link looks in a chat/social feed, so the
-// Superadmin can see the result before publishing.
 function PreviewCard({ image, title, description, domain }) {
   return (
     <div style={{
@@ -56,9 +46,6 @@ export default function SeoSettings() {
   const [uploading, setUploading] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  // Deploy-hook URLs are write-only from the UI: we never receive the saved URL
-  // back (only whether one is configured), so these inputs stay blank unless the
-  // Superadmin is entering/changing a hook.
   const [publicHook, setPublicHook] = useState('');
   const [mgmtHook, setMgmtHook] = useState('');
 
@@ -91,8 +78,6 @@ export default function SeoSettings() {
     setError('');
     setNotice('');
     try {
-      // Downscale + convert in the browser (same helper as popup images), so a
-      // large phone photo or an iPhone HEIC never reaches the Worker as-is.
       const prepped = await prepareImageForUpload(file);
       const res = await api.uploadSeoImage(prepped.base64, prepped.fileName);
       const imageUrl = res.imageUrl || res.url;
@@ -129,8 +114,6 @@ export default function SeoSettings() {
         },
         deployHooks: {},
       };
-      // Only send a hook URL when one was actually typed; a blank field keeps the
-      // existing hook on the server.
       if (publicHook.trim()) payload.deployHooks.publicUrl = publicHook.trim();
       if (mgmtHook.trim()) payload.deployHooks.mgmtUrl = mgmtHook.trim();
 
@@ -188,7 +171,7 @@ export default function SeoSettings() {
       {error && <div className="glass-card" style={{ borderColor: 'var(--danger)', color: 'var(--danger)', marginBottom: 12, padding: 12 }}>{error}</div>}
       {notice && <div className="glass-card" style={{ borderColor: 'var(--success)', color: 'var(--success)', marginBottom: 12, padding: 12 }}>{notice}</div>}
 
-      {/* ---- Public portal ---- */}
+      {}
       <div className="glass-card" style={{ marginBottom: 18, padding: 16 }}>
         <h3 style={{ marginBottom: 12 }}>Public Portal — chhath.shaharpura.com</h3>
 
@@ -211,7 +194,7 @@ export default function SeoSettings() {
         </div>
       </div>
 
-      {/* ---- Management portal ---- */}
+      {}
       <div className="glass-card" style={{ marginBottom: 18, padding: 16 }}>
         <h3 style={{ marginBottom: 12 }}>Management Portal — mgmt-chhath.shaharpura.com</h3>
 
@@ -231,7 +214,7 @@ export default function SeoSettings() {
         </div>
       </div>
 
-      {/* ---- Deploy hooks ---- */}
+      {}
       <div className="glass-card" style={{ marginBottom: 18, padding: 16 }}>
         <h3 style={{ marginBottom: 6 }}>Deploy Hooks</h3>
         <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 12 }}>
@@ -250,7 +233,7 @@ export default function SeoSettings() {
         <input style={inputStyle} value={mgmtHook} onChange={e => setMgmtHook(e.target.value)} placeholder="https://api.vercel.com/v1/integrations/deploy/..." />
       </div>
 
-      {/* ---- Actions ---- */}
+      {}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
         <button style={btn('var(--primary-saffron, #F97316)')} onClick={save} disabled={saving}>
           {saving ? 'Saving...' : 'Save Settings'}

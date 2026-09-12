@@ -1,5 +1,3 @@
-// Unit tests for the framework-free HTML-escaping + URL-gating helpers.
-// Runs under plain `node --test` — imports ONLY src/lib/dom-escape.js (no Astro).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { escapeHtml, safeUrl } from '../src/lib/dom-escape.js';
@@ -33,7 +31,6 @@ test('safeUrl returns http(s) URLs unchanged (trimmed)', () => {
 });
 
 test('safeUrl blocks dangerous / relative schemes', () => {
-  // Build the dangerous scheme via concatenation so no literal appears in source.
   assert.equal(safeUrl('java' + 'script:alert(1)'), '');
   assert.equal(safeUrl('data:text/html,x'), '');
   assert.equal(safeUrl('vb' + 'script:msgbox(1)'), '');

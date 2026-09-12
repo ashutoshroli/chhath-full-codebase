@@ -5,8 +5,6 @@ import Modal from '../components/Modal.jsx';
 import CleanupPanel from '../components/CleanupPanel.jsx';
 import { isTruthyFlag } from '../flags.js';
 
-// ============ Shared template constants (email uses the same lists the WhatsApp
-// templates use) ============
 const LOAN_PLACEHOLDER_HINTS = {
   consent_group: 'Placeholders: {LoanerName} {LoanerNameHindi} {Amount} {Tenure} {InterestRate} {Guarantor1} {Guarantor2} {Guarantor3} {LoanerConsentLink} {Guarantor1ConsentLink} {Guarantor2ConsentLink} {Guarantor3ConsentLink}',
   consent_personal_loaner: 'Placeholders: {Name} {NameHindi} {FatherName} {FatherNameHindi} {Village} {VillageHindi} {Amount} {Tenure} {InterestRate} {Guarantor1} {Guarantor2} {Guarantor3} {ConsentLink}',
@@ -19,8 +17,6 @@ const LOAN_PLACEHOLDER_HINTS = {
   disbursement: 'Placeholders: {Name} {NameHindi} {Amount} {Tenure} {InterestRate} {CashAmount} {OnlineAmount} {TotalAmount}',
   otp: 'Placeholders: {OTP} {Name}',
 };
-// Only the PERSONAL loan types are emailable (group notifications have no email
-// equivalent), so the group types are intentionally omitted here.
 const LOAN_TEMPLATE_TYPES = [
   ['consent_personal_loaner', 'Consent — Loaner'],
   ['consent_personal_guarantor', 'Consent — Guarantor'],
@@ -38,9 +34,6 @@ const DOC_SUB_TYPES = [['', 'Both (Receipt + Certificate)'], ['Receipt', 'Receip
 const FILE_DOC_TYPE_OPTIONS = [['receipt', 'Receipt'], ['receipt_work', 'Work Receipt'], ['certificate', 'Certificate'], ['samaan', 'Material Receipt']];
 const DEFAULT_FILE_DOC_TYPE = { '1': 'receipt', '2': 'samaan', '3': 'receipt_work' };
 
-// ============ Email Templates (Resend) ============
-// Mirrors the person TemplateList, plus a Subject field. Email always targets a
-// single contributor (their users.email), so there is no "group" variant.
 function EmailTemplateList() {
   const hint = 'Placeholders (subject + body): {Name} {NameHindi} {Amount} {Year} {PaymentMethod} {Village} {VillageHindi} {FatherName} {FatherNameHindi} {Detail}';
 
@@ -240,10 +233,6 @@ function EmailTemplateList() {
   );
 }
 
-// ============ Loan Email Templates (Resend) ============
-// One list per loan template type (the same 10 types as the WhatsApp Loan tab),
-// with a Subject field. Sent to the loaner/guarantor's email; group types have
-// no email equivalent but are offered for parity.
 function LoanEmailTemplateList({ loanType }) {
   const hint = LOAN_PLACEHOLDER_HINTS[loanType] || PLACEHOLDER_HINT;
   const [rows, setRows] = useState(null);
@@ -377,10 +366,6 @@ function LoanEmailTemplateList({ loanType }) {
   );
 }
 
-// ============ Email queue monitor (stuck + resend) ============
-// ============ Mail log (view-only + resend, auto-refresh) ============
-// The email equivalent of the WhatsApp "Message" section: every sent/failed/
-// pending email, newest first, with a stuck-queue banner and a re-queue button.
 function MailLog() {
   const [rows, setRows] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -391,9 +376,9 @@ function MailLog() {
   const load = useCallback((silent) => {
     if (!silent) setLoading(true);
     api.getEmailLog().then(setRows).catch(err => setError(err.message)).finally(() => setLoading(false));
-    api.getStuckEmails(30).then(setStuck).catch(() => { /* banner is advisory only */ });
+    api.getStuckEmails(30).then(setStuck).catch(() => {  });
   }, []);
-  usePolling(() => load(true), 60000, [load]); // 60s: keep the email reads light on the D1 free tier
+  usePolling(() => load(true), 60000, [load]);
 
   const badgeClass = (status) => status === 'sent' ? 'badge-ok' : status === 'failed' ? 'badge-warn' : 'badge-pending';
   const stuckCount = stuck ? stuck.total : 0;
@@ -450,7 +435,6 @@ function MailLog() {
   );
 }
 
-// ============ Email queue monitor (stuck only) ============
 function EmailLog() {
   const [stuck, setStuck] = useState(null);
   const [error, setError] = useState('');
@@ -459,7 +443,7 @@ function EmailLog() {
   const load = useCallback(() => {
     api.getStuckEmails(30).then(setStuck).catch(err => setError(err.message));
   }, []);
-  usePolling(() => load(), 60000, [load]); // 60s: light on D1
+  usePolling(() => load(), 60000, [load]);
 
   const badgeClass = (status) => status === 'sent' ? 'badge-ok' : status === 'failed' ? 'badge-warn' : 'badge-pending';
   const resend = async (m) => {
@@ -499,9 +483,8 @@ function EmailLog() {
 }
 
 
-// ============ Root: Email tab (Collection / Loan / Mails / Queue) ============
 export default function Email({ role }) {
-  const [emailSection, setEmailSection] = useState('template'); // template (collection) | loan | queue
+  const [emailSection, setEmailSection] = useState('template');
   const [loanEmailType, setLoanEmailType] = useState(LOAN_TEMPLATE_TYPES[0][0]);
 
   return (

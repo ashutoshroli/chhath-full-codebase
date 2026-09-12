@@ -1,8 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api.js';
 
-// Superadmin-only tab: lock/unlock a year. A locked year blocks add/edit/delete
-// on Collections/Expenses/Loans/Committee for that year, for every role.
 export default function LockYears({ years, lockedYears, onChange, onYearAdded }) {
   const [busyYear, setBusyYear] = useState(null);
   const [newYear, setNewYear] = useState('');

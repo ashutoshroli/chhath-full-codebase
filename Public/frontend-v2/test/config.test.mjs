@@ -1,5 +1,3 @@
-// Unit tests for the framework-free config resolver.
-// Runs under plain `node --test` — imports ONLY src/config.js (no Astro).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveConfig, DEFAULTS, apiBase, renderChatUrl, mgmtLoginUrl, siteUrl } from '../src/config.js';
@@ -42,7 +40,6 @@ test('resolveConfig coerces non-string values to strings', () => {
 });
 
 test('module-level named exports resolve to the production defaults under node:test', () => {
-  // import.meta.env is undefined here, so the eager exports must be the fallbacks.
   assert.equal(apiBase, DEFAULTS.PUBLIC_API_BASE);
   assert.equal(renderChatUrl, DEFAULTS.PUBLIC_RENDER_CHAT_URL);
   assert.equal(mgmtLoginUrl, DEFAULTS.PUBLIC_MGMT_LOGIN_URL);

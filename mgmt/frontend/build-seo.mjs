@@ -1,14 +1,3 @@
-// Build-time SEO injection for the management portal.
-//
-// Runs BEFORE `vite build` (wired as the npm "prebuild" script). It rewrites the
-// SEO block in index.html from the settings a Superadmin saved, so Vite then
-// bundles the up-to-date tags. Social crawlers read only the served HTML and
-// never run JavaScript, which is why the link preview must live in the HTML and
-// be refreshed by a rebuild.
-//
-// FAIL-SAFE: if the settings API is unreachable or returns anything unexpected,
-// this logs a warning and leaves the hardcoded defaults in index.html — a deploy
-// must never fail over an SEO hiccup. Runs on Node 18+ (global fetch), no deps.
 
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -16,8 +5,6 @@ import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// The management Worker endpoint. Reuse the same env var the app uses, with an
-// explicit override for the build environment if needed.
 const API_URL =
   process.env.SEO_API_URL || process.env.VITE_API_URL || '';
 const SITE_URL = process.env.MGMT_SITE_URL || 'https://mgmt-chhath.shaharpura.com';
@@ -40,7 +27,6 @@ async function fetchSeo() {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    // The management Worker reads the action from a POSTed JSON body.
     const res = await fetch(API_URL, {
       method: 'POST',
       body: JSON.stringify({ action: 'publicGetSeo', portal: 'mgmt' }),

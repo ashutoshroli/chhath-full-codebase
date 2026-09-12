@@ -1,13 +1,7 @@
 const fmt = (n) => new Intl.NumberFormat('en-IN', {style:'currency', currency:'INR', maximumFractionDigits:0}).format(n||0);
 const parseAmt = (v) => parseFloat((v||'').toString().replace(/[^0-9.-]+/g,"")) || 0;
 
-// AI chatbot backend (the Render /public-chat endpoint). Public/frontend has no
-// build step / env vars (see FRONTEND_DIFF_NOTES.md), so this is a plain constant
-// like BASE_API_URL. ⚠️ REPLACE with your real Render service URL after deploying
-// mgmt/server-render. Leave the path as /public-chat.
 const CHATBOT_API_URL = "https://chhath-server-render.onrender.com/public-chat";
-// A stable per-browser session id so the backend can group a conversation's
-// messages (no PII; just a random opaque token kept for this tab/session).
 const CHAT_SESSION_ID = (() => {
   try {
     let id = sessionStorage.getItem('chat_sid');
@@ -16,43 +10,16 @@ const CHAT_SESSION_ID = (() => {
   } catch (e) { return 'cs-' + Math.random().toString(36).slice(2); }
 })();
 
-// ---- HTML escaping ----
-// This file builds almost all of its DOM with innerHTML string templates. Values
-// that originate from an authenticated author (popup slide text, link URL/label)
-// must be escaped before being interpolated, otherwise the mgmt portal becomes an
-// injection vector into the public site.
 function escapeHtml(v) {
   return (v === undefined || v === null ? '' : v.toString())
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
-// audit L-19: there used to be an `escapeAttr` alias here that just called
-// escapeHtml. The name implied a different, attribute-specific escaping that did
-// not exist, which invites someone to "improve" one and not the other.
-//
-// escapeHtml is in fact correct for BOTH contexts, and deliberately so: it escapes
-// the double AND single quote, so an interpolated value cannot terminate either
-// form of quoted attribute. The alias is gone; every call site uses escapeHtml.
-//
-// The one place that needs more is a value going into a JS string inside an
-// onclick attribute (see renderDownloadPeople) — that is a third context, and it
-// escapes for the JS string FIRST and then for HTML.
-// Only http(s) — blocks javascript:, data:, vbscript: in href/src.
 function safeUrl(v) {
   const raw = (v === undefined || v === null ? '' : v.toString()).trim();
   return /^https?:\/\//i.test(raw) ? raw : '';
 }
 
-// Popup images saved before the uploadPopupImage fix hold the Drive VIEWER page
-// URL (.../file/d/<id>/view), which is an HTML document and renders as a broken
-// image. Rewrite it to the direct image URL.
-// This file is not bundled (plain <script>), so it cannot import mgmt's
-// driveUrl.js — the logic is copied from there, and both must be changed together.
-//
-// `uc?export=view` does a 303 redirect to drive.usercontent.google.com, which
-// returns `cross-origin-resource-policy: same-site` — i.e. the browser BLOCKS it
-// from being embedded by another site, and the popup image silently appears blank.
-// `lh3.googleusercontent.com` is Google's image CDN (ACAO *, no CORP).
 function driveFileId(url) {
   const s = (url === undefined || url === null) ? '' : url.toString();
   if (!s) return null;
@@ -77,24 +44,15 @@ function driveImageFallbackUrl(url) {
   return id ? 'https://drive.google.com/thumbnail?id=' + id + '&sz=w1600' : '';
 }
 
-// ---- Error reporting (this file previously had NONE) ----
-//
-// There was no window.onerror, no unhandledrejection and no reporting anywhere in
-// the public portal, and the Public Worker wasn't even bound to DB_LOGS. So when
-// the public site broke — a failed data load, a JS crash, a missing element — the
-// committee had no way whatsoever to find out. This closes that half of the gap;
-// the Worker side now accepts `?action=logError` (POST) and writes to error_log.
-//
-// Set by init() once the Worker base URL is known.
 let ERROR_LOG_URL = null;
-const reportedMessages = new Set(); // client-side de-dup so a render loop can't spam
+const reportedMessages = new Set();
 
 function reportPublicError(message, err, extra) {
   try {
     const msg = (message || '').toString().slice(0, 500);
     if (reportedMessages.has(msg)) return;
     reportedMessages.add(msg);
-    if (!ERROR_LOG_URL) return; // nothing we can do before init() runs
+    if (!ERROR_LOG_URL) return;
     fetch(ERROR_LOG_URL, {
       method: 'POST',
       body: JSON.stringify({
@@ -103,8 +61,8 @@ function reportPublicError(message, err, extra) {
         stack: (err && err.stack) ? err.stack.toString().slice(0, 2000) : '',
         context: JSON.stringify(Object.assign({ ua: navigator.userAgent.slice(0, 150) }, extra || {})).slice(0, 500),
       }),
-    }).catch(() => {}); // last resort — the network is what failed
-  } catch (e) { /* never let reporting break the page */ }
+    }).catch(() => {});
+  } catch (e) {  }
 }
 
 window.addEventListener('error', (e) => {
@@ -115,17 +73,6 @@ window.addEventListener('unhandledrejection', (e) => {
   reportPublicError('Unhandled rejection: ' + ((err && err.message) || String(err)), err, {});
 });
 
-// ============ i18n (bilingual English / हिंदी) ============
-//
-// The toggle is PURELY CLIENT-SIDE — it does not change any network request, so
-// the version-keyed edge cache is untouched (the Hindi values already ship in the
-// same portalData payload as 'Name (Hindi)', 'Village (Hindi)', etc.). Switching
-// language just re-reads those fields and re-renders.
-//
-// Two parts:
-//   T[lang][key]         — static UI strings (headings, buttons, table labels).
-//   localize(row, field) — a person/record's DATA value, preferring the Hindi DB
-//                          column when Hindi is active, falling back to English.
 const T = {
   en: {
     app_title: 'Chhath Puja', app_subtitle: 'Transparency Portal',
@@ -202,16 +149,10 @@ const app = {
   userMap: {},
   dcVillage: 'All',
   dcSelectedId: null,
-  // 'en' | 'hi' — restored from localStorage, default English. Read on first render.
   lang: (() => { try { return localStorage.getItem(LANG_KEY) === 'hi' ? 'hi' : 'en'; } catch (e) { return 'en'; } })(),
 
-  // Static UI string for the current language (falls back to English, then the key).
   t: (key) => (T[app.lang] && T[app.lang][key]) || T.en[key] || key,
 
-  // A DATA value for the current language. `field` is the English key
-  // ('Name', 'Village', "Father's Name", 'Designation', 'View Role', 'Discription').
-  // When Hindi is active, prefer '<field> (Hindi)' and fall back to English when
-  // the Hindi column is blank — so a missing Hindi name never shows an empty cell.
   localize: (row, field) => {
     if (!row) return '';
     const en = (row[field] === undefined || row[field] === null) ? '' : row[field].toString();
@@ -221,23 +162,16 @@ const app = {
     return hiStr || en;
   },
 
-  // Flip the language, persist it, update the toggle label + <html lang>, then
-  // re-apply the static strings and re-render every dynamic view.
   toggleLang: () => {
     app.lang = app.lang === 'hi' ? 'en' : 'hi';
-    try { localStorage.setItem(LANG_KEY, app.lang); } catch (e) { /* private mode */ }
+    try { localStorage.setItem(LANG_KEY, app.lang); } catch (e) {  }
     app.applyLang();
   },
 
-  // Static-only application: the toggle button label, <html lang>, and every
-  // element tagged data-i18n / data-i18n-placeholder. Safe to call before data
-  // loads (does NOT re-render dynamic views), so init() uses it directly.
   applyStaticLang: () => {
-    // The toggle button shows the language it will SWITCH TO (so it reads 'हिंदी'
-    // while in English, and 'English' while in Hindi).
     const label = document.getElementById('lang-toggle-label');
     if (label) label.innerText = app.lang === 'hi' ? 'English' : 'हिंदी';
-    try { document.documentElement.setAttribute('lang', app.lang); } catch (e) { /* ignore */ }
+    try { document.documentElement.setAttribute('lang', app.lang); } catch (e) {  }
 
     document.querySelectorAll('[data-i18n]').forEach(el => {
       const v = app.t(el.getAttribute('data-i18n'));
@@ -249,8 +183,6 @@ const app = {
     });
   },
 
-  // Full application: static strings + re-render every dynamic view. Used by the
-  // toggle so a language switch updates the whole page live.
   applyLang: () => {
     app.applyStaticLang();
     if (app.data && app.currentData) {
@@ -262,28 +194,9 @@ const app = {
   },
 
   init: () => {
-    // Was a hardcoded Apps Script /exec URL — now the deployed chhath-public-api
-    // Worker instead (see Public/backend). ⚠️ REPLACE with your real Worker URL
-    // after `wrangler deploy` — this is the one genuine frontend code change in
-    // the whole migration (Public/frontend has no build step / env vars, unlike
-    // mgmt/frontend, so this can't be an env var — see FRONTEND_DIFF_NOTES.md).
-    // Points at the CUSTOM DOMAIN (not the *.workers.dev URL) on purpose: Cloudflare
-    // Cache Rules only apply on the zone's custom domain, and they let the big
-    // version-keyed payloads (portalData/activePopups with ?v=) be served straight
-    // from the edge cache WITHOUT invoking the Worker — which keeps the daily
-    // Workers-request quota from being burned during a festival traffic spike.
     const BASE_API_URL = "https://chhath-public-worker.shaharpura.com/";
     ERROR_LOG_URL = BASE_API_URL + "?action=logError";
 
-    // Fetch the current data version FIRST (one tiny, always-fresh call), then
-    // request the big payloads with `?v=<version>`. Those version-keyed URLs are
-    // served from Cloudflare's edge cache (immutable), so on a plain refresh the
-    // Worker/DB are not touched for portalData/activePopups — only this small
-    // version ping reaches the Worker. When mgmt data changes the version bumps,
-    // the URL changes, and the fresh URL is fetched once (then cached again).
-    //
-    // If the version call fails for any reason, we fall back to the un-versioned
-    // URL, which the Worker still serves via its ETag path — so nothing breaks.
     fetch(BASE_API_URL + "?action=dataVersion")
       .then(r => (r.ok ? r.json() : null))
       .then(vr => (vr && vr.v != null ? vr.v.toString() : ''))
@@ -292,8 +205,6 @@ const app = {
         const vq = version ? ("&v=" + encodeURIComponent(version)) : "";
         const API_URL = BASE_API_URL + "?action=portalData" + vq;
 
-        // fire-and-forget, independent of portalData — a popup failure should
-        // never block the rest of the site. Same version so popups are edge-cached too.
         app.loadPopup(BASE_API_URL, version);
 
         return fetch(API_URL);
@@ -303,33 +214,17 @@ const app = {
         return response.json();
       })
       .then(res => {
-        // Guard against a 200 that is actually a soft failure object
-        // ({status:false}) or an empty shell with no real data: prefer this
-        // browser's saved copy over rendering an empty portal. A genuine payload
-        // is an object that carries at least one of the data arrays.
         const looksReal = res && typeof res === 'object' && res.status !== false &&
           (Array.isArray(res.collections) || Array.isArray(res.committee) ||
            Array.isArray(res.loans) || Array.isArray(res.expenses) || Array.isArray(res.users));
         if (!looksReal) throw new Error('portalData returned no usable data');
 
-        // Render the fresh data, then persist it as the last-known-good copy in
-        // this browser. On any future load where EVERY network path fails (the
-        // Cloudflare edge cache is cold AND the Worker can't be invoked because a
-        // free-tier quota is exhausted), applyPortalData() below is called with
-        // this saved copy so the visitor still sees a fully working portal instead
-        // of the "Failed To Load" banner. This is the client-side counterpart to
-        // the server's KV snapshot — a second, independent safety net.
         app.applyPortalData(res, { fromCache: false });
         app.saveLocalSnapshot(res);
       })
       .catch(error => {
         console.error(error);
         reportPublicError('Public portal data load failed: ' + (error && error.message), error, {});
-        // NEVER dead-end. Try this browser's last-known-good copy first; the
-        // portal then works offline / through a total backend outage / after the
-        // free tier is exhausted. Only if there is genuinely nothing cached (a
-        // brand-new visitor on their very first, failed load) do we show a
-        // friendly fallback that still names the committee — not a bare error.
         const cached = app.loadLocalSnapshot();
         if (cached) {
           try {
@@ -343,26 +238,17 @@ const app = {
       });
   },
 
-  // ---- Render + local last-known-good snapshot (offline / quota-proofing) ----
 
-  // localStorage key holding the last successfully-loaded portalData payload for
-  // THIS browser. Versioned so a future format change can bump it cleanly.
   LOCAL_SNAPSHOT_KEY: 'cpm_public_portalData_v1',
 
-  // Persist the freshly-loaded payload. Best-effort: private mode / quota-full
-  // localStorage just no-ops (the site still worked this load). Wrapped in a size
-  // guard so a very large payload can't throw and can't blow the ~5MB origin
-  // localStorage budget — if it doesn't fit we simply keep the previous copy.
   saveLocalSnapshot: (res) => {
     try {
       const payload = JSON.stringify({ savedAt: Date.now(), data: res });
-      // ~4MB ceiling (localStorage is ~5MB/origin; leave headroom). Skip if bigger.
       if (payload.length > 4000000) return;
       localStorage.setItem(app.LOCAL_SNAPSHOT_KEY, payload);
-    } catch (e) { /* private mode or quota — non-critical, ignore */ }
+    } catch (e) {  }
   },
 
-  // Read the last-known-good copy. Returns { data, savedAt } or null.
   loadLocalSnapshot: () => {
     try {
       const raw = localStorage.getItem(app.LOCAL_SNAPSHOT_KEY);
@@ -373,10 +259,6 @@ const app = {
     } catch (e) { return null; }
   },
 
-  // Render a portalData payload into the UI. Shared by the live success path and
-  // the cached-fallback path, so both go through the SAME defaulting/derivation
-  // (an older snapshot may predate some keys — every array is coalesced to []).
-  // `opts.fromCache` shows a small non-blocking "showing saved data" note.
   applyPortalData: (res, opts) => {
     opts = opts || {};
     res = res || {};
@@ -401,10 +283,6 @@ const app = {
 
     let years = new Set();
 
-    // audit L-18: coalesce every array — the snapshot (server KV OR this browser's
-    // localStorage) can be a payload built before a key existed, and a partial
-    // deployment omits others. Without this, `.forEach` on undefined blanked the
-    // whole portal on the one path whose entire purpose is to keep it up.
     app.data.collections = app.data.collections || [];
     app.data.loans = app.data.loans || [];
     app.data.committee = app.data.committee || [];
@@ -421,7 +299,6 @@ const app = {
     sel.innerHTML = yearArr.map(y => `<option value="${y}">${y}</option>`).join('');
     sel.value = yearArr[0];
 
-    // Static labels + <html lang> now that the DOM strings exist.
     app.applyStaticLang();
 
     app.refreshData();
@@ -430,30 +307,20 @@ const app = {
     app.restoreViewFromHash();
     app.setupChat();
 
-    // Non-blocking banner when we're showing this browser's saved copy because the
-    // network/backend was unreachable. The portal is fully usable; this only tells
-    // the visitor the figures may be slightly out of date.
     app.renderStaleNotice(opts.fromCache ? opts.savedAt : null);
 
     document.getElementById('loader').style.display = 'none';
   },
 
-  // ==== AI Chatbot ====
-  // Wires the floating button + popup ONCE (guarded by _chatReady). Opening/closing
-  // is same-tab overlay (no navigation). Sends the question to the Render
-  // /public-chat endpoint and renders the answer.
   setupChat: () => {
     if (app._chatReady) return;
     const fab = document.getElementById('chat-fab');
     const panel = document.getElementById('chat-panel');
     const closeBtn = document.getElementById('chat-close');
     const form = document.getElementById('chat-form');
-    if (!fab || !panel || !form) return; // markup missing (older cached HTML) — skip
+    if (!fab || !panel || !form) return;
     app._chatReady = true;
 
-    // Toggle via inline display too (not just the `hidden` attr) so the panel
-    // shows/hides correctly even if an OLD cached style.css (without the
-    // .chat-panel[hidden] rule) is still being served.
     const isOpen = () => panel.style.display === 'flex';
     const open = () => {
       panel.hidden = false;
@@ -462,7 +329,7 @@ const app = {
       if (input) setTimeout(() => input.focus(), 50);
     };
     const close = () => { panel.hidden = true; panel.style.display = 'none'; };
-    close(); // ensure a known-closed starting state
+    close();
     fab.addEventListener('click', () => (isOpen() ? close() : open()));
     if (closeBtn) closeBtn.addEventListener('click', close);
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && isOpen()) close(); });
@@ -470,85 +337,38 @@ const app = {
     form.addEventListener('submit', (e) => { e.preventDefault(); app.sendChat(); });
   },
 
-  // ---- Linkify bot replies, XSS-safe by construction ----
-  //
-  // The chatbot answer is UNTRUSTED model output. We still want Markdown links
-  // `[label](url)` and bare http(s):// URLs to render as clickable <a> tags.
-  //
-  // ORDERING IS THE SECURITY PROPERTY: escape-FIRST-then-linkify.
-  //   (1) escapeHtml() the WHOLE reply first, so every < > & " ' the model produced
-  //       is neutralised. After this step the string contains NO live markup at all.
-  //   (2) Only THEN run the linkify regex over the already-escaped string. Because
-  //       escapeHtml does not touch [ ] ( ), a Markdown link is still matchable, and
-  //       an http(s):// URL has no raw < > so it survives intact.
-  //   (3) Every candidate URL is passed through safeUrl(): if it is not http(s)
-  //       (javascript:, data:, vbscript:, …) safeUrl returns '' and we DO NOT build
-  //       a link — the text stays as its already-escaped, inert form.
-  // The consequence: the ONLY HTML that can ever appear in the output is the <a>
-  // tags THIS function emits, and their href is constrained to http(s) by safeUrl.
-  // Nothing the model returns can create any other element or attribute. This is
-  // why appendChatMsg may safely assign the result to innerHTML for the bot bubble.
-  //
-  // escapeHtml + safeUrl are passed in as arguments (dependency injection) so this
-  // function is pure and can be evaluated by the Node test harness without a DOM.
   linkifyBotText: (text, escapeHtmlFn, safeUrlFn) => {
     const escaped = escapeHtmlFn(text);
-    // The regex below runs over the ALREADY-escaped string, so a URL captured from
-    // it carries HTML entities (e.g. a query-string '&' is '&amp;', a '"' is
-    // '&quot;'). We must reverse that ONE level of escaping before validating the
-    // scheme and placing the value in the href, otherwise escapeHtml runs a second
-    // time on '&amp;' and the live href gets '&amp;amp;' — which breaks
-    // parameterised links (?a=1&b=2). So: unescape the matched URL back to its raw
-    // form, gate it with safeUrl (http(s) only — dangerous schemes still yield no
-    // link), then escapeHtml the SAFE raw URL exactly once for the href attribute.
-    // The visible label stays the already-escaped text (never the raw value), so
-    // no unescaped model output can reach the DOM.
     const unescapeHtml = (s) => s
       .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
       .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
-      .replace(/&amp;/g, '&'); // &amp; last so it does not re-introduce entities
-    // Markdown-link branch FIRST (so a URL inside a Markdown link is not also caught
-    // by the bare-URL branch), then the bare-URL branch. Left-to-right replace.
-    // The bare-URL branch is case-insensitive to align with safeUrl (so an uppercase
-    // HTTPS:// bare URL is linkified too).
+      .replace(/&amp;/g, '&');
     const re = /\[([^\]]+)\]\(([^)\s]+)\)|(https?:\/\/[^\s<]+)/gi;
     return escaped.replace(re, (match, mdLabel, mdUrl, bareUrl) => {
       if (bareUrl !== undefined) {
-        // Trim common trailing punctuation so 'see https://x/y.pdf.' keeps the URL
-        // clean and the period stays as sentence text after the link.
         let url = bareUrl;
         let trailing = '';
         const trailingRe = /[.,;:)\]}'"]+$/;
         const tm = url.match(trailingRe);
         if (tm) { trailing = tm[0]; url = url.slice(0, url.length - trailing.length); }
-        // Recover the raw URL (undo the one level of HTML-escaping) for safeUrl/href.
         const safe = safeUrlFn(unescapeHtml(url));
-        if (!safe) return match; // not http(s) — leave the escaped text as-is
+        if (!safe) return match;
         return '<a href="' + escapeHtmlFn(safe) + '" target="_blank" rel="noopener noreferrer nofollow">' + url + '</a>' + trailing;
       }
-      // Markdown branch. mdUrl/mdLabel are already HTML-escaped (escape ran first).
-      // Recover the raw URL for safeUrl/href so a query-string '&' is not double-escaped.
       const safe = safeUrlFn(unescapeHtml(mdUrl));
-      if (!safe) return match; // dangerous scheme — leave the escaped [label](url) text
+      if (!safe) return match;
       return '<a href="' + escapeHtmlFn(safe) + '" target="_blank" rel="noopener noreferrer nofollow">' + mdLabel + '</a>';
     });
   },
 
-  // Append a message bubble. kind: 'user' | 'bot' | 'error'. Returns the node.
   appendChatMsg: (text, kind) => {
     const wrap = document.getElementById('chat-messages');
     if (!wrap) return null;
     const div = document.createElement('div');
     div.className = 'chat-msg chat-msg-' + (kind === 'user' ? 'user' : kind === 'error' ? 'error' : 'bot');
     if (kind === 'user' || kind === 'error') {
-      // User echo + error strings stay textContent — never innerHTML. They are the
-      // user's own input / our own copy, and there is no reason to render markup.
       div.textContent = text;
     } else {
-      // Bot bubble only: render CLICKABLE links. This is safe because
-      // linkifyBotText escapes the ENTIRE reply BEFORE building any markup, and the
-      // only HTML it ever emits is <a> tags whose href is validated as http(s) by
-      // safeUrl. Untrusted model output can therefore not inject any other markup.
       div.innerHTML = app.linkifyBotText(text, escapeHtml, safeUrl);
     }
     wrap.appendChild(div);
@@ -569,7 +389,6 @@ const app = {
     input.value = '';
     app.appendChatMsg(question, 'user');
 
-    // Typing indicator.
     const typing = document.createElement('div');
     typing.className = 'chat-typing';
     typing.textContent = app.lang === 'hi' ? 'सोच रहा हूँ…' : 'Thinking…';
@@ -598,7 +417,6 @@ const app = {
     }
   },
 
-  // Small dismissible-looking strip shown ONLY when rendering cached data.
   renderStaleNotice: (savedAt) => {
     const existing = document.getElementById('stale-data-notice');
     if (!savedAt) { if (existing) existing.remove(); return; }
@@ -615,10 +433,6 @@ const app = {
     document.body.insertBefore(bar, document.body.firstChild);
   },
 
-  // Absolute last resort: EVERY network path failed AND this browser has no saved
-  // copy (a brand-new visitor's first-ever load during a full outage). Instead of
-  // a bare "Failed To Load", show a friendly card that still names the committee
-  // and offers a retry — the page is never a dead end.
   renderColdFailureFallback: () => {
     const loader = document.getElementById('loader');
     if (!loader) return;
@@ -638,48 +452,26 @@ const app = {
     loader.style.display = 'flex';
   },
 
-  // ---- Popup (mgmt Popup Management, popups tagged role "Public") ----
-  // Fetched fresh on EVERY page load/refresh (no localStorage dismissal
-  // memory) — matches the requirement that it should show again each time
-  // the page is refreshed, not just once per browser.
   popupSlides: [],
   popupIndex: 0,
-  // Auto-play state. `_popupTimer` holds the pending setTimeout id (null = none).
-  // `_popupPaused` is set while the visitor is interacting (hovering the card or
-  // pressing an arrow) so the slide does not jump out from under them.
   _popupTimer: null,
   _popupPaused: false,
 
   loadPopup: (baseApiUrl, version) => {
-    // Version-keyed URL so activePopups is served from the edge cache too; falls
-    // back to the un-versioned (ETag) URL if no version was resolved.
     const vq = version ? ("&v=" + encodeURIComponent(version)) : "";
     fetch(baseApiUrl + "?action=activePopups" + vq)
       .then(r => r.json())
       .then(popups => {
         if (!Array.isArray(popups) || !popups.length) return;
-        // Only the first eligible popup is shown per load — if more than one
-        // is tagged "Public" and active at once, Superadmin should stagger
-        // start_at/end_at rather than stacking multiple overlays.
-        // Only the FIRST eligible popup is rendered. mgmt's "Preview as Public"
-        // now reports the ones that won't be shown, so this is no longer silent.
         const popup = popups[0];
         if (!popup.slides || !popup.slides.length) return;
         app.popupSlides = popup.slides;
         app.popupIndex = 0;
-        // Reset the pause flag on every fresh open. Without this, a pause left
-        // over from a previous popup session (a stray touch, or a cursor that
-        // happened to be over the card) would silently disable auto-play the next
-        // time the popup opened — one of the "kabhi chalta hai, kabhi nahi" cases.
         app._popupPaused = false;
-        // Bind the hover/touch pause handlers BEFORE the first render, so the
-        // render's scheduleAutoAdvance() sees the correct (unpaused) state.
         app.setupPopupAutoPlayPause();
         document.getElementById('popup-overlay').style.display = 'flex';
         app.renderPopupSlide();
       })
-      // The popup is non-critical, so we still never surface an error to the
-      // visitor — but it IS reported now, instead of being discarded entirely.
       .catch(err => reportPublicError('Public popup load failed: ' + (err && err.message), err, {}));
   },
 
@@ -687,11 +479,6 @@ const app = {
     const slide = app.popupSlides[app.popupIndex];
     if (!slide) return;
     const content = document.getElementById('popup-slide-content');
-    // Popup text/links are authored by an Admin in the mgmt portal, but they are
-    // rendered on the PUBLIC site — so an admin account (or anyone who got hold of
-    // one) could previously inject arbitrary HTML/script here, and `link_url`
-    // accepted `javascript:`. All four values are escaped now, and the link scheme
-    // is restricted to http/https.
     content.innerHTML = `
       ${slide.image_url && safeUrl(driveImageUrl(slide.image_url)) ? `<img class="popup-slide-img" src="${escapeHtml(driveImageUrl(slide.image_url))}" alt="" data-fb="${escapeHtml(driveImageFallbackUrl(slide.image_url))}" onerror="if(this.dataset.fb&&this.dataset.fbTried!=='1'){this.dataset.fbTried='1';this.src=this.dataset.fb;}else{this.style.display='none';}">` : ''}
       ${slide.text ? `<div class="popup-slide-text">${escapeHtml(slide.text)}</div>` : ''}
@@ -704,16 +491,9 @@ const app = {
     } else {
       navEl.style.display = 'none';
     }
-    // Re-arm the auto-play countdown for whatever slide is now shown. This makes a
-    // manual arrow press also reset the timer (the new slide gets its full time),
-    // and it is what advances the loop after each auto-transition.
     app.scheduleAutoAdvance();
   },
 
-  // ---- Auto-play (loops through the slides on a per-slide timer) ----
-  // The duration comes from mgmt (popup_slides.duration_ms). Backend already
-  // coalesces NULL/0 to 5000ms and clamps 1000-60000ms, but we re-clamp here so a
-  // stale cached payload from before that logic can't stall or flicker the popup.
   clampSlideDuration: (ms) => {
     var n = parseInt(ms, 10);
     if (!isFinite(n) || n <= 0) return 5000;
@@ -726,9 +506,6 @@ const app = {
     if (app._popupTimer) { clearTimeout(app._popupTimer); app._popupTimer = null; }
   },
 
-  // (Re)arm the timer for the CURRENT slide. Called after every render, so each
-  // slide is shown for its own duration. Does nothing for a single-slide popup or
-  // while paused (hover). The modulo in popupNextSlide gives the loop.
   scheduleAutoAdvance: () => {
     app.clearAutoAdvance();
     if (app.popupSlides.length <= 1 || app._popupPaused) return;
@@ -736,31 +513,19 @@ const app = {
     var ms = app.clampSlideDuration(slide && slide.duration_ms);
     app._popupTimer = setTimeout(function () {
       app._popupTimer = null;
-      // advance() = next slide + re-arm; wraps to 0 after the last (loop).
       app.popupIndex = (app.popupIndex + 1) % app.popupSlides.length;
       app.renderPopupSlide();
     }, ms);
   },
 
-  // Pause auto-play while the visitor is actively interacting with the card, and
-  // RESUME as soon as they stop — so the popup never gets stuck. Bound once
-  // (guarded by a data flag) so repeated opens don't stack handlers.
-  //
-  // Previous bug: `touchstart` set a persistent pause with no matching resume on
-  // touch devices, so the very first tap (even an accidental one) killed
-  // auto-play for the whole session — the main "kabhi chalta hai, kabhi nahi"
-  // symptom on phones. Now touch pauses only while the finger is down and resumes
-  // on touchend/touchcancel, mirroring the desktop hover behaviour.
   setupPopupAutoPlayPause: () => {
     var card = document.querySelector('#popup-overlay .popup-card');
     if (!card || card.dataset.autoplayBound === '1') return;
     card.dataset.autoplayBound = '1';
     var pause = function () { app._popupPaused = true; app.clearAutoAdvance(); };
     var resume = function () { app._popupPaused = false; app.scheduleAutoAdvance(); };
-    // Desktop: pause while the pointer is over the card.
     card.addEventListener('mouseenter', pause);
     card.addEventListener('mouseleave', resume);
-    // Touch: pause only for the duration of the touch, then resume.
     card.addEventListener('touchstart', pause, { passive: true });
     card.addEventListener('touchend', resume, { passive: true });
     card.addEventListener('touchcancel', resume, { passive: true });
@@ -781,11 +546,8 @@ const app = {
     document.getElementById('popup-overlay').style.display = 'none';
   },
 
-  // On load, if the URL hash names a valid section (e.g. "#loans"), open it — but
-  // NOT when a QR ?record= is present (that already opened the 'verify' view).
-  // An unknown/empty hash leaves the default Home view as-is.
   restoreViewFromHash: () => {
-    if (new URLSearchParams(window.location.search).get('record')) return; // verify view wins
+    if (new URLSearchParams(window.location.search).get('record')) return;
     const id = (window.location.hash || '').replace(/^#/, '').trim();
     const allowed = ['home', 'expenses', 'loans', 'committee', 'downloads'];
     if (id && allowed.includes(id)) app.nav(id);
@@ -793,31 +555,19 @@ const app = {
 
   nav: (viewId) => {
     const target = document.getElementById('view-' + viewId);
-    if (!target) return; // unknown view id — do nothing (guards a bad hash)
+    if (!target) return;
     document.querySelectorAll('.page-view').forEach(e => e.classList.remove('active-view'));
     target.classList.add('active-view');
     document.querySelectorAll('.nav-btn').forEach(e => e.classList.remove('active'));
     document.querySelectorAll(`.nav-btn[data-target="${viewId}"]`).forEach(e => e.classList.add('active'));
-    // Remember the current section in the URL hash so a REFRESH (or a shared
-    // link) stays on this section instead of snapping back to Home. Not written
-    // for the special 'verify' view (that is driven by ?record= in the query, not
-    // a user-navigable tab).
     if (viewId !== 'verify') {
-      try { history.replaceState(null, '', '#' + viewId); } catch (e) { /* ignore */ }
+      try { history.replaceState(null, '', '#' + viewId); } catch (e) {  }
     }
     window.scrollTo(0,0);
-    // Same reasoning as mgmt/frontend's App.jsx tracker — this site swaps
-    // sections via JS, no real URL change, so GTM's default trigger only ever
-    // sees the first load. Push a matching `pageview` event per section.
     window.dataLayer = window.dataLayer || [];
     window.dataLayer.push({ event: 'pageview', page: '/' + viewId });
   },
 
-  // Reached when a document's QR code is scanned — the QR encodes
-  // ?record=<docType>-<year>-<ref> (see mgmt/frontend/src/qrCode.js). Shows a
-  // verification banner confirming the document was actually generated by the
-  // committee (matched against GENERATED_FILES), plus the underlying record's
-  // details where available.
   checkRecordVerification: () => {
     const recordId = new URLSearchParams(window.location.search).get('record');
     if (!recordId) return;
@@ -839,7 +589,6 @@ const app = {
       const entry = (app.data.collections || []).find(c =>
         (c.__rowIndex || '').toString() === ref && parseInt(c.Year) === parseInt(year));
       if (entry) {
-        // A resold-item receipt has no contributor — show the item, not a user.
         if (app.isResellRow(entry)) {
           detailsHtml = `
             <div style="margin-top:8px; font-size:0.9rem;">
@@ -913,22 +662,14 @@ const app = {
     app.renderCommittee();
   },
 
-  // A collection row is a "Resell" (committee resold a donated item) when Is Resell
-  // is truthy. Such a row has NO contributor person — its Name field does not point
-  // at a USER — so we must show the resold item (Detail), NOT run it through
-  // getUser() (which would render "Unknown User"). Mirrors mgmt Home.jsx.
   isResellRow: (r) => r && (r['Is Resell'] === true || r['Is Resell'] === 'TRUE' || (typeof r['Is Resell'] === 'string' && r['Is Resell'].trim().toLowerCase() === 'true')),
 
   renderHomeList: () => {
     const s = document.getElementById('home-search').value.toLowerCase();
     const html = app.currentData.col
       .filter(r => {
-         // Resell rows are searchable by their item name (Detail); everyone else
-         // by contributor name. Previously resell rows matched only the literal
-         // string "unknown user".
          if (app.isResellRow(r)) return (r.Detail || '').toLowerCase().includes(s);
          const u = app.getUser(r.ID || r.Name);
-         // Search matches the English OR Hindi name, in either display language.
          return (u.Name || '').toLowerCase().includes(s)
             || (u['Name (Hindi)'] || '').toString().toLowerCase().includes(s);
       })
@@ -937,7 +678,6 @@ const app = {
          const isMoney = cType === '1';
          const yrTag = app.currentData.isAll ? `<span class="yr-tag">[${escapeHtml(r.Year)}]</span>` : '';
 
-         // ---- Resell row: an item that was resold, not a person's contribution ----
          if (app.isResellRow(r)) {
             return `<div class="data-row">
                <div>
@@ -949,9 +689,6 @@ const app = {
          }
 
          const u = app.getUser(r.ID || r.Name);
-         // Material/Service contributions do not have a monetary amount, since no
-         // cash is involved — so instead of the amount, we show what was given /
-         // what work was done (Detail).
          const rightSide = isMoney
             ? `<strong style="color:var(--success);">+${fmt(r.Amount)}</strong>`
             : `<div style="text-align:right;">
@@ -959,8 +696,6 @@ const app = {
                  ${r.Detail ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px; max-width:150px;">${escapeHtml(r.Detail)}</div>` : ''}
                </div>`;
 
-         // Name / Designation / Village / Father's Name come from the Hindi DB
-         // columns when Hindi is active (localize falls back to English if blank).
          return `<div class="data-row">
             <div>
               <strong style="display:block;">${escapeHtml(app.localize(u, 'Name'))} (${escapeHtml(app.localize(u, 'Designation') || '-')}) ${yrTag}</strong>
@@ -975,11 +710,6 @@ const app = {
 
   renderExpenses: () => {
     const html = app.currentData.exp.map(r => {
-      // The column is misspelled "Discription" in the schema; some payloads use
-      // "Description". Fall back across both (and to a dash) so the name is never
-      // blank, and escape it.
-      // Prefer the Hindi description when Hindi is active (localize on 'Discription',
-      // the schema's misspelling; falls back to English / 'Description' / '-').
       const desc = app.localize(r, 'Discription') || r.Description || '-';
       const yrTag = app.currentData.isAll ? `<span class="yr-tag">[${escapeHtml(r.Year)}]</span>` : '';
       return `<div class="data-row">
@@ -1006,10 +736,6 @@ const app = {
       const uReceiver = app.getUser(receiverId);
       const loanId = (curLoan['Loan ID'] || '').toString().trim();
 
-      // If a Loan ID is available, match guarantors using it (a single user can have
-      // multiple loans in the same year — matching on Year+Loaner alone caused their
-      // guarantors to mix/repeat). For older records without a Loan ID, fall back
-      // to the Year+Loaner match.
       const guars = loanId
         ? app.data.guarantors.filter(g => (g['Loan ID'] || '').toString().trim() === loanId)
         : app.data.guarantors.filter(g => parseInt(g.Year) === parseInt(lYear) && (g.Loaner === receiverId || g.ID === receiverId || g.Name === receiverId));
@@ -1025,12 +751,6 @@ const app = {
          const isCont = isContributor(gid);
          const isCom = isCommittee(gid);
 
-         // The actual committee rule (backend saveLoanTransaction) is only:
-         // "a Committee Member cannot be a guarantor". There is NO requirement
-         // that a guarantor also be a contributor that year — so the old badge,
-         // which flagged every non-contributor guarantor as "Rule Violation",
-         // produced false red flags for perfectly valid guarantors. Now only an
-         // actual committee-member guarantor is a violation.
          const statusBadge = isCom
             ? `<span class="badge badge-warn">${app.t('rule_violation')}</span>`
             : `<span class="badge badge-ok">${app.t('valid_guarantor')}</span>`;
@@ -1070,18 +790,14 @@ const app = {
     document.getElementById('loans-dynamic-list').innerHTML = finalHtml;
   },
 
-  /* UPDATED COMMITTEE RENDER FUNCTION */
   renderCommittee: () => {
     const isAll = app.currentData.isAll;
     const targetCom = isAll ? app.data.committee : app.data.committee.filter(r => parseInt(r.Year) === app.currentData.tYear);
     const html = targetCom.map(r => {
        const u = app.getUser(r.ID || r.Name); 
-       // `u.Name[0]` threw a TypeError (blanking the WHOLE list) if a committee
-       // member's Name was ever undefined. Coerce to a string first.
        const nameStr = (app.localize(u, 'Name') || '').toString();
        const initial = (nameStr.charAt(0) || '?').toUpperCase();
 
-       // Naya Professional ID Card Layout
        return `
        <div class="glass-card" style="padding:15px; margin-bottom:12px; display:flex; gap:15px; align-items:center;">
           <div style="width:50px;height:50px;border-radius:50%;background:var(--saffron-light);color:var(--primary-saffron);display:flex;align-items:center;justify-content:center;font-size:1.2rem;font-weight:bold;flex-shrink:0;">
@@ -1093,10 +809,8 @@ const app = {
                 <span class="badge" style="background:#f3f4f6; color:#374151; flex-shrink:0;">${escapeHtml(r.Year)}</span>
              </div>
              <div style="font-size:0.85rem; color:var(--primary-saffron); font-weight:600; margin-bottom:4px;">
-                ${/* The committee role column is `view_role`, surfaced as 'View Role'
-                      by the Worker's REVERSE_MAPS — there is no `Role` field, so this
-                      silently fell through to Designation and the committee role was
-                      never shown on the public site (audit H-2). */''}
+                ${
+''}
                 ${escapeHtml(app.localize(r, 'View Role') || app.localize(u, 'Designation') || app.t('member'))}
              </div>
              <div style="font-size:0.8rem; color:var(--text-muted); display:flex; flex-wrap:wrap; gap:10px;">
@@ -1109,7 +823,6 @@ const app = {
     document.getElementById('com-list').innerHTML = html || `<div style="text-align:center; padding:20px;">${app.t('no_committee')}</div>`;
   },
 
-  /* ================= DOWNLOAD CENTER ================= */
 
   renderDownloadVillages: () => {
     const villages = new Set();
@@ -1153,17 +866,12 @@ const app = {
 
     const list = (app.data.users || [])
       .filter(u => (u.Village || '').trim() === village)
-      // Match against BOTH the English and Hindi name so a search works in either
-      // language regardless of which language is currently displayed.
       .filter(u => !q
         || (u.Name || '').toLowerCase().includes(q)
         || (u['Name (Hindi)'] || '').toString().toLowerCase().includes(q))
       .slice(0, 50);
 
     const html = list.map(u => {
-      // ID goes into a JS string inside an onclick attribute — escape for BOTH
-      // the JS-string context and the HTML-attribute context. Names/villages are
-      // HTML-escaped like everywhere else.
       const idJs = (u.ID || '').toString().replace(/\\/g, '\\\\').replace(/'/g, "\\'");
       return `
       <div class="data-row" style="cursor:pointer;" onclick="app.selectDownloadPerson('${escapeHtml(idJs)}')">
@@ -1191,13 +899,6 @@ const app = {
     document.getElementById('dc-people-wrap').style.display = '';
   },
 
-  // AUDIT MEDIUM #5: the Year dropdown's onchange used to call refreshData() only,
-  // which re-renders Home/Expenses/Loans/Committee but NOT the Download Center. So
-  // if a visitor had a person's documents open and then changed the year, the open
-  // card stayed showing the previous year's context. Reset the Download Center's
-  // active person view back to the people list on a year change, THEN refresh the
-  // rest. (Language toggle still goes through applyLang(), which deliberately
-  // re-renders the open docs — so switching language keeps the card open.)
   onYearChange: () => {
     const wrap = document.getElementById('dc-docs-wrap');
     if (app.dcSelectedId) {
@@ -1216,7 +917,6 @@ const app = {
       ) || null;
     };
 
-    // ---- Collections: Receipt / Certificate / Material ----
     const collections = (app.data.collections || [])
       .filter(r => (r.ID || r.Name) === id)
       .filter(r => !(r['Is Resell'] === 'TRUE' || r['Is Resell'] === true))
@@ -1224,9 +924,6 @@ const app = {
         const year = parseInt(entry.Year);
         const isSamaan = entry['Contribution Type'] === '2';
         const wantCert = !isSamaan && entry['Certificate Or Receipt'] === 'Certificate';
-        // Type 3 (Service/Work) + Receipt is its own doc type receipt_work; must
-        // match how the mgmt backend files/generates it, or the public download
-        // for a work receipt would look for the wrong recordId and never appear.
         const isWork = !isSamaan && !wantCert && (entry['Contribution Type'] || '').toString() === '3';
         const docType = isSamaan ? 'samaan' : (wantCert ? 'certificate' : (isWork ? 'receipt_work' : 'receipt'));
         const recordId = `${docType}-${year}-${entry.__rowIndex}`;
@@ -1236,7 +933,6 @@ const app = {
       })
       .sort((a, b) => b.year - a.year);
 
-    // ---- Loans this person took (as Loaner) ----
     const loanerItems = (app.data.loans || [])
       .filter(l => (l.ID || l.Name) === id)
       .flatMap(loan => {
@@ -1249,7 +945,6 @@ const app = {
       })
       .sort((a, b) => b.year - a.year);
 
-    // ---- Loans this person guaranteed for someone else ----
     const guarantorItems = (app.data.loanConsents || [])
       .filter(c => c.role === 'guarantor' && c.status === 'accepted' && (c.person_id || '').toString().trim() === id)
       .flatMap(c => {
@@ -1303,8 +998,4 @@ const app = {
   }
 };
 
-// audit L-17: `window.onload = app.init` REPLACES any existing load handler, so it
-// silently disables anything else that registers one — the GTM snippet in
-// index.html, an analytics tag, a future service-worker registration. addEventListener
-// composes instead of clobbering.
 window.addEventListener('load', () => app.init());

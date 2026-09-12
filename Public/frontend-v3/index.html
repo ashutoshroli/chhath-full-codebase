@@ -4,47 +4,20 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
-  <!-- Site icon / favicon — the Samiti emblem. favicon.svg is a simplified
-       version that stays legible at 16-32px; logo.svg is the full badge (used
-       as the apple-touch icon and in the header). Kept OUTSIDE the SEO:START/END
-       block so build.mjs never overwrites them. -->
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="apple-touch-icon" href="/logo.svg">
   <link rel="mask-icon" href="/favicon.svg" color="#F5972A">
 
-  <!-- Apply the saved (or system) theme BEFORE first paint so there's no
-       flash of the wrong theme. Reads the same key script.js's app.theme
-       reads/writes (cpm_public_theme). Safe to run before Tailwind's CSS
-       loads — it only toggles a class; the dark: rules are already compiled. -->
   <script>
   (function () {
     try {
       var t = localStorage.getItem('cpm_public_theme');
       var wantDark = t === 'dark' || (!t && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
       if (wantDark) document.documentElement.classList.add('dark');
-    } catch (e) { /* private mode — default to light */ }
+    } catch (e) {  }
   })();
   </script>
 
-  <!-- ==================================================================
-       SEO / SOCIAL LINK PREVIEW
-       ------------------------------------------------------------------
-       The block between the SEO:START and SEO:END markers below is
-       REGENERATED at build time by build.mjs, which pulls the latest
-       values (title / description / keywords / preview image) that a
-       Superadmin has saved in the management portal. The values you see
-       here are the HARDCODED DEFAULTS: they are what ships if the build
-       step is skipped or the settings API is unreachable, so the portal
-       always has a complete, valid set of tags and a working link
-       preview. Social crawlers (WhatsApp, Facebook, X) read only the
-       initial HTML and never run JavaScript, which is exactly why these
-       tags live in the HTML and are refreshed by a rebuild rather than
-       injected on the client.
-       Keywords intentionally include every common spelling of the
-       village names and the surrounding locality, in both English and
-       Hindi, so the portal is discoverable however people search.
-       ================================================================== -->
-  <!--SEO:START-->
   <title>Navyuvak Chhath Puja Samiti Shaharpura | Chhath Puja Transparency Portal</title>
   <meta name="description" content="Official transparency portal of Navyuvak Chhath Puja Samiti, Shaharpura & Gardih (Giridih, Jharkhand). View Chhath Puja collections, expenses, loans and committee details with full public transparency.">
   <meta name="keywords" content="Chhath Puja, छठ पूजा, Chhath, छठ, Navyuvak Chhath Puja Samiti, नवयुवक छठ पूजा समिति, Chhath Puja Samiti, छठ पूजा समिति, Chhath transparency portal, Chhath collection, Chhath chanda, छठ चंदा, Chhath committee, Chhath donation, Chhath expenses, Chhath hisab, छठ हिसाब, Shaharpura, Saharpura, Sahaarpura, Shahpura, Sahpura, शहरपुरा, Gardih, Gardi, गरडीह, गड़ीह, Siyatand, सियाटांड, Bengabad, बेंगाबाद, Jamua, जमुआ, Giridih, गिरिडीह, Jharkhand, झारखंड, India, भारत, 815312, Shaharpura Chhath, शहरपुरा छठ, Chhath Giridih, Chhath Jharkhand">
@@ -52,13 +25,11 @@
   <meta name="robots" content="index, follow">
   <meta name="theme-color" content="#F97316">
 
-  <!-- Geo signals -->
   <meta name="geo.region" content="IN-JH">
   <meta name="geo.placename" content="Shaharpura, Gardih, Giridih, Jharkhand">
   <meta name="geo.position" content="24.18;86.30">
   <meta name="ICBM" content="24.18, 86.30">
 
-  <!-- Open Graph (WhatsApp / Facebook / LinkedIn) -->
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Navyuvak Chhath Puja Samiti Shaharpura">
   <meta property="og:title" content="Navyuvak Chhath Puja Samiti Shaharpura">
@@ -70,13 +41,11 @@
   <meta property="og:locale" content="en_IN">
   <meta property="og:locale:alternate" content="hi_IN">
 
-  <!-- Twitter / X card -->
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Navyuvak Chhath Puja Samiti Shaharpura">
   <meta name="twitter:description" content="Official Chhath Puja transparency portal for Shaharpura & Gardih, Giridih, Jharkhand.">
   <meta name="twitter:image" content="https://chhath.shaharpura.com/preview.jpg">
 
-  <!-- Structured data: helps search engines show a rich organisation result -->
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -96,19 +65,10 @@
     }
   }
   </script>
-  <!--SEO:END-->
 
-  <!-- PERFORMANCE: pre-connect to the font origins (faster font fetch -> better LCP). -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 
-  <!-- Fonts loaded NON-render-blocking (media=print + onload swap), with a
-       <noscript> fallback. This removes the render-blocking font fetch from the
-       critical path (helps LCP). `display=swap` keeps text/icons visible with a
-       fallback while the web font loads AND reduces layout shift (CLS).
-       Inter drops unused weight 800 (Tailwind config only uses 400/600/700) to
-       shrink the font payload; zero visual change. (Icons not subset via &text=
-       — that breaks the ligature glyphs.) -->
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
   <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round&display=swap" media="print" onload="this.media='all'">
   <noscript>
@@ -116,13 +76,8 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round">
   </noscript>
 
-  <!-- Compiled Tailwind CSS (generated by `npm run build:css` from src/input.css
-       — no hand-written CSS rules anywhere in this project). -->
   <link rel="stylesheet" href="style.css?v=tw1">
 
-  <!-- Google Tag Manager — GA4 + Clarity are configured as tags inside GTM.
-       PERFORMANCE: boots on window 'load' (after first paint) so analytics never
-       delays LCP; pageviews are still captured via the dataLayer pushes in script.js. -->
   <script>
   window.dataLayer = window.dataLayer || [];
   window.addEventListener('load', function () {
@@ -133,13 +88,10 @@
     })(window,document,'script','dataLayer','GTM-N6BF7NP7');
   });
   </script>
-  <!-- End Google Tag Manager -->
 </head>
 <body class="bg-offwhite text-gray-800 dark:bg-gray-900 dark:text-gray-100 font-sans pb-20 md:pb-0 [-webkit-tap-highlight-color:transparent] transition-colors">
-  <!-- Google Tag Manager (noscript) -->
   <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-N6BF7NP7"
   height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
-  <!-- End Google Tag Manager (noscript) -->
 
   <div id="loader" class="fixed inset-0 bg-white dark:bg-gray-900 z-[999] flex flex-col justify-center items-center">
     <div class="border-4 border-[#FFE4D6] dark:border-gray-700 border-t-saffron rounded-full w-10 h-10 animate-spin mb-2.5"></div>
@@ -268,9 +220,6 @@
     <button class="nav-btn flex flex-col items-center gap-0.5 bg-transparent border-0 text-gray-500 dark:text-gray-400 text-xs font-semibold w-1/5 cursor-pointer [&.active]:text-saffron" onclick="app.nav('downloads')" data-target="downloads"><span class="material-icons-round">download</span><span data-i18n="nav_downloads">Downloads</span></button>
   </nav>
 
-  <!-- Popup overlay — populated by app.loadPopup() on every page load/refresh.
-       Hidden by default; only shown if an active popup tagged "Public" is
-       returned. Multiple slides are swipeable via the arrows. -->
   <div id="popup-overlay" class="popup-overlay fixed inset-0 bg-black/55 z-[1000] items-center justify-center p-5" style="display:none;">
     <div class="popup-card bg-white dark:bg-gray-800 rounded-2xl max-w-[420px] w-full max-h-[85vh] overflow-y-auto relative shadow-2xl">
       <button class="popup-close absolute top-2 right-2.5 bg-black/45 text-white border-0 rounded-full w-[30px] h-[30px] text-xl leading-none cursor-pointer z-[2] flex items-center justify-center" onclick="app.closePopup()" aria-label="Close">&times;</button>
@@ -283,11 +232,6 @@
     </div>
   </div>
 
-  <!-- Site footer — shown on every view (it sits outside the .page-view
-       sections that the SPA toggles). The year is filled by the inline script below so it
-       is always current with no rebuild. Bilingual show/hide is done purely with
-       Tailwind's arbitrary-variant selector on <html lang>, so no separate <style>
-       block (and no custom CSS file) is needed for it. -->
   <footer class="site-footer max-w-[1000px] mx-auto mt-10 mb-6 md:mb-8 pt-[18px] px-4 border-t border-black/[0.08] dark:border-white/10 text-center text-gray-500 dark:text-gray-400 text-[0.78rem] leading-relaxed">
     <p class="my-1">
       © <span id="footer-yr"></span>
@@ -300,16 +244,9 @@
     </p>
   </footer>
   <script>
-    // Self-contained year fill — independent of script.js so the footer is correct
-    // even if the app script fails to load.
     (function () { var y = document.getElementById('footer-yr'); if (y) y.textContent = new Date().getFullYear(); })();
   </script>
 
-  <!-- ==== AI Chatbot: floating button (bottom-right) + popup panel ==== -->
-  <!-- Opens in the SAME tab as an overlay panel (no navigation). Bilingual via the
-       data-lang spans (same arbitrary-variant technique as the footer). All
-       behaviour is in script.js (app.chat*). Hidden until wired; degrades
-       gracefully if the chatbot backend isn't reachable. -->
   <button id="chat-fab" class="chat-fab fixed right-[18px] bottom-20 md:bottom-[18px] z-[200] w-14 h-14 rounded-full border-0 cursor-pointer bg-saffron text-white flex items-center justify-center shadow-lg hover:scale-105 transition-transform duration-150" aria-label="Open chat assistant" title="Ask a question">
     <span class="material-icons-round !text-[26px]">chat</span>
   </button>
@@ -339,24 +276,10 @@
     </form>
   </div>
 
-  <!-- env.js MUST load before script.js (both `defer`, so they still run in this
-       document order) — it defines window.__ENV__, which script.js reads its
-       API/chatbot/login URLs from. Generated at build time by generate-env.js;
-       see .env.example for the variable names. -->
   <script defer src="env.js?v=tw1"></script>
 
-  <!-- `defer`: let the browser finish parsing the HTML (and paint the header +
-       reserved content areas) before running the app script, instead of blocking
-       on it. Improves LCP with no behaviour change — the script still runs before
-       DOMContentLoaded, in order, exactly as an end-of-body script did. -->
   <script defer src="script.js?v=tw1"></script>
 
-  <!-- Vercel Web Analytics (privacy-friendly, cookie-less visitor/pageview
-       counts in the Vercel dashboard). This is the plain-HTML integration: the
-       inline stub queues events until the script served from this deployment's
-       /_vercel/insights/ path loads. Independent of GTM/GA4 above; ad-blockers
-       that block Google leave this first-party path alone, so the counts are
-       usually more complete. Loaded with `defer` so it never blocks rendering. -->
   <script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
   <script defer src="/_vercel/insights/script.js"></script>
 </body>

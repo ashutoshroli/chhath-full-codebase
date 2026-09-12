@@ -1,18 +1,3 @@
-// Bilingual (English / Hindi) internationalisation for the v2 public portal.
-//
-// WHY THIS EXISTS
-// The portal serves a bilingual audience, and the data payload already carries
-// Hindi columns ('Name (Hindi)', 'Village (Hindi)', ...) alongside the English
-// ones. Switching language must therefore never trigger a re-fetch — we simply
-// re-read the right column and re-render. This module is the framework-free
-// home of that logic so it can be unit-tested with plain `node --test` and
-// imported by any Astro component without pulling in the framework.
-//
-// TWO PARTS (ported verbatim from the old Public/frontend/script.js):
-//   T[lang][key]           Static UI strings (headings, buttons, table labels).
-//   localize(row, field)   A record's DATA value, preferring the Hindi DB column
-//                          when Hindi is active, falling back to English so a
-//                          blank Hindi cell never renders empty.
 export const T = {
   en: {
     app_title: 'Chhath Puja', app_subtitle: 'Transparency Portal',
@@ -84,32 +69,19 @@ export const T = {
   },
 };
 
-// localStorage key for the chosen language. Deliberately v2-specific
-// ('cpm_public_v2_lang') so it never collides with the old site's
-// 'cpm_public_lang' while both portals may be visited by the same browser.
 export const LANG_KEY = 'cpm_public_v2_lang';
 
-// Supported languages, exported so callers (the header toggle) don't hardcode
-// the list.
 export const LANGS = ['en', 'hi'];
 
-// Normalise any input to a supported language, defaulting to English. Keeps the
-// "unknown value -> en" behaviour identical to the old site's guard.
 export function normalizeLang(lang) {
   return lang === 'hi' ? 'hi' : 'en';
 }
 
-// Static UI string for a language. Falls back to English, then to the raw key
-// so a missing translation surfaces the key instead of rendering blank.
 export function t(lang, key) {
   const l = normalizeLang(lang);
   return (T[l] && T[l][key]) || T.en[key] || key;
 }
 
-// A DATA value for the current language. `field` is the English key
-// ('Name', 'Village', "Father's Name", 'Designation', 'View Role', 'Discription').
-// When Hindi is active, prefer '<field> (Hindi)' and fall back to English when
-// the Hindi column is blank — so a missing Hindi value never shows an empty cell.
 export function localize(row, field, lang) {
   if (!row) return '';
   const en = (row[field] === undefined || row[field] === null) ? '' : row[field].toString();

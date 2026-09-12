@@ -1,20 +1,4 @@
 ---
-// Committee page for the v2 public portal.
-//
-// Reproduces the old site's renderCommittee(): an ID-card per active committee
-// member for the selected year (or the 'All' lifetime view) — a circular avatar
-// with the member's initial, name, a year badge, the role, mobile and village.
-//
-// ROLE SOURCE (audit fix H-2 — do NOT regress):
-// The committee role lives on the committee ROW's 'View Role' field (surfaced by
-// the Worker's REVERSE_MAPS from `view_role`). There is NO `Role` field on the
-// user, so the role MUST be read from the row first, then fall back to the user's
-// 'Designation', then to 'Member'. Reading it off the user silently hid the
-// committee role on the public site.
-//
-// Also renders the management-portal Login link (URL from config.mgmtLoginUrl —
-// never hardcoded) and a samiti footer block. Static Astro output; fetch +
-// rendering run in the client island, which escapes every interpolated value.
 import Layout from '../layouts/Layout.astro';
 import { t } from '../i18n.js';
 import { mgmtLoginUrl } from '../config.js';
@@ -35,7 +19,6 @@ const lang = 'en';
         <h1 class="text-lg font-bold text-slate-900 dark:text-white sm:text-xl" data-i18n="active_committee">{t(lang, 'active_committee')}</h1>
         <p id="disp-year-title" class="text-sm font-semibold text-brand-600 dark:text-brand-400">&nbsp;</p>
       </div>
-      <!-- Management-portal Login (env-driven URL, opens in a new tab). -->
       <a
         href={mgmtLoginUrl}
         target="_blank"
@@ -47,7 +30,6 @@ const lang = 'en';
 
     <div id="com-list" class="flex flex-col gap-3"></div>
 
-    <!-- Samiti footer block. -->
     <footer class="mt-4 border-t border-slate-200 pt-5 text-center dark:border-slate-800">
       <img src="/logo.svg" alt="" width="48" height="48" class="mx-auto mb-2 h-12 w-12" />
       <p class="text-sm font-semibold text-slate-700 dark:text-slate-200" data-i18n="app_title">{t(lang, 'app_title')}</p>
@@ -56,7 +38,6 @@ const lang = 'en';
   </section>
 </Layout>
 
-<!-- CLIENT ISLAND -->
 <script>
   import { apiBase } from '../config.js';
   import { loadPortalData } from '../lib/portalData.js';
@@ -104,11 +85,8 @@ const lang = 'en';
 
       var html = target.map(function (r) {
         var u = getUser(state.userMap, r.ID || r.Name);
-        // Coerce Name to a string BEFORE charAt — a missing name once threw and
-        // blanked the whole list.
         var nameStr = (localize(u, 'Name', lang) || '').toString();
         var initial = (nameStr.charAt(0) || '?').toUpperCase();
-        // Role: committee ROW's 'View Role' first (audit H-2), then Designation, then Member.
         var role = localize(r, 'View Role', lang) || localize(u, 'Designation', lang) || t(lang, 'member');
 
         return '<div class="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">'
@@ -151,9 +129,6 @@ const lang = 'en';
       renderStaleNotice();
     }
 
-    // Re-resolve elements each swap (see index.astro for the full rationale):
-    // under View Transitions the <body> is swapped, so parse-time node refs go
-    // stale on every client navigation.
     function refreshEls() {
       loaderEl = document.getElementById('page-loader');
       pageEl = document.querySelector('[data-page-root]');
@@ -180,23 +155,6 @@ const lang = 'en';
       }
     }
 
-    // ---- Per-navigation init (View Transitions) ----------------------------
-    // STRATEGY: re-init on astro:page-load so the committee cards + #year-select
-    // options rebuild for the freshly-swapped DOM. Fires on the initial real
-    // load AND every client swap, so boot() is NOT also called at parse time
-    // (no double-boot).
-    //
-    // PAGE-IDENTITY GUARD (why this exists): the handler is registered on
-    // `document`, which is NOT swapped by the router and is never removed, so
-    // this page's handler stays live and fires on EVERY later swap even when a
-    // different page is mounted. Without a guard, each swap would re-run this
-    // page's boot() (a redundant loadPortalData() fetch) and re-bind
-    // renderCommittee to the SAME persisted #year-select. addEventListener only
-    // de-dupes identical (node,type,fn) triples, so every visited page's
-    // distinct renderX stays bound and one year change fires them all against
-    // unmounted DOM. FIX: bail unless THIS page is the mounted one. The four
-    // data pages share `[data-page-root]`, so we gate on this page's UNIQUE
-    // element id (#com-list) instead — absent = not this page = no-op.
     document.addEventListener('astro:page-load', function () {
       if (!document.getElementById('com-list')) return;
       refreshEls();
@@ -204,8 +162,6 @@ const lang = 'en';
       if (yearSel) yearSel.addEventListener('change', renderCommittee);
     });
 
-    // Window-level cpm:langchange bound exactly ONCE (a window listener survives
-    // swaps, so re-adding it per page-load would stack duplicates).
     if (!window.__cpmCommitteeLangBound) {
       window.__cpmCommitteeLangBound = true;
       window.addEventListener('cpm:langchange', onLangChange);

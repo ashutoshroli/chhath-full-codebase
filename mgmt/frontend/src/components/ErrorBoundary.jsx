@@ -2,17 +2,6 @@ import React from 'react';
 import { reportClientError } from '../api.js';
 import { isChunkLoadError, reloadOnceForChunkError } from '../chunkGuard.js';
 
-// There was NO ErrorBoundary anywhere in the app (grep for
-// `ErrorBoundary|componentDidCatch` returned nothing), so a single render throw
-// unmounted the whole tree and left a WHITE SCREEN. It was only ever "logged"
-// indirectly by main.jsx's window.onerror handler, which for a cross-origin
-// bundle records the useless message "Script error." with no stack — the migrated
-// data has five such rows.
-//
-// The 4 <Suspense> boundaries in App.jsx also had no error handling at all, so a
-// lazy-chunk 404 after a redeploy (a very common cause: the user's tab still
-// references the previous build's hashed filenames) blanked the page with no
-// explanation and no way back.
 export default class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -25,10 +14,7 @@ export default class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, info) {
     this.setState({ info });
-    // Stale bundle after a deploy: reload once instead of logging a non-defect and
-    // making the user find the Refresh button.
     if (reloadOnceForChunkError(error)) return;
-    // A real stack + component stack, unlike what window.onerror can capture.
     reportClientError(
       this.props.name || 'ErrorBoundary',
       'React render crashed',
@@ -37,7 +23,6 @@ export default class ErrorBoundary extends React.Component {
     );
   }
 
-  // Shared with chunkGuard.js so the detector can't drift between the two.
   isChunkLoadError() {
     return isChunkLoadError(this.state.error);
   }
@@ -46,8 +31,6 @@ export default class ErrorBoundary extends React.Component {
     const { error, showDetails, info } = this.state;
     if (!error) return this.props.children;
 
-    // A stale-bundle chunk error is fixed by a reload, so say that explicitly
-    // instead of showing a generic crash.
     if (this.isChunkLoadError()) {
       return (
         <div className="glass-card" style={{ padding: 20, textAlign: 'center', margin: 15 }}>

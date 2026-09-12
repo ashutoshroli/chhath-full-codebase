@@ -4,33 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
-  <!-- Site icon / favicon — the Samiti emblem. favicon.svg is a simplified
-       version that stays legible at 16-32px; logo.svg is the full badge (used
-       as the apple-touch icon and in the header). Kept OUTSIDE the SEO:START/END
-       block so build.mjs never overwrites them. -->
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="apple-touch-icon" href="/logo.svg">
   <link rel="mask-icon" href="/favicon.svg" color="#F5972A">
 
-  <!-- ==================================================================
-       SEO / SOCIAL LINK PREVIEW
-       ------------------------------------------------------------------
-       The block between the SEO:START and SEO:END markers below is
-       REGENERATED at build time by build.mjs, which pulls the latest
-       values (title / description / keywords / preview image) that a
-       Superadmin has saved in the management portal. The values you see
-       here are the HARDCODED DEFAULTS: they are what ships if the build
-       step is skipped or the settings API is unreachable, so the portal
-       always has a complete, valid set of tags and a working link
-       preview. Social crawlers (WhatsApp, Facebook, X) read only the
-       initial HTML and never run JavaScript, which is exactly why these
-       tags live in the HTML and are refreshed by a rebuild rather than
-       injected on the client.
-       Keywords intentionally include every common spelling of the
-       village names and the surrounding locality, in both English and
-       Hindi, so the portal is discoverable however people search.
-       ================================================================== -->
-  <!--SEO:START-->
   <title>Navyuvak Chhath Puja Samiti Shaharpura | Chhath Puja Transparency Portal</title>
   <meta name="description" content="Official transparency portal of Navyuvak Chhath Puja Samiti, Shaharpura & Gardih (Giridih, Jharkhand). View Chhath Puja collections, expenses, loans and committee details with full public transparency.">
   <meta name="keywords" content="Chhath Puja, छठ पूजा, Chhath, छठ, Navyuvak Chhath Puja Samiti, नवयुवक छठ पूजा समिति, Chhath Puja Samiti, छठ पूजा समिति, Chhath transparency portal, Chhath collection, Chhath chanda, छठ चंदा, Chhath committee, Chhath donation, Chhath expenses, Chhath hisab, छठ हिसाब, Shaharpura, Saharpura, Sahaarpura, Shahpura, Sahpura, शहरपुरा, Gardih, Gardi, गरडीह, गड़ीह, Siyatand, सियाटांड, Bengabad, बेंगाबाद, Jamua, जमुआ, Giridih, गिरिडीह, Jharkhand, झारखंड, India, भारत, 815312, Shaharpura Chhath, शहरपुरा छठ, Chhath Giridih, Chhath Jharkhand">
@@ -38,13 +15,11 @@
   <meta name="robots" content="index, follow">
   <meta name="theme-color" content="#F97316">
 
-  <!-- Geo signals -->
   <meta name="geo.region" content="IN-JH">
   <meta name="geo.placename" content="Shaharpura, Gardih, Giridih, Jharkhand">
   <meta name="geo.position" content="24.18;86.30">
   <meta name="ICBM" content="24.18, 86.30">
 
-  <!-- Open Graph (WhatsApp / Facebook / LinkedIn) -->
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Navyuvak Chhath Puja Samiti Shaharpura">
   <meta property="og:title" content="Navyuvak Chhath Puja Samiti Shaharpura">
@@ -56,13 +31,11 @@
   <meta property="og:locale" content="en_IN">
   <meta property="og:locale:alternate" content="hi_IN">
 
-  <!-- Twitter / X card -->
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Navyuvak Chhath Puja Samiti Shaharpura">
   <meta name="twitter:description" content="Official Chhath Puja transparency portal for Shaharpura & Gardih, Giridih, Jharkhand.">
   <meta name="twitter:image" content="https://chhath.shaharpura.com/preview.jpg">
 
-  <!-- Structured data: helps search engines show a rich organisation result -->
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -82,19 +55,10 @@
     }
   }
   </script>
-  <!--SEO:END-->
 
-  <!-- PERFORMANCE: pre-connect to the font origins (faster font fetch -> better LCP). -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 
-  <!-- Fonts loaded NON-render-blocking (media=print + onload swap), with a
-       <noscript> fallback. This removes the render-blocking font fetch from the
-       critical path (helps LCP). `display=swap` keeps text/icons visible with a
-       fallback while the web font loads AND reduces layout shift (CLS).
-       Inter drops unused weight 800 (CSS only uses 400/600/700) to shrink the
-       font payload; zero visual change. (Icons not subset via &text= — that
-       breaks the ligature glyphs.) -->
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
   <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round&display=swap" media="print" onload="this.media='all'">
   <noscript>
@@ -103,12 +67,6 @@
   </noscript>
 
   <link rel="stylesheet" href="style.css?v=chatbot2">
-  <!-- Footer language toggle lives INLINE here (not in style.css) on purpose:
-       style.css is cached for a day (max-age=86400), but this HTML is always
-       revalidated (max-age=0). Keeping the show/hide rule with the markup means
-       a fresh footer and its toggle rule always ship together, so the two can
-       never skew and show BOTH languages at once. Shows only the language that
-       matches <html lang> (set by app.applyStaticLang); default = English. -->
   <style>
     .site-footer [data-lang="hi"] { display: none; }
     .site-footer [data-lang="en"] { display: inline; }
@@ -116,9 +74,6 @@
     html[lang="hi"] .site-footer [data-lang="hi"] { display: inline; }
   </style>
 
-  <!-- Google Tag Manager — GA4 + Clarity are configured as tags inside GTM.
-       PERFORMANCE: boots on window 'load' (after first paint) so analytics never
-       delays LCP; pageviews are still captured via the dataLayer pushes in script.js. -->
   <script>
   window.dataLayer = window.dataLayer || [];
   window.addEventListener('load', function () {
@@ -129,13 +84,10 @@
     })(window,document,'script','dataLayer','GTM-N6BF7NP7');
   });
   </script>
-  <!-- End Google Tag Manager -->
 </head>
 <body>
-  <!-- Google Tag Manager (noscript) -->
   <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-N6BF7NP7"
   height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
-  <!-- End Google Tag Manager (noscript) -->
 
   <div id="loader"><div class="spinner"></div><p style="font-weight:600;">Loading...</p></div>
 
@@ -257,9 +209,6 @@
     <button class="nav-btn" onclick="app.nav('downloads')" data-target="downloads"><span class="material-icons-round">download</span><span data-i18n="nav_downloads">Downloads</span></button>
   </nav>
 
-  <!-- Popup overlay — populated by app.loadPopup() on every page load/refresh.
-       Hidden by default; only shown if an active popup tagged "Public" is
-       returned. Multiple slides are swipeable via the arrows. -->
   <div id="popup-overlay" class="popup-overlay" style="display:none;">
     <div class="popup-card">
       <button class="popup-close" onclick="app.closePopup()" aria-label="Close">&times;</button>
@@ -272,9 +221,6 @@
     </div>
   </div>
 
-  <!-- Site footer — shown on every view (it sits outside the .page-view sections
-       that the SPA toggles). The year is filled by the inline script below so it
-       is always current with no rebuild. -->
   <footer class="site-footer">
     <p class="site-footer-copy">
       © <span id="footer-yr"></span>
@@ -287,19 +233,9 @@
     </p>
   </footer>
   <script>
-    // Self-contained year fill — independent of script.js so the footer is correct
-    // even if the app script fails to load. The bilingual text uses data-lang
-    // spans toggled purely by CSS on <html lang> (see style.css), so it does NOT
-    // depend on the JS i18n dictionary — this avoids showing raw keys when a
-    // stale-cached script.js and a fresh index.html briefly disagree.
     (function () { var y = document.getElementById('footer-yr'); if (y) y.textContent = new Date().getFullYear(); })();
   </script>
 
-  <!-- ==== AI Chatbot: floating button (bottom-right) + popup panel ==== -->
-  <!-- Opens in the SAME tab as an overlay panel (no navigation). Bilingual via the
-       data-lang spans (CSS-toggled on <html lang>), like the footer. All behaviour
-       is in script.js (app.chat*). Hidden until wired; degrades gracefully if the
-       chatbot backend isn't reachable. -->
   <button id="chat-fab" class="chat-fab" aria-label="Open chat assistant" title="Ask a question"
     style="position:fixed; right:18px; bottom:80px; z-index:200; width:56px; height:56px; border-radius:50%; border:none; cursor:pointer; background:#F27A1A; color:#fff; display:flex; align-items:center; justify-content:center; box-shadow:0 6px 20px rgba(0,0,0,0.22);">
     <span class="material-icons-round" style="font-size:26px;">chat</span>
@@ -333,18 +269,8 @@
     </form>
   </div>
 
-  <!-- `defer`: let the browser finish parsing the HTML (and paint the header +
-       reserved content areas) before running the app script, instead of blocking
-       on it. Improves LCP with no behaviour change — the script still runs before
-       DOMContentLoaded, in order, exactly as an end-of-body script did. -->
   <script defer src="script.js?v=chatbot3"></script>
 
-  <!-- Vercel Web Analytics (privacy-friendly, cookie-less visitor/pageview
-       counts in the Vercel dashboard). This is the plain-HTML integration: the
-       inline stub queues events until the script served from this deployment's
-       /_vercel/insights/ path loads. Independent of GTM/GA4 above; ad-blockers
-       that block Google leave this first-party path alone, so the counts are
-       usually more complete. Loaded with `defer` so it never blocks rendering. -->
   <script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
   <script defer src="/_vercel/insights/script.js"></script>
 </body>

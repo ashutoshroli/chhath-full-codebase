@@ -1,15 +1,8 @@
 import { useState } from 'react';
 import { api } from '../api.js';
 
-// Two-step "Forgot password" flow, rendered inside the Login card when the user
-// clicks "Forgot password?".
-//   Step 1 (request): enter identifier -> backend emails a 6-digit code.
-//   Step 2 (reset):    enter the emailed code + a new password -> password reset.
-// On success we call onDone() so the parent returns to the login form with a
-// success banner. There is NO auto-login by design (a Superadmin's 2FA must still
-// be enforced on the next sign-in).
 export default function ForgotPassword({ initialName = '', onCancel, onDone }) {
-  const [step, setStep] = useState('request'); // 'request' | 'reset'
+  const [step, setStep] = useState('request');
   const [name, setName] = useState(initialName);
   const [code, setCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -24,15 +17,10 @@ export default function ForgotPassword({ initialName = '', onCancel, onDone }) {
     if (!name.trim()) return setError('Enter your username, mobile, or email.');
     setLoading(true);
     try {
-      // Distinct outcomes (team decision — not anti-enumeration):
-      //   success + sent -> advance to the code step, note the masked email.
-      //   NOT_FOUND / NO_EMAIL / RATE_LIMITED -> thrown as an error (see catch),
-      //   stay on the request step and show the specific message.
       const res = await api.requestPasswordReset(name.trim());
       setInfo((res && res.message) || 'A 6-digit reset code has been sent.');
       setStep('reset');
     } catch (err) {
-      // The backend returns { success:false, code, message, retryAfterSeconds? }.
       if (err && err.code === 'NOT_FOUND') {
         setError('No account found with that username, mobile, or email.');
       } else if (err && err.code === 'NO_EMAIL') {
@@ -60,8 +48,6 @@ export default function ForgotPassword({ initialName = '', onCancel, onDone }) {
       const res = await api.resetPassword(name.trim(), code.trim(), newPassword);
       onDone((res && res.message) || 'Your password has been reset. Please sign in.');
     } catch (err) {
-      // Password-strength messages come back here as a failure with the specific
-      // rule (the code was accepted); a bad/expired code is a generic message.
       setError(err.message || 'Could not reset the password.');
     } finally {
       setLoading(false);

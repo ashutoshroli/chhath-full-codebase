@@ -41,7 +41,7 @@ export default function Expenses({ year, role, editable }) {
         await api.saveRecord('EXPENSES', { Year: year === 'All' ? new Date().getFullYear() : year, ...form });
       }
       invalidate('expenses:');
-      invalidate('home:'); // total budget/surplus changes too
+      invalidate('home:');
       closeModal();
       refresh();
     } catch (err) {

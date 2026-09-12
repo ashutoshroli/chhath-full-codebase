@@ -14,9 +14,6 @@ body { background-color: var(--bg-offwhite); color: var(--text-main); padding-bo
 .year-selector { background: var(--primary-saffron); color: white; border: none; padding: 8px 15px; border-radius: 8px; font-weight: 700;
   font-size: 0.95rem; outline: none; cursor: pointer; }
 
-/* Language toggle sits to the LEFT of the year selector; grouped in a small flex
-   wrapper so they stay together on the right of the header. Styled to match the
-   year selector but outlined (not filled) so the year stays the primary control. */
 .header-controls { display: flex; align-items: center; gap: 8px; }
 .lang-toggle { display: flex; align-items: center; gap: 5px; background: #fff; color: var(--primary-saffron);
   border: 1.5px solid var(--primary-saffron); padding: 7px 12px; border-radius: 8px; font-weight: 700;
@@ -29,25 +26,11 @@ body { background-color: var(--bg-offwhite); color: var(--text-main); padding-bo
 
 .page-view { display: none; max-width: 1000px; margin: 90px auto 0; padding: 0 15px; animation: fade 0.3s; }
 .active-view { display: block; }
-/* opacity-only fade — the old fade also did translateY(10px)->0 on every view
-   render, a position change that shows up as layout shift (CLS). Fading opacity
-   alone gives the same feel without moving anything. */
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 
-/* overflow-wrap:anywhere — a long unbreakable token (a name, a detail, a
-   document label, a URL) can no longer stretch the card past the viewport and
-   cause the whole page to scroll sideways. Mirrors mgmt/frontend/styles.css. */
 .glass-card { background: var(--card-white); border-radius: 12px; padding: 20px; box-shadow: var(--shadow); margin-bottom: 15px; border: 1px solid #eee; overflow-wrap: anywhere; }
 .budget-card { background: linear-gradient(135deg, #1F2937 0%, #111827 100%); color: white; }
 
-/* CLS fix (web-vitals): these containers start EMPTY and are filled by script.js
-   with innerHTML after the data loads. With no reserved height the page collapsed
-   to near-zero and then jumped down as rows were injected — a large Cumulative
-   Layout Shift (measured 0.32 = "poor"). Reserving a sensible minimum keeps the
-   layout stable while data arrives, so content fills the space instead of pushing
-   everything down. min-height only sets a FLOOR, so a longer list still grows
-   normally; a shorter one just shows a little whitespace briefly. No behaviour or
-   markup change. */
 #home-col-list, #exp-list, #com-list, #loans-dynamic-list, #dc-people-wrap, #dc-docs-wrap {
   min-height: 200px;
 }
@@ -60,9 +43,6 @@ body { background-color: var(--bg-offwhite); color: var(--text-main); padding-bo
 .search-bar:focus { border-color: var(--primary-saffron); }
 .data-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px dashed #eee; align-items: center; gap: 10px;}
 .data-row:last-child { border-bottom: none; }
-/* A flex item defaults to min-width:auto and refuses to shrink below its
-   content width, so a long name/detail/label pushed the row (and card) wider
-   instead of wrapping. min-width:0 lets the left cell shrink and wrap. */
 .data-row > * { min-width: 0; }
 .data-row > *:first-child { overflow-wrap: anywhere; }
 
@@ -78,7 +58,7 @@ body { background-color: var(--bg-offwhite); color: var(--text-main); padding-bo
 .badge-ok { background: #D1FAE5; color: #065F46; }
 .badge-warn { background: #FEE2E2; color: #991B1B; }
 .yr-tag { color: var(--primary-saffron); font-size: 0.75rem; font-weight: bold; margin-left: 5px; }
-.id-tag { font-size: 0.7rem; background: #eee; padding: 2px 6px; border-radius: 4px; color: #666; margin-left: 5px; display: none; /* Keep hidden from UI */ }
+.id-tag { font-size: 0.7rem; background: #eee; padding: 2px 6px; border-radius: 4px; color: #666; margin-left: 5px; display: none;  }
 
 @media(min-width: 768px){ 
   .bottom-nav { display: none; } 
@@ -89,7 +69,6 @@ body { background-color: var(--bg-offwhite); color: var(--text-main); padding-bo
   .desktop-nav .nav-btn.active { background: var(--saffron-light); color: var(--primary-saffron); }
 }
 
-/* ---- Popup (Popup Management -> "Public" role) ---- */
 .popup-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 1000;
   display: flex; align-items: center; justify-content: center; padding: 20px;
@@ -103,12 +82,6 @@ body { background-color: var(--bg-offwhite); color: var(--text-main); padding-bo
   border: none; border-radius: 50%; width: 30px; height: 30px; font-size: 1.2rem;
   line-height: 1; cursor: pointer; z-index: 2;
 }
-/* Show the FULL popup image at its natural proportions — do NOT crop it.
-   A fixed aspect-ratio + object-fit:cover was cutting off tall/portrait
-   posters (only the middle strip showed). `height:auto` lets the image size
-   itself to whatever it actually is, so the whole poster is visible. The card
-   already scrolls (max-height:85vh + overflow-y:auto) if the image is very
-   tall. `background` shows a neutral placeholder while it loads. */
 .popup-slide-img { width: 100%; height: auto; display: block; border-radius: 14px 14px 0 0; background: #f3f4f6; }
 .popup-slide-text { padding: 16px; font-size: 0.9rem; color: var(--text-main, #333); overflow-wrap: anywhere; }
 .popup-slide-link {
@@ -126,10 +99,6 @@ body { background-color: var(--bg-offwhite); color: var(--text-main); padding-bo
 .popup-slide-dots { font-size: 0.75rem; color: var(--text-muted); }
 
 
-/* Site footer — appears on every SPA view (it lives outside the .page-view
-   sections). Sits above the fixed .bottom-nav on mobile: body already reserves
-   80px at the bottom, and the footer adds its own bottom margin so the text is
-   never hidden behind the nav bar. */
 .site-footer {
   max-width: 1000px;
   margin: 40px auto 24px;
@@ -142,23 +111,12 @@ body { background-color: var(--bg-offwhite); color: var(--text-main); padding-bo
 }
 .site-footer p { margin: 4px 0; }
 .site-footer-made { opacity: 0.9; }
-/* Keep the heart its natural pink even where the surrounding text is muted. */
 .footer-heart { font-size: 0.9rem; vertical-align: -1px; }
-/* NOTE: the .site-footer [data-lang] show/hide toggle lives INLINE in index.html
-   (and privacy/terms have their own inline copy) — deliberately NOT here, because
-   style.css is cached for a day while the HTML is always fresh, and keeping the
-   toggle with the markup stops the two from skewing (which showed BOTH languages
-   at once). */
 @media (min-width: 768px) {
-  /* No fixed bottom-nav on desktop, so the extra bottom breathing room isn't
-     needed — pull the footer a little tighter to the content. */
   .site-footer { margin-bottom: 32px; }
 }
 
 
-/* ==== AI Chatbot: floating button + popup panel ==== */
-/* bottom:80px keeps the button clear of the fixed 65px .bottom-nav on mobile.
-   On desktop the nav is hidden, so it just floats a little higher — fine. */
 .chat-fab {
   position: fixed; right: 18px; bottom: 80px; z-index: 200;
   width: 56px; height: 56px; border-radius: 50%; border: none; cursor: pointer;

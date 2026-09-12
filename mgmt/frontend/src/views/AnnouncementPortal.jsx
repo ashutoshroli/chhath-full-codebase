@@ -25,7 +25,7 @@ export default function AnnouncementPortal({ years }) {
   const [editingId, setEditingId] = useState(null);
   const [savingCustom, setSavingCustom] = useState(false);
 
-  useEffect(() => { if (years && years.length && !year) setYear(years[0]); if (years && years.length && !customYear) setCustomYear(years[0]); }, [years]); // eslint-disable-line
+  useEffect(() => { if (years && years.length && !year) setYear(years[0]); if (years && years.length && !customYear) setCustomYear(years[0]); }, [years]);
 
   const refreshLinks = () => { api.getAnnouncementLinks().then(setLinks).catch(err => setError(err.message)); };
   useEffect(() => { refreshLinks(); }, []);
@@ -34,7 +34,7 @@ export default function AnnouncementPortal({ years }) {
     if (!customYear) return;
     api.getCustomAnnouncements(customYear).then(setCustoms).catch(err => setError(err.message));
   };
-  useEffect(() => { refreshCustoms(); }, [customYear]); // eslint-disable-line
+  useEffect(() => { refreshCustoms(); }, [customYear]);
 
   const baseUrl = window.location.origin;
 
@@ -45,9 +45,6 @@ export default function AnnouncementPortal({ years }) {
     setError('');
     try {
       const res = await api.generateAnnouncementLink(year, pin.trim(), neverExpires ? null : new Date(expiresAt).toISOString());
-      // audit H-17: use the PIN typed here rather than the one the server used to
-      // echo back. Identical on screen; the live PIN no longer makes a second trip
-      // over the wire for no reason.
       setGeneratedLink({ url: `${baseUrl}/announce/${res.token}`, pin: pin.trim() });
       setPin('');
       refreshLinks();
@@ -69,9 +66,6 @@ export default function AnnouncementPortal({ years }) {
   };
 
   const copyLink = (url) => {
-    // navigator.clipboard is unavailable on non-HTTPS origins and in some
-    // in-app browsers, where this used to fail SILENTLY — the button just
-    // appeared broken. Show the link so it can be copied by hand.
     if (!navigator.clipboard) return window.prompt('Copy this link:', url);
     navigator.clipboard.writeText(url)
       .then(() => alert('Link copied'))
@@ -118,7 +112,7 @@ export default function AnnouncementPortal({ years }) {
       <h2 style={{ marginBottom: 15 }}>Announcement Portal</h2>
       {error && <div className="error-banner">{error}</div>}
 
-      {/* ---- Generate Link ---- */}
+      {}
       <div className="glass-card" style={{ padding: 15 }}>
         <strong style={{ display: 'block', marginBottom: 10 }}>Generate New Link</strong>
         <div className="form-group">
@@ -156,7 +150,7 @@ export default function AnnouncementPortal({ years }) {
         )}
       </div>
 
-      {/* ---- Existing Links ---- */}
+      {}
       <div className="glass-card" style={{ padding: 15 }}>
         <strong style={{ display: 'block', marginBottom: 10 }}>Existing Links</strong>
         {links.length === 0 && <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No links have been created yet.</p>}
@@ -180,7 +174,7 @@ export default function AnnouncementPortal({ years }) {
         ))}
       </div>
 
-      {/* ---- Custom Announcements ---- */}
+      {}
       <div className="glass-card" style={{ padding: 15 }}>
         <strong style={{ display: 'block', marginBottom: 10 }}>Custom Announcements</strong>
         <div className="form-group">

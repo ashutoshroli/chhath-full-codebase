@@ -3,17 +3,12 @@ import { api } from '../api.js';
 
 const DOC_TYPES = [
   ['receipt', 'Receipt', 'receipt-sample.docx', ['RECEIPT_NO', 'DATE', 'YEAR', 'NAME', 'FATHER_NAME', 'VILLAGE', 'DESIGNATION', 'MOBILE', 'DETAIL', 'AMOUNT', 'GENERATED_AT', 'QR_CODE']],
-  // receipt_work = the receipt for a Service (Work) contribution. Same placeholder
-  // set as a plain receipt; it exists so a work receipt can have its own design.
   ['receipt_work', 'Receipt — Work', 'receipt-work-sample.docx', ['RECEIPT_NO', 'DATE', 'YEAR', 'NAME', 'FATHER_NAME', 'VILLAGE', 'DESIGNATION', 'MOBILE', 'DETAIL', 'AMOUNT', 'GENERATED_AT', 'QR_CODE']],
   ['certificate', 'Certificate', 'certificate-sample.docx', ['CERT_NO', 'DATE', 'NAME', 'DETAIL', 'VILLAGE', 'FATHER_NAME', 'DESIGNATION', 'YEAR', 'GENERATED_AT', 'QR_CODE']],
   ['samaan', 'Material', 'samaan-sample.docx', ['SAMAAN_NO', 'DATE', 'NAME', 'ITEM_DETAIL', 'VILLAGE', 'FATHER_NAME', 'YEAR', 'GENERATED_AT', 'QR_CODE']],
   ['consent_loaner', 'Consent — Loaner', 'consent-loaner-sample.docx', [
     'LOAN_CONSENT_ID', 'FUND_YEAR', 'LOANER_NAME', 'LOAN_AMOUNT', 'MONTHLY_INTEREST_RATE', 'MINIMUM_TENURE_MONTHS', 'FINAL_REPAYMENT_DATE', 'FINAL_REPAYMENT_DAY_NAME',
     'GUARANTOR_1_NAME', 'GUARANTOR_1_STATUS', 'GUARANTOR_2_NAME', 'GUARANTOR_2_STATUS', 'GUARANTOR_3_NAME', 'GUARANTOR_3_STATUS',
-    // GUARANTOR_4_* / GUARANTOR_5_* etc. are emitted automatically if a loan ever
-    // has more than 3 guarantors — the code has never been capped at 3, only the
-    // docs were, which made a 4th guarantor silently un-renderable.
     'ACCEPTED_COUNT', 'PENDING_COUNT', 'DECLINED_COUNT',
     'DIWALI_NEXT_DAY_DATE', 'DIWALI_NEXT_DAY_DAY_NAME', 'NAHAY_KHAY_DATE', 'NAHAY_KHAY_DAY_NAME', 'CHHATH_MORNING_ARGHYA_DATE', 'CHHATH_MORNING_ARGHYA_DAY_NAME',
     'GENERATED_AT', 'QR_CODE',
@@ -74,7 +69,7 @@ export default function DocxTemplates() {
     api.getDocxTemplates(docType).then(setYears).catch(err => setError(err.message));
   };
 
-  useEffect(() => { refresh(); setError(''); /* eslint-disable-next-line */ }, [docType]);
+  useEffect(() => { refresh(); setError('');  }, [docType]);
 
   const upload = async (e) => {
     e.preventDefault();
@@ -180,10 +175,8 @@ export default function DocxTemplates() {
             {docType.startsWith('report') && (
               <>
                 <p><strong>8. Repeating table rows (loops):</strong> This template has repeating tables (loans, guarantors, contributors, expenses). Make ONE table row with the column placeholders — e.g. <code>{'{LOAN_TAKER}'}</code>, <code>{'{AMOUNT}'}</code> — then put <code>{'{#loans}'}</code> at the very start of that row's first cell and <code>{'{/loans}'}</code> at the very end of the row's last cell (same for <code>{'{#guarantors}'}</code>/<code>{'{/guarantors}'}</code>, <code>{'{#contributors}'}</code>/<code>{'{/contributors}'}</code>, <code>{'{#expenses}'}</code>/<code>{'{/expenses}'}</code>). That one row repeats automatically for every record.</p>
-                {/* The three shipped report samples all rely on inverted sections,
-                    but they were documented NOWHERE — so an admin rebuilding a
-                    template from these instructions silently lost every
-                    "No records this year" fallback. */}
+                {
+}
                 <p><strong>9. "No records" fallback (inverted section):</strong> To show a line only when a list is EMPTY, wrap it in <code>{'{^loans}'}</code> ... <code>{'{/loans}'}</code> (note the <code>^</code> instead of <code>#</code>) — e.g. <code>{'{^loans}'}</code>No loans this year<code>{'{/loans}'}</code>. The same works for <code>{'{^guarantors}'}</code>, <code>{'{^contributors}'}</code> and <code>{'{^expenses}'}</code>. The shipped sample templates already use this.</p>
                 <p><strong>10. Hindi columns:</strong> for the Hindi report use the <code>_HI</code> placeholders (e.g. <code>{'{NAME_HI}'}</code>, <code>{'{STATUS_HI}'}</code>) — the plain <code>{'{NAME}'}</code> version prints the ENGLISH value. Both are always available, so mixing them in the "Both" template is fine. If a person's Hindi name is blank in the User record, the Hindi placeholder renders blank — there is no automatic transliteration at PDF time.</p>
               </>

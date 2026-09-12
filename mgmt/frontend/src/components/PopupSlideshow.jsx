@@ -1,16 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { driveImageUrl, driveImgOnError } from '../driveUrl.js';
 
-// A faithful rendering of what the PUBLIC portal shows for a popup: one slide at
-// a time (image on top, text, link), a dot/nav strip when there is more than one
-// slide, AUTO-PLAY on each slide's own duration, LOOP back to the first slide,
-// and PAUSE while the pointer is over the card — exactly matching
-// Public/frontend/script.js so the mgmt preview and the live site can't drift.
-//
-// It is deliberately presentational: it takes a `slides` array (each with
-// image_url|imageUrl, text, link_url|linkUrl, link_text|linkText, duration_ms|
-// durationMs) and draws them. Used by PopupManagement's "Live Preview" and by
-// LoginPopups.
 
 const DEFAULT_DURATION_MS = 5000;
 function clampDurationMs(ms) {
@@ -21,8 +11,6 @@ function clampDurationMs(ms) {
   return n;
 }
 
-// Accept both the API shape (image_url/link_url/...) and the editor's in-progress
-// shape (imageUrl/linkUrl/...) so the same component can preview unsaved edits.
 function norm(s) {
   return {
     imageUrl: s.image_url || s.imageUrl || '',
@@ -33,7 +21,6 @@ function norm(s) {
   };
 }
 
-// Only http/https links are rendered, matching the public portal's safeUrl.
 function isHttpUrl(u) {
   try {
     const parsed = new URL(u, window.location.href);
@@ -50,14 +37,9 @@ export default function PopupSlideshow({ slides }) {
   const timerRef = useRef(null);
 
   const count = list.length;
-  // Keep the index valid if the slide list shrinks (e.g. editor removed a slide
-  // while the preview is open).
   const safeIndex = count ? Math.min(index, count - 1) : 0;
 
   useEffect(() => {
-    // (Re)arm the per-slide timer whenever the shown slide changes. Single-slide
-    // shows and the paused state get no timer. Cleanup clears it on unmount /
-    // before the next effect run, so timers never stack.
     if (count <= 1) return undefined;
     if (pausedRef.current) return undefined;
     const ms = list[safeIndex] ? list[safeIndex].durationMs : DEFAULT_DURATION_MS;
@@ -65,7 +47,6 @@ export default function PopupSlideshow({ slides }) {
       setIndex((i) => (i + 1) % count);
     }, ms);
     return () => { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; } };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [safeIndex, count]);
 
   if (!count) {
@@ -80,7 +61,6 @@ export default function PopupSlideshow({ slides }) {
   };
   const resume = () => {
     pausedRef.current = false;
-    // Nudge the effect to re-arm by re-setting the same index.
     setIndex((i) => i);
   };
   const prev = () => { pause(); setIndex((i) => (i - 1 + count) % count); pausedRef.current = false; };

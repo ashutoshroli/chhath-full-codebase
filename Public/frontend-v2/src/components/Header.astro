@@ -1,32 +1,10 @@
 ---
-// Site header for the v2 public portal.
-//
-// THE THREE CONTROLS, GROUPED TOGETHER
-// Per the explicit request, the language toggle, the year dropdown, and the
-// dark/light theme toggle live SIDE BY SIDE in the header. Phase 1 wires the
-// language and theme toggles fully; the year dropdown is a placeholder that
-// Phase 2 will populate from the portal data payload.
-//
-// The interactive bits run in a small inline <script>: no framework hydration
-// is needed for three simple controls, which keeps the page fast. UI labels are
-// rendered server-side from the ported i18n dictionary, and the language toggle
-// re-applies data-i18n text on the client so switching is instant and offline.
 import { t, T, LANG_KEY, LANGS } from '../i18n.js';
 import { mgmtLoginUrl } from '../config.js';
 import { normalizePath, isActivePath } from '../lib/activeNav.js';
 
-// Server-render everything in the default language; the client script re-applies
-// the saved language on load and on toggle.
 const lang = 'en';
 
-// The real site routes. Each new Astro page is its own URL (multi-page static
-// site), so the nav links to concrete paths (Phase 2 shipped placeholders).
-// `icon` is a Material Icons Round glyph name, used by the mobile bottom-nav
-// (icon above label, like a native app tab bar). These are the EXACT same glyphs
-// the two reference portals use, so v2 looks identical:
-// Public/frontend/index.html (~L252) and Public/frontend-v3/index.html (~L263)
-// both use home / receipt_long / handshake / groups / download.
-// The desktop top nav stays text-only, also matching both references.
 const navItems = [
   { href: '/', key: 'nav_home', icon: 'home' },
   { href: '/expenses', key: 'nav_expenses', icon: 'receipt_long' },
@@ -35,39 +13,15 @@ const navItems = [
   { href: '/downloads', key: 'nav_downloads', icon: 'download' },
 ];
 
-// Current path for active-state styling. Astro serves '/expenses' and, with the
-// default trailing-slash handling, may render '/expenses/'; the shared
-// activeNav helpers strip a trailing slash (except the root) so both forms match
-// the same nav item. Using the SAME module the client-side updater relies on
-// keeps the first server render and every post-swap recompute in lockstep.
 const currentPath = normalizePath(Astro.url.pathname);
 const isActive = (href) => isActivePath(currentPath, href);
 ---
 
-<!-- VIEW-TRANSITIONS STRATEGY: transition:persist.
-     The header (theme toggle + language toggle + #year-select) is marked
-     transition:persist so its DOM and its already-bound click handlers + the
-     in-memory `lang` state SURVIVE client swaps unchanged. That means the inline
-     IIFE below binds its listeners exactly ONCE (on the real load) and is never
-     re-run on navigation, so there is no risk of double-bound toggles.
-     CAVEAT (year options): #year-select lives inside this persisted header, so
-     its <option>s persist too — but each destination page's populateYears()
-     runs on astro:page-load and REPLACES yearSel.innerHTML, so the year list is
-     always refreshed for the new page (see the data pages).
-     THEME across swaps: the no-flash <head> script sets the `dark` class on
-     <html> on the real load; View Transitions does NOT replace the <html>
-     element on a swap, so the theme class simply persists — no re-apply needed. -->
 <header
   transition:persist
   class="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90"
 >
   <div class="mx-auto flex max-w-6xl items-center justify-between gap-2 overflow-hidden px-3 py-3 sm:gap-3 sm:px-4">
-    <!-- Brand: emblem + bilingual title.
-         min-w-0 on the anchor AND the text wrapper lets flexbox actually shrink
-         the brand below its content width on narrow screens (a flex child will
-         not shrink past its intrinsic content size without min-w-0), and
-         truncate keeps the long bilingual title on one line each so it can never
-         push into the grouped controls. The logo stays flex-none. -->
     <a href="/" class="flex min-w-0 items-center gap-2" aria-label="Home">
       <img
         src="/logo.svg"
@@ -87,13 +41,6 @@ const isActive = (href) => isActivePath(currentPath, href);
       </span>
     </a>
 
-    <!-- Desktop-only top nav: real routes with active-state styling. Shown ONLY
-         from `lg` (1024px) up — i.e. true desktop. On phones AND tablets the top
-         row stays just brand + the three controls (so nothing crowds/clips the
-         header), and the tabs live in the fixed bottom-nav below (md:hidden).
-         Using `lg` rather than `md` guarantees wide phones / small tablets get
-         the bottom-nav, matching the requested "mobile me neeche, desktop me
-         jaisa hai waisa" behaviour. -->
     <nav class="hidden items-center gap-5 text-sm font-medium md:flex">
       {navItems.map((item) => (
         <a
@@ -106,20 +53,7 @@ const isActive = (href) => isActivePath(currentPath, href);
       ))}
     </nav>
 
-    <!-- THE THREE CONTROLS, grouped together.
-         flex-none keeps the whole group at its natural width so it never shrinks
-         or wraps into the brand; the brand (with min-w-0 + truncate) absorbs the
-         squeeze instead. On the smallest screens the group is made as compact as
-         possible so it can never clip: a tight gap-1.5 (→ gap-2 at sm), reduced
-         horizontal padding on each control (px-1.5 → px-2 at sm), and a narrower
-         year <select> (min-w-[2.75rem]/max-w-[5rem] → 3.5rem/6rem at sm). The
-         parent row also carries overflow-hidden as a hard backstop so a stray
-         intrinsic width can never force horizontal scrolling or spill a control
-         off-screen. All three controls stay present and tappable at ~320-390px;
-         only the brand's SUBTITLE line is dropped below xs (475px) to free room,
-         while the app_title stays. -->
     <div class="flex flex-none items-center gap-1.5 sm:gap-2">
-      <!-- 1) Language toggle -->
       <button
         id="lang-toggle"
         type="button"
@@ -129,7 +63,6 @@ const isActive = (href) => isActivePath(currentPath, href);
         <span data-lang-label>हिं</span>
       </button>
 
-      <!-- 2) Year dropdown (placeholder — populated from data in Phase 2) -->
       <label class="sr-only" for="year-select" data-i18n="year">{t(lang, 'year')}</label>
       <select
         id="year-select"
@@ -139,7 +72,6 @@ const isActive = (href) => isActivePath(currentPath, href);
         <option value="">{t(lang, 'year')}</option>
       </select>
 
-      <!-- 3) Theme (dark/light) toggle -->
       <button
         id="theme-toggle"
         type="button"
@@ -149,7 +81,6 @@ const isActive = (href) => isActivePath(currentPath, href);
         <span class="material-icons-round text-base align-middle" data-theme-icon aria-hidden="true">dark_mode</span>
       </button>
 
-      <!-- Login link (management portal; URL is env-driven, never hardcoded here) -->
       <a
         id="mgmt-login"
         href={mgmtLoginUrl}
@@ -164,34 +95,7 @@ const isActive = (href) => isActivePath(currentPath, href);
   </div>
 </header>
 
-<!-- Mobile bottom-nav: same real routes + active state as the desktop top nav.
-     Shown below `md` (hidden from 768px), the exact complement of the top nav's
-     `md:flex`, so on mobile the tabs sit at the BOTTOM of the screen and only
-     desktop shows them in the header.
 
-     ⚠️ WHY THIS NAV LIVES OUTSIDE <header> (do NOT move it back inside)
-     This was a real bug: the nav used to be nested INSIDE <header>, and the
-     <header> carries `backdrop-blur` (backdrop-filter). Per CSS, an element with
-     a backdrop-filter other than `none` becomes a CONTAINING BLOCK for its
-     fixed-positioned descendants — so this nav's `fixed ... bottom-0` anchored to
-     the HEADER's box instead of the viewport. Because the header sits at the top
-     of the page and is only one row tall, the nav rendered directly under the
-     brand row at the TOP of the screen, overlapping/clipping the header — which
-     is exactly the reported symptom, and why changing the md/lg breakpoint never
-     helped (the element and its classes were always correct; only its
-     positioning container was wrong).
-     Keeping it as a SIBLING of <header> (a component can have multiple root
-     elements) puts it back in the viewport's containing block, so `bottom-0`
-     means the bottom of the screen. This mirrors the working references exactly:
-     old Public/frontend/index.html closes </header> at ~L166 with .bottom-nav at
-     ~L252, and Public/frontend-v3/index.html closes </header> at L176 with its
-     `fixed bottom-0 ... md:hidden` nav at L263 — both OUTSIDE the (also
-     backdrop-blurred) header.
-     NOTE: unlike <header> this nav is deliberately NOT transition:persist, so
-     each View Transitions swap re-renders it with the destination page's own
-     server-computed active state; the active-nav updater (which queries
-     [data-nav-href] document-wide on astro:page-load) keeps it in sync either
-     way, so the two never disagree. -->
 <nav
   class="fixed inset-x-0 bottom-0 z-40 flex items-center justify-around border-t border-slate-200 bg-white/95 py-2 text-xs backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 md:hidden"
   aria-label="Mobile navigation"
@@ -216,23 +120,15 @@ const isActive = (href) => isActivePath(currentPath, href);
   ))}
 </nav>
 
-<!-- Client wiring for the three controls. Kept inline (no framework) so the
-     controls work the instant the page loads. The i18n dictionary and the
-     localStorage key are injected as JSON via define:vars so the client uses the
-     exact same strings/key as the server render — no duplicated dictionary. -->
 <script define:vars={{ T, LANG_KEY, LANGS }}>
   (function () {
     var html = document.documentElement;
 
-    // --- THEME (dark/light) -------------------------------------------------
-    // The no-flash script in <head> already set the initial class; here we just
-    // reflect state in the icon and persist the user's explicit choice.
     var themeBtn = document.getElementById('theme-toggle');
     var themeIcon = themeBtn && themeBtn.querySelector('[data-theme-icon]');
 
     function syncThemeIcon() {
       if (!themeIcon) return;
-      // Show the icon for the action the click will perform.
       themeIcon.textContent = html.classList.contains('dark') ? 'light_mode' : 'dark_mode';
     }
     syncThemeIcon();
@@ -243,13 +139,11 @@ const isActive = (href) => isActivePath(currentPath, href);
         try {
           localStorage.setItem('theme', nowDark ? 'dark' : 'light');
         } catch (e) {
-          /* private mode — session-only toggle is fine */
         }
         syncThemeIcon();
       });
     }
 
-    // --- LANGUAGE -----------------------------------------------------------
     function normalizeLang(l) {
       return l === 'hi' ? 'hi' : 'en';
     }
@@ -268,8 +162,6 @@ const isActive = (href) => isActivePath(currentPath, href);
     var langBtn = document.getElementById('lang-toggle');
     var langLabel = langBtn && langBtn.querySelector('[data-lang-label]');
 
-    // Re-apply every static string tagged with data-i18n, update <html lang>,
-    // and set the toggle to show the OTHER language's short label.
     function applyLang() {
       html.setAttribute('lang', lang);
       var nodes = document.querySelectorAll('[data-i18n]');
@@ -277,51 +169,17 @@ const isActive = (href) => isActivePath(currentPath, href);
         var key = nodes[i].getAttribute('data-i18n');
         nodes[i].textContent = tr(lang, key);
       }
-      // Re-apply placeholders tagged with data-i18n-placeholder. WHY this lives
-      // here (with the toggle) rather than only in the Home island: the toggle
-      // owns the language contract, so the general [data-i18n-placeholder] loop
-      // belongs alongside the [data-i18n] loop, mirroring the old
-      // Public/frontend/script.js (~line 246). This way ANY placeholder outside
-      // the Home island (a future search box, filter, etc.) re-localizes for
-      // free, instead of silently freezing in the boot-time language. The Home
-      // island keeps its own explicit placeholder set as harmless
-      // belt-and-suspenders: it runs on first boot (before any toggle) and after
-      // its cpm:langchange re-render, and setting the same attribute twice is a
-      // no-op.
       var phNodes = document.querySelectorAll('[data-i18n-placeholder]');
       for (var p = 0; p < phNodes.length; p++) {
         var phKey = phNodes[p].getAttribute('data-i18n-placeholder');
         phNodes[p].setAttribute('placeholder', tr(lang, phKey));
       }
       if (langLabel) {
-        // Offer the language you'd switch TO.
         langLabel.textContent = lang === 'hi' ? 'EN' : 'हिं';
       }
     }
     applyLang();
 
-    // RE-LOCALIZE AFTER CLIENT SWAPS.
-    // Under View Transitions the header is persisted (this script runs once) but
-    // the SWAPPED-IN page content is server-rendered in English (`const lang =
-    // 'en'` in each page). After every swap we re-run applyLang() so the new
-    // page's [data-i18n] / [data-i18n-placeholder] nodes are localized to the
-    // saved language. We call applyLang() ONLY (never re-add listeners), reading
-    // the same in-memory `lang` (kept in sync with LANG_KEY) so it matches the
-    // persisted toggle state. Registered once (this IIFE runs once). Guarded so
-    // repeated navigations never stack the handler even if Astro were to re-run
-    // the script for any reason.
-    //
-    // LOCALIZATION HOOK SPLIT (static labels vs DATA): the STATIC [data-i18n]
-    // chrome is re-localized here on astro:after-swap; the data pages re-render
-    // their DATA-built markup (localized in the same read of LANG_KEY) on
-    // astro:page-load. Both hooks read the identical persisted language, and both
-    // run before the browser paints the swapped body (astro:after-swap fires
-    // during the swap, astro:page-load right after it, both ahead of the first
-    // post-swap paint), so there is no flash of English DATA — the swapped-in
-    // content is already localized when it becomes visible. This ordering is a
-    // runtime concern that cannot be exercised in the sandbox; confirm on a
-    // Vercel preview (toggle to हिं, then tab across pages: labels AND data must
-    // stay Hindi with no English flash).
     if (!window.__cpmHeaderSwapBound) {
       window.__cpmHeaderSwapBound = true;
       document.addEventListener('astro:after-swap', function () { applyLang(); });
@@ -333,18 +191,11 @@ const isActive = (href) => isActivePath(currentPath, href);
         try {
           localStorage.setItem(LANG_KEY, lang);
         } catch (e) {
-          /* private mode — session-only language is fine */
         }
         applyLang();
-        // Notify data-driven islands (the Home budget hero + contributors list)
-        // that the language changed, so they re-localize their DATA — not just the
-        // static [data-i18n] labels this header re-applies. A custom event is the
-        // cleanest contract here: no shared bundle-level global, and every island
-        // that cares can subscribe independently.
         try {
           window.dispatchEvent(new CustomEvent('cpm:langchange', { detail: { lang: lang } }));
         } catch (e) {
-          /* CustomEvent unsupported (very old browser) — labels still switched */
         }
       });
     }
@@ -352,41 +203,14 @@ const isActive = (href) => isActivePath(currentPath, href);
 </script>
 
 
-<!-- ACTIVE-TAB UPDATER (fixes the "stuck highlight" under View Transitions).
-     WHY A SEPARATE BUNDLED <script> (not the define:vars IIFE above): this one
-     needs to `import` the shared normalizePath/isActivePath helper, and only a
-     plain bundled <script> gets its imports resolved by Astro — a
-     define:vars / is:inline script is emitted verbatim and cannot import.
-     THE BUG: the <header> is transition:persist, so on a client swap the
-     persisted nav <a>s keep the active class + aria-current="page" that the
-     ORIGINAL server render computed (from the first URL, e.g. '/'). They are
-     never recomputed for the new URL, so the highlight sticks on the landing
-     page (reported: on /loans the nav still lit up Home).
-     THE FIX: recompute the active item from location.pathname and rewrite BOTH
-     the desktop and mobile-bottom nav links every time. We select links by the
-     data-nav-href attribute (the intended route) rather than parsing hrefs, and
-     match with the SAME activeNav helper the server used, so client and server
-     can never disagree (trailing-slash variants included).
-     WHY IT RE-RUNS ON EVERY SWAP WITHOUT DOUBLE-BINDING: this bundled script
-     runs exactly ONCE (on the real load; bundled scripts do NOT re-execute on
-     View Transitions swaps, and the persisted header keeps this single
-     registration). It registers ONE astro:page-load listener — guarded by a
-     window flag so even a re-run could never stack a second — and astro:page-load
-     fires after EVERY swap (and on the initial load). So updateActiveNav() runs
-     once per navigation, driven by a single listener that is bound only once. -->
 <script>
   import { normalizePath, isActivePath } from '../lib/activeNav.js';
 
-  // Class tokens must exactly mirror the server render in this file: the ACTIVE
-  // set is added and the BASE set removed on the current-route link, and vice
-  // versa on the others. aria-current="page" tracks the same state.
   var ACTIVE_CLASSES = ['font-bold', 'text-brand-600', 'dark:text-brand-400'];
   var BASE_CLASSES = ['text-slate-600', 'dark:text-slate-300'];
 
   function updateActiveNav() {
     var current = normalizePath(location.pathname);
-    // Both navs tag their links with data-nav-href, so one query covers desktop
-    // + mobile-bottom nav in a single pass.
     var links = document.querySelectorAll('[data-nav-href]');
     for (var i = 0; i < links.length; i++) {
       var link = links[i];
@@ -403,10 +227,6 @@ const isActive = (href) => isActivePath(currentPath, href);
     }
   }
 
-  // Run for the current URL right now (real load), then on every client swap.
-  // astro:page-load fires after the initial load AND after each View Transitions
-  // swap, so this is the single hook that keeps the highlight in sync. The
-  // window flag guards against ever registering the listener twice.
   updateActiveNav();
   if (!window.__cpmActiveNavBound) {
     window.__cpmActiveNavBound = true;

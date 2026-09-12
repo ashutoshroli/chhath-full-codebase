@@ -1,20 +1,3 @@
-// ============ Prepare an image before upload ============
-//
-// Previously `fileToBase64()` sent the file exactly as-is. A modern phone photo
-// is 3-8 MB, which grows +33% to 4-11 MB as base64, and the whole thing was sent
-// to the Worker in the JSON body. There it was decoded with
-// `Uint8Array.from(atob(b64), c => c.charCodeAt(0))` — measured at 552ms CPU for
-// 8 MB (15-23x slower than an indexed loop). So a single popup image upload burnt
-// over half a second of Worker CPU on decoding alone, and failed outright on
-// large photos.
-//
-// A popup is shown in a modal (max ~320px tall), so there is no benefit to an
-// image larger than 1600px. Downscaling + JPEG re-encoding in the browser brings
-// the payload down to ~200-400 KB.
-//
-// Bonus: an iPhone's default HEIC photo can be decoded by canvas in iOS Safari,
-// so this converts it to JPEG — otherwise it would upload to Drive but fail to
-// render in Chrome/Android (the popup appeared blank).
 
 const MAX_DIMENSION = 1600;
 const JPEG_QUALITY = 0.85;
@@ -40,15 +23,9 @@ function loadImage(dataUrl) {
   });
 }
 
-/**
- * Converts a file into upload-ready base64.
- * @returns {{ base64: string, mimeType: string, fileName: string, originalBytes: number, uploadBytes: number, downscaled: boolean }}
- */
 export async function prepareImageForUpload(file) {
   if (!file) throw new Error('No file was selected.');
 
-  // GIFs must be left alone: drawing to canvas kills the animation (only the
-  // first frame survives). So a GIF is sent exactly as-is.
   const isGif = file.type === 'image/gif';
 
   if (file.type && !ALLOWED.includes(file.type) && !file.type.startsWith('image/')) {
@@ -78,9 +55,6 @@ export async function prepareImageForUpload(file) {
   try {
     img = await loadImage(dataUrl);
   } catch (e) {
-    // HEIC on Chrome/Firefox lands here (they cannot decode HEIC). We send it
-    // raw — the backend will reject it with a clear message, which is better than
-    // a silently broken image.
     return asIs();
   }
 
@@ -98,22 +72,18 @@ export async function prepareImageForUpload(file) {
     canvas.width = tw;
     canvas.height = th;
     const ctx = canvas.getContext('2d');
-    // JPEG has no transparency — a PNG's transparent background would otherwise
-    // turn black. So we fill it white first.
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, tw, th);
     ctx.drawImage(img, 0, 0, tw, th);
     const out = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
     if (out && out.indexOf(',') !== -1) canvasBase64 = out.split(',')[1];
   } catch (e) {
-    canvasBase64 = null; // tainted canvas / memory — fallback is below
+    canvasBase64 = null;
   }
 
   if (!canvasBase64) return asIs();
 
   const uploadBytes = Math.floor((canvasBase64.length * 3) / 4);
-  // For very small PNG/WebP files, a JPEG re-encode can actually make them
-  // larger. In that case the original is better.
   if (uploadBytes >= originalBytes && originalBytes <= MAX_UPLOAD_BYTES) return asIs();
 
   const baseName = (file.name || 'popup').replace(/\.[^.]+$/, '');

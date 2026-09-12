@@ -21,10 +21,6 @@ button, input, select { font: inherit; }
 .page-view { max-width: 1000px; margin: 90px auto 0; padding: 0 15px; animation: fade 0.3s; }
 @keyframes fade { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-/* overflow-wrap:anywhere — a long unbreakable token (a consent URL, a pasted
-   link, a very long word) can no longer push the card wider than the viewport
-   and cause the whole page to scroll sideways. This is the single most common
-   source of the "content extends past the card" bug across every screen. */
 .glass-card { background: var(--card-white); border-radius: 12px; padding: 20px; box-shadow: var(--shadow); margin-bottom: 15px; border: 1px solid #eee; overflow-wrap: anywhere; }
 .budget-card { background: linear-gradient(135deg, #1F2937 0%, #111827 100%); color: white; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
@@ -32,13 +28,7 @@ button, input, select { font: inherit; }
 .stat-box { background: #f3f4f6; padding: 15px; border-radius: 8px; border-left: 4px solid; }
 .data-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px dashed #eee; align-items: center; gap: 10px; }
 .data-row:last-child { border-bottom: none; }
-/* A flex item defaults to min-width:auto, which REFUSES to shrink below its
-   content's intrinsic width — so a long name/detail/URL in the left cell pushed
-   the row (and the card) wider instead of wrapping. min-width:0 lets the cell
-   shrink and its text wrap. Applied to the direct children of every data-row. */
 .data-row > * { min-width: 0; }
-/* The first block (name/details) takes the free width so the badge + actions sit
-   flush at the right instead of leaving a gap in the middle of the card. */
 .data-row > *:first-child { overflow-wrap: anywhere; flex: 1 1 auto; }
 .data-row > *:last-child { flex: 0 0 auto; }
 
@@ -68,16 +58,8 @@ button, input, select { font: inherit; }
 
 .form-group { margin-bottom: 15px; }
 .form-group label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 5px; color: var(--text-muted); }
-/* The `input` selector used to be unqualified, so it also hit checkboxes and
-   radios: each one became a FULL-WIDTH, 10px-padded, bordered box instead of a
-   tick. On a phone that renders as a big grey rectangle where you cannot tell
-   checked from unchecked, and tapping anywhere in it toggles the value — which is
-   why Popup Management's "Active" flag could not be set reliably. Only two of the
-   nine checkboxes in the app carried a `style={{width:'auto'}}` workaround.
-   Excluding them here fixes all of them at once. */
 input:not([type="checkbox"]):not([type="radio"]), select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; outline: none; }
 
-/* Give checkboxes/radios a real, comfortable tap target instead. */
 input[type="checkbox"], input[type="radio"] {
   width: 18px; height: 18px; min-width: 18px; margin: 0;
   padding: 0; border: 0; border-radius: 0;
@@ -86,10 +68,6 @@ input[type="checkbox"], input[type="radio"] {
 
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 15px; }
 .modal-content { position: relative; background: white; width: 100%; max-width: 500px; border-radius: 12px; padding: 20px; max-height: 90vh; overflow-y: auto; overflow-wrap: anywhere; }
-/* Close (X) button rendered by Modal.jsx in the top-right of every modal. It sits
-   inside the scroll container but stays pinned to the top-right corner. The extra
-   right padding on the header room is handled by the button being absolute so it
-   never overlaps content awkwardly; a small safe-area is reserved by modal padding. */
 .modal-close-btn { position: absolute; top: 10px; right: 10px; z-index: 2; width: 36px; height: 36px; border: none; border-radius: 8px; background: #f3f4f6; color: var(--text-muted); display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .modal-close-btn:hover { background: #e5e7eb; color: var(--text-dark, #111); }
 .modal-close-btn:active { transform: scale(0.94); }
@@ -100,19 +78,12 @@ input[type="checkbox"], input[type="radio"] {
 @keyframes spin { 100% { transform: rotate(360deg); } }
 .inline-spinner { text-align: center; padding: 30px; color: var(--text-muted); }
 
-/* white-space:nowrap keeps a short label like "Active" on ONE line — without it,
-   a badge placed in a narrow flex column gets squeezed and wraps letter-by-letter
-   ("A c t i v e"). flex-shrink:0 stops a flex sibling from squashing it, and
-   inline-block gives it a proper box in every context. Fixes all status badges
-   (Active/Inactive/Priority/etc.) portal-wide. */
 .badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; white-space: nowrap; flex-shrink: 0; }
 .badge-ok { background: #D1FAE5; color: #065F46; }
 .badge-warn { background: #FEE2E2; color: #991B1B; }
 .badge-pending { background: #FEF3C7; color: #92400E; }
 .badge-danger { background: #FEE2E2; color: #991B1B; }
 
-/* Admin-authored template text can contain long URLs; keep them inside the
-   preview/PDF-preview box instead of spilling out of it. */
 .consent-doc { overflow-wrap: anywhere; }
 .consent-doc h2 { font-size: 1.3rem; margin: 10px 0 4px; }
 .consent-doc h3 { font-size: 1.05rem; margin: 18px 0 6px; color: var(--primary-saffron); }
@@ -124,10 +95,6 @@ input[type="checkbox"], input[type="radio"] {
 .consent-doc strong { color: #111827; }
 .error-banner { background: #FEE2E2; color: #991B1B; padding: 10px 15px; border-radius: 8px; margin-bottom: 15px; font-size: 0.9rem; }
 
-/* Was a plain flex row with no overflow handling, so a tab bar with many items
-   (Loan message templates has ~11, Document Templates has 8) squeezed the tabs
-   into an unreadable/clipped strip on a phone. Now the bar scrolls sideways and
-   each tab keeps its full label on one line. */
 .subtabs { display: flex; gap: 8px; margin-bottom: 15px; border-bottom: 1px solid #eee; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
 .subtabs::-webkit-scrollbar { display: none; }
 .subtab-btn { background: none; border: none; padding: 10px 4px; font-size: 0.9rem; font-weight: 600; color: var(--text-muted); cursor: pointer; border-bottom: 3px solid transparent; white-space: nowrap; flex-shrink: 0; }
@@ -144,12 +111,6 @@ input[type="checkbox"], input[type="radio"] {
   .fab { bottom: 30px; right: 30px; }
 }
 
-/* --- AnnouncePage: standalone public link page (NO global .top-header /
-   .bottom-nav on this route) — bars are flush against the real viewport
-   edges, not offset for app-shell chrome that doesn't exist here.
-   Bar heights are measured at runtime (see AnnouncePage.jsx ResizeObserver)
-   and written to --announce-top-h / --announce-bottom-h, so this padding
-   always matches the real rendered bar height — no guessing. */
 .announce-page {
   padding: calc(var(--announce-top-h, 108px) + 15px) 15px calc(var(--announce-bottom-h, 64px) + 15px);
 }

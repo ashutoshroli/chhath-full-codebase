@@ -1,22 +1,4 @@
 ---
-// Download Center for the v2 public portal.
-//
-// Reproduces the old site's download center: pick a Village, then search a
-// person by name; opening a person shows every downloadable document filed for
-// them in three sections — Collections (receipt/certificate/material), consents
-// As Loaner, and consents As Guarantor. The porting-sensitive document logic
-// lives in the framework-free src/lib/downloads.js (unit-tested); this island
-// wires the i18n/finance/user helpers into it and renders the (escaped) HTML.
-//
-// NO GLOBAL `app`: the old site used inline onclick="app.selectDownloadPerson()".
-// This Astro island has no global object, so clicks are handled by attaching
-// event listeners in the island (delegated on the people list) — same behaviour,
-// XSS-safe, no globals.
-//
-// YEAR-CHANGE RESET (audit MEDIUM #5): the year dropdown is shared. If a
-// person's documents are open when the year changes, reset back to the people
-// list so the open card never shows a stale year context. (A language change
-// deliberately keeps the open card and just re-localizes it.)
 import Layout from '../layouts/Layout.astro';
 import { t } from '../i18n.js';
 
@@ -33,7 +15,6 @@ const lang = 'en';
   <section id="downloads" class="mx-auto hidden max-w-4xl flex-col gap-5 px-4 py-8 pb-24 sm:py-12 md:pb-12" data-page-root>
     <h1 class="text-lg font-bold text-slate-900 dark:text-white sm:text-xl" data-i18n="download_center">{t(lang, 'download_center')}</h1>
 
-    <!-- Village + name search controls -->
     <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
         <div class="flex-1">
@@ -63,14 +44,11 @@ const lang = 'en';
       </div>
     </div>
 
-    <!-- People list (search results) -->
     <div id="dc-people-wrap"></div>
-    <!-- Selected person's documents -->
     <div id="dc-docs-wrap" class="flex flex-col gap-2"></div>
   </section>
 </Layout>
 
-<!-- CLIENT ISLAND -->
 <script>
   import { apiBase } from '../config.js';
   import { fmt } from '../lib/finance.js';
@@ -87,7 +65,7 @@ const lang = 'en';
 
     var state = { data: null, userMap: {}, savedAt: 0, fromCache: false };
     var sessionCache = {};
-    var dcSelectedId = null; // the person whose docs are open (null = list view)
+    var dcSelectedId = null;
 
     var loaderEl = document.getElementById('page-loader');
     var pageEl = document.querySelector('[data-page-root]');
@@ -113,8 +91,6 @@ const lang = 'en';
       yearSel.value = String(years[0]);
     }
 
-    // Populate the village <select> from unique, trimmed user villages, sorted by
-    // localeCompare, with a leading "select village" prompt option.
     function renderVillages() {
       if (!villageSel) return;
       var villages = {};
@@ -125,8 +101,6 @@ const lang = 'en';
       villageSel.value = '';
     }
 
-    // Enable/disable the name controls when a village is (de)selected, resetting
-    // any open person view + prior results.
     function onVillageChange() {
       var lang = currentLang();
       var village = villageSel ? villageSel.value : '';
@@ -146,11 +120,6 @@ const lang = 'en';
       }
     }
 
-    // List up to 50 users in the chosen village whose English OR Hindi name
-    // matches the query (so search works regardless of display language). Each
-    // row is a button that opens that person's documents. We store the user ID in
-    // a data-id attribute (escaped) and read it back on click — no inline onclick,
-    // no global.
     function searchPeople() {
       var lang = currentLang();
       var village = villageSel ? villageSel.value : '';
@@ -201,10 +170,6 @@ const lang = 'en';
       if (peopleWrap) peopleWrap.style.display = '';
     }
 
-    // Render the open person's three document sections. Uses the framework-free
-    // buildPersonDownloads with i18n/finance/user helpers injected (bound to the
-    // active language). A download link is shown ONLY when publicLink passes the
-    // http(s)-only safeUrl gate; otherwise a "not available" badge.
     function renderDocs() {
       var id = dcSelectedId;
       if (!docsWrap) return;
@@ -249,8 +214,6 @@ const lang = 'en';
         + section(t(lang, 'dc_as_guarantor'), sections.guarantorItems);
     }
 
-    // Year change: if a person's docs are open, reset to the people list (audit
-    // MEDIUM #5). Nothing else on this page is year-scoped.
     function onYearChange() {
       if (dcSelectedId) { backToList(); }
     }
@@ -271,9 +234,6 @@ const lang = 'en';
       if (btn) btn.addEventListener('click', function () { location.reload(); });
     }
 
-    // Language change: re-localize the village list + control placeholders, and
-    // re-render whichever view is open (the people list OR the open docs — a
-    // language switch keeps the open card, matching the old site).
     function onLangChange() {
       var lang = currentLang();
       populateYears();
@@ -286,9 +246,6 @@ const lang = 'en';
       renderStaleNotice();
     }
 
-    // Re-resolve elements each swap (see index.astro for the full rationale):
-    // under View Transitions the <body> is swapped, so parse-time node refs go
-    // stale on every client navigation.
     function refreshEls() {
       loaderEl = document.getElementById('page-loader');
       pageEl = document.querySelector('[data-page-root]');
@@ -309,8 +266,6 @@ const lang = 'en';
         state.fromCache = !!result.fromCache;
         state.savedAt = result.savedAt || 0;
 
-        // Fresh page => back to the list view (the open-person state does not
-        // survive a client navigation because its DOM is torn down).
         dcSelectedId = null;
 
         populateYears();
@@ -324,26 +279,6 @@ const lang = 'en';
       }
     }
 
-    // ---- Per-navigation init (View Transitions) ----------------------------
-    // STRATEGY: re-init on astro:page-load so the village list + #year-select
-    // options rebuild for the freshly-swapped DOM. Fires on the initial real
-    // load AND every client swap, so boot() is NOT also called at parse time
-    // (no double-boot). All element listeners below bind to page-content nodes
-    // that are re-created each swap (villageSel/searchInput/searchBtn/
-    // peopleWrap/docsWrap) — binding fresh is correct because the OLD nodes are
-    // discarded with the old DOM.
-    //
-    // PAGE-IDENTITY GUARD (why this exists): the handler is registered on
-    // `document`, which is NOT swapped by the router and is never removed, so
-    // this page's handler stays live and fires on EVERY later swap even when a
-    // different page is mounted. Without a guard, each swap would re-run this
-    // page's boot() (a redundant loadPortalData() fetch) and re-bind onYearChange
-    // to the SAME persisted #year-select. addEventListener only de-dupes
-    // identical (node,type,fn) triples, so every visited page's distinct renderX
-    // stays bound and one year change fires them all against unmounted DOM.
-    // FIX: bail unless THIS page is the mounted one. The four data pages share
-    // `[data-page-root]`, so we gate on this page's UNIQUE element id
-    // (#dc-village) instead — absent = not this page = no-op.
     document.addEventListener('astro:page-load', function () {
       if (!document.getElementById('dc-village')) return;
       refreshEls();
@@ -352,13 +287,10 @@ const lang = 'en';
       if (villageSel) villageSel.addEventListener('change', onVillageChange);
       if (searchBtn) searchBtn.addEventListener('click', searchPeople);
       if (searchInput) searchInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') searchPeople(); });
-      // Delegate people-list clicks (rows are added dynamically): find the nearest
-      // element carrying a person id and open it.
       if (peopleWrap) peopleWrap.addEventListener('click', function (e) {
         var el = e.target && e.target.closest ? e.target.closest('[data-dc-person]') : null;
         if (el) selectPerson(el.getAttribute('data-dc-person'));
       });
-      // Delegate the "back" button inside the docs view.
       if (docsWrap) docsWrap.addEventListener('click', function (e) {
         var el = e.target && e.target.closest ? e.target.closest('[data-dc-back]') : null;
         if (el) backToList();
@@ -366,8 +298,6 @@ const lang = 'en';
       if (yearSel) yearSel.addEventListener('change', onYearChange);
     });
 
-    // Window-level cpm:langchange bound exactly ONCE (a window listener survives
-    // swaps, so re-adding it per page-load would stack duplicates).
     if (!window.__cpmDownloadsLangBound) {
       window.__cpmDownloadsLangBound = true;
       window.addEventListener('cpm:langchange', onLangChange);

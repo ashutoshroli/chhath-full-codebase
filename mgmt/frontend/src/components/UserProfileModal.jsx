@@ -39,9 +39,6 @@ export default function UserProfileModal({ userId, onClose }) {
           {data.contributions.length > 0 && (
             <div className="profile-box-grid" style={{ marginBottom: 18 }}>
               {data.contributions.map((c, i) => {
-                // Cash (type 1) shows the ₹ amount + payment mode. Material (2),
-                // Service (3) and resell carry no rupee value (amount is 0), so show
-                // WHAT was given (the detail / a type label) instead of a bare ₹0.
                 const isResell = /^(true|1|yes)$/i.test((c.IsResell || '').toString().trim());
                 const type = (c.Type || '1').toString();
                 const isCash = type === '1' && !isResell;

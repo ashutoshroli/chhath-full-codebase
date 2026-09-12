@@ -9,15 +9,13 @@ const TYPES = ['Category', 'Payment Mode', 'Loan Status', 'Village'];
 export default function ListManagement() {
   const [years, setYears] = useState(null);
   const [yearsError, setYearsError] = useState('');
-  // Was `.catch(() => {})` — a failed load was indistinguishable from "no years
-  // exist", which silently hid the whole Festival Dates section.
   useEffect(() => { api.getYears().then(setYears).catch(err => setYearsError(err.message)); }, []);
   const [activeType, setActiveType] = useState('Category');
   const { options, loading, refresh } = useDropdownList(activeType);
   const [adding, setAdding] = useState(false);
   const [newItem, setNewItem] = useState({ en: '', hi: '' });
   const [saving, setSaving] = useState(false);
-  const [editingRow, setEditingRow] = useState(null); // rowIndex being edited
+  const [editingRow, setEditingRow] = useState(null);
   const [editValue, setEditValue] = useState({ en: '', hi: '' });
 
   const switchType = (t) => {
@@ -72,11 +70,6 @@ export default function ListManagement() {
     }
   };
 
-  // NOTE: the "Column Setup" and "Bulk-Fill Hindi" one-time migration tools were
-  // removed. On D1 the schema already has every bilingual column from day one, so
-  // the backend ensureColumns/bulkFillHindi handlers were dropped (they were a
-  // no-op stub and a throwing stub respectively). Their UI + handlers are gone too
-  // so nothing calls the now-removed api methods.
 
   return (
     <>

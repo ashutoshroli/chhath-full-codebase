@@ -4,9 +4,6 @@ import { isTruthyFlag } from '../flags.js';
 import CleanupPanel from '../components/CleanupPanel.jsx';
 import AiFixModal from '../components/AiFixModal.jsx';
 
-// `stack` and `context` were stored in the table but NEVER rendered, so an admin
-// could never see a stack trace — only a one-line message. There was also no
-// filter and no search, and the only actionable state was `reported`.
 const SOURCE_COLORS = {
   backend: { bg: '#FEE2E2', fg: '#991B1B' },
   frontend: { bg: '#DBEAFE', fg: '#1E40AF' },
@@ -21,7 +18,6 @@ function badgeStyle(source) {
   return { background: c.bg, color: c.fg };
 }
 
-// Human-friendly label + colour for an ai_fixes lifecycle status (spec §4).
 const AI_STATUS = {
   pending: { label: 'AI: pending', bg: '#F3F4F6', fg: '#374151' },
   fix_generated: { label: 'AI: fix generated', bg: '#DBEAFE', fg: '#1E40AF' },
@@ -92,9 +88,6 @@ function ErrorRow({ r, onReport, onAiFix, busy, aiFix }) {
         {isTruthyFlag(r.reported) ? (
           <span style={{ fontSize: '0.75rem', color: 'var(--success)' }}>✓ Reported</span>
         ) : !r.error_id ? (
-          // Rows written by the OLD docxTemplates.js INSERT have no error_id at
-          // all, which made "Report to WhatsApp" always throw "Error record not
-          // found." Tell the admin instead of offering a button that can't work.
           <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
             Old record (Ref missing) — cannot be reported
           </span>
@@ -128,8 +121,8 @@ export default function ErrorLog({ role }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState(null);
-  const [aiFixError, setAiFixError] = useState(null); // the error row a "Fix using AI" modal is open for
-  const [aiFixByError, setAiFixByError] = useState({}); // error_id -> latest ai_fixes row (status badge)
+  const [aiFixError, setAiFixError] = useState(null);
+  const [aiFixByError, setAiFixByError] = useState({});
   const [query, setQuery] = useState('');
   const [sourceFilter, setSourceFilter] = useState('All');
   const [onlyUnreported, setOnlyUnreported] = useState(false);
@@ -144,10 +137,8 @@ export default function ErrorLog({ role }) {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(limit); /* eslint-disable-next-line */ }, [limit]);
+  useEffect(() => { load(limit);  }, [limit]);
 
-  // Load AI-fix status for the status badge (spec §4). Best-effort: if the AI
-  // feature isn't configured the call just fails and no badges show.
   const loadAiFixes = () => {
     api.getAiFixes()
       .then(list => {
@@ -155,7 +146,7 @@ export default function ErrorLog({ role }) {
         (list || []).forEach(f => { if (f.error_id && !map[f.error_id]) map[f.error_id] = f; });
         setAiFixByError(map);
       })
-      .catch(() => { /* AI fix not configured / no rows — no badges */ });
+      .catch(() => {  });
   };
   useEffect(() => { loadAiFixes(); }, []);
 

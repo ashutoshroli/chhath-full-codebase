@@ -1,52 +1,7 @@
 ---
-// Floating "Chhath Assistant" chatbot for the v2 public portal.
-//
-// WHAT IT IS
-// A bottom-right floating action button (FAB) that toggles a chat panel. The
-// user types a question; we POST it to the Render /public-chat endpoint and
-// render the answer. Ported behaviour-for-behaviour from Public/frontend
-// (app.setupChat / app.sendChat / app.appendChatMsg / app.linkifyBotText), but
-// rebuilt as a self-contained Astro island so it drops into Layout and appears
-// on every page.
-//
-// WHY A BUNDLED ISLAND (no framework hydration)
-// The widget is a handful of DOM handlers. Mirroring index.astro, we keep the
-// logic in a small PLAIN <script> (no define:vars). Astro bundles a plain script,
-// so it CAN use ESM imports: it pulls renderChatUrl + the i18n dictionary/key
-// straight from the framework-free config.js / i18n.js modules, and the shared,
-// audited pure modules (linkify + dom-escape). This keeps ONE copy of the
-// XSS-safe linkify logic instead of duplicating it inline.
-//
-// WHY NOT define:vars: adding define:vars to a <script> implicitly makes it
-// is:inline, and Astro does NOT bundle inline scripts — the ESM `import`
-// statements below would ship verbatim to the browser and fail to resolve. So
-// config/i18n values are IMPORTED here (they resolve at build time), not injected.
-//
-// THE XSS-SAFETY CONTRACT (do not weaken)
-//   - 'user' and 'error' bubbles are written with textContent (plain text). They
-//     are the user's own input / our own copy; there is never a reason to render
-//     markup, and textContent makes injection structurally impossible.
-//   - ONLY the 'bot' bubble uses innerHTML, and ONLY via linkifyBotText(text,
-//     escapeHtml, safeUrl), which escapes the ENTIRE reply BEFORE building any
-//     markup and emits nothing but <a> tags whose href is http(s) via safeUrl.
-// This split is the whole point; the two paths are commented at their call sites.
-//
-// The Render endpoint comes from config.renderChatUrl (env-driven) — NEVER
-// hardcoded. i18n strings come from the same dictionary + storage key as the
-// header. All of these are IMPORTED inside the bundled client <script> below
-// (not the frontmatter): the greeting/labels in the markup are static data-lang
-// spans, so the server render needs no config/i18n values here.
 ---
 
-<!-- VIEW-TRANSITIONS STRATEGY: transition:persist (single-init).
-     The FAB and the panel are BOTH marked transition:persist (with explicit
-     transition:name values, since they are separate top-level elements) so the
-     whole chatbot — its bound handlers, open/close state, session id and message
-     history — survives client swaps UNCHANGED. The IIFE below therefore runs
-     exactly ONCE on the real load and is never re-run on navigation, so handlers
-     are never double-bound and the conversation is never lost. -->
 
-<!-- Floating action button (bottom-right). Sits above the mobile bottom-nav. -->
 <button
   id="chat-fab"
   type="button"
@@ -61,7 +16,6 @@
   <span class="material-icons-round text-2xl" aria-hidden="true">chat</span>
 </button>
 
-<!-- Chat panel. Hidden until the FAB opens it. Theme-aware via dark: classes. -->
 <div
   id="chat-panel"
   role="dialog"
@@ -73,7 +27,6 @@
   class="fixed bottom-36 right-4 z-[61] hidden w-[min(380px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900 md:bottom-24"
   style="height:min(70vh,520px);"
 >
-  <!-- Header: bilingual title + close button -->
   <div class="flex items-center justify-between bg-brand-500 px-4 py-3 text-white">
     <span id="chat-title" class="text-sm font-bold">
       <span data-lang="en">Chhath Assistant</span>
@@ -89,7 +42,6 @@
     </button>
   </div>
 
-  <!-- Messages. Seeded with the bilingual greeting (CSS-toggled via data-lang). -->
   <div
     id="chat-messages"
     class="flex flex-1 flex-col gap-2.5 overflow-y-auto p-3 text-sm"
@@ -100,7 +52,6 @@
     </div>
   </div>
 
-  <!-- Input row -->
   <form
     id="chat-form"
     autocomplete="off"
@@ -125,21 +76,12 @@
   </form>
 </div>
 
-<!-- Client wiring. A PLAIN bundled <script> (NO define:vars) so Astro processes
-     it and its ESM imports resolve: renderChatUrl comes from config.js (env-driven,
-     never hardcoded) and the i18n dictionary/key from i18n.js so the island uses
-     the SAME strings as the rest of the app. It also imports the shared, audited
-     pure modules so the XSS-safe linkify lives in exactly one place. -->
 <script>
   import { renderChatUrl } from '../config.js';
   import { T, LANG_KEY } from '../i18n.js';
   import { linkifyBotText } from '../lib/linkify.js';
   import { escapeHtml, safeUrl } from '../lib/dom-escape.js';
 
-  // Runs ONCE on the real document load. The FAB + panel are transition:persist
-  // (see markup above), so this IIFE is NOT re-run on client swaps and must NOT
-  // be wrapped in astro:page-load — doing so would double-bind handlers and wipe
-  // the live conversation. The persisted DOM keeps every listener + state.
   (function () {
     var fab = document.getElementById('chat-fab');
     var panel = document.getElementById('chat-panel');
@@ -148,9 +90,8 @@
     var input = document.getElementById('chat-input');
     var sendBtn = document.getElementById('chat-send');
     var wrap = document.getElementById('chat-messages');
-    if (!fab || !panel || !form) return; // markup missing — nothing to wire
+    if (!fab || !panel || !form) return;
 
-    // --- Language (matches the header) --------------------------------------
     function normalizeLang(l) { return l === 'hi' ? 'hi' : 'en'; }
     function tr(l, key) {
       var lang = normalizeLang(l);
@@ -158,14 +99,10 @@
     }
     var lang = 'en';
     try { lang = normalizeLang(localStorage.getItem(LANG_KEY)); } catch (e) { lang = 'en'; }
-    // The header dispatches cpm:langchange when the user toggles; keep our copy
-    // of `lang` in sync so a reply's typing indicator / error uses the right one.
     window.addEventListener('cpm:langchange', function (e) {
       lang = normalizeLang(e && e.detail && e.detail.lang);
     });
 
-    // --- Session id (opaque random token, no PII; created once per tab) ------
-    // v2-specific key so it never collides with the old site's 'chat_sid'.
     var sessionId;
     try {
       sessionId = sessionStorage.getItem('cpm_v2_chat_sid');
@@ -177,14 +114,11 @@
       sessionId = 'cs-' + Math.random().toString(36).slice(2);
     }
 
-    // --- Open / close (same-tab overlay; ESC closes) ------------------------
     function isOpen() { return !panel.hidden; }
     function open() {
       panel.hidden = false;
       panel.classList.remove('hidden');
       panel.classList.add('flex');
-      // A11Y: reflect the open state on the FAB so assistive tech announces the
-      // panel as expanded (the FAB is the control that owns the panel).
       fab.setAttribute('aria-expanded', 'true');
       if (input) setTimeout(function () { input.focus(); }, 50);
     }
@@ -194,32 +128,25 @@
       panel.classList.remove('flex');
       fab.setAttribute('aria-expanded', 'false');
     }
-    close(); // known-closed starting state
+    close();
     fab.addEventListener('click', function () { isOpen() ? close() : open(); });
     if (closeBtn) closeBtn.addEventListener('click', close);
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && isOpen()) close();
     });
 
-    // --- Append a message bubble. kind: 'user' | 'bot' | 'error' ------------
     function appendChatMsg(text, kind) {
       if (!wrap) return null;
       var div = document.createElement('div');
       var base = 'chat-msg max-w-[85%] rounded-2xl px-3 py-2 ';
       if (kind === 'user') {
         div.className = base + 'chat-msg-user self-end bg-brand-500 text-white';
-        // User echo stays textContent — never innerHTML.
         div.textContent = text;
       } else if (kind === 'error') {
         div.className = base + 'chat-msg-error self-start bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200';
-        // Error copy stays textContent — never innerHTML.
         div.textContent = text;
       } else {
         div.className = base + 'chat-msg-bot self-start bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-100 [&_a]:text-brand-600 [&_a]:underline dark:[&_a]:text-brand-400';
-        // Bot bubble ONLY: render CLICKABLE links. Safe because linkifyBotText
-        // escapes the ENTIRE reply BEFORE building any markup and emits nothing
-        // but <a> tags whose href is validated as http(s) by safeUrl. Untrusted
-        // model output therefore cannot inject any other markup.
         div.innerHTML = linkifyBotText(text, escapeHtml, safeUrl);
       }
       wrap.appendChild(div);
@@ -227,7 +154,6 @@
       return div;
     }
 
-    // --- Send flow ----------------------------------------------------------
     var busy = false;
     form.addEventListener('submit', function (e) {
       e.preventDefault();
@@ -244,7 +170,6 @@
       input.value = '';
       appendChatMsg(question, 'user');
 
-      // Typing indicator (bilingual).
       var typing = document.createElement('div');
       typing.className = 'chat-typing self-start px-1 text-xs italic text-slate-500 dark:text-slate-400';
       typing.textContent = lang === 'hi' ? 'सोच रहा हूँ…' : 'Thinking…';

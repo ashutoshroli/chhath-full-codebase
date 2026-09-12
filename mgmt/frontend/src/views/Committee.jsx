@@ -10,8 +10,6 @@ import TransliterateInput from '../components/TransliterateInput.jsx';
 const VIEW_ROLE_SUGGESTIONS = ['President', 'Vice President', 'Secretary', 'Treasurer', 'Member'];
 const BLANK = { Name: '', 'View Role': '', 'View Role (Hindi)': '' };
 
-// Committee Members = per-year public membership record (Name + designation) only.
-// Login (Role/Password) is managed separately, see views/LoginManagement.jsx.
 export default function Committee({ year, users, role, editable }) {
   const { data, loading, error, refresh } = useViewData(`committee:${year}`, () => api.getCommittee(year), [year]);
   const [showAdd, setShowAdd] = useState(false);
@@ -76,8 +74,6 @@ export default function Committee({ year, users, role, editable }) {
       <h2 style={{ marginBottom: 15 }}>Active Committee</h2>
       {(!data || data.length === 0) && <div className="glass-card" style={{ textAlign: 'center', padding: 20 }}>No committee on record.</div>}
       {(data || []).map((r, i) => {
-        // If the member isn't in USERS, show the stored identifier (with a hint)
-        // rather than a bare "Unknown" so it can be traced.
         const u = userMap[r.Name] || { Name: r.Name ? `${r.Name} (not in Users)` : 'Unknown', Mobile: 'N/A', Village: 'N/A' };
         return (
           <div className="glass-card" style={{ padding: 15, marginBottom: 12, display: 'flex', gap: 15, alignItems: 'center' }} key={r.__rowIndex ?? i}>
@@ -89,7 +85,7 @@ export default function Committee({ year, users, role, editable }) {
                 <strong>{u.Name}</strong>
                 <span className="badge" style={{ background: '#f3f4f6', color: '#374151' }}>{r.Year}</span>
               </div>
-              {/* Public-facing designation — shown to everyone. */}
+              {}
               {r['View Role'] && <div className="role-select-badge" style={{ display: 'inline-block', marginBottom: 4 }}>{r['View Role']}{r['View Role (Hindi)'] ? ` (${r['View Role (Hindi)']})` : ''}</div>}
               <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{u.Mobile || 'N/A'} | {u.Village || 'N/A'}</div>
             </div>

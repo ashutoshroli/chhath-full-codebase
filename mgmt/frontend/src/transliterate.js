@@ -1,7 +1,3 @@
-// Roman (English typed) -> Devanagari (Hindi) transliteration.
-// Primary: Google Input Tools API (best quality, handles ambiguous names well).
-// Fallback: offline phonetic table (no internet needed) — used automatically
-// whenever the API call fails, times out, or is unreachable (no error shown to user).
 
 const GOOGLE_TIMEOUT_MS = 2500;
 
@@ -22,9 +18,6 @@ async function transliterateOnline(text) {
   }
 }
 
-// ---- Offline phonetic fallback ----
-// Longest-match-first phonetic table, word by word (spaces preserved).
-// Covers common Hinglish spelling patterns used for Indian names/places.
 const MULTI = [
   ['shh', 'ऺ'], ['chh', 'छ'], ['ksh', 'क्ष'], ['gya', 'ज्ञ'], ['jn', 'ज्ञ'],
   ['sh', 'श'], ['ch', 'च'], ['th', 'थ'], ['dh', 'ध'], ['bh', 'भ'], ['ph', 'फ'],
@@ -58,7 +51,6 @@ function transliterateWordOffline(word) {
     let matchedCons = consKeys.find(c => lower.startsWith(c, i));
     if (matchedCons) {
       i += matchedCons.length;
-      // look ahead for a vowel to attach as matra; else default inherent 'a'
       let matchedVowel = vowelKeys.find(v => lower.startsWith(v, i));
       if (matchedVowel) {
         out += CONSONANTS[matchedCons] + VOWEL_MATRA[matchedVowel];
@@ -73,14 +65,12 @@ function transliterateWordOffline(word) {
     let matchedVowel = vowelKeys.find(v => lower.startsWith(v, i));
     if (matchedVowel) {
       if (lastWasConsonant) {
-        // consonant with no vowel matched earlier only happens at end-of-loop edge; safe no-op
       }
       out += VOWEL_INDEP[matchedVowel];
       i += matchedVowel.length;
       lastWasConsonant = false;
       continue;
     }
-    // Unknown char (digit, punctuation) — pass through as-is
     out += word[i];
     i += 1;
     lastWasConsonant = false;
@@ -92,15 +82,6 @@ function transliterateOffline(text) {
   return text.split(' ').map(w => (w ? transliterateWordOffline(w) : w)).join(' ');
 }
 
-// Public: always resolves, never throws. Tries Google first, falls back to the
-// offline rule table on any failure (no internet, blocked, timeout, etc).
-//
-// The fallback used to be COMPLETELY silent, so a network hiccup wrote the
-// offline table's approximate (often wrong) Hindi spelling straight into the
-// database with no trace — and those same columns are the source of every *_HI
-// value in the Hindi/Both report. Callers now get `approximate: true` so the UI
-// can flag it, and the event is reported once (de-duplicated server-side) so a
-// systematically-broken transliteration API is visible.
 let offlineFallbackReported = false;
 
 export async function transliterate(text) {
@@ -116,8 +97,6 @@ export async function transliterateWithMeta(text) {
   } catch (err) {
     if (!offlineFallbackReported) {
       offlineFallbackReported = true;
-      // Imported lazily to keep this module dependency-free for any caller that
-      // only wants the pure offline transform.
       import('./api.js')
         .then(({ reportClientError }) => reportClientError(
           'transliterate',

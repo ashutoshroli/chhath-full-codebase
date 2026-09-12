@@ -71,8 +71,6 @@ export default function AnnouncePage() {
   const storageKey = `announce_session_${token}`;
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState('');
-  // Set when sessionStorage is unavailable (Safari private mode / storage
-  // disabled). Without this the PIN screen silently reappeared on every refresh.
   const [sessionPersistWarning, setSessionPersistWarning] = useState(false);
   const [linkExpired, setLinkExpired] = useState(false);
   const [verifying, setVerifying] = useState(false);
@@ -83,8 +81,6 @@ export default function AnnouncePage() {
   const [statusFilter, setStatusFilter] = useState('All');
   const [typeFilter, setTypeFilter] = useState('All');
   const [items, setItems] = useState([]);
-  // True when the live auto-refresh poll last failed, so the operator can see the
-  // screen is showing stale data instead of silently trusting a frozen list.
   const [pollFailed, setPollFailed] = useState(false);
   const [priorityQueue, setPriorityQueue] = useState([]);
   const [normalIndex, setNormalIndex] = useState(0);
@@ -100,9 +96,6 @@ export default function AnnouncePage() {
   const announceBottomBarRef = useRef(null);
   priorityPointerRef.current = priorityPointer;
 
-  // On mount, restore a previously verified PIN session for this link (if any)
-  // from sessionStorage, so a page refresh doesn't bounce back to the PIN screen
-  // while the backend cache session (ANNOUNCE_SESSION_TTL_SECONDS) is still valid.
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(storageKey);
@@ -113,14 +106,10 @@ export default function AnnouncePage() {
           setYear(parsed.year);
         }
       }
-    } catch (e) { /* ignore malformed storage */ }
+    } catch (e) {  }
     setRestoring(false);
   }, [storageKey]);
 
-  // Set right after a successful PIN verify, so the loadQueue effect below
-  // knows to skip its immediate fetch — verifyAnnouncementPin already returns
-  // the first queue inline, so an extra round-trip right after login isn't
-  // just wasteful, it's the exact call that used to race the cache write.
   const skipNextLoadRef = useRef(false);
 
   const submitPin = async () => {
@@ -139,9 +128,6 @@ export default function AnnouncePage() {
       try {
         sessionStorage.setItem(storageKey, JSON.stringify({ announceToken: res.announceToken, year: res.year }));
       } catch (e) {
-        // Safari private mode / storage disabled: the session silently failed to
-        // persist, so a refresh bounced the user back to the PIN screen forever
-        // with nothing logged. Warn them instead.
         setSessionPersistWarning(true);
       }
     } catch (err) {
@@ -152,13 +138,11 @@ export default function AnnouncePage() {
     }
   };
 
-  // If the PIN-based session expired server-side (cache cleared), bounce back
-  // to the PIN screen instead of showing a dead announcement screen.
   const handleSessionExpiry = (err) => {
     if (err.announceSessionExpired) {
       setAnnounceToken(null);
       setPinError(err.message);
-      try { sessionStorage.removeItem(storageKey); } catch (e) { /* nothing to clean up if storage is unavailable */ }
+      try { sessionStorage.removeItem(storageKey); } catch (e) {  }
       return true;
     }
     return false;
@@ -178,31 +162,18 @@ export default function AnnouncePage() {
       .finally(() => setLoading(false));
   }, [announceToken, statusFilter, typeFilter]);
 
-  useEffect(() => { loadQueue(true); }, [announceToken, statusFilter, typeFilter]); // eslint-disable-line
+  useEffect(() => { loadQueue(true); }, [announceToken, statusFilter, typeFilter]);
 
-  // Background poll — keeps queue fresh (new collections / new priority customs
-  // added live during the event) without disturbing what's on screen. Only
-  // safe to silently swap "items"/"priorityQueue" while not mid-priority-display.
-  // audit P-8: pauses while the tab is hidden and refreshes once on return. The
-  // on-stage device is open for hours, so an unpaused poll here is pure waste.
   usePolling(() => {
     if (!announceToken) return;
-    if (priorityPointerRef.current >= 0) return; // don't disturb an active priority interrupt
+    if (priorityPointerRef.current >= 0) return;
     api.getAnnouncementQueue(announceToken, statusFilter, typeFilter)
       .then(res => { setItems(res.items || []); setPriorityQueue(res.priorityItems || []); setPollFailed(false); })
-      // Was `.catch(() => {})`. During a live event the operator had no way to
-      // know the auto-refresh had stopped — the screen just silently froze on
-      // stale data. A small indicator is enough; we must NOT interrupt the
-      // announcement display with an error banner.
       .catch(() => setPollFailed(true));
   }, announceToken ? POLL_MS : 0, [announceToken, statusFilter, typeFilter]);
 
   const displayedItem = priorityPointer >= 0 ? priorityQueue[priorityPointer] : items[normalIndex];
 
-  // Measure the real rendered height of the fixed top/bottom bars (instead of
-  // guessing a px value) and expose it via CSS vars so .announce-page padding
-  // always matches exactly — even if filters wrap to a second line or fonts
-  // render slightly differently across devices.
   useEffect(() => {
     const pageEl = announcePageRef.current;
     const topEl = announceTopBarRef.current;
@@ -224,10 +195,10 @@ export default function AnnouncePage() {
   const handleNext = () => {
     if (priorityPointer >= 0) {
       if (priorityPointer + 1 < priorityQueue.length) setPriorityPointer(priorityPointer + 1);
-      else setPriorityPointer(-1); // all priority cleared — resume normal queue at same item
+      else setPriorityPointer(-1);
       return;
     }
-    if (priorityQueue.length > 0) { setPriorityPointer(0); return; } // interrupt, normalIndex untouched
+    if (priorityQueue.length > 0) { setPriorityPointer(0); return; }
     if (normalIndex + 1 < items.length) setNormalIndex(normalIndex + 1);
   };
 
@@ -274,7 +245,6 @@ export default function AnnouncePage() {
 
   const swapBoxes = () => setBoxOrder(([a, b]) => [b, a]);
 
-  // ---- Screens ----
 
   if (linkExpired) {
     return (

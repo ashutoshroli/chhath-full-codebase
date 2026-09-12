@@ -1,15 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api.js';
 
-// Superadmin-only: bulk-import rows from a CSV for the ordinary data sections.
-// Each row is sent to the backend importCsvRows action, which runs it through the
-// SAME saveRecord validation/id-allocation as a manual add — so a CSV can never
-// create a row a manual add couldn't. Loans are intentionally NOT here (a loan
-// needs the full 3-guarantor + consent flow — see the note in the UI).
 
-// The sections that can be imported. `columns` are the CSV headers; `required`
-// mirror the backend's REQUIRED_FIELDS; `sample` rows generate a downloadable
-// example. Header names match the backend exactly (do not rename).
 const SECTIONS = {
   USERS: {
     label: 'Users (People)',
@@ -40,8 +32,6 @@ const SECTIONS = {
       'Resell item: set Is Resell = TRUE and put the item name in Detail. A resell row has NO person, so Name can be left blank; give the sale Amount.',
       'Year: the festival year (e.g. 2026). If the year is locked, those rows are skipped.',
     ],
-    // Covers all types: 1 (Cash), 2 (Material), 3 (Service — Receipt),
-    // 3 (Service — Certificate), and a Resell item.
     sample: [
       { Year: '2026', Name: 'USER0001', Amount: '1100', 'Payment Mode': 'Cash', Date: '2026-10-20', 'Contribution Type': '1', Detail: '', 'Certificate Or Receipt': '', 'Is Resell': 'FALSE' },
       { Year: '2026', Name: 'USER0002', Amount: '2100', 'Payment Mode': 'Online', Date: '2026-10-20', 'Contribution Type': '1', Detail: '', 'Certificate Or Receipt': '', 'Is Resell': 'FALSE' },
@@ -84,8 +74,6 @@ const SECTIONS = {
   },
 };
 
-// Which read API returns the existing rows for each section, and how to pull the
-// array out of its response, for the "Download existing data" export.
 const EXISTING_DATA = {
   USERS: { fetch: () => api.getUsers(), rows: (res) => (Array.isArray(res) ? res : (res && res.users) || []) },
   COLLECTIONS: { fetch: () => api.getHome('All'), rows: (res) => (res && res.collections) || [] },
@@ -93,10 +81,7 @@ const EXISTING_DATA = {
   EXPENSES: { fetch: () => api.getExpenses('All'), rows: (res) => (res && res.expenses) || [] },
 };
 
-// ---- CSV helpers ----------------------------------------------------------
 
-// Escape one field for CSV output: wrap in quotes if it contains a comma, quote,
-// or newline; double any embedded quotes.
 function csvEscape(v) {
   const s = (v === undefined || v === null) ? '' : v.toString();
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -108,11 +93,7 @@ function toCsv(columns, rows) {
   return head + '\n' + body + '\n';
 }
 
-// A small, correct CSV parser: handles quoted fields, embedded commas/newlines,
-// and doubled quotes ("" -> "). Returns { headers, rows } where rows are objects
-// keyed by header. Blank lines become empty rows (the backend skips them).
 function parseCsv(text) {
-  // Strip a UTF-8 BOM if present (Excel adds one).
   if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
   const records = [];
   let field = '';
@@ -132,11 +113,10 @@ function parseCsv(text) {
     }
     if (ch === '"') { inQuotes = true; i++; continue; }
     if (ch === ',') { pushField(); i++; continue; }
-    if (ch === '\r') { i++; continue; } // ignore CR; handle LF below
+    if (ch === '\r') { i++; continue; }
     if (ch === '\n') { pushField(); pushRecord(); i++; continue; }
     field += ch; i++;
   }
-  // Flush the last field/record if the file didn't end with a newline.
   if (field.length > 0 || record.length > 0) { pushField(); pushRecord(); }
 
   if (!records.length) return { headers: [], rows: [] };
@@ -161,12 +141,11 @@ function downloadFile(filename, content, mime = 'text/csv;charset=utf-8') {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-// ---------------------------------------------------------------------------
 
 export default function UploadCsvs() {
   const [sheet, setSheet] = useState('USERS');
   const [fileName, setFileName] = useState('');
-  const [parsed, setParsed] = useState(null); // { headers, rows }
+  const [parsed, setParsed] = useState(null);
   const [parseError, setParseError] = useState('');
   const [uploading, setUploading] = useState(false);
   const [report, setReport] = useState(null);
@@ -184,12 +163,6 @@ export default function UploadCsvs() {
     downloadFile(`${spec.sheet.toLowerCase().replace(/\s+/g, '-')}-sample.csv`, toCsv(spec.columns, spec.sample));
   };
 
-  // Download the EXISTING rows of this section as a CSV — including each person's
-  // User ID — so a Superadmin can see what's already in the system, edit it, and
-  // (for the importable columns) re-upload. USERS get their own ID column; rows
-  // that reference a person (Collections/Committee) get an extra "User ID" column
-  // resolved from the Users list. The file uses the same header names as the
-  // sample so it round-trips into the importer.
   const downloadExisting = async () => {
     setExporting(true);
     setExportError('');
@@ -198,14 +171,10 @@ export default function UploadCsvs() {
       const res = await conf.fetch();
       let rows = conf.rows(res) || [];
 
-      // Build the export columns: the importable columns, but ALWAYS surface an
-      // id so the export identifies each record.
       let columns;
       if (sheet === 'USERS') {
-        columns = ['ID', ...spec.columns]; // the person's own USER#### id
+        columns = ['ID', ...spec.columns];
       } else if (sheet === 'COLLECTIONS' || sheet === 'COMMITEE MEMBERS') {
-        // These reference a person by Name; add the resolved User ID beside it.
-        // Fetch the users list once to map name -> id_code.
         const usersRes = await api.getUsers();
         const users = Array.isArray(usersRes) ? usersRes : (usersRes && usersRes.users) || [];
         const idByName = {};
@@ -213,7 +182,7 @@ export default function UploadCsvs() {
         rows = rows.map(r => ({ ...r, 'User ID': r.ID || idByName[(r.Name || '').toString().trim()] || '' }));
         columns = ['User ID', ...spec.columns];
       } else {
-        columns = [...spec.columns]; // EXPENSES — no person reference
+        columns = [...spec.columns];
       }
 
       if (!rows.length) {
@@ -238,7 +207,6 @@ export default function UploadCsvs() {
       const text = await file.text();
       const { headers, rows } = parseCsv(text);
       if (!headers.length) { setParseError('The file appears to be empty.'); setParsed(null); return; }
-      // Warn (don't block) if a required column is missing from the header.
       const missing = spec.required.filter(r => !headers.includes(r));
       if (missing.length) {
         setParseError(`The CSV is missing required column(s): ${missing.join(', ')}. Download the sample to see the exact headers.`);
@@ -250,7 +218,6 @@ export default function UploadCsvs() {
       setParseError('Could not read the file: ' + (err.message || err));
       setParsed(null);
     }
-    // Allow re-selecting the same file later.
     e.target.value = '';
   };
 
@@ -278,7 +245,7 @@ export default function UploadCsvs() {
         sample to see the exact columns, fill it, then upload.
       </p>
 
-      {/* Section selector */}
+      {}
       <div className="subtabs" style={{ marginBottom: 15 }}>
         {Object.keys(SECTIONS).map(key => (
           <button key={key} className={`subtab-btn ${sheet === key ? 'active' : ''}`} onClick={() => onPickSheet(key)}>
@@ -287,7 +254,7 @@ export default function UploadCsvs() {
         ))}
       </div>
 
-      {/* Sample + instructions */}
+      {}
       <div className="glass-card" style={{ padding: 15, marginBottom: 15 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <strong>{spec.label} — CSV</strong>
@@ -328,7 +295,7 @@ export default function UploadCsvs() {
         )}
       </div>
 
-      {/* Upload */}
+      {}
       <div className="glass-card" style={{ padding: 15, marginBottom: 15 }}>
         <label style={{ display: 'block', fontWeight: 600, marginBottom: 8 }}>Upload {spec.label} CSV</label>
         <input type="file" accept=".csv,text/csv" onChange={onFile} />
@@ -348,7 +315,7 @@ export default function UploadCsvs() {
         )}
       </div>
 
-      {/* Report */}
+      {}
       {report && (
         <div className="glass-card" style={{ padding: 15 }}>
           <h3 style={{ marginBottom: 10 }}>Import Report — {report.label}</h3>

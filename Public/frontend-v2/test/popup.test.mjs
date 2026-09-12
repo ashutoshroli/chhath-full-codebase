@@ -1,11 +1,3 @@
-// Unit tests for the framework-free announcement-popup pure logic.
-// Runs under plain `node --test` — imports ONLY src/lib/popup.js plus the real
-// dom-escape/drive helpers (no Astro, no DOM, no timers).
-//
-// Any Drive file-id fixture is built via string concatenation so no literal
-// long-token string appears in source (keeps secret scanners quiet), matching
-// the concat pattern used in the other tests. The id here is an obviously-fake
-// fixed-length token, not a real credential.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -18,13 +10,10 @@ import {
 import { escapeHtml, safeUrl } from '../src/lib/dom-escape.js';
 import { driveImageUrl, driveImageFallbackUrl } from '../src/lib/drive.js';
 
-// The real helpers injected into buildSlideHtml, mirroring the island call site.
 const DEPS = { escapeHtml, safeUrl, driveImageUrl, driveImageFallbackUrl };
 
-// A fake 12-char Drive id built via concatenation.
 const ID = 'abcDEF' + '123456';
 
-// ---- clampSlideDuration ----------------------------------------------------
 
 test('clampSlideDuration defaults null/0/negative/NaN to 5000', () => {
   assert.equal(clampSlideDuration(null), 5000);
@@ -48,21 +37,20 @@ test('clampSlideDuration passes a valid in-range value through', () => {
   assert.equal(clampSlideDuration(1000), 1000);
   assert.equal(clampSlideDuration(5000), 5000);
   assert.equal(clampSlideDuration(60000), 60000);
-  assert.equal(clampSlideDuration('3000'), 3000); // parseInt of a numeric string
+  assert.equal(clampSlideDuration('3000'), 3000);
 });
 
-// ---- nextIndex / prevIndex -------------------------------------------------
 
 test('nextIndex wraps last -> 0 and advances otherwise', () => {
   assert.equal(nextIndex(0, 3), 1);
   assert.equal(nextIndex(1, 3), 2);
-  assert.equal(nextIndex(2, 3), 0); // last wraps to first
+  assert.equal(nextIndex(2, 3), 0);
 });
 
 test('prevIndex wraps 0 -> last and steps back otherwise', () => {
   assert.equal(prevIndex(2, 3), 1);
   assert.equal(prevIndex(1, 3), 0);
-  assert.equal(prevIndex(0, 3), 2); // first wraps to last
+  assert.equal(prevIndex(0, 3), 2);
 });
 
 test('nextIndex/prevIndex on a single element stay at 0', () => {
@@ -77,7 +65,6 @@ test('nextIndex/prevIndex guard a non-positive length by returning 0', () => {
   assert.equal(prevIndex(3, -1), 0);
 });
 
-// ---- pickFirstEligiblePopup ------------------------------------------------
 
 test('pickFirstEligiblePopup returns null for an empty array', () => {
   assert.equal(pickFirstEligiblePopup([]), null);
@@ -107,7 +94,6 @@ test('pickFirstEligiblePopup returns ONLY the first popup when multiple exist', 
   assert.equal(pickFirstEligiblePopup([first, second]), first);
 });
 
-// ---- buildSlideHtml: XSS + gating ------------------------------------------
 
 test('buildSlideHtml escapes text (angle brackets and quotes)', () => {
   const html = buildSlideHtml({ text: '<script>alert("x")</' + 'script>' }, DEPS);
@@ -179,7 +165,6 @@ test('buildSlideHtml renders nothing for an empty or malformed slide', () => {
   assert.equal(buildSlideHtml({}, DEPS), '');
   assert.equal(buildSlideHtml(null, DEPS), '');
   assert.equal(buildSlideHtml(undefined, DEPS), '');
-  // A slide whose only URLs are unsafe produces no elements at all.
   assert.equal(
     buildSlideHtml({ image_url: 'javascript:x', link_url: 'data:y' }, DEPS),
     '',

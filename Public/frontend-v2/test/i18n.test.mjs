@@ -1,5 +1,3 @@
-// Unit tests for the framework-free i18n helpers.
-// Runs under plain `node --test` — imports ONLY src/i18n.js (no Astro).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { t, localize, T, LANG_KEY, normalizeLang } from '../src/i18n.js';
@@ -10,12 +8,8 @@ test('t returns the language-specific string', () => {
 });
 
 test('t falls back en -> key for unknown keys and languages', () => {
-  // Unknown key: falls through to the raw key.
   assert.equal(t('en', 'totally_missing_key'), 'totally_missing_key');
-  // Unknown language normalises to en.
   assert.equal(t('fr', 'nav_home'), 'Home');
-  // Key missing in hi but present in en would fall back to en; here we assert
-  // the en fallback path via an unknown lang, which is the same code path.
   assert.equal(t('xx', 'login'), 'Login');
 });
 

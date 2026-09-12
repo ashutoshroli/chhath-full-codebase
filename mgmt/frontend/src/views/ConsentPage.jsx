@@ -7,27 +7,9 @@ import { safeImport } from '../chunkGuard.js';
 import { generateQrDataUrl, publicRecordUrl } from '../qrCode.js';
 import ReportErrorButton from '../components/ReportErrorButton.jsx';
 
-// Public, no-login page: /consent/:token
-//
-// Flow: load loan details -> OTP verify -> choose Accept or Decline:
-//   Accept  — camera photo (live getUserMedia capture) + location + signature
-//             upload are ALL mandatory before the final "Confirm Accept" button
-//             unlocks. Nothing is optional here — if camera/location permission
-//             is denied, Accept simply cannot proceed (Decline still can).
-//   Decline — a mandatory remarks box explaining why, no photo/location needed.
-// Once submitted, the link permanently shows the locked-in decision.
 
-const MAX_SIGNATURE_BYTES = 1024 * 1024; // 1MB
+const MAX_SIGNATURE_BYTES = 1024 * 1024;
 
-// Kept in sync with receiptTemplate.js's renderReceiptTemplate().
-//
-// The old condition was `placeholders[key] !== undefined && placeholders[key] !== ''`,
-// so a REAL-but-blank field (e.g. FINAL_REPAYMENT_DAY_NAME when the Festival Dates
-// haven't been entered for the year) printed the literal text
-// "[FINAL_REPAYMENT_DAY_NAME]" on a PUBLIC legal page. receiptTemplate.js
-// substitutes an empty string in exactly that case — the two resolvers had
-// diverged. An UNKNOWN key still renders literally, which is the useful signal
-// (it means the template references a placeholder that does not exist).
 function substitutePlaceholders(text, placeholders) {
   return (text || '').replace(/\[([A-Z0-9_]+)\]/g, (m, key) => (
     Object.prototype.hasOwnProperty.call(placeholders || {}, key) ? String(placeholders[key]) : m
@@ -55,27 +37,16 @@ function fileToCompressedBase64(file, maxDim = 1000, quality = 0.7) {
   });
 }
 
-// Returns { ok: true, coords } on success, or { ok: false, reason } where reason
-// is 'unsupported' | 'denied' | 'timeout' | 'unavailable'. The old version
-// collapsed EVERY failure (including a slow GPS timeout) into null, so the UI
-// always blamed "permission not granted" even when permission WAS granted and
-// the fix was just slow. On mobile a cold GPS lock routinely takes >10s, and the
-// old maximumAge:60000 + 9s timeout made that the common case. Now: high
-// accuracy, no cached position, a generous 25s timeout, and the real reason is
-// surfaced so the message + retry make sense.
 function getGeoLocation() {
   return new Promise((resolve) => {
     if (!navigator.geolocation) return resolve({ ok: false, reason: 'unsupported' });
     let done = false;
     const finish = (v) => { if (!done) { done = true; resolve(v); } };
-    // Hard backstop slightly longer than the API timeout, so a wedged call still
-    // resolves instead of leaving the button stuck on "Getting location...".
     const timer = setTimeout(() => finish({ ok: false, reason: 'timeout' }), 27000);
     navigator.geolocation.getCurrentPosition(
       (pos) => { clearTimeout(timer); finish({ ok: true, coords: { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy } }); },
       (err) => {
         clearTimeout(timer);
-        // 1 = PERMISSION_DENIED, 2 = POSITION_UNAVAILABLE, 3 = TIMEOUT
         const reason = err && err.code === 1 ? 'denied' : (err && err.code === 3 ? 'timeout' : 'unavailable');
         finish({ ok: false, reason });
       },
@@ -84,12 +55,10 @@ function getGeoLocation() {
   });
 }
 
-// Live camera capture — a real getUserMedia permission prompt (not a file picker),
-// so we can tell whether the person actually granted camera access.
 function CameraCapture({ photo, onCapture }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
-  const [state, setState] = useState('idle'); // idle | starting | live | denied
+  const [state, setState] = useState('idle');
 
   const startCamera = async () => {
     setState('starting');
@@ -105,7 +74,7 @@ function CameraCapture({ photo, onCapture }) {
 
   const capture = () => {
     const video = videoRef.current;
-    if (!video || !video.videoWidth || !video.videoHeight) return; // frame not ready yet — button shouldn't normally be clickable this fast, but guard anyway
+    if (!video || !video.videoWidth || !video.videoHeight) return;
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
@@ -161,16 +130,6 @@ export default function ConsentPage() {
   const [error, setError] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [otp, setOtp] = useState('');
-  // SECURITY: the Accept/Decline step is gated on a session-bound verifyToken that
-  // the server mints ONLY for the client that verified the OTP (see
-  // verifyConsentOtp / respondConsent in loans.js). We keep it in sessionStorage,
-  // keyed by this link's token, so:
-  //   * a page REFRESH in the same browser keeps it -> no re-prompt (Issue 1);
-  //   * a DIFFERENT browser / another person opening the link has NO token -> they
-  //     are forced to verify their own OTP (closes the hole where anyone could
-  //     Accept without an OTP just because someone verified earlier);
-  //   * it is scoped per link token, so an unrelated consent can't reuse it.
-  // We do NOT trust the server's persistent otp_verified flag for this.
   const verifyStoreKey = `consent_vt_${token}`;
   const [verifyToken, setVerifyToken] = useState(() => {
     try { return sessionStorage.getItem(`consent_vt_${token}`) || ''; } catch (e) { return ''; }
@@ -180,22 +139,20 @@ export default function ConsentPage() {
     try {
       if (vt) sessionStorage.setItem(verifyStoreKey, vt);
       else sessionStorage.removeItem(verifyStoreKey);
-    } catch (e) { /* private mode / storage blocked — falls back to in-memory state */ }
+    } catch (e) {  }
   };
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [finalStatus, setFinalStatus] = useState(null);
-  const [mode, setMode] = useState(null); // null | 'accept' | 'decline'
+  const [mode, setMode] = useState(null);
 
-  // Accept-path state
   const [photo, setPhoto] = useState(null);
   const [geo, setGeo] = useState(null);
-  const [geoState, setGeoState] = useState('idle'); // idle | requesting | granted | failed
-  const [geoReason, setGeoReason] = useState(''); // denied | timeout | unavailable | unsupported
+  const [geoState, setGeoState] = useState('idle');
+  const [geoReason, setGeoReason] = useState('');
   const [signatureBase64, setSignatureBase64] = useState(null);
   const [signatureError, setSignatureError] = useState('');
 
-  // Decline-path state
   const [declineRemarks, setDeclineRemarks] = useState('');
 
   const load = () => {
@@ -206,11 +163,6 @@ export default function ConsentPage() {
         if (d.status !== 'pending') {
           setFinalStatus(d.status);
         } else if (verifyToken) {
-          // This browser holds a verifyToken from an earlier OTP verification in
-          // THIS session (kept in sessionStorage), so a refresh lands straight on
-          // Accept/Decline without re-prompting (Issue 1). A visitor WITHOUT the
-          // token starts at the OTP step — we no longer trust the server's
-          // persistent otp_verified flag, which anyone could otherwise ride on.
           setOtpSent(true);
         }
       })
@@ -218,7 +170,7 @@ export default function ConsentPage() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [token]);
+  useEffect(() => { load();  }, [token]);
 
   const sendOtp = async () => {
     setBusy(true);
@@ -226,12 +178,6 @@ export default function ConsentPage() {
     try {
       await api.requestConsentOtp(token);
       setOtpSent(true);
-      // Requesting a fresh OTP means the code in hand is not yet verified, so drop
-      // any stale code and any prior verifyToken for this session — the new OTP
-      // must be verified to get a fresh token. (Requesting a new OTP does NOT
-      // revoke anyone else's verification on the server — see requestConsentOtp in
-      // loans.js — so a parallel request can't invalidate a user who already
-      // verified in their own browser.)
       setOtp('');
       setVerified('');
     } catch (err) {
@@ -247,9 +193,6 @@ export default function ConsentPage() {
     setError('');
     try {
       const res = await api.verifyConsentOtp(token, otp.trim());
-      // Persist the session-bound proof so a refresh keeps us verified and
-      // respondConsent can present it. Without a token the server will reject the
-      // submit, which is what forces a fresh visitor to verify their own OTP.
       setVerified((res && res.verifyToken) || '');
       load();
     } catch (err) {
@@ -467,9 +410,6 @@ export default function ConsentPage() {
 
 const pageStyle = { minHeight: '100vh', background: 'var(--bg-offwhite)', padding: '20px 15px' };
 
-// Shown once a decision is locked in. Silently hides itself if no Superadmin-
-// uploaded .docx template exists yet for this role+year (no error shown — this
-// isn't the person's fault and doesn't need to interrupt their flow).
 function ConsentPdfDownload({ role, fundYear, placeholders, consentId, docTypeFromServer, token }) {
   const [templateRow, setTemplateRow] = useState(null);
   const [checked, setChecked] = useState(false);
@@ -478,31 +418,15 @@ function ConsentPdfDownload({ role, fundYear, placeholders, consentId, docTypeFr
   const [error, setError] = useState('');
   const docType = docTypeFromServer || (role === 'loaner' ? 'consent_loaner' : 'consent_guarantor');
 
-  // Was: `placeholders.LOAN_CONSENT_ID || placeholders.CONSENT_ID`
-  //
-  // For a GUARANTOR, LOAN_CONSENT_ID is the *loaner's* consent_id and CONSENT_ID is
-  // the guarantor's own — so `||` picked the WRONG one. Every guarantor PDF was
-  // stored/indexed as `consent_guarantor-<year>-<LOANER id>` while Download Center
-  // and the public portal both look for `...-<GUARANTOR id>`: never matched, never
-  // shown, and a duplicate PDF generated on the next attempt. Worse, before the
-  // loaner had consented LOAN_CONSENT_ID was '', so the SAME guarantor produced a
-  // DIFFERENT recordId depending on when they clicked.
-  // The server now supplies the authoritative id.
   const consentRefId = consentId || placeholders.CONSENT_ID;
 
   useEffect(() => {
     let alive = true;
-    // Now token-gated server-side; the token also decides which role+year template
-    // may be read at all.
     api.getDocxTemplatePublic(docType, fundYear, token)
       .then(row => { if (alive) setTemplateRow(row); })
-      // Still silent on purpose (a missing template is not the person's fault and
-      // must not interrupt their flow) — but it is reported now, because before
-      // this hid genuine failures too.
       .catch(err => { if (alive) reportClientError('ConsentPage', `Consent template load failed (${docType}/${fundYear})`, err, { docType, fundYear }); })
       .finally(() => { if (alive) setChecked(true); });
     return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docType, fundYear, token]);
 
   useEffect(() => {
@@ -511,7 +435,6 @@ function ConsentPdfDownload({ role, fundYear, placeholders, consentId, docTypeFr
     generateQrDataUrl(publicRecordUrl(recordId))
       .then(setQrCode)
       .catch(err => reportClientError('ConsentPage', `QR generation failed for ${recordId}`, err, { docType, fundYear, recordId }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docType, fundYear, consentRefId]);
 
   const download = async () => {
@@ -527,9 +450,6 @@ function ConsentPdfDownload({ role, fundYear, placeholders, consentId, docTypeFr
           { docType, fundYear, consentId: consentRefId, missingTags: [...new Set(rep.missingTags)] });
       }
 
-      // docType / year / recordId / fileName are all derived SERVER-side from the
-      // verified consent token now — the client only sends the bytes, so it can no
-      // longer choose where the file is indexed.
       const res = await api.convertDocxToPdfPublic(filledBase64, token);
 
       if (res && res.indexFailed) {
@@ -537,8 +457,6 @@ function ConsentPdfDownload({ role, fundYear, placeholders, consentId, docTypeFr
           { docType, fundYear, consentId: consentRefId, publicLink: res.publicLink });
       }
 
-      // `download` is ignored cross-origin and the click is several awaits after
-      // the gesture, so use a real DOM node.
       const a = document.createElement('a');
       a.href = res.publicLink;
       a.target = '_blank';

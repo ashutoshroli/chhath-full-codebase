@@ -1,11 +1,4 @@
 ---
-// Terms of Service page for the v2 public portal.
-//
-// The bilingual copy is ported VERBATIM from the old Public/frontend/terms.html.
-// Same approach as privacy.astro: [data-lang] spans hidden/shown by <html lang>
-// (CSS in global.css), inside the shared Layout, theme-aware and responsive. The
-// Header manages <html lang> + the language toggle, so this static legal page
-// carries only the content and a tiny © year script.
 import Layout from '../layouts/Layout.astro';
 ---
 
@@ -95,7 +88,6 @@ import Layout from '../layouts/Layout.astro';
   </main>
 </Layout>
 
-<!-- Fill the © year. The Header manages <html lang> + the bilingual toggle. -->
 <script is:inline>
   (function () {
     var y = document.getElementById('yr');

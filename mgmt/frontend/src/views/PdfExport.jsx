@@ -2,18 +2,6 @@ import { useEffect, useState } from 'react';
 import { api, reportClientError } from '../api.js';
 import { fillDocxTemplateFromRow, getLastRenderReport } from '../docxFill.js';
 
-// Superadmin-only. Own year dropdown (independent of the app's top year-selector).
-//
-// Language modes map 1:1 to a Superadmin-uploaded .docx template (Document
-// Templates tab -> Report - English / Report - Hindi / Report - Both):
-//   'en'   — docType 'report_en'
-//   'hi'   — docType 'report_hi'
-//   'both' — docType 'report_both'
-//
-// The template is filled client-side (docxtemplater, same engine as
-// Receipt/Certificate/Samaan) then converted to a real PDF on the backend via
-// the Drive conversion pipeline (convertDocxToPdf) — no more hand-built jsPDF
-// layout / hindiPdf rasterization.
 
 const DOC_TYPE_FOR_MODE = { en: 'report_en', hi: 'report_hi', both: 'report_both' };
 const MODE_LABEL_FOR_DOC_TYPE = { report_en: 'English', report_hi: 'Hindi', report_both: 'Both' };
@@ -25,11 +13,11 @@ function amountText(n) {
 export default function PdfExport() {
   const [years, setYears] = useState(null);
   const [year, setYear] = useState('');
-  const [language, setLanguage] = useState('en'); // 'en' | 'hi' | 'both'
+  const [language, setLanguage] = useState('en');
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
   const [warning, setWarning] = useState('');
-  const [previous, setPrevious] = useState(null); // previously generated Report PDFs for the selected year
+  const [previous, setPrevious] = useState(null);
   const [previousLoading, setPreviousLoading] = useState(false);
 
   useEffect(() => {
@@ -42,11 +30,7 @@ export default function PdfExport() {
   const loadPrevious = (y) => {
     if (!y) { setPrevious(null); return; }
     setPreviousLoading(true);
-    // All three report modes (en/hi/both) are separate docTypes but the same
-    // "Year's generated reports" list — fetch all three and merge.
     Promise.all(
-      // Was `.catch(() => [])`, so a permissions or DB failure silently rendered
-      // as "no reports generated yet for this year".
       Object.values(DOC_TYPE_FOR_MODE).map(dt =>
         api.getGeneratedFilesForYear(y, dt).catch(err => {
           setWarning(`Could not load the list of previous reports (${dt}): ${err.message}`);
@@ -60,7 +44,7 @@ export default function PdfExport() {
     }).finally(() => setPreviousLoading(false));
   };
 
-  useEffect(() => { loadPrevious(year); /* eslint-disable-next-line */ }, [year]);
+  useEffect(() => { loadPrevious(year);  }, [year]);
 
   const generate = async () => {
     if (!year) return alert('Please select a year');
@@ -75,9 +59,6 @@ export default function PdfExport() {
       try {
         docxRow = await api.getDocxTemplateForDoc(docType, year);
       } catch (err) {
-        // Was `.catch(() => null)` -> a real load failure was reported as "no
-        // template uploaded", sending the Superadmin to upload a template that
-        // already existed.
         reportClientError('PdfExport', `Template load failed for ${docType} ${year}`, err, { docType, year });
         throw new Error(`Report template failed to load: ${err.message}`);
       }
@@ -129,11 +110,6 @@ export default function PdfExport() {
 
       const contributors = (home.collections || []).map((c, i) => {
         const isResellRow = c['Is Resell'] === 'TRUE' || c['Is Resell'] === true;
-        // Samaan (Material) / Kaam (Service) entries never carry a money
-        // Amount — the item/work name lives in Detail instead — so showing
-        // "Rs. 0" for them is misleading. Resell entries have an Amount but
-        // no linked contributor (Name is intentionally blank). Both cases
-        // are shown via Detail/label instead of a bare 0 amount.
         const isMoneyType = (c['Contribution Type'] || '1').toString() === '1';
         const u = userMap[c.Name] || {};
         return {
@@ -177,12 +153,6 @@ export default function PdfExport() {
           { docType, year, missingTags: [...new Set(rep.missingTags)] });
       }
 
-      // Was `${docType}-${year}-${Date.now()}`. A timestamp-based recordId can
-      // never match isFileGenerated(), so EVERY click created a brand-new Drive
-      // PDF plus a brand-new generated_files row — an unbounded stream of
-      // duplicates that are shipped to every anonymous portal visitor, and whose
-      // QR codes (`?record=report_en-...`) the public portal can't resolve at all.
-      // One stable row per (docType, year), regenerated on purpose via force.
       const recordId = `${docType}-${year}`;
       const fileName = `Chhath-Puja-Report-${year}${mode !== 'en' ? '-' + mode : ''}.docx`;
       const res = await api.convertDocxToPdfBulk(docType, year, recordId, filledBase64, fileName, true);
@@ -193,9 +163,6 @@ export default function PdfExport() {
           { docType, year, recordId, publicLink: res.publicLink });
       }
 
-      // The `download` attribute is ignored on a cross-origin Drive URL, and the
-      // click happens several awaits after the user gesture, so it needs to be a
-      // real DOM node with a navigation fallback.
       const a = document.createElement('a');
       a.href = res.publicLink;
       a.target = '_blank';
@@ -208,8 +175,6 @@ export default function PdfExport() {
       loadPrevious(year);
     } catch (err) {
       setError(err.message || 'An error occurred while generating the PDF');
-      // Client-side docx fill / report assembly failures never pass through
-      // api.js's call(), so they were previously invisible in the Error Log.
       reportClientError('PdfExport', `Report generation failed for ${year}`, err, { year, language });
     } finally {
       setGenerating(false);

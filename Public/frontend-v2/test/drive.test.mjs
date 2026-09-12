@@ -1,15 +1,7 @@
-// Unit tests for the framework-free Google Drive image-URL helpers.
-// Runs under plain `node --test` — imports ONLY src/lib/drive.js (no Astro).
-//
-// Drive file id fixtures are built via string concatenation so no literal
-// long-token string appears in source (keeps secret scanners quiet), matching
-// the concat pattern used in the other tests. The ids here are obviously-fake
-// fixed-length tokens, not real credentials.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { driveFileId, driveImageUrl, driveImageFallbackUrl } from '../src/lib/drive.js';
 
-// A fake 12-char id built via concatenation.
 const ID = 'abcDEF' + '123456';
 
 test('driveFileId extracts id from a /file/d/<id>/ viewer URL', () => {
