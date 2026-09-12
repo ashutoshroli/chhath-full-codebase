@@ -248,6 +248,13 @@ export function summarizePortalData(data, question) {
   const personBlock = personContributionsFor(question, collections, nameOf, generatedFiles);
   if (personBlock) lines.push(personBlock);
 
+  // PHASE 2 — if the question is about a document (receipt/certificate/PDF), surface
+  // the matching generatedFiles public_link(s) DIRECTLY so the model hands back the
+  // link rather than describing/fetching PDF content. Links-only, cache-only. The
+  // block resolves by named person and/or year, or a bounded list otherwise.
+  const docBlock = documentLinksBlock(data, question, { collections, nameOf, safeName });
+  if (docBlock) lines.push(docBlock);
+
   let out = lines.join('\n');
   // Hard cap: never send an oversized prompt (a huge dataset was producing
   // Model HTTP 500). Trim from the end (per-year + person detail survive; the
@@ -414,6 +421,12 @@ function buildYearScopedContext(data, question, years) {
   const scopedCollections = collections.filter(c => inScope(c.Year));
   const personBlock = personContributionsFor(question, scopedCollections, nameOf, generatedFiles);
   if (personBlock) lines.push(personBlock);
+
+  // PHASE 2 — document-intent link surfacing, scoped to the matched year(s)'
+  // collections so it stays consistent with the year-scoped context. Links-only,
+  // cache-only: only public_link strings already in the payload are emitted.
+  const docBlock = documentLinksBlock(data, question, { collections: scopedCollections, nameOf, safeName });
+  if (docBlock) lines.push(docBlock);
 
   let out = lines.join('\n');
   // Same hard cap the general path applies.
@@ -644,4 +657,122 @@ function personContributionsFor(question, collections, nameOf, generatedFiles) {
     return `Contributions by "${name}" (${rows.length} entries, total ${inr(total)}): ${items}.${linkNote}`;
   });
   return 'PERSON DETAILS (use these for questions about a specific person, including download links):\n' + blocks.join('\n');
+}
+
+// ---- PHASE 2: generated-PDF links handed back directly -------------------------
+// When the question is ABOUT a document — a receipt / certificate / prashasti-patra
+// / downloadable PDF — the model should hand back the matching public_link straight
+// away (e.g. "Yahan hai 2024 ki receipt: <link>") rather than describe or fetch the
+// PDF's contents. This is CACHE-ONLY and LINKS-ONLY: we only ever read public_link
+// strings already present in the passed-in `data` (via generatedFiles) — we NEVER
+// fetch or embed PDF content, and never touch D1.
+
+// Detect a document-intent question. Keeps the vocabulary simple and robust,
+// mirroring the app's doc language (there is a collections 'Certificate Or Receipt'
+// field) plus the common English/Hindi/romanised terms a user would actually type:
+// receipt, certificate, document, pdf, download, prashasti/prashansa patra, and the
+// Devanagari रसीद / प्रमाण पत्र / प्रमाणपत्र / प्रमाण-पत्र. Returns true/false.
+function isDocumentQuestion(question) {
+  const q = (question || '').toString().toLowerCase();
+  if (!q) return false;
+  // Romanised / English keywords (word-ish substrings are fine for this intent).
+  const en = ['receipt', 'certificate', 'certi', 'document', 'pdf', 'download', 'रसीद',
+    'prashasti', 'prashansa', 'praman patra', 'praman-patra', 'pramanpatra', 'rasid', 'raseed'];
+  if (en.some(k => q.includes(k))) return true;
+  // Devanagari phrases (case does not apply, but keep the raw question for these).
+  const raw = (question || '').toString();
+  const hi = ['प्रमाण पत्र', 'प्रमाण-पत्र', 'प्रमाणपत्र', 'रसीद', 'प्रशस्ति'];
+  return hi.some(k => raw.includes(k));
+}
+
+// Build the DOCUMENT LINKS block for a document-intent question. Resolution rules:
+//   * If a PERSON is named (reuse personContributionsFor's resolved-real-name
+//     matching) and/or a YEAR is detected (reuse detectYears), narrow to that
+//     person's / year's specific document link(s) via downloadLinkFor and the
+//     record_id trailing `-<year>-<rowIndex>` match.
+//   * If nothing narrows it, surface a BOUNDED list of the most relevant links
+//     (filtered by any matched year, capped) — never a dump of every file.
+//   * If NO matching document exists, degrade gracefully with a neutral note and
+//     NEVER invent a link, leak a raw record_id, or leak a USER#### code.
+// Returns '' when the question is not about a document. `nameOf`/`safeName` are the
+// resolver + neutral-label degrader from the calling context so no code leaks.
+function documentLinksBlock(data, question, opts) {
+  if (!isDocumentQuestion(question)) return '';
+  const d = data || {};
+  const o = opts || {};
+  const collections = Array.isArray(o.collections) ? o.collections
+    : (Array.isArray(d.collections) ? d.collections : []);
+  const generatedFiles = Array.isArray(d.generatedFiles) ? d.generatedFiles : [];
+  const nameOf = o.nameOf || ((v) => (v || '').toString().trim());
+  const safeName = o.safeName || nameOf;
+
+  const header = 'DOCUMENT LINKS (the user is asking about a receipt / certificate / downloadable document — hand back the matching public link DIRECTLY, e.g. "Yahan hai 2024 ki receipt: <link>". Do NOT describe or open the PDF; just give the link):';
+  const MAX_LINKS = 15; // bound so a big dataset cannot dump every file
+
+  // Years present in generatedFiles, so we can honour a year named in the question.
+  const fileYears = [...new Set(generatedFiles.map(g => parseInt(g.year)).filter(Boolean))];
+  const scopedYears = detectYears(question, fileYears);
+
+  // If a person is named, resolve THEIR rows and pull each row's link via the
+  // record_id trailing `-<year>-<rowIndex>` match (reusing downloadLinkFor). We
+  // reuse the same resolved-real-name matching personContributionsFor uses.
+  const lines = [];
+  const ids = [...new Set(collections.map(c => (c.Name || '').toString().trim()).filter(Boolean))];
+  const q = (question || '').toString().toLowerCase();
+  const matchedPeople = ids.map(id => ({ id, name: nameOf(id) })).filter(({ name }) => {
+    const ln = (name || '').toString().toLowerCase();
+    if (!ln) return false;
+    if (q.includes(ln)) return true;
+    const words = ln.split(/\s+/).filter(w => w.length >= 3);
+    if (!words.length) return false;
+    if (words.every(w => q.includes(w))) return true;
+    return words.some(w => w.length >= 4 && q.includes(w));
+  }).slice(0, 8);
+
+  if (matchedPeople.length) {
+    // Person-scoped: list each named person's document link(s), optionally further
+    // narrowed to the year(s) named in the question.
+    for (const { id, name } of matchedPeople) {
+      const label = safeName(id) || 'unknown member';
+      const rows = collections.filter(c => (c.Name || '').toString().trim() === id
+        && (!scopedYears.length || scopedYears.includes(parseInt(c.Year))));
+      const found = [];
+      for (const c of rows) {
+        const link = downloadLinkFor(generatedFiles, parseInt(c.Year) || '', c.__rowIndex);
+        if (link) found.push(`${parseInt(c.Year) || ''}: ${link}`);
+        if (found.length >= MAX_LINKS) break;
+      }
+      if (found.length) {
+        lines.push(`Documents for "${label}"${scopedYears.length ? ` (${scopedYears.join(', ')})` : ''}: ${found.join('; ')}.`);
+      } else {
+        lines.push(`For "${label}"${scopedYears.length ? ` (${scopedYears.join(', ')})` : ''}, no downloadable document is available.`);
+      }
+    }
+    return header + '\n' + lines.join('\n');
+  }
+
+  // No person named — surface a BOUNDED list of the most relevant links. Filter to
+  // any year(s) named in the question; otherwise take the newest files first. Only
+  // real public_link strings already in the payload are emitted (links-only).
+  let files = generatedFiles.filter(g => (g.public_link || '').toString().trim());
+  if (scopedYears.length) files = files.filter(g => scopedYears.includes(parseInt(g.year)));
+  files = files
+    .slice()
+    .sort((a, b) => (parseInt(b.year) || 0) - (parseInt(a.year) || 0))
+    .slice(0, MAX_LINKS);
+
+  if (!files.length) {
+    // Graceful degradation — a neutral note, never a fabricated link.
+    const scopeNote = scopedYears.length ? ` for ${scopedYears.join(', ')}` : '';
+    return header + `\nNo downloadable document is available${scopeNote}.`;
+  }
+
+  // The doc_type is public app vocabulary (receipt/certificate). year + link only —
+  // never the internal record_id.
+  for (const g of files) {
+    const type = (g.doc_type || 'document').toString().trim() || 'document';
+    const yr = parseInt(g.year) || '';
+    lines.push(`${type}${yr ? ` ${yr}` : ''}: ${g.public_link.toString().trim()}`);
+  }
+  return header + '\n' + lines.join('\n');
 }

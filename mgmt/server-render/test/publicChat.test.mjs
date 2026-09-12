@@ -454,6 +454,146 @@ test('year-scoped context is CACHE-ONLY: it never calls fetch (does not touch D1
   } finally { globalThis.fetch = orig; }
 });
 
+// ---- PHASE 2: generated-PDF links handed back directly ----
+// When the question is about a document (receipt/certificate/PDF/download), the
+// context surfaces the matching generatedFiles public_link DIRECTLY so the model
+// replies with the link rather than describing/fetching PDF content. Resolution is
+// by named person and/or year (via the record_id trailing -<year>-<rowIndex> match),
+// or a bounded list otherwise. CACHE-ONLY and LINKS-ONLY: no fetch, no PDF content,
+// only public_link strings already in the payload.
+
+const DOC_SAMPLE = {
+  users: [
+    { ID: 'USER0001', Name: 'Amit Kumar' },
+    { ID: 'USER0002', Name: 'Suresh Gupta' },
+  ],
+  collections: [
+    { Year: 2024, Name: 'USER0001', Amount: 500, __rowIndex: 7 },
+    { Year: 2023, Name: 'USER0001', Amount: 300, __rowIndex: 3 },
+    { Year: 2024, Name: 'USER0002', Amount: 900, __rowIndex: 9 },
+  ],
+  generatedFiles: [
+    { doc_type: 'receipt', year: 2024, record_id: 'receipt-2024-7', public_link: 'https://files.test/amit-2024.pdf' },
+    { doc_type: 'receipt', year: 2023, record_id: 'receipt-2023-3', public_link: 'https://files.test/amit-2023.pdf' },
+    { doc_type: 'certificate', year: 2024, record_id: 'certificate-2024-9', public_link: 'https://files.test/suresh-2024.pdf' },
+  ],
+};
+
+test('doc-intent: a document/receipt question surfaces matching public_link(s) directly in the context', () => {
+  const s = summarizePortalData(DOC_SAMPLE, 'mujhe receipt ka download link chahiye');
+  assert.match(s, /DOCUMENT LINKS/);
+  // A bounded list of real links is surfaced (links-only).
+  assert.match(s, /https:\/\/files\.test\/amit-2024\.pdf/);
+  assert.match(s, /hand back the matching public link DIRECTLY/);
+  // No internal record_id ever leaks.
+  assert.doesNotMatch(s, /receipt-2024-7/);
+});
+
+test('doc-intent: a person+year document question resolves to THAT person\'s link via the trailing -<year>-<rowIndex> match', () => {
+  // 2024 is present in the data, so this routes through the year-scoped path.
+  const s = summarizePortalData(DOC_SAMPLE, 'Amit Kumar ki 2024 ki receipt ka link do');
+  assert.match(s, /DOCUMENT LINKS/);
+  assert.match(s, /Documents for "Amit Kumar" \(2024\)/);
+  assert.match(s, /https:\/\/files\.test\/amit-2024\.pdf/);
+  // NOT the 2023 link (year-scoped) and NOT the other person's link.
+  assert.doesNotMatch(s, /amit-2023\.pdf/);
+  assert.doesNotMatch(s, /suresh-2024\.pdf/);
+  // No raw ID / record_id leaks.
+  assert.doesNotMatch(s, /USER\d+/);
+  assert.doesNotMatch(s, /receipt-2024-7/);
+});
+
+test('doc-intent: a person document question with no year lists that person\'s links (general path)', () => {
+  const s = summarizePortalData(DOC_SAMPLE, 'Amit Kumar ke certificate documents');
+  assert.match(s, /DOCUMENT LINKS/);
+  assert.match(s, /Documents for "Amit Kumar"/);
+  // Both years' links for the person appear when no year narrows it.
+  assert.match(s, /https:\/\/files\.test\/amit-2024\.pdf/);
+  assert.match(s, /https:\/\/files\.test\/amit-2023\.pdf/);
+  assert.doesNotMatch(s, /USER\d+/);
+});
+
+test('doc-intent: a missing document degrades gracefully with a neutral note and no fabricated link', () => {
+  const data = {
+    users: [{ ID: 'USER0001', Name: 'Amit Kumar' }],
+    collections: [{ Year: 2024, Name: 'USER0001', Amount: 500, __rowIndex: 7 }],
+    generatedFiles: [], // nothing generated
+  };
+  const s = summarizePortalData(data, 'Amit Kumar ki receipt ka link');
+  assert.match(s, /DOCUMENT LINKS/);
+  assert.match(s, /no downloadable document is available/i);
+  // No fabricated URL of any kind.
+  assert.doesNotMatch(s, /https?:\/\//);
+  assert.doesNotMatch(s, /USER\d+/);
+});
+
+test('doc-intent: a document question with no files at all degrades gracefully (no crash, no link)', () => {
+  const data = { collections: [], generatedFiles: [] };
+  let s;
+  assert.doesNotThrow(() => { s = summarizePortalData(data, 'receipt download'); });
+  assert.match(s, /DOCUMENT LINKS/);
+  assert.match(s, /No downloadable document is available/);
+  assert.doesNotMatch(s, /https?:\/\//);
+});
+
+test('doc-intent: a non-document question does NOT emit a DOCUMENT LINKS block', () => {
+  const s = summarizePortalData(DOC_SAMPLE, 'total collection kitna hua');
+  assert.doesNotMatch(s, /DOCUMENT LINKS/);
+});
+
+test('doc-intent: a Devanagari document term (रसीद) triggers the DOCUMENT LINKS block', () => {
+  const s = summarizePortalData(DOC_SAMPLE, 'रसीद का लिंक चाहिए');
+  assert.match(s, /DOCUMENT LINKS/);
+  assert.match(s, /https:\/\/files\.test\//);
+});
+
+test('doc-intent: an orphan person (absent from users) named in a document question is neutral-labelled, never leaked', () => {
+  const orphan = 'USER' + '0044';
+  const data = {
+    users: [], // nothing resolves, so the person cannot be name-matched
+    collections: [{ Year: 2024, Name: orphan, Amount: 500, __rowIndex: 7 }],
+    generatedFiles: [{ doc_type: 'receipt', year: 2024, record_id: 'receipt-2024-7', public_link: 'https://files.test/x.pdf' }],
+  };
+  // No resolvable name means the question cannot match a person; it falls to the
+  // bounded list. The DOCUMENT LINKS block itself must never leak the raw code or
+  // the internal record_id — assert on the block's own lines.
+  const s = summarizePortalData(data, 'receipt link do');
+  assert.match(s, /DOCUMENT LINKS/);
+  const docLines = s.slice(s.indexOf('DOCUMENT LINKS'));
+  assert.doesNotMatch(docLines, /USER\d+/);
+  assert.doesNotMatch(docLines, /receipt-2024-7/);
+  assert.match(docLines, /https:\/\/files\.test\/x\.pdf/);
+});
+
+test('doc-intent: the DOCUMENT LINKS block is CACHE-ONLY — never calls fetch (does not touch D1)', () => {
+  const orig = globalThis.fetch;
+  globalThis.fetch = () => { throw new Error('document-links builder must not fetch'); };
+  try {
+    let out;
+    assert.doesNotThrow(() => { out = summarizePortalData(DOC_SAMPLE, 'Amit Kumar ki receipt ka link'); });
+    assert.equal(typeof out, 'string');
+    assert.match(out, /DOCUMENT LINKS/);
+    assert.match(out, /https:\/\/files\.test\//);
+  } finally { globalThis.fetch = orig; }
+});
+
+test('doc-intent: the DOCUMENT LINKS block is bounded and the context stays under the char cap on a big dataset', () => {
+  const users = [];
+  const collections = [];
+  const generatedFiles = [];
+  for (let i = 0; i < 5000; i++) {
+    users.push({ ID: 'USER' + i, Name: 'Person Number ' + i });
+    collections.push({ Year: 2024, Name: 'USER' + i, Amount: i, __rowIndex: i });
+    generatedFiles.push({ doc_type: 'receipt', year: 2024, record_id: 'receipt-2024-' + i, public_link: 'https://files.test/f' + i + '.pdf' });
+  }
+  const s = summarizePortalData({ users, collections, generatedFiles }, 'receipt download link');
+  assert.match(s, /DOCUMENT LINKS/);
+  assert.ok(s.length <= 6100, 'context with the document block stays capped (~6000 chars)');
+  // Bounded: it does NOT dump all 5000 links.
+  const linkCount = (s.match(/https:\/\/files\.test\//g) || []).length;
+  assert.ok(linkCount <= 15, 'document block is bounded to a small number of links');
+});
+
 test('getPortalData reuses the cache when the version is unchanged (no portalData refetch)', async () => {
   _resetCache();
   const calls = [];
