@@ -20,6 +20,15 @@ export default {
   content: ['./src/**/*.{astro,html,js,jsx,ts,tsx,md,mdx}'],
   theme: {
     extend: {
+      // Extra-small breakpoint (below Tailwind's default `sm` of 640px) so the
+      // header can reveal the bilingual subtitle only once there is room. On the
+      // very smallest phones (~320-390px) the top row is brand + the three
+      // grouped controls, and the subtitle line is dropped to keep the controls
+      // fully visible/tappable; from `xs` (475px) up the subtitle returns.
+      // Adding it under `extend.screens` keeps all default breakpoints intact.
+      screens: {
+        xs: '475px',
+      },
       colors: {
         brand: {
           // Saffron ramp around the #F27A1A primary accent.
