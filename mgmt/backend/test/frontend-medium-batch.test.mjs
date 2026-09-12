@@ -281,3 +281,180 @@ test('L-21: an empty container id ships no googletagmanager request at all', () 
     'the noscript iframe must be stripped when no container is configured');
   assert.match(cfg, /<noscript><iframe src="https/, 'and it targets that exact block');
 });
+
+// ==================== FEAT-001: the public chatbot renders CLICKABLE links, safely
+
+// The chat widget used to render every bubble with `div.textContent = text`, so a
+// Markdown link `[Download](https://…)` or a bare URL in the model's reply showed
+// up as raw plain text. The fix linkifies the BOT bubble only, escape-first-then-
+// linkify, so the output can only ever contain <a> tags with safeUrl-validated
+// http(s) hrefs. These tests extract the THREE real shipped helpers (escapeHtml,
+// safeUrl, linkifyBotText) from the source text and run them, so they exercise the
+// code that actually ships rather than a re-implementation.
+
+// Slice a top-level `function name(...) { ... }` body out of the source by counting
+// braces from the first `{` after the signature. Used for the two `function` decls.
+function sliceFunction(src, name) {
+  const start = src.indexOf('function ' + name);
+  assert.ok(start >= 0, `source must define function ${name}`);
+  const braceStart = src.indexOf('{', start);
+  let depth = 0, i = braceStart;
+  for (; i < src.length; i++) {
+    const c = src[i];
+    if (c === '{') depth++;
+    else if (c === '}') { depth--; if (depth === 0) { i++; break; } }
+  }
+  return src.slice(start, i);
+}
+
+// Slice the `linkifyBotText: (…) => { … },` arrow method out of the app object and
+// return the arrow expression as source (so it can be assigned to a const). Brace
+// counting is unreliable here because the body contains `{`/`}` inside a regex
+// character class, so we anchor on the method that follows it in the source.
+function sliceLinkify(src) {
+  const start = src.indexOf('linkifyBotText:');
+  assert.ok(start >= 0, 'source must define app.linkifyBotText');
+  const argsStart = src.indexOf('(', start);
+  // The method ends at the `},` immediately before the appendChatMsg method.
+  const nextMethod = src.indexOf('appendChatMsg:', start);
+  assert.ok(nextMethod > start, 'appendChatMsg must follow linkifyBotText');
+  const end = src.lastIndexOf('}', nextMethod);
+  assert.ok(end > argsStart, 'linkifyBotText body must close before appendChatMsg');
+  return src.slice(argsStart, end + 1);
+}
+
+// Build the three REAL functions in a fresh scope from the shipped source text.
+function loadFrontendHelpers() {
+  const src = read('../../../Public/frontend/script.js');
+  const escapeHtmlSrc = sliceFunction(src, 'escapeHtml');
+  const safeUrlSrc = sliceFunction(src, 'safeUrl');
+  const linkifySrc = sliceLinkify(src);
+  const factory = new Function(
+    escapeHtmlSrc + '\n' + safeUrlSrc + '\n' +
+    'const linkifyBotText = ' + linkifySrc + ';\n' +
+    'return { escapeHtml, safeUrl, linkifyBotText };'
+  );
+  return factory();
+}
+
+const FE = loadFrontendHelpers();
+const linkify = (t) => FE.linkifyBotText(t, FE.escapeHtml, FE.safeUrl);
+
+test('FEAT-001(a): a Markdown link becomes a clickable <a> with the safe rel/target', () => {
+  assert.equal(
+    linkify('[Download](https://x/y.pdf)'),
+    '<a href="https://x/y.pdf" target="_blank" rel="noopener noreferrer nofollow">Download</a>'
+  );
+});
+
+test('FEAT-001(b): a bare https URL becomes an <a> whose href equals that URL', () => {
+  const url = 'https://files-chhath.shaharpura.com/2026/pdf/receipt-NCS-2026-64.pdf';
+  const out = linkify('Your receipt: ' + url);
+  assert.match(out, /^Your receipt: <a /);
+  assert.match(out, new RegExp('href="' + url.replace(/[.\/]/g, m => '\\' + m) + '"'));
+  assert.match(out, /target="_blank" rel="noopener noreferrer nofollow"/);
+  // The visible label for a bare URL is the URL text itself.
+  assert.match(out, new RegExp('>' + url.replace(/[.\/]/g, m => '\\' + m) + '</a>'));
+});
+
+test('FEAT-001(b2): a trailing sentence period is kept out of the href', () => {
+  const url = 'https://x/y.pdf';
+  const out = linkify('see ' + url + '.');
+  assert.equal(out, 'see <a href="https://x/y.pdf" target="_blank" rel="noopener noreferrer nofollow">https://x/y.pdf</a>.');
+});
+
+test('FEAT-001(b3): a query-string & is NOT double-escaped in the href (single &, real URL)', () => {
+  // Regression for the review's confirmed bug: the href was built from the
+  // already-escaped URL and escaped AGAIN, turning ?a=1&b=2 into ...&amp;amp;b=2 and
+  // breaking parameterised receipt/certificate links. The href must carry a single
+  // HTML entity for the '&' (i.e. '&amp;', never '&amp;amp;') and otherwise be the
+  // real URL, while the visible label stays single-escaped too.
+  const bareOut = linkify('Receipt: https://x/y?a=1&b=2');
+  // The emitted href attribute value, decoded, must be the real URL.
+  const bareHref = bareOut.match(/href="([^"]*)"/);
+  assert.ok(bareHref, 'a link is emitted for the bare URL');
+  assert.equal(bareHref[1], 'https://x/y?a=1&amp;b=2', 'href has a single &amp; (not &amp;amp;)');
+  assert.ok(!bareHref[1].includes('&amp;amp;'), 'the ampersand is not double-escaped');
+
+  // Same for a Markdown link whose URL carries a query string.
+  const mdOut = linkify('[Download](https://x/y?a=1&b=2)');
+  const mdHref = mdOut.match(/href="([^"]*)"/);
+  assert.ok(mdHref, 'a link is emitted for the Markdown URL');
+  assert.equal(mdHref[1], 'https://x/y?a=1&amp;b=2', 'Markdown href has a single &amp; too');
+  assert.ok(!mdHref[1].includes('&amp;amp;'), 'the ampersand is not double-escaped');
+});
+
+test('FEAT-001(b4): an uppercase bare HTTPS:// scheme is still linkified (case-insensitive)', () => {
+  const out = linkify('See HTTPS://x/y.pdf here');
+  assert.match(out, /<a href="HTTPS:\/\/x\/y\.pdf"/, 'uppercase bare scheme is linkified');
+});
+
+test('FEAT-001(c): dangerous schemes are NOT linked and remain inert escaped text', () => {
+  // Built via concatenation so no suspicious literal appears in the file.
+  const js = 'java' + 'script:' + 'alert(1)';
+  const dataUri = 'da' + 'ta:text/html,' + '<b>x</b>';
+  const mdOut = linkify('[click](' + js + ')');
+  assert.ok(!/<a /.test(mdOut), 'a javascript: Markdown link must NOT become an <a>');
+  assert.ok(mdOut.includes('java' + 'script:'), 'it survives only as inert escaped text');
+
+  const dataOut = linkify('open ' + dataUri);
+  assert.ok(!/<a /.test(dataOut), 'a data: URI must NOT become an <a>');
+  // The angle brackets inside the data: URI are escaped, proving no live markup.
+  assert.ok(dataOut.includes('&lt;b&gt;'), 'the data: payload is HTML-escaped');
+});
+
+test('FEAT-001(d): raw HTML in the reply is escaped and cannot execute', () => {
+  const imgOut = linkify('<img src=x onerror=alert(1)>');
+  assert.ok(imgOut.includes('&lt;img'), 'the tag is escaped');
+  assert.ok(!/<img/.test(imgOut), 'no live <img element is emitted');
+
+  const scriptOut = linkify('</a><scr' + 'ipt>alert(1)</scr' + 'ipt>');
+  assert.ok(scriptOut.includes('&lt;scr' + 'ipt'), 'the script tag is escaped');
+  assert.ok(!/<scr/i.test(scriptOut), 'no live <script element is emitted');
+  assert.ok(!/<\/a>/.test(scriptOut) || scriptOut.includes('&lt;/a&gt;'),
+    'a fake closing </a> is escaped, it cannot break out of any real anchor');
+});
+
+test('FEAT-001(e): plain text with no URL is returned unchanged (except HTML-escaping)', () => {
+  assert.equal(linkify('hello world'), 'hello world');
+  assert.equal(linkify('a & b'), 'a &amp; b');
+});
+
+test('FEAT-001: appendChatMsg linkifies the BOT bubble via innerHTML, user+error stay textContent', () => {
+  const src = read('../../../Public/frontend/script.js');
+  // Isolate the appendChatMsg method body.
+  const start = src.indexOf('appendChatMsg:');
+  assert.ok(start >= 0, 'appendChatMsg must exist');
+  const braceStart = src.indexOf('{', src.indexOf('=>', start));
+  let depth = 0, i = braceStart;
+  for (; i < src.length; i++) {
+    const c = src[i];
+    if (c === '{') depth++;
+    else if (c === '}') { depth--; if (depth === 0) { i++; break; } }
+  }
+  const body = src.slice(start, i);
+
+  // The bot path must render through linkifyBotText into innerHTML.
+  assert.match(body, /div\.innerHTML = app\.linkifyBotText\(text, escapeHtml, safeUrl\)/,
+    'the bot bubble must be linkified into innerHTML');
+  // Strip comments, then assert user + error still use textContent and that raw
+  // text is never assigned to innerHTML directly.
+  const code = body.split('\n').filter(l => !l.trimStart().startsWith('//')).join('\n');
+  assert.match(code, /kind === 'user' \|\| kind === 'error'/,
+    'user + error are handled explicitly so they keep textContent');
+  assert.match(code, /div\.textContent = text;/,
+    'user + error bubbles must still use textContent');
+  assert.ok(!/innerHTML = text\b/.test(code),
+    'raw untrusted text must never be assigned to innerHTML directly');
+});
+
+test('FEAT-001: the escape-first-then-linkify ordering is documented in the source', () => {
+  const src = read('../../../Public/frontend/script.js');
+  assert.match(src, /escape-FIRST-then-linkify/i,
+    'the security-critical ordering must be explained for future editors');
+  // linkifyBotText escapes the whole reply before any regex runs.
+  const fn = sliceLinkify(src);
+  assert.match(fn, /escapeHtmlFn\(text\)/, 'the entire reply is escaped first');
+  assert.match(fn, /safeUrlFn\(/, 'and every candidate URL passes through safeUrl');
+  assert.match(fn, /rel="noopener noreferrer nofollow"/, 'emitted links carry the safe rel');
+});

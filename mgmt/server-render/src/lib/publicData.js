@@ -13,6 +13,14 @@
 
 import { config } from '../config.js';
 
+// Shared guardrail line pushed into EVERY context builder's friendly-assistant
+// preamble so the wording cannot drift between modes. The live bot has replied
+// to ordinary end users with developer/integration advice (e.g. "developer ko
+// kaho ki <a href> HTML format me rakhe", "react-linkify library use karo",
+// "Markdown renderer use karo", "[download: URL] parse karo"). An end user must
+// never see that — just hand back the link plainly and friendly.
+const NO_DEV_INSTRUCTIONS_LINE = 'You are talking to an ordinary visitor, not a developer. NEVER give technical, developer, or integration instructions — do not mention HTML, Markdown, rendering, libraries (e.g. linkify), APIs, parsing, or how links should be displayed. When you reference a document, just present the link plainly and in a friendly, user-facing way in the user\'s language (e.g. "Yahan hai aapki 2024 ki receipt: <link>").';
+
 let _cache = null; // { version, data, fetchedAt }
 const FETCH_TIMEOUT_MS = 12000;
 
@@ -121,6 +129,7 @@ export function summarizePortalData(data, question) {
   lines.push('You can answer questions such as: totals collected or spent per year; how much a specific person gave (across years, with any receipt/certificate download links); the top contributors in a year; who was on the committee in a given year and their roles; what money was spent on (expenses by description); loans (borrower, amount, interest rate, tenure); who guaranteed whose loan; and resold items.');
   lines.push('If the specific PERSON DETAILS block for a named person is present below, use it to answer about that person — their yearly amounts, total, and any download links for their receipts/certificates.');
   lines.push('Be generous and helpful: draw on every section below before concluding anything is missing. Only say you do not have the information if the answer genuinely is not in the data below. Reply briefly and clearly.');
+  lines.push(NO_DEV_INSTRUCTIONS_LINE);
   lines.push(`Years with records: ${years.join(', ') || 'none'}.`);
 
   // Per-year totals (cap to the most recent ~6 years to bound tokens).
@@ -330,6 +339,7 @@ function buildYearScopedContext(data, question, years) {
   lines.push('You can answer questions such as: totals collected or spent per year; how much a specific person gave (across years, with any receipt/certificate download links); the top contributors in a year; who was on the committee in a given year and their roles; what money was spent on (expenses by description); loans (borrower, amount, interest rate, tenure); who guaranteed whose loan; and resold items.');
   lines.push('If the specific PERSON DETAILS block for a named person is present below, use it to answer about that person — their yearly amounts, total, and any download links for their receipts/certificates.');
   lines.push('Be generous and helpful: draw on every section below before concluding anything is missing. Only say you do not have the information if the answer genuinely is not in the data below. Reply briefly and clearly.');
+  lines.push(NO_DEV_INSTRUCTIONS_LINE);
   lines.push(`The question is about ${scoped.join(', ')}, so only that year's data is shown below.`);
 
   for (const y of scoped) {
@@ -477,6 +487,7 @@ export function buildFullContext(data, question) {
   lines.push('You are the friendly assistant of the Navyuvak Chhath Puja Samiti (Shaharpura & Gardih). Below is the committee\'s COMPLETE public dataset, laid out in full.');
   lines.push('Answer the user\'s question using this data. You MAY add up amounts, count entries, and summarise across years. Amounts are in Indian Rupees (₹).');
   lines.push('Every person is shown by their real name. Only say you do not have the information if it genuinely is not below. Reply briefly and clearly.');
+  lines.push(NO_DEV_INSTRUCTIONS_LINE);
 
   const years = [...new Set(collections.map(c => parseInt(c.Year)).filter(Boolean))].sort((a, b) => b - a);
   lines.push(`Years with contribution records: ${years.join(', ') || 'none'}.`);
@@ -706,7 +717,7 @@ function documentLinksBlock(data, question, opts) {
   const nameOf = o.nameOf || ((v) => (v || '').toString().trim());
   const safeName = o.safeName || nameOf;
 
-  const header = 'DOCUMENT LINKS (the user is asking about a receipt / certificate / downloadable document — hand back the matching public link DIRECTLY, e.g. "Yahan hai 2024 ki receipt: <link>". Do NOT describe or open the PDF; just give the link):';
+  const header = 'DOCUMENT LINKS (the user is asking about a receipt / certificate / downloadable document — hand back the matching public link DIRECTLY and plainly, e.g. "Yahan hai 2024 ki receipt: <link>". Do NOT describe or open the PDF; just give the link. Give NO developer, rendering, library, or parsing advice — the reader is an ordinary visitor, so never mention HTML, Markdown, linkify, or how to display the link):';
   const MAX_LINKS = 15; // bound so a big dataset cannot dump every file
 
   // Years present in generatedFiles, so we can honour a year named in the question.

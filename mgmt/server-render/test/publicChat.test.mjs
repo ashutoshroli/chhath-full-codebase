@@ -279,6 +279,30 @@ test('summary preamble broadens guidance yet keeps the guardrail line', () => {
   assert.match(s, /Only say you do not have the information if the answer genuinely is not in the data below/);
 });
 
+test('no-developer-instructions guardrail is present in both summary and full contexts, and reinforced for document questions', () => {
+  // The live bot has replied to ordinary end users with developer/integration
+  // advice (linkify, HTML/Markdown rendering, [download: URL] parse). The
+  // guardrail must forbid that in EVERY mode and just hand back links plainly.
+  const summary = summarizePortalData(SAMPLE, '');
+  const full = buildFullContext(SAMPLE, '');
+  // Summary mode carries the shared guardrail line.
+  assert.match(summary, /NEVER give technical, developer, or integration instructions/);
+  assert.match(summary, /do not mention HTML, Markdown, rendering, libraries \(e\.g\. linkify\), APIs, parsing/);
+  // Full mode carries the identical shared guardrail line.
+  assert.match(full, /NEVER give technical, developer, or integration instructions/);
+  assert.match(full, /present the link plainly and in a friendly, user-facing way/);
+  // The existing over-refusing guardrails must not be weakened.
+  assert.match(summary, /Only say you do not have the information if the answer genuinely is not in the data below/);
+  assert.match(full, /Only say you do not have the information if it genuinely is not below/);
+  // A document-intent question reinforces the guardrail at the DOCUMENT LINKS block.
+  const doc = summarizePortalData(SAMPLE, 'mujhe receipt ka download link chahiye');
+  assert.match(doc, /DOCUMENT LINKS/);
+  assert.match(doc, /Give NO developer, rendering, library, or parsing advice/);
+  // The existing DOCUMENT LINKS example and PDF clause are preserved.
+  assert.match(doc, /Yahan hai 2024 ki receipt: <link>/);
+  assert.match(doc, /Do NOT describe or open the PDF/);
+});
+
 test('summary with the new sections still stays under its char bound on a large dataset', () => {
   const collections = [];
   const expenses = [];
@@ -339,6 +363,22 @@ test('year-scoped: a question naming a known year yields ONLY that year and excl
   assert.doesNotMatch(s, /Year 2024:/);
   // Scoping preamble present.
   assert.match(s, /only that year's data is shown below/);
+});
+
+test('year-scoped: the no-developer-instructions guardrail is present on the year path too', () => {
+  // Review issue #2: buildYearScopedContext pushes NO_DEV_INSTRUCTIONS_LINE, but no
+  // test asserted it there, so a partial revert of that one push would pass CI. This
+  // question names a year present in the multi-year data, so summarizePortalData
+  // routes through buildYearScopedContext (confirmed by the year-scoping preamble
+  // and the year-only totals asserted below).
+  const s = summarizePortalData(YEAR_SCOPED_SAMPLE, '2019 me total collection kitna tha?');
+  // Confirm we are on the year-scoped branch (not the general aggregated path).
+  assert.match(s, /only that year's data is shown below/);
+  assert.match(s, /Year 2019: collections ₹8,000/);
+  assert.doesNotMatch(s, /Year 2024:/);
+  // The shared guardrail line is carried on this branch as well.
+  assert.match(s, /NEVER give technical, developer, or integration instructions/);
+  assert.match(s, /do not mention HTML, Markdown, rendering, libraries \(e\.g\. linkify\), APIs, parsing/);
 });
 
 test('year-scoped: loans / guarantors / committee for the year resolve IDs to names (no leak)', () => {
