@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Static sitemap for the v2 public portal.
+
+  WHY THE ORIGIN IS HARDCODED (and why this is a static file, not @astrojs/sitemap)
+  @astrojs/sitemap is NOT a dependency of this project, so we ship a plain static
+  sitemap under public/ instead. Files under public/ are served verbatim; Astro
+  does not template them, so each <loc> cannot be built from PUBLIC_SITE_URL at
+  request time. We therefore hardcode the production canonical origin, which
+  matches PUBLIC_SITE_URL's production default (see src/config.js DEFAULTS).
+  If the custom domain ever changes, update this file AND public/robots.txt.
+
+  Lists every real page the redesign ships. lastmod is a fixed build-era date
+  (mirrors the old build.mjs approach); bump it when page content changes.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://chhath.shaharpura.com/</loc>
+    <lastmod>2026-09-12</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://chhath.shaharpura.com/expenses</loc>
+    <lastmod>2026-09-12</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://chhath.shaharpura.com/loans</loc>
+    <lastmod>2026-09-12</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://chhath.shaharpura.com/committee</loc>
+    <lastmod>2026-09-12</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://chhath.shaharpura.com/downloads</loc>
+    <lastmod>2026-09-12</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://chhath.shaharpura.com/privacy</loc>
+    <lastmod>2026-09-12</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://chhath.shaharpura.com/terms</loc>
+    <lastmod>2026-09-12</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+</urlset>

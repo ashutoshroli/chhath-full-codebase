@@ -32,7 +32,14 @@ const { title, description, lang = 'en' } = Astro.props;
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Icons ported from the old site's index.html head. The SVG favicon is the
+         modern primary; apple-touch-icon uses the full emblem for iOS home-screen
+         bookmarks, and mask-icon tints the Safari pinned-tab glyph the brand
+         saffron. All three live as static files in public/. theme-color is NOT
+         set here on purpose: Seo.astro owns it (single source of truth). -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/logo.svg" />
+    <link rel="mask-icon" href="/favicon.svg" color="#F5972A" />
 
     <!-- NO-FLASH THEME
          Runs synchronously in <head>, before any body paint. It reads the saved
@@ -96,11 +103,22 @@ const { title, description, lang = 'en' } = Astro.props;
     <slot name="head" />
   </head>
   <body class="min-h-screen">
+    <!-- Skip link: first focusable element so keyboard/screen-reader users can
+         jump past the header + nav straight to the page content. It is visually
+         hidden (sr-only) until focused, then reveals as a brand-colored chip.
+         The focus:not-sr-only utilities un-hide it only while focused. -->
+    <a
+      href="#main-content"
+      class="sr-only rounded-md bg-brand-500 px-4 py-2 font-semibold text-white focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[70]"
+    >
+      Skip to main content
+    </a>
+
     <!-- Analytics first in <body>: the GTM <noscript> iframe must be early, and
          the GTM loader self-boots on window 'load' from anywhere. -->
     <Analytics />
     <Header />
-    <main>
+    <main id="main-content">
       <slot />
     </main>
     <!-- Floating chatbot: present on every page. -->

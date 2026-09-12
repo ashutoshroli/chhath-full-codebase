@@ -24,7 +24,7 @@ const lang = 'en';
 
 <Layout title="Committee | Chhath Puja Transparency Portal">
   <div id="page-loader" class="mx-auto max-w-6xl px-4 py-16 text-center text-slate-500 dark:text-slate-400">
-    <span class="material-icons-round animate-spin align-middle">progress_activity</span>
+    <span class="material-icons-round animate-spin align-middle" aria-hidden="true">progress_activity</span>
   </div>
 
   <div id="stale-data-notice" class="hidden"></div>
@@ -120,8 +120,8 @@ const lang = 'en';
           + '</div>'
           + '<div class="mb-1 text-sm font-semibold text-brand-600 dark:text-brand-400">' + escapeHtml(role) + '</div>'
           + '<div class="flex flex-wrap gap-3 text-xs text-slate-500 dark:text-slate-400">'
-          + '<span class="flex items-center gap-1"><span class="material-icons-round text-xs">call</span>' + escapeHtml(u.Mobile || t(lang, 'na')) + '</span>'
-          + '<span class="flex items-center gap-1"><span class="material-icons-round text-xs">place</span>' + escapeHtml(localize(u, 'Village', lang) || t(lang, 'na')) + '</span>'
+          + '<span class="flex items-center gap-1"><span class="material-icons-round text-xs" aria-hidden="true">call</span>' + escapeHtml(u.Mobile || t(lang, 'na')) + '</span>'
+          + '<span class="flex items-center gap-1"><span class="material-icons-round text-xs" aria-hidden="true">place</span>' + escapeHtml(localize(u, 'Village', lang) || t(lang, 'na')) + '</span>'
           + '</div></div></div>';
       }).join('');
 
