@@ -286,13 +286,32 @@ const lang = 'en';
       renderStaleNotice();
     }
 
-    (async function boot() {
+    // Re-resolve elements each swap (see index.astro for the full rationale):
+    // under View Transitions the <body> is swapped, so parse-time node refs go
+    // stale on every client navigation.
+    function refreshEls() {
+      loaderEl = document.getElementById('page-loader');
+      pageEl = document.querySelector('[data-page-root]');
+      noticeEl = document.getElementById('stale-data-notice');
+      yearSel = document.getElementById('year-select');
+      villageSel = document.getElementById('dc-village');
+      searchInput = document.getElementById('dc-search');
+      searchBtn = document.getElementById('dc-search-btn');
+      peopleWrap = document.getElementById('dc-people-wrap');
+      docsWrap = document.getElementById('dc-docs-wrap');
+    }
+
+    async function boot() {
       try {
         var result = await loadPortalData({ apiBase: apiBase, sessionCache: sessionCache });
         state.data = result.data || {};
         state.userMap = buildUserMap(state.data.users);
         state.fromCache = !!result.fromCache;
         state.savedAt = result.savedAt || 0;
+
+        // Fresh page => back to the list view (the open-person state does not
+        // survive a client navigation because its DOM is torn down).
+        dcSelectedId = null;
 
         populateYears();
         renderVillages();
@@ -303,24 +322,44 @@ const lang = 'en';
       } catch (e) {
         renderColdFailure();
       }
-    })();
+    }
 
-    // ---- Event wiring ----
-    if (villageSel) villageSel.addEventListener('change', onVillageChange);
-    if (searchBtn) searchBtn.addEventListener('click', searchPeople);
-    if (searchInput) searchInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') searchPeople(); });
-    // Delegate people-list clicks (rows are added dynamically): find the nearest
-    // element carrying a person id and open it.
-    if (peopleWrap) peopleWrap.addEventListener('click', function (e) {
-      var el = e.target && e.target.closest ? e.target.closest('[data-dc-person]') : null;
-      if (el) selectPerson(el.getAttribute('data-dc-person'));
+    // ---- Per-navigation init (View Transitions) ----------------------------
+    // STRATEGY: re-init on astro:page-load so the village list + #year-select
+    // options rebuild for the freshly-swapped DOM. Fires on the initial real
+    // load AND every client swap, so boot() is NOT also called at parse time
+    // (no double-boot). All element listeners below bind to page-content nodes
+    // that are re-created each swap (villageSel/searchInput/searchBtn/
+    // peopleWrap/docsWrap) — binding fresh is correct because the OLD nodes are
+    // discarded with the old DOM. The 'change' on #year-select targets the
+    // persisted header select; addEventListener de-dupes it so no duplicate
+    // handler accumulates.
+    document.addEventListener('astro:page-load', function () {
+      refreshEls();
+      boot();
+
+      if (villageSel) villageSel.addEventListener('change', onVillageChange);
+      if (searchBtn) searchBtn.addEventListener('click', searchPeople);
+      if (searchInput) searchInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') searchPeople(); });
+      // Delegate people-list clicks (rows are added dynamically): find the nearest
+      // element carrying a person id and open it.
+      if (peopleWrap) peopleWrap.addEventListener('click', function (e) {
+        var el = e.target && e.target.closest ? e.target.closest('[data-dc-person]') : null;
+        if (el) selectPerson(el.getAttribute('data-dc-person'));
+      });
+      // Delegate the "back" button inside the docs view.
+      if (docsWrap) docsWrap.addEventListener('click', function (e) {
+        var el = e.target && e.target.closest ? e.target.closest('[data-dc-back]') : null;
+        if (el) backToList();
+      });
+      if (yearSel) yearSel.addEventListener('change', onYearChange);
     });
-    // Delegate the "back" button inside the docs view.
-    if (docsWrap) docsWrap.addEventListener('click', function (e) {
-      var el = e.target && e.target.closest ? e.target.closest('[data-dc-back]') : null;
-      if (el) backToList();
-    });
-    if (yearSel) yearSel.addEventListener('change', onYearChange);
-    window.addEventListener('cpm:langchange', onLangChange);
+
+    // Window-level cpm:langchange bound exactly ONCE (a window listener survives
+    // swaps, so re-adding it per page-load would stack duplicates).
+    if (!window.__cpmDownloadsLangBound) {
+      window.__cpmDownloadsLangBound = true;
+      window.addEventListener('cpm:langchange', onLangChange);
+    }
   })();
 </script>

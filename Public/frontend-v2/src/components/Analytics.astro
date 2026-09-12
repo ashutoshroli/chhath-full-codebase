@@ -58,6 +58,31 @@ const gtmId = resolveGtmId(runtimeEnv);
   });
 </script>
 
+<!-- PER-NAVIGATION PAGEVIEW (View Transitions).
+     GTM's gtm.js boot (above) fires on window 'load' — i.e. only on the REAL
+     document load (first visit + F5). Under View Transitions, internal tab
+     switches are client swaps that DON'T fire window 'load', so GTM would never
+     see them. We push a lightweight pageview to window.dataLayer on every
+     astro:page-load (which fires on the initial load AND after each swap) so
+     each virtual page view is still counted — mirroring the old portal's
+     per-section pageview intent. This is a distinct event from GTM's 'gtm.js',
+     so the first page-load coinciding with the real load is not a harmful
+     double-count. window.dataLayer is guarded so this never throws if it runs
+     before the GTM loader. -->
+<script is:inline>
+  window.dataLayer = window.dataLayer || [];
+  // Register the astro:page-load pageview listener EXACTLY ONCE. Astro dedupes
+  // identical inline scripts across swaps, but this component lives in the
+  // (swapped) body, so a window-level guard makes the single-registration
+  // explicit and prevents duplicate pageview pushes even if the script re-ran.
+  if (!window.__cpmPageviewBound) {
+    window.__cpmPageviewBound = true;
+    document.addEventListener('astro:page-load', function () {
+      window.dataLayer.push({ event: 'pageview', page_path: location.pathname });
+    });
+  }
+</script>
+
 <!-- Vercel Web Analytics: inline stub queues events until the first-party script
      served from this deployment's /_vercel/insights/ path loads (deferred). -->
 <script is:inline>

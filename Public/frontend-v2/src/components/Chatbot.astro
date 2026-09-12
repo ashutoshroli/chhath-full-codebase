@@ -38,10 +38,20 @@
 // spans, so the server render needs no config/i18n values here.
 ---
 
+<!-- VIEW-TRANSITIONS STRATEGY: transition:persist (single-init).
+     The FAB and the panel are BOTH marked transition:persist (with explicit
+     transition:name values, since they are separate top-level elements) so the
+     whole chatbot — its bound handlers, open/close state, session id and message
+     history — survives client swaps UNCHANGED. The IIFE below therefore runs
+     exactly ONCE on the real load and is never re-run on navigation, so handlers
+     are never double-bound and the conversation is never lost. -->
+
 <!-- Floating action button (bottom-right). Sits above the mobile bottom-nav. -->
 <button
   id="chat-fab"
   type="button"
+  transition:persist
+  transition:name="chat-fab"
   aria-label="Open chat assistant"
   aria-expanded="false"
   aria-controls="chat-panel"
@@ -58,6 +68,8 @@
   aria-modal="false"
   aria-labelledby="chat-title"
   hidden
+  transition:persist
+  transition:name="chat-panel"
   class="fixed bottom-36 right-4 z-[61] hidden w-[min(380px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900 md:bottom-24"
   style="height:min(70vh,520px);"
 >
@@ -124,6 +136,10 @@
   import { linkifyBotText } from '../lib/linkify.js';
   import { escapeHtml, safeUrl } from '../lib/dom-escape.js';
 
+  // Runs ONCE on the real document load. The FAB + panel are transition:persist
+  // (see markup above), so this IIFE is NOT re-run on client swaps and must NOT
+  // be wrapped in astro:page-load — doing so would double-bind handlers and wipe
+  // the live conversation. The persisted DOM keeps every listener + state.
   (function () {
     var fab = document.getElementById('chat-fab');
     var panel = document.getElementById('chat-panel');

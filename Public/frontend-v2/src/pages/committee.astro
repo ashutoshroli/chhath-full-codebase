@@ -151,7 +151,17 @@ const lang = 'en';
       renderStaleNotice();
     }
 
-    (async function boot() {
+    // Re-resolve elements each swap (see index.astro for the full rationale):
+    // under View Transitions the <body> is swapped, so parse-time node refs go
+    // stale on every client navigation.
+    function refreshEls() {
+      loaderEl = document.getElementById('page-loader');
+      pageEl = document.querySelector('[data-page-root]');
+      noticeEl = document.getElementById('stale-data-notice');
+      yearSel = document.getElementById('year-select');
+    }
+
+    async function boot() {
       try {
         var result = await loadPortalData({ apiBase: apiBase, sessionCache: sessionCache });
         state.data = result.data || {};
@@ -168,9 +178,26 @@ const lang = 'en';
       } catch (e) {
         renderColdFailure();
       }
-    })();
+    }
 
-    if (yearSel) yearSel.addEventListener('change', renderCommittee);
-    window.addEventListener('cpm:langchange', onLangChange);
+    // ---- Per-navigation init (View Transitions) ----------------------------
+    // STRATEGY: re-init on astro:page-load so the committee cards + #year-select
+    // options rebuild for the freshly-swapped DOM. Fires on the initial real
+    // load AND every client swap, so boot() is NOT also called at parse time
+    // (no double-boot). The 'change' listener is re-bound against the live
+    // #year-select each page-load; addEventListener de-dupes it on the persisted
+    // select so no duplicate handler accumulates.
+    document.addEventListener('astro:page-load', function () {
+      refreshEls();
+      boot();
+      if (yearSel) yearSel.addEventListener('change', renderCommittee);
+    });
+
+    // Window-level cpm:langchange bound exactly ONCE (a window listener survives
+    // swaps, so re-adding it per page-load would stack duplicates).
+    if (!window.__cpmCommitteeLangBound) {
+      window.__cpmCommitteeLangBound = true;
+      window.addEventListener('cpm:langchange', onLangChange);
+    }
   })();
 </script>

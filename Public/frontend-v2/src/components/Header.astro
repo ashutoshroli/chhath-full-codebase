@@ -36,7 +36,21 @@ const currentPath = rawPath.length > 1 ? rawPath.replace(/\/$/, '') : rawPath;
 const isActive = (href) => currentPath === href;
 ---
 
+<!-- VIEW-TRANSITIONS STRATEGY: transition:persist.
+     The header (theme toggle + language toggle + #year-select) is marked
+     transition:persist so its DOM and its already-bound click handlers + the
+     in-memory `lang` state SURVIVE client swaps unchanged. That means the inline
+     IIFE below binds its listeners exactly ONCE (on the real load) and is never
+     re-run on navigation, so there is no risk of double-bound toggles.
+     CAVEAT (year options): #year-select lives inside this persisted header, so
+     its <option>s persist too — but each destination page's populateYears()
+     runs on astro:page-load and REPLACES yearSel.innerHTML, so the year list is
+     always refreshed for the new page (see the data pages).
+     THEME across swaps: the no-flash <head> script sets the `dark` class on
+     <html> on the real load; View Transitions does NOT replace the <html>
+     element on a swap, so the theme class simply persists — no re-apply needed. -->
 <header
+  transition:persist
   class="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90"
 >
   <div class="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
@@ -227,6 +241,21 @@ const isActive = (href) => currentPath === href;
       }
     }
     applyLang();
+
+    // RE-LOCALIZE AFTER CLIENT SWAPS.
+    // Under View Transitions the header is persisted (this script runs once) but
+    // the SWAPPED-IN page content is server-rendered in English (`const lang =
+    // 'en'` in each page). After every swap we re-run applyLang() so the new
+    // page's [data-i18n] / [data-i18n-placeholder] nodes are localized to the
+    // saved language. We call applyLang() ONLY (never re-add listeners), reading
+    // the same in-memory `lang` (kept in sync with LANG_KEY) so it matches the
+    // persisted toggle state. Registered once (this IIFE runs once). Guarded so
+    // repeated navigations never stack the handler even if Astro were to re-run
+    // the script for any reason.
+    if (!window.__cpmHeaderSwapBound) {
+      window.__cpmHeaderSwapBound = true;
+      document.addEventListener('astro:after-swap', function () { applyLang(); });
+    }
 
     if (langBtn) {
       langBtn.addEventListener('click', function () {
