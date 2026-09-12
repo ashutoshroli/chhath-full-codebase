@@ -11,7 +11,9 @@
 //   - Render the Header (with the three grouped controls) and a page <slot/>.
 import '../styles/global.css';
 import Header from '../components/Header.astro';
-import { siteUrl } from '../config.js';
+import Chatbot from '../components/Chatbot.astro';
+import Seo from '../components/Seo.astro';
+import Analytics from '../components/Analytics.astro';
 
 export interface Props {
   title?: string;
@@ -19,14 +21,10 @@ export interface Props {
   lang?: string;
 }
 
-const {
-  title = 'Navyuvak Chhath Puja Samiti Shaharpura | Chhath Puja Transparency Portal',
-  description =
-    'Official transparency portal of Navyuvak Chhath Puja Samiti, Shaharpura & Gardih (Giridih, Jharkhand). View Chhath Puja collections, expenses, loans and committee details with full public transparency.',
-  lang = 'en',
-} = Astro.props;
-
-const canonical = new URL(Astro.url.pathname, siteUrl).href;
+// title/description are optional per-page overrides forwarded to <Seo/>, which
+// applies the ported defaults (from src/lib/seo.js) when they are omitted. We do
+// NOT default them here so a missing prop cleanly falls back inside the builder.
+const { title, description, lang = 'en' } = Astro.props;
 ---
 
 <!doctype html>
@@ -59,18 +57,10 @@ const canonical = new URL(Astro.url.pathname, siteUrl).href;
       })();
     </script>
 
-    <title>{title}</title>
-    <meta name="description" content={description} />
-    <link rel="canonical" href={canonical} />
-    <meta name="robots" content="index, follow" />
-    <meta name="theme-color" content="#F27A1A" />
-
-    <!-- Social link preview (Open Graph + Twitter). Origin comes from config. -->
-    <meta property="og:type" content="website" />
-    <meta property="og:title" content={title} />
-    <meta property="og:description" content={description} />
-    <meta property="og:url" content={canonical} />
-    <meta name="twitter:card" content="summary_large_image" />
+    <!-- FULL SEO / social-link-preview parity with the old site. Driven by the
+         shared config (siteUrl) + optional per-page title/description props, all
+         with fail-safe defaults ported from the old index.html. -->
+    <Seo title={title} description={description} />
 
     <!-- PERFORMANCE: pre-connect to the font origins for a faster first fetch. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -106,9 +96,14 @@ const canonical = new URL(Astro.url.pathname, siteUrl).href;
     <slot name="head" />
   </head>
   <body class="min-h-screen">
+    <!-- Analytics first in <body>: the GTM <noscript> iframe must be early, and
+         the GTM loader self-boots on window 'load' from anywhere. -->
+    <Analytics />
     <Header />
     <main>
       <slot />
     </main>
+    <!-- Floating chatbot: present on every page. -->
+    <Chatbot />
   </body>
 </html>

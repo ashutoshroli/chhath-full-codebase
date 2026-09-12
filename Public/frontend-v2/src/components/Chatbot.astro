@@ -1,0 +1,254 @@
+---
+// Floating "Chhath Assistant" chatbot for the v2 public portal.
+//
+// WHAT IT IS
+// A bottom-right floating action button (FAB) that toggles a chat panel. The
+// user types a question; we POST it to the Render /public-chat endpoint and
+// render the answer. Ported behaviour-for-behaviour from Public/frontend
+// (app.setupChat / app.sendChat / app.appendChatMsg / app.linkifyBotText), but
+// rebuilt as a self-contained Astro island so it drops into Layout and appears
+// on every page.
+//
+// WHY A BUNDLED ISLAND (no framework hydration)
+// The widget is a handful of DOM handlers. Mirroring index.astro, we keep the
+// logic in a small PLAIN <script> (no define:vars). Astro bundles a plain script,
+// so it CAN use ESM imports: it pulls renderChatUrl + the i18n dictionary/key
+// straight from the framework-free config.js / i18n.js modules, and the shared,
+// audited pure modules (linkify + dom-escape). This keeps ONE copy of the
+// XSS-safe linkify logic instead of duplicating it inline.
+//
+// WHY NOT define:vars: adding define:vars to a <script> implicitly makes it
+// is:inline, and Astro does NOT bundle inline scripts — the ESM `import`
+// statements below would ship verbatim to the browser and fail to resolve. So
+// config/i18n values are IMPORTED here (they resolve at build time), not injected.
+//
+// THE XSS-SAFETY CONTRACT (do not weaken)
+//   - 'user' and 'error' bubbles are written with textContent (plain text). They
+//     are the user's own input / our own copy; there is never a reason to render
+//     markup, and textContent makes injection structurally impossible.
+//   - ONLY the 'bot' bubble uses innerHTML, and ONLY via linkifyBotText(text,
+//     escapeHtml, safeUrl), which escapes the ENTIRE reply BEFORE building any
+//     markup and emits nothing but <a> tags whose href is http(s) via safeUrl.
+// This split is the whole point; the two paths are commented at their call sites.
+//
+// The Render endpoint comes from config.renderChatUrl (env-driven) — NEVER
+// hardcoded. i18n strings come from the same dictionary + storage key as the
+// header. All of these are IMPORTED inside the bundled client <script> below
+// (not the frontmatter): the greeting/labels in the markup are static data-lang
+// spans, so the server render needs no config/i18n values here.
+---
+
+<!-- Floating action button (bottom-right). Sits above the mobile bottom-nav. -->
+<button
+  id="chat-fab"
+  type="button"
+  aria-label="Open chat assistant"
+  title="Ask a question"
+  class="fixed bottom-20 right-4 z-[60] flex h-14 w-14 items-center justify-center rounded-full bg-brand-500 text-white shadow-lg transition-colors hover:bg-brand-600 md:bottom-6"
+>
+  <span class="material-icons-round text-2xl" aria-hidden="true">chat</span>
+</button>
+
+<!-- Chat panel. Hidden until the FAB opens it. Theme-aware via dark: classes. -->
+<div
+  id="chat-panel"
+  role="dialog"
+  aria-modal="false"
+  aria-labelledby="chat-title"
+  hidden
+  class="fixed bottom-36 right-4 z-[61] hidden w-[min(380px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900 md:bottom-24"
+  style="height:min(70vh,520px);"
+>
+  <!-- Header: bilingual title + close button -->
+  <div class="flex items-center justify-between bg-brand-500 px-4 py-3 text-white">
+    <span id="chat-title" class="text-sm font-bold">
+      <span data-lang="en">Chhath Assistant</span>
+      <span data-lang="hi">छठ सहायक</span>
+    </span>
+    <button
+      id="chat-close"
+      type="button"
+      aria-label="Close chat"
+      class="flex items-center rounded p-0.5 text-white/90 hover:text-white"
+    >
+      <span class="material-icons-round" aria-hidden="true">close</span>
+    </button>
+  </div>
+
+  <!-- Messages. Seeded with the bilingual greeting (CSS-toggled via data-lang). -->
+  <div
+    id="chat-messages"
+    class="flex flex-1 flex-col gap-2.5 overflow-y-auto p-3 text-sm"
+  >
+    <div class="chat-msg chat-msg-bot max-w-[85%] self-start rounded-2xl bg-slate-100 px-3 py-2 text-slate-800 dark:bg-slate-800 dark:text-slate-100">
+      <span data-lang="en">Namaste 🙏 I am the Chhath Assistant. You can ask me about collections, expenses, contributors, loans or committee members — I answer using the public records shown here.</span>
+      <span data-lang="hi">नमस्ते 🙏 मैं छठ सहायक हूँ। आप मुझसे संग्रह, व्यय, योगदानकर्ता, ऋण या समिति सदस्यों के बारे में पूछ सकते हैं — मैं यहाँ दिखाए गए सार्वजनिक रिकॉर्ड के आधार पर उत्तर देता हूँ।</span>
+    </div>
+  </div>
+
+  <!-- Input row -->
+  <form
+    id="chat-form"
+    autocomplete="off"
+    class="flex gap-2 border-t border-slate-200 p-2.5 dark:border-slate-800"
+  >
+    <input
+      id="chat-input"
+      type="text"
+      maxlength="1000"
+      data-i18n-placeholder="chat_placeholder"
+      placeholder="Type your question…"
+      class="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+    />
+    <button
+      id="chat-send"
+      type="submit"
+      aria-label="Send"
+      class="flex w-11 items-center justify-center rounded-lg bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-50"
+    >
+      <span class="material-icons-round" aria-hidden="true">send</span>
+    </button>
+  </form>
+</div>
+
+<!-- Client wiring. A PLAIN bundled <script> (NO define:vars) so Astro processes
+     it and its ESM imports resolve: renderChatUrl comes from config.js (env-driven,
+     never hardcoded) and the i18n dictionary/key from i18n.js so the island uses
+     the SAME strings as the rest of the app. It also imports the shared, audited
+     pure modules so the XSS-safe linkify lives in exactly one place. -->
+<script>
+  import { renderChatUrl } from '../config.js';
+  import { T, LANG_KEY } from '../i18n.js';
+  import { linkifyBotText } from '../lib/linkify.js';
+  import { escapeHtml, safeUrl } from '../lib/dom-escape.js';
+
+  (function () {
+    var fab = document.getElementById('chat-fab');
+    var panel = document.getElementById('chat-panel');
+    var closeBtn = document.getElementById('chat-close');
+    var form = document.getElementById('chat-form');
+    var input = document.getElementById('chat-input');
+    var sendBtn = document.getElementById('chat-send');
+    var wrap = document.getElementById('chat-messages');
+    if (!fab || !panel || !form) return; // markup missing — nothing to wire
+
+    // --- Language (matches the header) --------------------------------------
+    function normalizeLang(l) { return l === 'hi' ? 'hi' : 'en'; }
+    function tr(l, key) {
+      var lang = normalizeLang(l);
+      return (T[lang] && T[lang][key]) || T.en[key] || key;
+    }
+    var lang = 'en';
+    try { lang = normalizeLang(localStorage.getItem(LANG_KEY)); } catch (e) { lang = 'en'; }
+    // The header dispatches cpm:langchange when the user toggles; keep our copy
+    // of `lang` in sync so a reply's typing indicator / error uses the right one.
+    window.addEventListener('cpm:langchange', function (e) {
+      lang = normalizeLang(e && e.detail && e.detail.lang);
+    });
+
+    // --- Session id (opaque random token, no PII; created once per tab) ------
+    // v2-specific key so it never collides with the old site's 'chat_sid'.
+    var sessionId;
+    try {
+      sessionId = sessionStorage.getItem('cpm_v2_chat_sid');
+      if (!sessionId) {
+        sessionId = 'cs-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+        sessionStorage.setItem('cpm_v2_chat_sid', sessionId);
+      }
+    } catch (e) {
+      sessionId = 'cs-' + Math.random().toString(36).slice(2);
+    }
+
+    // --- Open / close (same-tab overlay; ESC closes) ------------------------
+    function isOpen() { return !panel.hidden; }
+    function open() {
+      panel.hidden = false;
+      panel.classList.remove('hidden');
+      panel.classList.add('flex');
+      if (input) setTimeout(function () { input.focus(); }, 50);
+    }
+    function close() {
+      panel.hidden = true;
+      panel.classList.add('hidden');
+      panel.classList.remove('flex');
+    }
+    close(); // known-closed starting state
+    fab.addEventListener('click', function () { isOpen() ? close() : open(); });
+    if (closeBtn) closeBtn.addEventListener('click', close);
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && isOpen()) close();
+    });
+
+    // --- Append a message bubble. kind: 'user' | 'bot' | 'error' ------------
+    function appendChatMsg(text, kind) {
+      if (!wrap) return null;
+      var div = document.createElement('div');
+      var base = 'chat-msg max-w-[85%] rounded-2xl px-3 py-2 ';
+      if (kind === 'user') {
+        div.className = base + 'chat-msg-user self-end bg-brand-500 text-white';
+        // User echo stays textContent — never innerHTML.
+        div.textContent = text;
+      } else if (kind === 'error') {
+        div.className = base + 'chat-msg-error self-start bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200';
+        // Error copy stays textContent — never innerHTML.
+        div.textContent = text;
+      } else {
+        div.className = base + 'chat-msg-bot self-start bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-100 [&_a]:text-brand-600 [&_a]:underline dark:[&_a]:text-brand-400';
+        // Bot bubble ONLY: render CLICKABLE links. Safe because linkifyBotText
+        // escapes the ENTIRE reply BEFORE building any markup and emits nothing
+        // but <a> tags whose href is validated as http(s) by safeUrl. Untrusted
+        // model output therefore cannot inject any other markup.
+        div.innerHTML = linkifyBotText(text, escapeHtml, safeUrl);
+      }
+      wrap.appendChild(div);
+      wrap.scrollTop = wrap.scrollHeight;
+      return div;
+    }
+
+    // --- Send flow ----------------------------------------------------------
+    var busy = false;
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      sendChat();
+    });
+
+    async function sendChat() {
+      if (!input || busy) return;
+      var question = (input.value || '').trim();
+      if (!question) return;
+
+      busy = true;
+      if (sendBtn) sendBtn.disabled = true;
+      input.value = '';
+      appendChatMsg(question, 'user');
+
+      // Typing indicator (bilingual).
+      var typing = document.createElement('div');
+      typing.className = 'chat-typing self-start px-1 text-xs italic text-slate-500 dark:text-slate-400';
+      typing.textContent = lang === 'hi' ? 'सोच रहा हूँ…' : 'Thinking…';
+      if (wrap) { wrap.appendChild(typing); wrap.scrollTop = wrap.scrollHeight; }
+
+      try {
+        var res = await fetch(renderChatUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question: question, sessionId: sessionId, lang: lang }),
+        });
+        var data = await res.json().catch(function () { return {}; });
+        typing.remove();
+        if (res.ok && data && data.ok && data.answer) {
+          appendChatMsg(data.answer, 'bot');
+        } else {
+          appendChatMsg((data && data.error) || tr(lang, 'chat_error'), 'error');
+        }
+      } catch (err) {
+        typing.remove();
+        appendChatMsg(tr(lang, 'chat_error'), 'error');
+      } finally {
+        busy = false;
+        if (sendBtn) sendBtn.disabled = false;
+        if (input) input.focus();
+      }
+    }
+  })();
+</script>
