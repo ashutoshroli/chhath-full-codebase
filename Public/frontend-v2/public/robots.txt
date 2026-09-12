@@ -1,0 +1,12 @@
+# Public transparency portal (v2) — allow full crawling.
+#
+# WHY THE ORIGIN IS HARDCODED HERE
+# This is a STATIC file served verbatim from public/; Astro does not template
+# files under public/, so the origin cannot be read from PUBLIC_SITE_URL at
+# request time. We therefore hardcode the production canonical origin, which
+# matches PUBLIC_SITE_URL's production default (see src/config.js DEFAULTS).
+# If the custom domain ever changes, update this file AND public/sitemap.xml.
+User-agent: *
+Allow: /
+
+Sitemap: https://chhath.shaharpura.com/sitemap.xml

@@ -43,6 +43,8 @@
   id="chat-fab"
   type="button"
   aria-label="Open chat assistant"
+  aria-expanded="false"
+  aria-controls="chat-panel"
   title="Ask a question"
   class="fixed bottom-20 right-4 z-[60] flex h-14 w-14 items-center justify-center rounded-full bg-brand-500 text-white shadow-lg transition-colors hover:bg-brand-600 md:bottom-6"
 >
@@ -165,12 +167,16 @@
       panel.hidden = false;
       panel.classList.remove('hidden');
       panel.classList.add('flex');
+      // A11Y: reflect the open state on the FAB so assistive tech announces the
+      // panel as expanded (the FAB is the control that owns the panel).
+      fab.setAttribute('aria-expanded', 'true');
       if (input) setTimeout(function () { input.focus(); }, 50);
     }
     function close() {
       panel.hidden = true;
       panel.classList.add('hidden');
       panel.classList.remove('flex');
+      fab.setAttribute('aria-expanded', 'false');
     }
     close(); // known-closed starting state
     fab.addEventListener('click', function () { isOpen() ? close() : open(); });

@@ -19,6 +19,22 @@
     scroll-behavior: smooth;
   }
 
+  /* ACCESSIBILITY: a clearly visible keyboard focus ring.
+     The header controls, nav links, chatbot buttons and skip link relied on the
+     browser default outline, which is easy to lose against the saffron/slate
+     palette (and some resets suppress it). We add ONE explicit :focus-visible
+     ring in brand saffron with an offset so it reads on both the light (white)
+     and dark (slate-950) backgrounds. :focus-visible (not :focus) means the ring
+     only appears for keyboard/AT navigation, never on mouse click — so we keep
+     the a11y win without the "clicked button has an ugly outline" complaint.
+     We intentionally do NOT set `outline: none` anywhere, so focus is never
+     removed, only enhanced. */
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
   body {
     @apply bg-white text-slate-900 antialiased;
     @apply dark:bg-slate-950 dark:text-slate-100;

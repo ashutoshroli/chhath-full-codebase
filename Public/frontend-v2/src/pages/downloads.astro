@@ -25,7 +25,7 @@ const lang = 'en';
 
 <Layout title="Download Center | Chhath Puja Transparency Portal">
   <div id="page-loader" class="mx-auto max-w-6xl px-4 py-16 text-center text-slate-500 dark:text-slate-400">
-    <span class="material-icons-round animate-spin align-middle">progress_activity</span>
+    <span class="material-icons-round animate-spin align-middle" aria-hidden="true">progress_activity</span>
   </div>
 
   <div id="stale-data-notice" class="hidden"></div>
@@ -176,7 +176,7 @@ const lang = 'en';
           + '<strong class="block break-words text-slate-800 dark:text-slate-100">' + escapeHtml(localize(u, 'Name', lang)) + '</strong>'
           + '<span class="text-xs text-slate-500 dark:text-slate-400">' + escapeHtml(localize(u, 'Village', lang) || '-') + '</span>'
           + '</div>'
-          + '<span class="material-icons-round flex-shrink-0 text-brand-500">chevron_right</span>'
+          + '<span class="material-icons-round flex-shrink-0 text-brand-500" aria-hidden="true">chevron_right</span>'
           + '</button>';
       }).join('');
 
