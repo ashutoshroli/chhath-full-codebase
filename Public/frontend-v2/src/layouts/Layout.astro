@@ -12,6 +12,7 @@
 import '../styles/global.css';
 import Header from '../components/Header.astro';
 import Chatbot from '../components/Chatbot.astro';
+import Popup from '../components/Popup.astro';
 import Seo from '../components/Seo.astro';
 import Analytics from '../components/Analytics.astro';
 
@@ -123,5 +124,7 @@ const { title, description, lang = 'en' } = Astro.props;
     </main>
     <!-- Floating chatbot: present on every page. -->
     <Chatbot />
+    <!-- Announcement popup: fetched fresh on every load; non-render-blocking. -->
+    <Popup />
   </body>
 </html>
