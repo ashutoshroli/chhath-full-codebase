@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { Phone, MapPin } from '@lucide/svelte';
+  import { Phone, MapPin, LogIn } from '@lucide/svelte';
   import { portalState, year } from '$lib/stores/portal';
   import { tr, lang } from '$lib/stores/lang';
   import { committeeForYear } from '$lib/api/derive';
   import { initials } from '$lib/utils/format';
   import ErrorState from '$lib/components/ErrorState.svelte';
+  import { mgmtLoginUrl } from '$lib/api/client';
 
   let loading = $derived($portalState.status === 'loading');
   let members = $derived(committeeForYear($portalState.data, $year));
@@ -16,7 +17,18 @@
 
 <svelte:head><title>{$tr('active_committee')} — {$tr('app_title')}</title></svelte:head>
 
-<h1 class="mb-4 text-xl font-bold text-slate-900 dark:text-white">{$tr('active_committee')}</h1>
+<div class="mb-4 flex items-center justify-between gap-3">
+  <h1 class="text-xl font-bold text-slate-900 dark:text-white">{$tr('active_committee')}</h1>
+  <a
+    href={mgmtLoginUrl}
+    target="_blank"
+    rel="noopener"
+    class="inline-flex flex-none items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-2 text-sm font-bold text-white transition hover:bg-brand-600 active:scale-95"
+  >
+    <LogIn class="h-4 w-4" aria-hidden="true" />
+    {$tr('login')}
+  </a>
+</div>
 
 {#if $portalState.failed}
   <ErrorState />
