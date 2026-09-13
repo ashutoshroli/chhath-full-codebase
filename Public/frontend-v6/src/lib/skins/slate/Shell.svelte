@@ -12,6 +12,7 @@
   import { NAV_ITEMS } from '$lib/components/nav';
   import YearSelect from '$lib/components/YearSelect.svelte';
   import StatusBanner from '$lib/components/StatusBanner.svelte';
+  import FooterLinks from '$lib/components/FooterLinks.svelte';
 
   let { children } = $props();
   const isActive = (href: string, path: string) =>
@@ -89,6 +90,7 @@
   <p class="mt-1 flex items-center justify-center gap-1">
     {$tr('seva_line')} <Heart class="h-3.5 w-3.5 fill-current text-danger" />
   </p>
+  <FooterLinks />
 </footer>
 
 <!-- Mobile bottom nav (slate style) -->

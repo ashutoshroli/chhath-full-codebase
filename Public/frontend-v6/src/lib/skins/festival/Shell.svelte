@@ -11,6 +11,7 @@
   import { NAV_ITEMS } from '$lib/components/nav';
   import YearSelect from '$lib/components/YearSelect.svelte';
   import StatusBanner from '$lib/components/StatusBanner.svelte';
+  import FooterLinks from '$lib/components/FooterLinks.svelte';
 
   let { children } = $props();
   const isActive = (href: string, path: string) => (href === '/' ? path === '/' : path.startsWith(href));
@@ -68,6 +69,7 @@
 <footer class="mx-auto max-w-5xl px-4 py-6 pb-24 text-center text-xs text-[rgb(var(--fest-ink)/0.7)] md:pb-6">
   <p class="font-semibold">{$tr('org_name')}, {$tr('org_location')}</p>
   <p class="mt-1 flex items-center justify-center gap-1">{$tr('seva_line')} <Heart class="h-3.5 w-3.5 fill-current text-[rgb(var(--accent))]" /></p>
+  <FooterLinks />
 </footer>
 
 <!-- Warm bottom nav (mobile) -->

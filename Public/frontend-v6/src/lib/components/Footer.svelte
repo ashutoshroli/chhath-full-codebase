@@ -2,6 +2,7 @@
   import { Heart } from '@lucide/svelte';
   import { tr } from '$lib/stores/lang';
   import { year } from '$lib/stores/portal';
+  import FooterLinks from './FooterLinks.svelte';
 </script>
 
 <footer class="mx-auto max-w-6xl px-4 pb-28 pt-8 md:pb-10">
@@ -19,5 +20,8 @@
       {$tr('seva_line')}
       <Heart class="h-4 w-4 fill-current text-danger" />
     </p>
+  </div>
+  <div class="mt-3 text-center text-slate-500 dark:text-slate-400">
+    <FooterLinks />
   </div>
 </footer>
