@@ -5,9 +5,13 @@
     <link rel="icon" href="%sveltekit.assets%/favicon.svg" />
     <link rel="mask-icon" href="%sveltekit.assets%/favicon.svg" color="#F27A1A" />
     <link rel="apple-touch-icon" href="%sveltekit.assets%/icons/icon-180.png" />
+    <!-- Static manifest link so crawlers / PWABuilder see it pre-hydration; the
+         layout also injects the @vite-pwa/sveltekit-generated link at runtime. -->
+    <link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Chhath Portal" />
+    <meta name="apple-mobile-web-app-title" content="Chhath Puja" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 
     <!-- Default SEO / social preview (per-page <title>/<meta> override these). -->
