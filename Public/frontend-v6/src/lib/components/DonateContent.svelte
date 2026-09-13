@@ -123,9 +123,9 @@
       <p>{$tr('donate_cash_p')}</p>
       <ul class="space-y-2">
         {#each members as m, i (m.seed + '-' + i)}
-          <li class="flex items-center justify-between gap-3 rounded-lg bg-black/[0.03] px-3 py-2 dark:bg-white/5">
+          <li class="flex items-start justify-between gap-3 rounded-lg bg-black/[0.03] px-3 py-2 dark:bg-white/5">
             <span class="min-w-0">
-              <span class="block truncate font-bold">{$tr('donate_cash_member')} {i + 1}: {nameOf(m) || $tr('na')}</span>
+              <span class="block break-words font-bold">{nameOf(m) || $tr('na')}</span>
               {#if villageOf(m)}<span class="mt-0.5 inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400"><MapPin class="h-3 w-3" />{villageOf(m)}</span>{/if}
             </span>
             {#if m.mobile}
