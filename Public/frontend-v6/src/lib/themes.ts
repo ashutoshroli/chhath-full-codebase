@@ -68,6 +68,24 @@ export const THEMES: ThemeDef[] = [
     mode: 'dark',
     originKey: 'theme_origin_v5',
     swatch: ['#0b1020', '#151a2e', '#F5B840']
+  },
+  {
+    // Brand-new (v6): modern glassmorphism with an animated aurora mesh and a
+    // bento-grid dashboard.
+    id: 'aurora',
+    labelKey: 'theme_aurora',
+    mode: 'dark',
+    originKey: 'theme_origin_new',
+    swatch: ['#0a0f1e', '#141b30', '#7c5cff']
+  },
+  {
+    // Brand-new (v6): rich festive look — deep maroon + marigold gold, decorative
+    // borders and celebratory cards.
+    id: 'festival',
+    labelKey: 'theme_festival',
+    mode: 'light',
+    originKey: 'theme_origin_new',
+    swatch: ['#fff6e6', '#fffdf7', '#B01E2E']
   }
 ];
 

@@ -88,6 +88,30 @@
     --page-sun: 1;
     --accent: 245 184 64;
   }
+  /* Aurora (NEW v6) — deep space navy + violet glass */
+  :root[data-theme='aurora'] {
+    --surface-bg: 20 27 48;
+    --surface-alpha: 0.55;
+    --surface-border: 124 92 255;
+    --surface-border-alpha: 0.22;
+    --page-from: #0a0f1e;
+    --page-via: #0d1430;
+    --page-to: #0a0f1e;
+    --page-sun: 0;
+    --accent: 124 92 255;
+  }
+  /* Festival (NEW v6) — warm cream + deep maroon/gold */
+  :root[data-theme='festival'] {
+    --surface-bg: 255 253 247;
+    --surface-alpha: 1;
+    --surface-border: 176 30 46;
+    --surface-border-alpha: 0.25;
+    --page-from: #fff6e6;
+    --page-via: #ffedcf;
+    --page-to: #ffe0b8;
+    --page-sun: 0;
+    --accent: 176 30 46;
+  }
 
   html,
   body {

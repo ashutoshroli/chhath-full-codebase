@@ -10,6 +10,8 @@ import type { Skin } from './types';
 import { premiumSkin } from './premium';
 import { classicSkin } from './classic';
 import { slateSkin } from './slate';
+import { auroraSkin } from './aurora';
+import { festivalSkin } from './festival';
 
 /** Explicit themeId → skin mapping. Unmapped themes fall back to Premium. */
 const THEME_SKIN: Record<string, Skin> = {
@@ -20,7 +22,10 @@ const THEME_SKIN: Record<string, Skin> = {
   'classic-light': classicSkin,
   // Slate (v2) skin — light + dark:
   'slate-light': slateSkin,
-  'slate-dark': slateSkin
+  'slate-dark': slateSkin,
+  // Brand-new (v6) skins:
+  aurora: auroraSkin,
+  festival: festivalSkin
 };
 
 export const DEFAULT_SKIN = premiumSkin;
