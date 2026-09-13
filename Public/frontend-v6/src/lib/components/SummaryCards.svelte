@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Users, PiggyBank, BarChart3, BadgeCheck, ChevronRight } from '@lucide/svelte';
+  import { Users, PiggyBank, BarChart3, ListChecks, ChevronRight } from '@lucide/svelte';
   import { portalState, year } from '$lib/stores/portal';
   import { tr } from '$lib/stores/lang';
   import { computeSummary } from '$lib/api/derive';
@@ -19,7 +19,9 @@
     { icon: Users, grad: 'from-brand-400 to-brand-600', value: s.contributors, fmt: (n: number) => Math.round(n).toString(), label: $tr('summary_contributors'), action: false },
     { icon: PiggyBank, grad: 'from-sky-500 to-sky-700', value: s.totalCollected, fmt, label: $tr('summary_total_collected'), action: false },
     { icon: BarChart3, grad: 'from-violet-500 to-violet-700', value: s.average, fmt, label: $tr('summary_avg'), action: false },
-    { icon: BadgeCheck, grad: 'from-emerald-500 to-emerald-700', value: s.recordedPct, fmt: (n: number) => `${Math.round(n)}%`, label: $tr('summary_recorded'), action: true }
+    // 4th card: opens the contributor-list popup. Shows a "View" call-to-action
+    // instead of a number (the old "Recorded %" card was removed).
+    { icon: ListChecks, grad: 'from-emerald-500 to-emerald-700', text: $tr('summary_view_list'), label: $tr('summary_view_list_label'), action: true }
   ]);
 </script>
 
@@ -39,7 +41,11 @@
       {/if}
     </div>
     <p class="mt-2 text-lg font-black leading-tight sm:text-xl">
-      <CountUp value={c.value} format={c.fmt} />
+      {#if 'text' in c && c.text != null}
+        {c.text}
+      {:else}
+        <CountUp value={c.value} format={c.fmt} />
+      {/if}
     </p>
     <p class="text-[11px] font-semibold opacity-90">{c.label}</p>
   {/if}
