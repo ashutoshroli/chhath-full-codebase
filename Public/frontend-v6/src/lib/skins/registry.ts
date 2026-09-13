@@ -8,14 +8,16 @@
  */
 import type { Skin } from './types';
 import { premiumSkin } from './premium';
+import { classicSkin } from './classic';
 
 /** Explicit themeId → skin mapping. Unmapped themes fall back to Premium. */
 const THEME_SKIN: Record<string, Skin> = {
   sunrise: premiumSkin,
   'warm-night': premiumSkin,
   midnight: premiumSkin,
-  // Phase 2/3 will point these at the classic / slate skins:
-  'classic-light': premiumSkin,
+  // Classic (v3) skin:
+  'classic-light': classicSkin,
+  // Phase 3 will point these at the slate skin:
   'slate-light': premiumSkin,
   'slate-dark': premiumSkin
 };
