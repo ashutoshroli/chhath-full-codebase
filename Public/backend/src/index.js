@@ -403,7 +403,53 @@ async function getAllPortalData(env) {
     // milestones, closing, labels…) — one JSON blob per language in
     // portal_settings. The frontend falls back to its built-in i18n per field.
     journeyPageText: await getJourneyPageText(env),
+    // The "Donate Now" page fields (UPI id, QR image URL, bank details, WhatsApp
+    // number), from the same portal_settings key/value table. All fail-soft to ''
+    // so the frontend hides any field that has not been filled in yet.
+    donation: await getDonationSettings(env),
   };
+}
+
+// The public "Donate Now" settings from portal_settings (donation_*). Returns an
+// object of string fields, each '' when its row is missing, so the frontend can
+// hide empty fields (e.g. the QR image is only shown when qrUrl is set). Mirrors
+// getJourneyTagline's fail-soft read on an older backend / missing table.
+async function getDonationSettings(env) {
+  const out = {
+    upiId: '',
+    qrUrl: '',
+    bankAccountName: '',
+    bankName: '',
+    accountNumber: '',
+    ifsc: '',
+    whatsapp: ''
+  };
+  if (!env || !env.DB_CORE) return out;
+  const KEYS = {
+    donation_upi_id: 'upiId',
+    donation_qr_url: 'qrUrl',
+    donation_bank_account_name: 'bankAccountName',
+    donation_bank_name: 'bankName',
+    donation_account_number: 'accountNumber',
+    donation_ifsc: 'ifsc',
+    donation_whatsapp: 'whatsapp'
+  };
+  try {
+    const keys = Object.keys(KEYS);
+    const placeholders = keys.map(() => '?').join(', ');
+    const { results } = await env.DB_CORE
+      .prepare(`SELECT "key", value FROM portal_settings WHERE "key" IN (${placeholders})`)
+      .bind(...keys)
+      .all();
+    for (const r of results || []) {
+      const field = KEYS[r.key];
+      if (field) out[field] = r.value || '';
+    }
+  } catch (e) {
+    const msg = (e && e.message ? e.message : String(e)).toLowerCase();
+    if (!msg.includes('no such table') && !msg.includes('no such column')) throw e;
+  }
+  return out;
 }
 
 // The Decade page's static text blocks, stored as two portal_settings JSON rows

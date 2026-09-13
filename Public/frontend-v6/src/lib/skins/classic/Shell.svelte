@@ -11,7 +11,8 @@
   import { Palette, Languages, Heart } from '@lucide/svelte';
   import { lang, tr } from '$lib/stores/lang';
   import { openThemeGallery } from '$lib/stores/ui';
-  import { NAV_ITEMS } from '$lib/components/nav';
+  import { NAV_ITEMS, NAV_PRIMARY } from '$lib/components/nav';
+  import MoreMenu from '$lib/components/MoreMenu.svelte';
   import YearSelect from '$lib/components/YearSelect.svelte';
   import StatusBanner from '$lib/components/StatusBanner.svelte';
   import FooterLinks from '$lib/components/FooterLinks.svelte';
@@ -100,17 +101,23 @@
     bg-white shadow-[0_-2px_10px_rgba(0,0,0,0.05)] dark:border-t dark:border-gray-700 dark:bg-gray-800 md:hidden"
   aria-label="Primary"
 >
-  {#each NAV_ITEMS as item}
+  {#each NAV_PRIMARY as item}
     {@const active = isActive(item.href, $page.url.pathname)}
     {@const Icon = item.icon}
     <a
       href={item.href}
       aria-current={active ? 'page' : undefined}
-      class="flex w-1/5 flex-col items-center gap-0.5 text-xs font-semibold
+      class="flex w-1/4 flex-col items-center gap-0.5 text-xs font-semibold
         {active ? 'text-[#F27A1A]' : 'text-gray-500 dark:text-gray-400'}"
     >
       <Icon class="h-5 w-5" aria-hidden="true" />
       {$tr(item.key)}
     </a>
   {/each}
+  <MoreMenu
+    itemClass="w-1/4"
+    activeClass="text-[#F27A1A]"
+    idleClass="text-gray-500 dark:text-gray-400"
+    triggerClass="flex w-full flex-col items-center gap-0.5 text-xs font-semibold"
+  />
 </nav>

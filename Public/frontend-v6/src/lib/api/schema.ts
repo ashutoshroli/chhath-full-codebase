@@ -116,6 +116,29 @@ const journeyTaglineSchema = z
   .passthrough()
   .catch({ en: '', hi: '' });
 
+// The public "Donate Now" fields, from portal_settings (donation_*). Every field
+// is a permissive string that defaults to '' so the page can hide empty fields.
+const donationSchema = z
+  .object({
+    upiId: cell,
+    qrUrl: cell,
+    bankAccountName: cell,
+    bankName: cell,
+    accountNumber: cell,
+    ifsc: cell,
+    whatsapp: cell
+  })
+  .passthrough()
+  .catch({
+    upiId: '',
+    qrUrl: '',
+    bankAccountName: '',
+    bankName: '',
+    accountNumber: '',
+    ifsc: '',
+    whatsapp: ''
+  });
+
 export const portalDataSchema = z
   .object({
     users: arr(userRow),
@@ -137,6 +160,9 @@ export const portalDataSchema = z
       .passthrough()
       .catch({ en: {}, hi: {} })
       .optional(),
+    // The "Donate Now" page fields. Optional — an older backend omits it and the
+    // page simply shows no donation details.
+    donation: donationSchema.optional(),
     // Backend may flag a degraded (last-known-good) response.
     stale: z.boolean().optional(),
     staleReason: z.string().optional()
@@ -152,6 +178,7 @@ export type LoanRow = z.infer<typeof loanRow>;
 export type GuarantorRow = z.infer<typeof guarantorRow>;
 export type GeneratedFileRow = z.infer<typeof generatedFileRow>;
 export type LoanConsentRow = z.infer<typeof loanConsentRow>;
+export type DonationSettings = z.infer<typeof donationSchema>;
 
 /** Empty-but-valid payload used as a safe default before data loads. */
 export const EMPTY_PORTAL_DATA: PortalData = {

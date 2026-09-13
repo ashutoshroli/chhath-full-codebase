@@ -21,6 +21,7 @@ export interface SkinPages {
   Committee: Component;
   Downloads: Component;
   Decade: Component;
+  Donate: Component;
 }
 
 export interface Skin {

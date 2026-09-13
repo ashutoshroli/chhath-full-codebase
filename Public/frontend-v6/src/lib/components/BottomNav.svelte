@@ -1,7 +1,8 @@
 <script lang="ts">
   import { page } from '$app/stores';
-  import { NAV_ITEMS } from './nav';
+  import { NAV_PRIMARY } from './nav';
   import { tr } from '$lib/stores/lang';
+  import MoreMenu from './MoreMenu.svelte';
 
   const isActive = (href: string, path: string) =>
     href === '/' ? path === '/' : path.startsWith(href);
@@ -16,7 +17,7 @@
   aria-label="Primary"
 >
   <ul class="mx-auto flex max-w-lg items-stretch justify-around">
-    {#each NAV_ITEMS as item}
+    {#each NAV_PRIMARY as item}
       {@const active = isActive(item.href, $page.url.pathname)}
       {@const Icon = item.icon}
       <li class="flex-1">
@@ -36,5 +37,8 @@
         </a>
       </li>
     {/each}
+    <li class="flex-1">
+      <MoreMenu iconBadge />
+    </li>
   </ul>
 </nav>

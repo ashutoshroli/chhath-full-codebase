@@ -15,6 +15,7 @@ import { logError, reportErrorToWhatsApp, getErrorLog, reportErrorPublic, isLogE
 import { logActivity, getActivityLog, logWarn, logErrorAt } from './logger.js';
 import * as popups from './popups.js';
 import { uploadUserPhoto } from './userPhoto.js';
+import { uploadDonationQr } from './donationQr.js';
 import * as journey from './journey.js';
 import * as announce from './announcements.js';
 import * as loans from './loans.js';
@@ -164,6 +165,8 @@ export const EXPECTED_MUTATING_ACTIONS = new Set([
   'saveSeoSettings', 'uploadSeoImage',
   // user profile photo (R2)
   'uploadUserPhoto',
+  // donation UPI-QR image (R2)
+  'uploadDonationQr',
   // "Our Journey" content
   'saveJourneyEntry', 'deleteJourneyEntry', 'reorderJourneyEntries',
   // files / drive / backup / rebuild
@@ -1107,6 +1110,12 @@ export default {
       // Users Add/Edit form then saves that URL into the `photo` column via the
       // normal updateRecord/saveRecord path. Staff-gated inside uploadUserPhoto.
       uploadUserPhoto: () => withAuth(env, req, (user) => uploadUserPhoto(env, req.base64, req.fileName, req.idCode, user)),
+
+      // Uploads the UPI QR image for the public "Donate Now" page to R2 and
+      // returns its public URL. The mgmt "Donation" tab then saves that URL into
+      // the portal_settings key `donation_qr_url` via setPortalSetting.
+      // Staff-gated inside uploadDonationQr.
+      uploadDonationQr: () => withAuth(env, req, (user) => uploadDonationQr(env, req.base64, req.fileName, user)),
 
       // ---- "Our Journey" content (journey_entries) ----
       getJourneyEntries: () => withAuth(env, req, (user) => journey.getJourneyEntries(env, user)),
