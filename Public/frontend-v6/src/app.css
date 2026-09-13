@@ -187,6 +187,75 @@
     --aurora-b4: #4ade80;
   }
 
+  /* Executive Pro — corporate/fintech clean (slate skin): flat white surfaces,
+     hairline slate borders, no card gradients, trust-blue accent. */
+  :root[data-theme='executive-pro'] {
+    --surface-bg: 255 255 255;
+    --surface-alpha: 1;
+    --surface-border: 15 23 42;
+    --surface-border-alpha: 0.08;
+    --accent: 37 99 235; /* #2563EB trust blue */
+    --page-from: #f8fafc;
+    --page-via: #f1f5f9;
+    --page-to: #e2e8f0;
+    --page-sun: 0;
+  }
+
+  /* Midnight Glass — premium dark glassmorphism (aurora skin): slate-800 glass +
+     cyan accent + a cool blue/violet mesh. */
+  :root[data-theme='midnight-glass'] {
+    --surface-bg: 30 41 59; /* slate-800 */
+    --surface-alpha: 0.7; /* glassy */
+    --surface-border: 255 255 255;
+    --surface-border-alpha: 0.08;
+    --accent: 56 189 248; /* #38BDF8 cyan */
+    --page-from: #0b1120;
+    --page-via: #0f172a;
+    --page-to: #1e1b4b;
+    --page-sun: 0;
+    --aurora-bg: #0b1120;
+    --aurora-b1: #38bdf8;
+    --aurora-b2: #818cf8;
+    --aurora-b3: #22d3ee;
+    --aurora-b4: #a78bfa;
+    --chat-orb-3d: 1;
+  }
+
+  /* Pastel Zen — minimalist community light (premium skin): soft neutral canvas,
+     very light borders, soft-orange accent. */
+  :root[data-theme='pastel-zen'] {
+    --surface-bg: 255 255 255;
+    --surface-alpha: 1;
+    --surface-border: 39 39 42;
+    --surface-border-alpha: 0.06;
+    --accent: 249 115 22; /* soft orange */
+    --page-from: #fafafa;
+    --page-via: #f5f5f4;
+    --page-to: #e7e5e4;
+    --page-sun: 0;
+  }
+
+  /* Heritage Serif — editorial/cultural trust (festival skin): cream canvas,
+     1px borders, deep forest-green accent; headings render in a serif face. */
+  :root[data-theme='heritage-serif'] {
+    --surface-bg: 255 255 255;
+    --surface-alpha: 1;
+    --surface-border: 28 25 23;
+    --surface-border-alpha: 0.1;
+    --accent: 6 78 59; /* #064E3B deep forest green */
+    --page-from: #fdfbf7;
+    --page-via: #f5f2eb;
+    --page-to: #e7e5e4;
+    --page-sun: 0;
+  }
+  /* Serif headings for the editorial look (font-serif is added in tailwind.config
+     + loaded non-blocking in app.html). Scoped to this theme only. */
+  :root[data-theme='heritage-serif'] h1,
+  :root[data-theme='heritage-serif'] h2,
+  :root[data-theme='heritage-serif'] h3 {
+    font-family: theme('fontFamily.serif');
+  }
+
   html,
   body {
     @apply antialiased;
@@ -261,7 +330,8 @@
   :root[data-theme='neon-noir'],
   :root[data-theme='cyber-lime'],
   :root[data-theme='sunset-vapor'],
-  :root[data-theme='mint-frost'] {
+  :root[data-theme='mint-frost'],
+  :root[data-theme='midnight-glass'] {
     --chat-orb-3d: 1;
   }
 
@@ -270,7 +340,8 @@
   :root[data-theme='neon-noir'] .chat-orb,
   :root[data-theme='cyber-lime'] .chat-orb,
   :root[data-theme='sunset-vapor'] .chat-orb,
-  :root[data-theme='mint-frost'] .chat-orb {
+  :root[data-theme='mint-frost'] .chat-orb,
+  :root[data-theme='midnight-glass'] .chat-orb {
     background:
       radial-gradient(120% 120% at 32% 24%,
         rgb(var(--accent) / 0.98) 0%,
@@ -291,7 +362,8 @@
   :root[data-theme='neon-noir'] .chat-orb__gloss,
   :root[data-theme='cyber-lime'] .chat-orb__gloss,
   :root[data-theme='sunset-vapor'] .chat-orb__gloss,
-  :root[data-theme='mint-frost'] .chat-orb__gloss {
+  :root[data-theme='mint-frost'] .chat-orb__gloss,
+  :root[data-theme='midnight-glass'] .chat-orb__gloss {
     display: block;
     position: absolute;
     top: 8%;
@@ -310,7 +382,8 @@
   :root[data-theme='neon-noir'] .chat-orb__icon,
   :root[data-theme='cyber-lime'] .chat-orb__icon,
   :root[data-theme='sunset-vapor'] .chat-orb__icon,
-  :root[data-theme='mint-frost'] .chat-orb__icon {
+  :root[data-theme='mint-frost'] .chat-orb__icon,
+  :root[data-theme='midnight-glass'] .chat-orb__icon {
     z-index: 2;
     filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.45));
   }
@@ -332,7 +405,8 @@
   :root[data-theme='neon-noir'] .chat-panel,
   :root[data-theme='cyber-lime'] .chat-panel,
   :root[data-theme='sunset-vapor'] .chat-panel,
-  :root[data-theme='mint-frost'] .chat-panel {
+  :root[data-theme='mint-frost'] .chat-panel,
+  :root[data-theme='midnight-glass'] .chat-panel {
     box-shadow: 0 12px 40px -12px rgb(var(--accent) / 0.45), 0 0 0 1px rgb(var(--accent) / 0.25);
   }
   :root[data-theme='aurora'] .chat-panel__header,
@@ -340,7 +414,8 @@
   :root[data-theme='neon-noir'] .chat-panel__header,
   :root[data-theme='cyber-lime'] .chat-panel__header,
   :root[data-theme='sunset-vapor'] .chat-panel__header,
-  :root[data-theme='mint-frost'] .chat-panel__header {
+  :root[data-theme='mint-frost'] .chat-panel__header,
+  :root[data-theme='midnight-glass'] .chat-panel__header {
     background: linear-gradient(to bottom, rgb(var(--accent) / 0.16), rgb(var(--accent) / 0));
   }
 }
