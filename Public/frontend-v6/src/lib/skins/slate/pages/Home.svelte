@@ -7,15 +7,17 @@
   import { Crown } from '@lucide/svelte';
   import { portalState, year } from '$lib/stores/portal';
   import { tr, lang } from '$lib/stores/lang';
-  import { computeFinancials, rankedContributors, ALL_YEARS } from '$lib/api/derive';
+  import { computeFinancials, rankedContributors, resoldItemsForYear, contributorTags, ALL_YEARS } from '$lib/api/derive';
   import { fmt } from '$lib/utils/format';
   import ErrorState from '$lib/components/ErrorState.svelte';
 
   let loading = $derived($portalState.status === 'loading');
   let fin = $derived(computeFinancials($portalState.data, $year));
   let ranked = $derived(rankedContributors($portalState.data, $year));
+  let resold = $derived(resoldItemsForYear($portalState.data, $year));
   let yearLabel = $derived($year === ALL_YEARS ? $tr('all_years') : String($year));
 
+  let tab = $state<'contributors' | 'resold'>('contributors');
   let search = $state('');
   let filtered = $derived.by(() => {
     const q = search.trim().toLowerCase();
@@ -23,6 +25,7 @@
     return ranked.filter((r) => r.item.name.toLowerCase().includes(q) || r.item.nameHindi.toLowerCase().includes(q));
   });
   const nameOf = (c: { name: string; nameHindi: string }) => ($lang === 'hi' && c.nameHindi ? c.nameHindi : c.name);
+  const tagLabel = (t: 'material' | 'service') => (t === 'material' ? $tr('material') : $tr('service'));
 </script>
 
 <svelte:head>
@@ -66,49 +69,82 @@
       </div>
     </div>
 
-    <!-- Contributors -->
+    <!-- Contributors / Resold -->
     <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-6">
       <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h2 class="text-lg font-bold text-slate-900 dark:text-white">{$tr('contributors_list')}</h2>
-        <input
-          type="search"
-          bind:value={search}
-          placeholder={$tr('search_by_name')}
-          class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none
-            focus:border-brand-500 focus:ring-1 focus:ring-brand-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 sm:w-64"
-        />
-      </div>
-
-      <div class="divide-y divide-slate-100 dark:divide-slate-800">
-        {#if loading}
-          {#each Array(6) as _}
-            <div class="flex items-center justify-between py-3">
-              <div class="skeleton h-4 w-1/3"></div><div class="skeleton h-4 w-16"></div>
-            </div>
-          {/each}
-        {:else if filtered.length === 0}
-          <p class="py-8 text-center text-sm text-slate-500 dark:text-slate-400">{search ? $tr('no_matches') : $tr('no_records_found')}</p>
-        {:else}
-          {#each filtered as entry (entry.item.key)}
-            <div class="flex items-center justify-between gap-3 py-3">
-              <div class="min-w-0">
-                <div class="flex items-center gap-1.5 font-medium text-slate-800 dark:text-slate-100">
-                  <span class="truncate">{nameOf(entry.item)}</span>
-                  {#if entry.isTop}<Crown class="h-3.5 w-3.5 flex-none fill-current text-amber-500" aria-label="Top {entry.rank}" />{/if}
-                </div>
-                {#if entry.item.village}<div class="truncate text-xs text-slate-500 dark:text-slate-400">{entry.item.village}</div>{/if}
-              </div>
-              {#if entry.item.hasMoney}
-                <strong class="flex-none text-emerald-600 dark:text-emerald-400">+{fmt(entry.item.amount)}</strong>
-              {:else}
-                <span class="flex-none rounded-md bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
-                  {entry.item.kinds.has('material') ? $tr('material') : $tr('service')}
-                </span>
-              {/if}
-            </div>
-          {/each}
+        <div class="inline-flex gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
+          <button
+            type="button"
+            onclick={() => (tab = 'contributors')}
+            class="rounded-md px-3 py-1.5 text-sm font-semibold transition
+              {tab === 'contributors' ? 'bg-white text-brand-600 shadow-sm dark:bg-slate-700 dark:text-brand-300' : 'text-slate-500 dark:text-slate-400'}"
+            aria-pressed={tab === 'contributors'}
+          >{$tr('tab_contributors')} · {ranked.length}</button>
+          <button
+            type="button"
+            onclick={() => (tab = 'resold')}
+            class="rounded-md px-3 py-1.5 text-sm font-semibold transition
+              {tab === 'resold' ? 'bg-white text-brand-600 shadow-sm dark:bg-slate-700 dark:text-brand-300' : 'text-slate-500 dark:text-slate-400'}"
+            aria-pressed={tab === 'resold'}
+          >{$tr('tab_resold')} · {resold.length}</button>
+        </div>
+        {#if tab === 'contributors'}
+          <input
+            type="search"
+            bind:value={search}
+            placeholder={$tr('search_by_name')}
+            class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none
+              focus:border-brand-500 focus:ring-1 focus:ring-brand-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 sm:w-64"
+          />
         {/if}
       </div>
+
+      {#if tab === 'contributors'}
+        <div class="divide-y divide-slate-100 dark:divide-slate-800">
+          {#if loading}
+            {#each Array(6) as _}
+              <div class="flex items-center justify-between py-3">
+                <div class="skeleton h-4 w-1/3"></div><div class="skeleton h-4 w-16"></div>
+              </div>
+            {/each}
+          {:else if filtered.length === 0}
+            <p class="py-8 text-center text-sm text-slate-500 dark:text-slate-400">{search ? $tr('no_matches') : $tr('no_records_found')}</p>
+          {:else}
+            {#each filtered as entry (entry.item.key)}
+              {@const tags = contributorTags(entry.item)}
+              <div class="flex items-center justify-between gap-3 py-3">
+                <div class="min-w-0">
+                  <div class="flex items-center gap-1.5 font-medium text-slate-800 dark:text-slate-100">
+                    <span class="truncate">{nameOf(entry.item)}</span>
+                    {#if entry.isTop}<Crown class="h-3.5 w-3.5 flex-none fill-current text-amber-500" aria-label="Top {entry.rank}" />{/if}
+                    {#if entry.item.count > 1}<span class="flex-none rounded bg-slate-100 px-1 text-xs font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">{$tr('times_contributed', { count: entry.item.count })}</span>{/if}
+                  </div>
+                  {#if entry.item.village}<div class="truncate text-xs text-slate-500 dark:text-slate-400">{entry.item.village}</div>{/if}
+                </div>
+                <div class="flex flex-none items-center gap-1.5">
+                  {#if entry.item.hasMoney}<strong class="text-emerald-600 dark:text-emerald-400">+{fmt(entry.item.amount)}</strong>{/if}
+                  {#each tags.filter((t) => t !== 'money') as t}
+                    <span class="rounded-md bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">{tagLabel(t as 'material' | 'service')}</span>
+                  {/each}
+                </div>
+              </div>
+            {/each}
+          {/if}
+        </div>
+      {:else}
+        <div class="divide-y divide-slate-100 dark:divide-slate-800">
+          {#if resold.length === 0}
+            <p class="py-8 text-center text-sm text-slate-500 dark:text-slate-400">{$tr('no_resold_items')}</p>
+          {:else}
+            {#each resold as item (item.key)}
+              <div class="flex items-center justify-between gap-3 py-3">
+                <span class="min-w-0 truncate font-medium text-slate-800 dark:text-slate-100">{item.name || $tr('resold_item')}</span>
+                <strong class="flex-none text-emerald-600 dark:text-emerald-400">+{fmt(item.amount)}</strong>
+              </div>
+            {/each}
+          {/if}
+        </div>
+      {/if}
     </div>
   </section>
 {/if}

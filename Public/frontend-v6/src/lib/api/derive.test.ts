@@ -4,6 +4,8 @@ import {
   computeFinancials,
   contributorsForYear,
   rankedContributors,
+  resoldItemsForYear,
+  contributorTags,
   computeSummary,
   availableYears,
   loanTotalWithInterest
@@ -207,6 +209,61 @@ describe('resell excluded, material/service present but unranked', () => {
   it('resold amount is NOT counted in total collected', () => {
     const s = computeSummary(data, 2026);
     expect(s.totalCollected).toBe(1000); // 500 resell excluded, material/service = 0
+  });
+
+  it('resold rows are NOT in the contributor count', () => {
+    const s = computeSummary(data, 2026);
+    expect(s.contributors).toBe(3); // money + material + service only
+  });
+
+  it('resoldItemsForYear surfaces the resold row on its own', () => {
+    const items = resoldItemsForYear(data, 2026);
+    expect(items).toHaveLength(1);
+    expect(items[0].name).toBe('Old Chair');
+    expect(items[0].amount).toBe(500);
+  });
+});
+
+describe('multiple contributions fold + multi-kind tags', () => {
+  const data = parsePortalData({
+    users: [
+      { ID: 'A', Name: 'Multi Giver' },
+      { ID: 'B', Name: 'Money+Material' },
+      { ID: 'C', Name: 'Material+Service' }
+    ],
+    collections: [
+      // A gave money twice -> amounts sum, count = 2, single 'money' tag.
+      { Year: 2026, ID: 'A', Amount: '300', 'Contribution Type': '1' },
+      { Year: 2026, ID: 'A', Amount: '200', 'Contribution Type': '1' },
+      // B gave money AND material -> hasMoney + material tag.
+      { Year: 2026, ID: 'B', Amount: '700', 'Contribution Type': '1' },
+      { Year: 2026, ID: 'B', Amount: '0', 'Contribution Type': '2', Detail: 'Soop' },
+      // C gave material AND service, no money -> both tags, no money.
+      { Year: 2026, ID: 'C', Amount: '0', 'Contribution Type': '2', Detail: 'Soop' },
+      { Year: 2026, ID: 'C', Amount: '0', 'Contribution Type': '3', Detail: 'Sound' }
+    ]
+  })!;
+  const list = contributorsForYear(data, 2026);
+  const get = (name: string) => list.find((c) => c.name === name)!;
+
+  it('sums repeat money contributions and tracks the count', () => {
+    const a = get('Multi Giver');
+    expect(a.amount).toBe(500);
+    expect(a.count).toBe(2);
+    expect(contributorTags(a)).toEqual(['money']);
+  });
+
+  it('money + material shows a money amount AND a material tag', () => {
+    const b = get('Money+Material');
+    expect(b.hasMoney).toBe(true);
+    expect(b.amount).toBe(700);
+    expect(contributorTags(b)).toEqual(['money', 'material']);
+  });
+
+  it('material + service (no money) shows both tags and no money', () => {
+    const c = get('Material+Service');
+    expect(c.hasMoney).toBe(false);
+    expect(contributorTags(c)).toEqual(['material', 'service']);
   });
 });
 

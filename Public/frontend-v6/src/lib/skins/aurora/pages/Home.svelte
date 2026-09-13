@@ -6,7 +6,7 @@
   import { Crown, TrendingDown, TrendingUp, Landmark, Users } from '@lucide/svelte';
   import { portalState, year } from '$lib/stores/portal';
   import { tr, lang } from '$lib/stores/lang';
-  import { computeFinancials, computeSummary, rankedContributors, ALL_YEARS } from '$lib/api/derive';
+  import { computeFinancials, computeSummary, rankedContributors, contributorTags, ALL_YEARS } from '$lib/api/derive';
   import { fmt } from '$lib/utils/format';
   import { initials, avatarGradient } from '$lib/utils/format';
   import ErrorState from '$lib/components/ErrorState.svelte';
@@ -54,6 +54,7 @@
       <Users class="h-5 w-5 text-violet-300" aria-hidden="true" />
       <p class="mt-2 text-2xl font-black text-white">{sum.contributors}</p>
       <p class="text-[11px] text-slate-300">{$tr('summary_contributors')}</p>
+      <p class="mt-0.5 text-[10px] text-violet-300/80 underline decoration-dotted underline-offset-2">{$tr('summary_tap_to_view')}</p>
     </button>
     <div class="{GLASS} p-4">
       <Landmark class="h-5 w-5 text-cyan-300" aria-hidden="true" />
@@ -80,8 +81,8 @@
         type="button"
         onclick={() => (listOpen = true)}
         aria-label={$tr('summary_view_list_label')}
-        class="rounded text-[10px] text-slate-400 underline decoration-dotted underline-offset-2 transition hover:text-violet-200 focus:outline-none focus:ring-2 focus:ring-violet-400/50 cursor-pointer"
-      >{$tr('total_contributions', { count: ranked.length })}</button>
+        class="rounded text-right text-[10px] font-semibold text-violet-300/90 underline decoration-dotted underline-offset-2 transition hover:text-violet-200 focus:outline-none focus:ring-2 focus:ring-violet-400/50 cursor-pointer"
+      >{$tr('summary_view_list')}</button>
     </div>
     {#if loading}
       <div class="flex gap-2.5 overflow-hidden">{#each Array(7) as _}<div class="h-28 w-24 shrink-0 animate-pulse rounded-xl bg-white/10"></div>{/each}</div>
@@ -91,14 +92,21 @@
       <div class="no-scrollbar flex gap-2.5 overflow-x-auto pb-1">
         {#each ranked as entry (entry.item.key)}
           {@const g = avatarGradient(entry.item.key)}
+          {@const tags = contributorTags(entry.item)}
           <div class="relative w-24 shrink-0 rounded-xl border p-3 text-center {entry.isTop ? 'border-amber-300/50 bg-amber-300/10' : 'border-white/10 bg-white/5'}">
             {#if entry.isTop}<Crown class="absolute left-1/2 -top-2 h-4 w-4 -translate-x-1/2 fill-current text-amber-300" aria-label="Top {entry.rank}" />{/if}
             <span class="mx-auto grid h-10 w-10 place-items-center rounded-full text-sm font-black text-white" style="background-image:linear-gradient(135deg,{g[0]},{g[1]})">{initials(nameOf(entry.item))}</span>
             <p class="mt-1.5 truncate text-[11px] font-semibold text-white">{nameOf(entry.item)}</p>
             {#if entry.item.hasMoney}
               <p class="text-xs font-black text-violet-200">{fmt(entry.item.amount)}</p>
-            {:else}
-              <p class="text-[9px] font-bold text-cyan-300">{entry.item.kinds.has('material') ? $tr('material') : $tr('service')}</p>
+            {/if}
+            {#if tags.includes('material') || tags.includes('service')}
+              <p class="text-[9px] font-bold text-cyan-300">
+                {#if tags.includes('material')}{$tr('material')}{/if}{#if tags.includes('material') && tags.includes('service')} · {/if}{#if tags.includes('service')}{$tr('service')}{/if}
+              </p>
+            {/if}
+            {#if entry.item.count > 1}
+              <p class="text-[9px] font-semibold text-slate-400">{$tr('times_contributed', { count: entry.item.count })}</p>
             {/if}
           </div>
         {/each}

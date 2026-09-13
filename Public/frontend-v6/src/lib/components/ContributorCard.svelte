@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Crown } from '@lucide/svelte';
   import type { Ranked } from '$lib/utils/ranking';
-  import type { Contributor } from '$lib/api/derive';
+  import { contributorTags, type Contributor } from '$lib/api/derive';
   import { fmt, initials, avatarGradient } from '$lib/utils/format';
   import { lang, tr } from '$lib/stores/lang';
 
@@ -16,11 +16,11 @@
   let c = $derived(entry.item);
   let displayName = $derived($lang === 'hi' && c.nameHindi ? c.nameHindi : c.name);
   let grad = $derived(avatarGradient(c.key));
-  // Kind badge for non-money contributors (material / service) — shown INSTEAD
-  // of a ₹ amount so material/service never render as ₹0.
-  let kindLabel = $derived(
-    c.hasMoney ? '' : c.kinds.has('material') ? $tr('material') : c.kinds.has('service') ? $tr('service') : ''
-  );
+  // All contribution kinds this person made. Money shows as a ₹ amount; material
+  // and service each get their own badge, so money+material shows BOTH.
+  let tags = $derived(contributorTags(c));
+  let nonMoneyTags = $derived(tags.filter((t) => t !== 'money') as Array<'material' | 'service'>);
+  const tagLabel = (t: 'material' | 'service') => (t === 'material' ? $tr('material') : $tr('service'));
 </script>
 
 <button
@@ -62,8 +62,16 @@
 
   {#if c.hasMoney}
     <span class="mt-0.5 text-sm font-black text-brand-600 dark:text-brand-300">{fmt(c.amount)}</span>
-  {:else}
-    <span class="mt-0.5 rounded-full bg-info/15 px-2 py-0.5 text-[9px] font-bold text-info">{kindLabel}</span>
+  {/if}
+  {#if nonMoneyTags.length}
+    <span class="mt-0.5 flex flex-wrap justify-center gap-0.5">
+      {#each nonMoneyTags as t}
+        <span class="rounded-full bg-info/15 px-2 py-0.5 text-[9px] font-bold text-info">{tagLabel(t)}</span>
+      {/each}
+    </span>
+  {/if}
+  {#if c.count > 1}
+    <span class="mt-0.5 text-[9px] font-semibold text-slate-400">{$tr('times_contributed', { count: c.count })}</span>
   {/if}
 
   {#if entry.isTop}

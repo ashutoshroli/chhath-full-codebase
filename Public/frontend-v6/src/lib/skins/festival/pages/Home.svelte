@@ -6,7 +6,7 @@
   import { Crown } from '@lucide/svelte';
   import { portalState, year } from '$lib/stores/portal';
   import { tr, lang } from '$lib/stores/lang';
-  import { computeFinancials, rankedContributors, ALL_YEARS } from '$lib/api/derive';
+  import { computeFinancials, rankedContributors, resoldItemsForYear, contributorTags, ALL_YEARS } from '$lib/api/derive';
   import { fmt } from '$lib/utils/format';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import { CARD } from '../fest';
@@ -14,8 +14,10 @@
   let loading = $derived($portalState.status === 'loading');
   let fin = $derived(computeFinancials($portalState.data, $year));
   let ranked = $derived(rankedContributors($portalState.data, $year));
+  let resold = $derived(resoldItemsForYear($portalState.data, $year));
   let yearLabel = $derived($year === ALL_YEARS ? $tr('all_years') : String($year));
 
+  let tab = $state<'contributors' | 'resold'>('contributors');
   let search = $state('');
   let filtered = $derived.by(() => {
     const q = search.trim().toLowerCase();
@@ -23,6 +25,7 @@
     return ranked.filter((r) => r.item.name.toLowerCase().includes(q) || r.item.nameHindi.toLowerCase().includes(q));
   });
   const nameOf = (c: { name: string; nameHindi: string }) => ($lang === 'hi' && c.nameHindi ? c.nameHindi : c.name);
+  const tagLabel = (t: 'material' | 'service') => (t === 'material' ? $tr('material') : $tr('service'));
 </script>
 
 <svelte:head><title>Chhath Puja Transparency Portal — Navyuvak Chhath Puja Samiti</title></svelte:head>
@@ -55,32 +58,67 @@
     </div>
   </div>
 
-  <h3 class="mb-3 mt-5 text-base font-black text-[#7a1420]">{$tr('contributors_list')}</h3>
-  <input type="search" bind:value={search} placeholder={$tr('search_by_name')}
-    class="mb-4 w-full rounded-xl border border-[#F5B840]/60 bg-white p-3 text-base text-[#7a1420] outline-none focus:border-[#B01E2E]" />
-
-  <div class="{CARD} min-h-[200px] divide-y divide-[#F5B840]/30 p-4">
-    {#if loading}
-      {#each Array(6) as _}<div class="my-3 h-5 animate-pulse rounded bg-[#F5B840]/20"></div>{/each}
-    {:else if filtered.length === 0}
-      <p class="py-8 text-center text-sm text-[#7a1420]/60">{search ? $tr('no_matches') : $tr('no_records_found')}</p>
-    {:else}
-      {#each filtered as entry (entry.item.key)}
-        <div class="flex items-center justify-between gap-3 py-3">
-          <div class="min-w-0">
-            <div class="flex items-center gap-1.5 font-semibold text-[#7a1420]">
-              <span class="truncate">{nameOf(entry.item)}</span>
-              {#if entry.isTop}<Crown class="h-3.5 w-3.5 flex-none fill-current text-[#F5B840]" aria-label="Top {entry.rank}" />{/if}
-            </div>
-            {#if entry.item.village}<div class="truncate text-xs text-[#7a1420]/60">{entry.item.village}</div>{/if}
-          </div>
-          {#if entry.item.hasMoney}
-            <strong class="flex-none text-emerald-700">+{fmt(entry.item.amount)}</strong>
-          {:else}
-            <span class="flex-none rounded-md bg-[#B01E2E]/10 px-2 py-0.5 text-xs font-bold text-[#B01E2E]">{entry.item.kinds.has('material') ? $tr('material') : $tr('service')}</span>
-          {/if}
-        </div>
-      {/each}
-    {/if}
+  <!-- Contributors / Resold tab toggle -->
+  <div class="mb-3 mt-5 inline-flex gap-1 rounded-xl bg-[#F5B840]/15 p-1">
+    <button
+      type="button"
+      onclick={() => (tab = 'contributors')}
+      class="rounded-lg px-3 py-1.5 text-sm font-black transition
+        {tab === 'contributors' ? 'bg-white text-[#B01E2E] shadow-sm' : 'text-[#7a1420]/60'}"
+      aria-pressed={tab === 'contributors'}
+    >{$tr('tab_contributors')} · {ranked.length}</button>
+    <button
+      type="button"
+      onclick={() => (tab = 'resold')}
+      class="rounded-lg px-3 py-1.5 text-sm font-black transition
+        {tab === 'resold' ? 'bg-white text-[#B01E2E] shadow-sm' : 'text-[#7a1420]/60'}"
+      aria-pressed={tab === 'resold'}
+    >{$tr('tab_resold')} · {resold.length}</button>
   </div>
+
+  {#if tab === 'contributors'}
+    <input type="search" bind:value={search} placeholder={$tr('search_by_name')}
+      class="mb-4 w-full rounded-xl border border-[#F5B840]/60 bg-white p-3 text-base text-[#7a1420] outline-none focus:border-[#B01E2E]" />
+
+    <div class="{CARD} min-h-[200px] divide-y divide-[#F5B840]/30 p-4">
+      {#if loading}
+        {#each Array(6) as _}<div class="my-3 h-5 animate-pulse rounded bg-[#F5B840]/20"></div>{/each}
+      {:else if filtered.length === 0}
+        <p class="py-8 text-center text-sm text-[#7a1420]/60">{search ? $tr('no_matches') : $tr('no_records_found')}</p>
+      {:else}
+        {#each filtered as entry (entry.item.key)}
+          {@const tags = contributorTags(entry.item)}
+          <div class="flex items-center justify-between gap-3 py-3">
+            <div class="min-w-0">
+              <div class="flex items-center gap-1.5 font-semibold text-[#7a1420]">
+                <span class="truncate">{nameOf(entry.item)}</span>
+                {#if entry.isTop}<Crown class="h-3.5 w-3.5 flex-none fill-current text-[#F5B840]" aria-label="Top {entry.rank}" />{/if}
+                {#if entry.item.count > 1}<span class="flex-none rounded bg-[#F5B840]/25 px-1 text-xs font-bold text-[#7a1420]/70">{$tr('times_contributed', { count: entry.item.count })}</span>{/if}
+              </div>
+              {#if entry.item.village}<div class="truncate text-xs text-[#7a1420]/60">{entry.item.village}</div>{/if}
+            </div>
+            <div class="flex flex-none items-center gap-1.5">
+              {#if entry.item.hasMoney}<strong class="text-emerald-700">+{fmt(entry.item.amount)}</strong>{/if}
+              {#each tags.filter((t) => t !== 'money') as t}
+                <span class="rounded-md bg-[#B01E2E]/10 px-2 py-0.5 text-xs font-bold text-[#B01E2E]">{tagLabel(t as 'material' | 'service')}</span>
+              {/each}
+            </div>
+          </div>
+        {/each}
+      {/if}
+    </div>
+  {:else}
+    <div class="{CARD} min-h-[200px] divide-y divide-[#F5B840]/30 p-4">
+      {#if resold.length === 0}
+        <p class="py-8 text-center text-sm text-[#7a1420]/60">{$tr('no_resold_items')}</p>
+      {:else}
+        {#each resold as item (item.key)}
+          <div class="flex items-center justify-between gap-3 py-3">
+            <span class="min-w-0 truncate font-semibold text-[#7a1420]">{item.name || $tr('resold_item')}</span>
+            <strong class="flex-none text-emerald-700">+{fmt(item.amount)}</strong>
+          </div>
+        {/each}
+      {/if}
+    </div>
+  {/if}
 {/if}

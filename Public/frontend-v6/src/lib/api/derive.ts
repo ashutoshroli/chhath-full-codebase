@@ -162,6 +162,48 @@ const truthyResell = (v: unknown): boolean => {
   return s === 'true' || s === '1' || s === 'yes';
 };
 
+/** The kinds of contribution a person made, in a stable display order:
+ *  money first (if any), then material, then service. Drives multi-tag display
+ *  so someone who gave e.g. money + material shows BOTH, not just the amount. */
+export type ContributionKind = 'money' | 'material' | 'service';
+export function contributorTags(c: Pick<Contributor, 'kinds'>): ContributionKind[] {
+  const out: ContributionKind[] = [];
+  if (c.kinds.has('money')) out.push('money');
+  if (c.kinds.has('material')) out.push('material');
+  if (c.kinds.has('service')) out.push('service');
+  return out;
+}
+
+/** A resold-item row (Is Resell = TRUE). These are NOT contributors — they are
+ *  club assets sold on, shown in their own list/tab. `name` is the item name
+ *  (from Detail, falling back to Name), `amount` the sale price. */
+export interface ResoldItem {
+  key: string;
+  name: string;
+  amount: number;
+  year: string;
+}
+
+/** Resold items for a year (or all), in entry order. Mirrors the resell filter
+ *  used everywhere else — these rows are excluded from the contributor list,
+ *  ranking and count, and surfaced here instead. */
+export function resoldItemsForYear(data: PortalData, sel: YearSel): ResoldItem[] {
+  const out: ResoldItem[] = [];
+  let seq = 0;
+  for (const c of collectionsForYear(data, sel)) {
+    if (!truthyResell(c['Is Resell'])) continue;
+    const name = (c.Detail ?? c.Name ?? '').toString().trim();
+    out.push({
+      key: `resold-${c.__rowIndex ?? seq}`,
+      name,
+      amount: parseAmt(c.Amount),
+      year: (c.Year ?? '').toString()
+    });
+    seq++;
+  }
+  return out;
+}
+
 /**
  * Build a userMap keyed by trimmed ID (matches source app.userMap).
  */

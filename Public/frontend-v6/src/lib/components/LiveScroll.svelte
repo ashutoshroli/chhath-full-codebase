@@ -88,8 +88,8 @@
         type="button"
         onclick={oncountclick}
         aria-label={$tr('summary_view_list_label')}
-        class="ml-auto hidden rounded text-[10px] text-slate-400 underline decoration-dotted underline-offset-2 transition hover:text-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 cursor-pointer sm:inline"
-      >{$tr('total_contributions', { count: ranked.length })}</button>
+        class="ml-auto hidden rounded text-[10px] font-semibold text-brand-600 underline decoration-dotted underline-offset-2 transition hover:text-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 cursor-pointer dark:text-brand-300 sm:inline"
+      >{$tr('summary_view_list')}</button>
     {:else}
       <span class="ml-auto hidden text-[10px] text-slate-400 sm:inline">
         {$tr('total_contributions', { count: ranked.length })}
