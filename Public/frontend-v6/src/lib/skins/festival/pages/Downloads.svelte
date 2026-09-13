@@ -28,7 +28,7 @@
 {:else if loading}
   <div class="h-40 animate-pulse rounded-2xl bg-[rgb(var(--accent-2)/0.2)]"></div>
 {:else if selected}
-  <button class="mb-3 inline-flex items-center gap-1 rounded-lg border border-[rgb(var(--accent)/0.3)] bg-white px-3 py-1.5 text-sm font-semibold text-[rgb(var(--accent))]" onclick={() => (selected = null)}>
+  <button class="mb-3 inline-flex items-center gap-1 rounded-lg border border-[rgb(var(--accent)/0.3)] bg-[rgb(var(--surface-bg))] px-3 py-1.5 text-sm font-semibold text-[rgb(var(--accent))]" onclick={() => (selected = null)}>
     <ArrowLeft class="h-4 w-4" /> {$tr('back')}
   </button>
   <div class="{CARD} mb-3 p-4 font-bold text-[rgb(var(--fest-ink))]">{nameOf(selected)}</div>
@@ -54,12 +54,12 @@
 {:else}
   <div class="{CARD} p-4">
     <label class="mb-1.5 block text-xs font-semibold text-[rgb(var(--fest-ink)/0.7)]" for="dc-village">{$tr('village')}</label>
-    <select id="dc-village" class="mb-3 w-full rounded-lg border border-[rgb(var(--accent-2)/0.6)] bg-white p-2.5 text-sm text-[rgb(var(--fest-ink))]" bind:value={village}>
+    <select id="dc-village" class="mb-3 w-full rounded-lg border border-[rgb(var(--accent-2)/0.6)] bg-[rgb(var(--surface-bg))] p-2.5 text-sm text-[rgb(var(--fest-ink))]" bind:value={village}>
       <option value="">{$tr('select_village')}</option>
       {#each villageList as v}<option value={v}>{v}</option>{/each}
     </select>
     <label class="mb-1.5 block text-xs font-semibold text-[rgb(var(--fest-ink)/0.7)]" for="dc-search">{$tr('name')}</label>
-    <input id="dc-search" type="search" bind:value={query} disabled={!village} placeholder={village ? $tr('search_by_name') : $tr('select_village_first')} class="w-full rounded-lg border border-[rgb(var(--accent-2)/0.6)] bg-white p-2.5 text-sm text-[rgb(var(--fest-ink))] outline-none focus:border-[rgb(var(--accent))] disabled:opacity-50" />
+    <input id="dc-search" type="search" bind:value={query} disabled={!village} placeholder={village ? $tr('search_by_name') : $tr('select_village_first')} class="w-full rounded-lg border border-[rgb(var(--accent-2)/0.6)] bg-[rgb(var(--surface-bg))] p-2.5 text-sm text-[rgb(var(--fest-ink))] outline-none focus:border-[rgb(var(--accent))] disabled:opacity-50" />
   </div>
   <div class="mt-3">
     {#if !village}

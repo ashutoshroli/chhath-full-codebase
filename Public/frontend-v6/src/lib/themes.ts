@@ -150,6 +150,24 @@ export const THEMES: ThemeDef[] = [
     mode: 'light',
     originKey: 'theme_origin_heritage',
     swatch: ['#fdfbf7', '#ffffff', '#064e3b']
+  },
+  {
+    // Festival Dark — the festive maroon/gold scheme on a dark maroon-charcoal
+    // canvas (festival skin).
+    id: 'festival-dark',
+    labelKey: 'theme_festival_dark',
+    mode: 'dark',
+    originKey: 'theme_origin_new',
+    swatch: ['#1a0d10', '#2a1418', '#f5b840']
+  },
+  {
+    // Heritage Serif Dark — the editorial serif look on a deep charcoal canvas,
+    // forest green + antique gold (festival skin).
+    id: 'heritage-serif-dark',
+    labelKey: 'theme_heritage_serif_dark',
+    mode: 'dark',
+    originKey: 'theme_origin_heritage',
+    swatch: ['#0f1211', '#1a201d', '#d97706']
   }
 ];
 

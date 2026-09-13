@@ -266,11 +266,53 @@
     --fest-banner-to: #0f766e;
     --fest-ink: 28 25 23; /* #1c1917 stone-900 text */
   }
+
+  /* Festival Dark — the festive maroon/gold scheme on a dark maroon-charcoal
+     canvas (festival skin). Same accents as light Festival; --fest-ink is now a
+     warm cream so body text reads on the dark surfaces. */
+  :root[data-theme='festival-dark'] {
+    --surface-bg: 42 20 24; /* deep maroon-charcoal */
+    --surface-alpha: 0.8;
+    --surface-border: 245 184 64;
+    --surface-border-alpha: 0.22;
+    --page-from: #180a0d;
+    --page-via: #2a1015;
+    --page-to: #14090b;
+    --page-sun: 0;
+    --accent: 224 58 78; /* brighter maroon-red so it pops on dark */
+    --accent-2: 245 184 64; /* #F5B840 marigold gold */
+    --fest-banner-from: #4a0c14;
+    --fest-banner-to: #7a1420;
+    --fest-ink: 255 236 214; /* warm cream body text on dark */
+  }
+
+  /* Heritage Serif Dark — the editorial serif look on a deep charcoal canvas,
+     forest green + antique gold; --fest-ink is a light stone so body text reads
+     on the dark surfaces. */
+  :root[data-theme='heritage-serif-dark'] {
+    --surface-bg: 26 32 29; /* charcoal with a faint green tint */
+    --surface-alpha: 0.85;
+    --surface-border: 217 119 6;
+    --surface-border-alpha: 0.2;
+    --page-from: #0b0f0d;
+    --page-via: #121a16;
+    --page-to: #0b0f0d;
+    --page-sun: 0;
+    --accent: 52 211 153; /* brighter emerald so it pops on dark */
+    --accent-2: 217 119 6; /* #D97706 antique gold */
+    --fest-banner-from: #052e21;
+    --fest-banner-to: #064e3b;
+    --fest-ink: 231 229 228; /* stone-200 body text on dark */
+  }
+
   /* Serif headings for the editorial look (font-serif is added in tailwind.config
-     + loaded non-blocking in app.html). Scoped to this theme only. */
+     + loaded non-blocking in app.html). Scoped to the heritage themes only. */
   :root[data-theme='heritage-serif'] h1,
   :root[data-theme='heritage-serif'] h2,
-  :root[data-theme='heritage-serif'] h3 {
+  :root[data-theme='heritage-serif'] h3,
+  :root[data-theme='heritage-serif-dark'] h1,
+  :root[data-theme='heritage-serif-dark'] h2,
+  :root[data-theme='heritage-serif-dark'] h3 {
     font-family: theme('fontFamily.serif');
   }
 

@@ -47,10 +47,10 @@
     </nav>
 
     <div class="ml-auto flex flex-none items-center gap-1.5">
-      <button class="grid h-9 w-9 place-items-center rounded-lg border border-[rgb(var(--accent)/0.3)] bg-white text-[rgb(var(--accent))] transition hover:bg-[rgb(var(--accent-2)/0.2)] active:scale-95" onclick={() => openThemeGallery()} aria-label={$tr('choose_theme')} title={$tr('choose_theme')}>
+      <button class="grid h-9 w-9 place-items-center rounded-lg border border-[rgb(var(--accent)/0.3)] bg-[rgb(var(--surface-bg))] text-[rgb(var(--accent))] transition hover:bg-[rgb(var(--accent-2)/0.2)] active:scale-95" onclick={() => openThemeGallery()} aria-label={$tr('choose_theme')} title={$tr('choose_theme')}>
         <Palette class="h-4 w-4" aria-hidden="true" />
       </button>
-      <button class="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[rgb(var(--accent)/0.3)] bg-white px-2.5 text-sm font-bold text-[rgb(var(--accent))] transition hover:bg-[rgb(var(--accent-2)/0.2)] active:scale-95" onclick={() => lang.toggle()} aria-label={$tr('toggle_language')} title={$tr('toggle_language')}>
+      <button class="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[rgb(var(--accent)/0.3)] bg-[rgb(var(--surface-bg))] px-2.5 text-sm font-bold text-[rgb(var(--accent))] transition hover:bg-[rgb(var(--accent-2)/0.2)] active:scale-95" onclick={() => lang.toggle()} aria-label={$tr('toggle_language')} title={$tr('toggle_language')}>
         <Languages class="h-4 w-4" aria-hidden="true" />
         <span class="hidden xs:inline">{$lang === 'hi' ? 'English' : 'हिंदी'}</span>
       </button>
