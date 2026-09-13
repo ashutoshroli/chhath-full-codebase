@@ -15,7 +15,10 @@
   let selected = $state<UserRow | null>(null);
 
   let villageList = $derived(villages($portalState.data, $lang));
-  let people = $derived(village ? peopleInVillage($portalState.data, village, query) : []);
+  // Only reveal the people list AFTER the user searches (village select alone
+  // must not dump the whole list). Requires a village + a non-empty query.
+  let searchQuery = $derived(query.trim());
+  let people = $derived(village && searchQuery ? peopleInVillage($portalState.data, village, searchQuery) : []);
   let groups = $derived(selected ? downloadsForPerson($portalState.data, (selected.ID ?? '').toString()) : []);
   let selectedGrad = $derived(avatarGradient((selected?.ID ?? '').toString()));
 
@@ -103,6 +106,8 @@
 
   {#if !village}
     <EmptyState message={$tr('select_village_first')} />
+  {:else if !searchQuery}
+    <EmptyState message={$tr('type_to_search')} />
   {:else if people.length === 0}
     <EmptyState message={$tr('no_matches')} />
   {:else}

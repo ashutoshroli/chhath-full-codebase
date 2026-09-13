@@ -2,13 +2,16 @@
   /**
    * Contributors Live Scroll — the ONE contributor showcase on the home page.
    *
-   * Behaviour required by the brief:
-   *  - Full contribution dataset for the selected year (per-person, ranked).
-   *  - Automatic horizontal scroll LEFT -> RIGHT (content moves leftward so new
-   *    cards enter from the right), seamless infinite loop.
-   *  - Touch swipe (native overflow), manual prev/next controls, pause/resume.
-   *  - Pauses on hover / touch / when tab hidden / reduced-motion. No layout shift.
-   *  - Only Top-5 cards carry the crown/gold treatment (handled in ContributorCard).
+   *  - Full per-person, ranked dataset for the selected year.
+   *  - Continuous automatic horizontal scroll (content moves left; cards flow in
+   *    from the right), seamless infinite loop via a duplicated track.
+   *  - Manual: touch swipe + prev/next buttons temporarily take over (auto pauses
+   *    briefly, then resumes). Pause/resume button. Pauses on hover, when the tab
+   *    is hidden, and under reduced-motion.
+   *
+   * Implementation: the auto-scroll drives `scrollLeft` directly (no CSS
+   * scroll-behavior:smooth / scroll-snap, which fight per-frame updates and make
+   * it stutter/stick). Manual swipe just uses native overflow scrolling.
    */
   import { ChevronLeft, ChevronRight, Pause, Play, Radio } from '@lucide/svelte';
   import { browser } from '$app/environment';
@@ -24,45 +27,47 @@
 
   let ranked = $derived(rankedContributors($portalState.data, $year));
   let loading = $derived($portalState.status === 'loading');
-  // Duplicate the list once for a seamless loop (only when there's enough to scroll).
-  let doubled = $derived(ranked.length > 3 ? [...ranked, ...ranked] : ranked);
+  // Duplicate the list for a seamless loop (only when there's enough to scroll).
+  let canLoop = $derived(ranked.length > 3);
+  let doubled = $derived(canLoop ? [...ranked, ...ranked] : ranked);
 
   let track: HTMLDivElement | undefined = $state();
-  let paused = $state(false);
+  let hovering = $state(false);
   let userPaused = $state(false);
   let reduceMotion = $state(false);
+  // While the user is actively swiping/nudging, suspend auto-scroll for a moment.
+  let interactingUntil = 0;
 
-  const SPEED = 0.5; // px per frame (~30px/s at 60fps) — gentle, readable
+  const SPEED = 0.6; // px per frame (~36px/s @60fps) — gentle and readable
 
   $effect(() => {
     if (!browser) return;
     reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
-    const onVis = () => (paused = document.hidden ? true : paused);
-    document.addEventListener('visibilitychange', onVis);
-
     let raf = 0;
     const step = () => {
       raf = requestAnimationFrame(step);
       const el = track;
-      if (!el || paused || userPaused || reduceMotion) return;
-      if (ranked.length <= 3) return;
-      // Move content leftward so cards flow L -> R into view.
+      if (!el) return;
+      const active = !userPaused && !hovering && !reduceMotion && !document.hidden;
+      if (!active) return;
+      if (!canLoop) return;
+      if (Date.now() < interactingUntil) return; // let a manual gesture settle
       el.scrollLeft += SPEED;
-      // Seamless loop: the track holds 2 copies; reset at the halfway point.
+      // Seamless loop: track holds 2 copies; wrap at the halfway mark.
       const half = el.scrollWidth / 2;
-      if (el.scrollLeft >= half) el.scrollLeft -= half;
+      if (half > 0 && el.scrollLeft >= half) el.scrollLeft -= half;
     };
     raf = requestAnimationFrame(step);
-
-    return () => {
-      cancelAnimationFrame(raf);
-      document.removeEventListener('visibilitychange', onVis);
-    };
+    return () => cancelAnimationFrame(raf);
   });
 
   function nudge(dir: 1 | -1) {
+    interactingUntil = Date.now() + 1200;
     track?.scrollBy({ left: dir * 240, behavior: 'smooth' });
+  }
+  function markInteracting() {
+    interactingUntil = Date.now() + 1500;
   }
 </script>
 
@@ -111,12 +116,12 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       bind:this={track}
-      class="no-scrollbar flex gap-2.5 overflow-x-auto scroll-smooth pb-1 pt-2.5"
-      style="scroll-snap-type: x proximity;"
-      onpointerenter={() => (paused = true)}
-      onpointerleave={() => (paused = false)}
-      ontouchstart={() => (paused = true)}
-      ontouchend={() => (paused = false)}
+      class="no-scrollbar flex gap-2.5 overflow-x-auto pb-1 pt-2.5"
+      onpointerenter={() => (hovering = true)}
+      onpointerleave={() => (hovering = false)}
+      ontouchstart={markInteracting}
+      ontouchmove={markInteracting}
+      onwheel={markInteracting}
       role="list"
       aria-label={$tr('contributors_live_scroll', { year: $year })}
     >

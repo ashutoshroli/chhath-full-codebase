@@ -3,8 +3,10 @@
   import { tr } from '$lib/stores/lang';
 </script>
 
-<section
-  class="relative overflow-hidden rounded-2xl p-4 shadow-card sm:p-5
+<a
+  href="/decade"
+  aria-label={$tr('decade_title')}
+  class="relative block overflow-hidden rounded-2xl p-4 shadow-card transition active:scale-[.99] sm:p-5
     bg-gradient-to-br from-amber-100 to-brand-200
     dark:from-brand-900/60 dark:to-amber-900/40"
 >
@@ -31,4 +33,4 @@
       <ArrowRight class="h-5 w-5" />
     </span>
   </div>
-</section>
+</a>
