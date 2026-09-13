@@ -57,7 +57,13 @@
               <span class="block truncate text-[11px] text-slate-500 dark:text-slate-400">{entry.item.village}</span>
             {/if}
           </span>
-          <span class="shrink-0 text-sm font-black text-brand-600 dark:text-brand-300">{fmt(entry.item.amount)}</span>
+          {#if entry.item.hasMoney}
+            <span class="shrink-0 text-sm font-black text-brand-600 dark:text-brand-300">{fmt(entry.item.amount)}</span>
+          {:else}
+            <span class="shrink-0 rounded-full bg-info/15 px-2 py-0.5 text-[10px] font-bold text-info">
+              {entry.item.kinds.has('material') ? $tr('material') : $tr('service')}
+            </span>
+          {/if}
         </li>
       {/each}
     </ul>

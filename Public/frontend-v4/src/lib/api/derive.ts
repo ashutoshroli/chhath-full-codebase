@@ -137,11 +137,23 @@ export interface Contributor {
   amount: number;
   village: string;
   villageHindi: string;
+  designation: string;
+  designationHindi: string;
+  fatherName: string;
+  fatherNameHindi: string;
   /** number of individual contribution rows folded into this person */
   count: number;
   /** entry order: index at which this person FIRST appears in the data
    *  (so "jo pehle diya wo pehle" is preserved for non-top-5 display). */
   order: number;
+  /** true if this person has ANY monetary ('1') contribution (drives ranking). */
+  hasMoney: boolean;
+  /** contribution kinds this person made: 'money' | 'material' | 'service'. */
+  kinds: Set<'money' | 'material' | 'service'>;
+  /** most-recent Detail text (for material/service display). */
+  detail: string;
+  /** representative year (for the [Year] tag in All mode). */
+  year: string;
 }
 
 const truthyResell = (v: unknown): boolean => {
@@ -176,24 +188,48 @@ export function contributorsForYear(
   const byKey = new Map<string, Contributor>();
   let seq = 0;
   for (const c of collectionsForYear(data, sel)) {
+    // Resold items NEVER count as a contributor (excluded from list + ranking).
     if (truthyResell(c['Is Resell'])) continue;
     const cType = (c['Contribution Type'] ?? '1').toString();
-    // Only monetary contributions (type '1' or missing) carry a ranked amount.
-    const amount = cType === '1' || cType === '' ? parseAmt(c.Amount) : 0;
+    const isMoney = cType === '1' || cType === '';
+    // Only monetary contributions carry a ranked amount; material/service = 0.
+    const amount = isMoney ? parseAmt(c.Amount) : 0;
+    const kind: 'money' | 'material' | 'service' = isMoney
+      ? 'money'
+      : cType === '2'
+        ? 'material'
+        : 'service';
     const id = (c.ID ?? c.Name ?? '').toString().trim();
     if (!id) continue;
     const user = userMap.get(id);
-    const name = (user?.Name ?? c.Name ?? id).toString();
-    const nameHindi = (user?.['Name (Hindi)'] ?? '').toString();
-    const village = (user?.Village ?? '').toString();
-    const villageHindi = (user?.['Village (Hindi)'] ?? '').toString();
+    const detail = (c.Detail ?? '').toString();
 
     const existing = byKey.get(id);
     if (existing) {
       existing.amount += amount;
       existing.count += 1;
+      existing.hasMoney = existing.hasMoney || isMoney;
+      existing.kinds.add(kind);
+      if (detail) existing.detail = detail;
     } else {
-      byKey.set(id, { key: id, name, nameHindi, amount, village, villageHindi, count: 1, order: seq++ });
+      byKey.set(id, {
+        key: id,
+        name: (user?.Name ?? c.Name ?? id).toString(),
+        nameHindi: (user?.['Name (Hindi)'] ?? '').toString(),
+        amount,
+        village: (user?.Village ?? c.Village ?? '').toString(),
+        villageHindi: (user?.['Village (Hindi)'] ?? '').toString(),
+        designation: (user?.Designation ?? '').toString(),
+        designationHindi: (user?.['Designation (Hindi)'] ?? '').toString(),
+        fatherName: (user?.["Father's Name"] ?? '').toString(),
+        fatherNameHindi: (user?.["Father's Name (Hindi)"] ?? '').toString(),
+        count: 1,
+        order: seq++,
+        hasMoney: isMoney,
+        kinds: new Set([kind]),
+        detail,
+        year: (c.Year ?? '').toString()
+      });
     }
   }
 
@@ -217,10 +253,19 @@ export function rankedContributors(
   sel: YearSel,
   userMap = buildUserMap(data)
 ): Ranked<Contributor>[] {
-  const byAmount = contributorsForYear(data, sel, userMap);
-  const ranked = competitionRank(byAmount, (c) => c.amount);
-  // Re-order back to entry order for display; rank/isTop stay attached per person.
-  return [...ranked].sort((a, b) => a.item.order - b.item.order);
+  const all = contributorsForYear(data, sel, userMap);
+  // Only MONEY contributors are eligible for a rank / Top-5 badge. Material and
+  // service givers appear in the list but carry no rank and are never Top-5.
+  const moneyOnly = all.filter((c) => c.hasMoney);
+  const rankedMoney = competitionRank(moneyOnly, (c) => c.amount);
+  const rankByKey = new Map(rankedMoney.map((r) => [r.item.key, r]));
+
+  const combined: Ranked<Contributor>[] = all.map((item) => {
+    const r = rankByKey.get(item.key);
+    return r ? r : { item, rank: 0, isTop: false };
+  });
+  // Display in entry order; rank/isTop stay attached per person.
+  return combined.sort((a, b) => a.item.order - b.item.order);
 }
 
 // ---- Summary statistics ----
@@ -239,9 +284,12 @@ export function computeSummary(
   userMap = buildUserMap(data)
 ): SummaryStats {
   const list = contributorsForYear(data, sel, userMap);
-  const contributors = list.length;
-  const totalCollected = list.reduce((s, c) => s + c.amount, 0);
-  const average = contributors > 0 ? Math.round(totalCollected / contributors) : 0;
+  const contributors = list.length; // everyone who contributed (money/material/service)
+  const totalCollected = list.reduce((s, c) => s + c.amount, 0); // money only
+  // Average is over people who actually gave money, so material/service givers
+  // (amount 0) don't deflate the figure.
+  const moneyGivers = list.filter((c) => c.hasMoney).length;
+  const average = moneyGivers > 0 ? Math.round(totalCollected / moneyGivers) : 0;
   const recorded = list.filter((c) => userMap.has(c.key)).length;
   const recordedPct = contributors > 0 ? Math.round((recorded / contributors) * 100) : 0;
   return { contributors, totalCollected, average, recordedPct };
@@ -310,6 +358,19 @@ export function expenseItems(data: PortalData, sel: YearSel): ExpenseItem[] {
 
 // ---- Loans (display) ----
 
+export interface GuarantorItem {
+  name: string;
+  nameHindi: string;
+  village: string;
+  villageHindi: string;
+  isContributor: boolean;
+  isCommittee: boolean;
+  /** true when the guarantor is a committee member for the loan's year
+   *  (base version flags this as a "Rule Violation"). */
+  ruleViolation: boolean;
+  seed: string;
+}
+
 export interface LoanItem {
   receiverId: string;
   name: string;
@@ -322,6 +383,53 @@ export interface LoanItem {
   tenure: number;
   year: string;
   seed: string;
+  guarantors: GuarantorItem[];
+}
+
+/**
+ * Resolve the guarantors for one loan, matching the base version exactly:
+ *  - if the loan has a Loan ID -> match guarantor rows by that Loan ID;
+ *  - else -> match by year AND (Loaner | ID | Name === receiverId).
+ * Each guarantor is flagged Contributor / Committee for the loan's year, and
+ * ruleViolation === isCommittee (committee members may not stand guarantor).
+ */
+function guarantorsForLoan(
+  data: PortalData,
+  loanId: string,
+  loanYear: number | null,
+  receiverId: string,
+  userMap: Map<string, UserRow>
+): GuarantorItem[] {
+  const rows = (data.guarantors || []).filter((g) => {
+    if (loanId) return (g['Loan ID'] ?? '').toString().trim() === loanId;
+    const gy = yint(g.Year);
+    const loanerMatch =
+      (g.Loaner ?? '').toString() === receiverId ||
+      (g.ID ?? '').toString() === receiverId ||
+      (g.Name ?? '').toString() === receiverId;
+    return gy === loanYear && loanerMatch;
+  });
+
+  return rows.map((g) => {
+    const gid = (g.Guarantor ?? g['Guarantor ID'] ?? g['Guarantor 1'] ?? '').toString().trim();
+    const u = userMap.get(gid);
+    const isContributor = (data.collections || []).some(
+      (c) => yint(c.Year) === loanYear && ((c.ID ?? '').toString() === gid || (c.Name ?? '').toString() === gid)
+    );
+    const isCommittee = (data.committee || []).some(
+      (c) => yint(c.Year) === loanYear && ((c.ID ?? '').toString() === gid || (c.Name ?? '').toString() === gid)
+    );
+    return {
+      name: (u?.Name ?? gid).toString(),
+      nameHindi: (u?.['Name (Hindi)'] ?? '').toString(),
+      village: (u?.Village ?? '').toString(),
+      villageHindi: (u?.['Village (Hindi)'] ?? '').toString(),
+      isContributor,
+      isCommittee,
+      ruleViolation: isCommittee,
+      seed: gid
+    };
+  });
 }
 
 export function loanItems(
@@ -333,18 +441,21 @@ export function loanItems(
     const receiverId = (l.ID ?? l.Name ?? l.Receiver ?? '').toString().trim();
     const u = userMap.get(receiverId);
     const calc = loanTotalWithInterest(l);
+    const loanId = (l['Loan ID'] ?? '').toString().trim();
+    const loanYear = yint(l.Year);
     return {
       receiverId,
       name: (u?.Name ?? l.Name ?? receiverId).toString(),
       nameHindi: (u?.['Name (Hindi)'] ?? '').toString(),
-      loanId: (l['Loan ID'] ?? '').toString(),
+      loanId,
       principal: calc.principal,
       interest: calc.interest,
       total: calc.total,
       ratePerMonth: parseAmt(l['Intrest Rate'] ?? l['Interest Rate']),
       tenure: parseAmt(l.Tenure),
       year: (l.Year ?? '').toString(),
-      seed: receiverId || (l.Name ?? '').toString()
+      seed: receiverId || (l.Name ?? '').toString(),
+      guarantors: guarantorsForLoan(data, loanId, loanYear, receiverId, userMap)
     };
   });
 }
