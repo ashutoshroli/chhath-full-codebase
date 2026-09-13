@@ -61,6 +61,7 @@ export const T: Record<Lang, Dict> = {
     no_docs: 'No records available.',
     chat_placeholder: 'Type your question…',
     chat_error: 'Sorry, something went wrong. Please try again.',
+    chat_welcome: '🙏 Namaste! I am the Chhath portal assistant. Ask me about contributions, expenses, loans, committee members, or downloads.',
     verified_record: 'Verified Record',
     record_not_found: 'Record Not Found',
     verify_help:
@@ -311,6 +312,7 @@ export const T: Record<Lang, Dict> = {
     no_docs: 'कोई दस्तावेज़ उपलब्ध नहीं है।',
     chat_placeholder: 'अपना प्रश्न लिखें…',
     chat_error: 'क्षमा करें, कुछ गड़बड़ हुई। कृपया पुनः प्रयास करें।',
+    chat_welcome: '🙏 नमस्ते! मैं छठ पोर्टल सहायक हूँ। योगदान, खर्च, ऋण, समिति सदस्य या डाउनलोड के बारे में पूछें।',
     verified_record: 'सत्यापित रिकॉर्ड',
     record_not_found: 'रिकॉर्ड नहीं मिला',
     verify_help:

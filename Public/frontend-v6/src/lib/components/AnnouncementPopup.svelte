@@ -18,7 +18,30 @@
   let idx = $state(0);
   let timer: ReturnType<typeof setTimeout> | undefined;
 
-  const DISMISS_KEY = 'cpm_public_v4_popup_dismissed';
+  // Show at most once per 24h (persisted in localStorage) — not every refresh,
+  // and not just once per session. Dismissing also starts the 24h window.
+  const SEEN_KEY = 'cpm_public_v4_popup_seen_at';
+  const SEEN_TTL_MS = 24 * 60 * 60 * 1000;
+
+  function markSeen() {
+    try {
+      localStorage.setItem(SEEN_KEY, Date.now().toString());
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function seenRecently(): boolean {
+    try {
+      const raw = localStorage.getItem(SEEN_KEY);
+      if (!raw) return false;
+      const t = parseInt(raw, 10);
+      if (!Number.isFinite(t)) return false;
+      return Date.now() - t < SEEN_TTL_MS;
+    } catch {
+      return false;
+    }
+  }
 
   function clampDuration(ms: unknown): number {
     const n = parseInt((ms ?? '').toString(), 10);
@@ -52,20 +75,13 @@
   function close() {
     open = false;
     clearTimeout(timer);
-    try {
-      sessionStorage.setItem(DISMISS_KEY, '1');
-    } catch {
-      /* ignore */
-    }
+    markSeen();
   }
 
   onMount(async () => {
     if (!browser) return;
-    try {
-      if (sessionStorage.getItem(DISMISS_KEY) === '1') return;
-    } catch {
-      /* ignore */
-    }
+    // Skip if it was already shown within the last 24 hours.
+    if (seenRecently()) return;
     const raw = await loadActivePopups();
     const parsed = activePopupsSchema.safeParse(raw);
     const list = parsed.success ? parsed.data : [];
@@ -74,6 +90,9 @@
       popup = p;
       idx = 0;
       open = true;
+      // Mark as seen as soon as it is shown, so a refresh within 24h won't
+      // re-open it even if the visitor doesn't explicitly dismiss.
+      markSeen();
     }
   });
 

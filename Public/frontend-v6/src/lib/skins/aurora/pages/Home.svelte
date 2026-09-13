@@ -10,6 +10,7 @@
   import { fmt } from '$lib/utils/format';
   import { initials, avatarGradient } from '$lib/utils/format';
   import ErrorState from '$lib/components/ErrorState.svelte';
+  import ContributorsListModal from '$lib/components/ContributorsListModal.svelte';
   import { GLASS } from '../glass';
 
   let loading = $derived($portalState.status === 'loading');
@@ -18,6 +19,7 @@
   let ranked = $derived(rankedContributors($portalState.data, $year));
   let yearLabel = $derived($year === ALL_YEARS ? $tr('all_years') : String($year));
   const nameOf = (c: { name: string; nameHindi: string }) => ($lang === 'hi' && c.nameHindi ? c.nameHindi : c.name);
+  let listOpen = $state(false);
 </script>
 
 <svelte:head><title>Chhath Puja Transparency Portal — Navyuvak Chhath Puja Samiti</title></svelte:head>
@@ -43,11 +45,16 @@
     </div>
 
     <!-- stat tiles -->
-    <div class="{GLASS} p-4">
+    <button
+      type="button"
+      onclick={() => (listOpen = true)}
+      aria-label={$tr('summary_view_list_label')}
+      class="{GLASS} p-4 text-left transition active:scale-[.98] cursor-pointer hover:ring-2 hover:ring-violet-400/50"
+    >
       <Users class="h-5 w-5 text-violet-300" aria-hidden="true" />
       <p class="mt-2 text-2xl font-black text-white">{sum.contributors}</p>
       <p class="text-[11px] text-slate-300">{$tr('summary_contributors')}</p>
-    </div>
+    </button>
     <div class="{GLASS} p-4">
       <Landmark class="h-5 w-5 text-cyan-300" aria-hidden="true" />
       <p class="mt-2 text-lg font-black text-white">{fmt(fin.pastLoanReturned)}</p>
@@ -94,3 +101,5 @@
     {/if}
   </div>
 {/if}
+
+<ContributorsListModal open={listOpen} onclose={() => (listOpen = false)} />
