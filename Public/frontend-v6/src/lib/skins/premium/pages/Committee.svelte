@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Users, MapPin, Phone } from '@lucide/svelte';
+  import { Users, MapPin, Phone, LogIn } from '@lucide/svelte';
   import PageHeading from '$lib/components/PageHeading.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
@@ -8,6 +8,7 @@
   import { tr, lang } from '$lib/stores/lang';
   import { committeeForYear } from '$lib/api/derive';
   import { initials, avatarGradient } from '$lib/utils/format';
+  import { mgmtLoginUrl } from '$lib/api/client';
 
   let loading = $derived($portalState.status === 'loading');
   let members = $derived(committeeForYear($portalState.data, $year));
@@ -26,7 +27,18 @@
   <title>{$tr('active_committee')} — {$tr('app_title')}</title>
 </svelte:head>
 
-<PageHeading icon={Users} titleKey="active_committee" />
+<div class="flex items-center justify-between gap-3">
+  <PageHeading icon={Users} titleKey="active_committee" />
+  <a
+    href={mgmtLoginUrl}
+    target="_blank"
+    rel="noopener"
+    class="inline-flex flex-none items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-2 text-sm font-bold text-white shadow-card transition hover:bg-brand-600 active:scale-95"
+  >
+    <LogIn class="h-4 w-4" aria-hidden="true" />
+    {$tr('login')}
+  </a>
+</div>
 
 {#if $portalState.failed}
   <ErrorState />
