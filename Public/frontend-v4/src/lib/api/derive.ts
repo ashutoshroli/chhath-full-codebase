@@ -139,6 +139,9 @@ export interface Contributor {
   villageHindi: string;
   /** number of individual contribution rows folded into this person */
   count: number;
+  /** entry order: index at which this person FIRST appears in the data
+   *  (so "jo pehle diya wo pehle" is preserved for non-top-5 display). */
+  order: number;
 }
 
 const truthyResell = (v: unknown): boolean => {
@@ -171,6 +174,7 @@ export function contributorsForYear(
   userMap = buildUserMap(data)
 ): Contributor[] {
   const byKey = new Map<string, Contributor>();
+  let seq = 0;
   for (const c of collectionsForYear(data, sel)) {
     if (truthyResell(c['Is Resell'])) continue;
     const cType = (c['Contribution Type'] ?? '1').toString();
@@ -189,24 +193,40 @@ export function contributorsForYear(
       existing.amount += amount;
       existing.count += 1;
     } else {
-      byKey.set(id, { key: id, name, nameHindi, amount, village, villageHindi, count: 1 });
+      byKey.set(id, { key: id, name, nameHindi, amount, village, villageHindi, count: 1, order: seq++ });
     }
   }
 
+  // Amount-descending (ties -> name) so competition ranking is computed correctly.
   return [...byKey.values()].sort((a, b) => {
     if (b.amount !== a.amount) return b.amount - a.amount;
     return a.name.localeCompare(b.name);
   });
 }
 
-/** Contributors with competition ranking applied (1,1,3,4,4…; top-5 flagged). */
+/**
+ * Contributors with competition ranking (1,1,3,4,4…; top-5 flagged), returned in
+ * the requested DISPLAY order:
+ *   1. Top-5 (rank <= 5) first, kept in amount-descending order.
+ *   2. Everyone else after, in ENTRY order (first-given first) — i.e. NOT sorted
+ *      by amount, so "jo pehle diya wo pehle aaye".
+ * Ranks/flags are always computed from the true amount order, so a person's rank
+ * never changes regardless of where they render.
+ */
 export function rankedContributors(
   data: PortalData,
   sel: YearSel,
   userMap = buildUserMap(data)
 ): Ranked<Contributor>[] {
-  const list = contributorsForYear(data, sel, userMap);
-  return competitionRank(list, (c) => c.amount);
+  const byAmount = contributorsForYear(data, sel, userMap);
+  const ranked = competitionRank(byAmount, (c) => c.amount);
+
+  const top = ranked.filter((r) => r.isTop); // already amount-desc
+  const rest = ranked
+    .filter((r) => !r.isTop)
+    .sort((a, b) => a.item.order - b.item.order); // entry order
+
+  return [...top, ...rest];
 }
 
 // ---- Summary statistics ----
