@@ -21,6 +21,15 @@
   import Committee from '$lib/views/Committee.svelte';
   import DocxTemplates from '$lib/views/DocxTemplates.svelte';
   import BulkGeneratePdfs from '$lib/views/BulkGeneratePdfs.svelte';
+  import AnnouncementPortal from '$lib/views/AnnouncementPortal.svelte';
+  import ConsentReview from '$lib/views/ConsentReview.svelte';
+  import ConsentTemplates from '$lib/views/ConsentTemplates.svelte';
+  import Email from '$lib/views/Email.svelte';
+  import EmailOfficial from '$lib/views/EmailOfficial.svelte';
+  import WhatsApp from '$lib/views/WhatsApp.svelte';
+  import PopupManagement from '$lib/views/PopupManagement.svelte';
+  import QueueMonitor from '$lib/views/QueueMonitor.svelte';
+  import LoginPopups from '$lib/components/LoginPopups.svelte';
   import DownloadCenter from '$lib/views/DownloadCenter.svelte';
   import PdfExport from '$lib/views/PdfExport.svelte';
 
@@ -85,6 +94,7 @@
   };
 
   let checkedSession = $state(false);
+  let freshLogin = $state(false);
   let year = $state('');
   let yearInitialized = $state(false);
   let showAdminMenu = $state(false);
@@ -223,7 +233,7 @@
 {#if !checkedSession}
   <!-- match React: render nothing until the session check completes -->
 {:else if !$session}
-  <Login onLogin={(u) => session.login(u)} />
+  <Login onLogin={(u) => { session.login(u); freshLogin = true; }} />
 {:else}
   <header class="top-header">
     <div style="display:flex; align-items:center; gap:10px;">
@@ -272,6 +282,22 @@
       <DownloadCenter role={$session.role} />
     {:else if tab === 'pdfexport' && canAccessTab('pdfexport')}
       <PdfExport />
+    {:else if tab === 'consenttemplates' && canAccessTab('consenttemplates')}
+      <ConsentTemplates />
+    {:else if tab === 'consentreview' && canAccessTab('consentreview')}
+      <ConsentReview />
+    {:else if tab === 'whatsapp' && canAccessTab('whatsapp')}
+      <WhatsApp role={$session.role} />
+    {:else if tab === 'email' && canAccessTab('email')}
+      <Email role={$session.role} />
+    {:else if tab === 'emailofficial' && canAccessTab('emailofficial')}
+      <EmailOfficial />
+    {:else if tab === 'popupmgmt' && canAccessTab('popupmgmt')}
+      <PopupManagement />
+    {:else if tab === 'announcementportal' && canAccessTab('announcementportal')}
+      <AnnouncementPortal {years} />
+    {:else if tab === 'queuemonitor' && canAccessTab('queuemonitor')}
+      <QueueMonitor />
     {:else if canAccessTab(tab)}
       <div class="glass-card" style="text-align:center; padding:40px 20px;">
         <span class="material-icons-round" style="font-size:40px; color:var(--primary-saffron);">construction</span>
@@ -320,6 +346,8 @@
       {/each}
     </div>
   </Modal>
+
+  {#if freshLogin}<LoginPopups />{/if}
 
   <AppFooter />
 {/if}
