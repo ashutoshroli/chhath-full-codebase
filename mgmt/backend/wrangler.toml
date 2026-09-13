@@ -33,7 +33,7 @@ CONSENT_BASE_URL = "https://mgmt-chhath.shaharpura.com"
 # SECURITY (audit S4): locked to the real mgmt frontend origin. If the admin
 # panel is also served from another origin (e.g. a vercel.app URL), add it here
 # comma-separated, e.g. "https://mgmt-chhath.shaharpura.com,https://foo.vercel.app".
-ALLOWED_ORIGINS = "https://mgmt-chhath.shaharpura.com"
+ALLOWED_ORIGINS = "https://mgmt-chhath.shaharpura.com,https://chhath-mgmt-v2.vercel.app"
 
 # ---- R2 object storage (new uploads: consent photos/signatures, generated PDFs,
 # popup images) ----
