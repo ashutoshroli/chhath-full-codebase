@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Decorative ghat/temple + devotees + palm silhouette for the live background.
+     Tiny vector (scales crisply, ~1KB) instead of a heavy photo — keeps mobile
+     performance excellent. Pure silhouette so it reads in both themes. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 300" width="1440" height="300" preserveAspectRatio="xMidYEnd slice" role="img" aria-label="">
+  <g fill="currentColor">
+    <!-- palm left -->
+    <path d="M60 300 q-6-90 8-150 q-30 20-46 8 q26-6 44-22 q-30 4-42-14 q28 6 46-6 q-20-18-14-40 q16 20 30 34 q4-30 22-44 q0 30 4 52 q10 60 6 226 z"/>
+    <!-- temple cluster -->
+    <path d="M300 300 v-70 h14 l-7-18 -7 18 z M292 230 h44 v70 h-44 z M314 300 v-120 l18-30 18 30 v120 z M300 180 h64 l-32-40 z"/>
+    <!-- big central shikhara -->
+    <path d="M660 300 v-150 q60-120 96 0 v150 z M700 150 l8-30 8 30 z"/>
+    <path d="M600 300 v-90 q40-70 70 0 v90 z"/>
+    <path d="M760 300 v-100 q34-60 64 0 v100 z"/>
+    <!-- domes right -->
+    <path d="M1000 300 v-60 a34 34 0 0 1 68 0 v60 z"/>
+    <path d="M1080 300 v-90 a44 44 0 0 1 88 0 v90 z M1120 120 l6-24 6 24 z"/>
+    <!-- palm right -->
+    <path d="M1380 300 q6-90-8-150 q30 20 46 8 q-26-6-44-22 q30 4 42-14 q-28 6-46-6 q20-18 14-40 q-16 20-30 34 q-4-30-22-44 q0 30-4 52 q-10 60-6 226 z"/>
+    <!-- devotees standing in water (foreground) -->
+    <g>
+      <path d="M420 300 v-40 a10 10 0 0 1 20 0 v40 z M430 250 a8 8 0 1 1 .1 0 z"/>
+      <path d="M470 300 v-34 a9 9 0 0 1 18 0 v34 z M479 258 a7 7 0 1 1 .1 0 z"/>
+      <path d="M900 300 v-40 a10 10 0 0 1 20 0 v40 z M910 250 a8 8 0 1 1 .1 0 z"/>
+      <path d="M950 300 v-32 a9 9 0 0 1 18 0 v32 z M959 260 a7 7 0 1 1 .1 0 z"/>
+    </g>
+  </g>
+</svg>
