@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+  :root.dark {
+    color-scheme: dark;
+  }
+
+  html,
+  body {
+    @apply antialiased;
+    font-family: theme('fontFamily.sans');
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Comfortable, consistent focus ring for keyboard users. */
+  :where(a, button, input, select, [tabindex]):focus-visible {
+    @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-white dark:ring-offset-ink rounded-lg;
+  }
+}
+
+@layer components {
+  /* Frosted card surface used across the portal (light + dark tuned). */
+  .surface {
+    @apply rounded-2xl border border-white/60 bg-white/90 shadow-card backdrop-blur-md
+      dark:border-white/10 dark:bg-white/[0.06] dark:shadow-card-dark;
+  }
+
+  .chip {
+    @apply inline-flex h-9 items-center gap-1.5 rounded-xl border border-black/5 bg-white/70 px-3
+      text-sm font-semibold text-slate-700 backdrop-blur transition
+      hover:bg-white active:scale-95 dark:border-white/10 dark:bg-white/10 dark:text-slate-100 dark:hover:bg-white/20;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-brand-500
+      to-brand-600 px-4 py-2 font-bold text-white shadow-glow transition active:scale-95;
+  }
+
+  /* Skeleton shimmer for loading states. */
+  .skeleton {
+    @apply animate-pulse rounded-lg bg-slate-200/80 dark:bg-white/10;
+  }
+
+  /* Hide scrollbar for horizontal ticker but keep it scrollable/swipeable. */
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
