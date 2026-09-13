@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Chhath Puja Transparency Portal — Design Preview (Light &amp; Dark)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Kalam:wght@400;700&display=swap" rel="stylesheet" />
+<style>
+/* ============================================================
+   DESIGN PREVIEW — visual mockup only (sample data, no API).
+   Shows the ONE final design in both Light and Dark themes.
+   ============================================================ */
+:root{
+  --brand-500:#F27A1A; --brand-400:#F58C28; --brand-600:#D3630F; --brand-300:#F8A64E;
+  --gold:#F5B840; --success:#10B981; --info:#3B82F6; --danger:#EF4444; --navy:#0B2447;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{font-family:'Inter',system-ui,sans-serif;background:#e9edf3;color:#0f172a;-webkit-font-smoothing:antialiased}
+.kalam{font-family:'Kalam',cursive}
+.page-head{text-align:center;padding:26px 16px 6px}
+.page-head h1{font-size:24px;font-weight:900;letter-spacing:-.02em}
+.page-head p{color:#64748b;font-size:13px;margin-top:4px}
+.wrap{display:flex;gap:24px;padding:22px;flex-wrap:wrap;justify-content:center;align-items:flex-start}
+.frame-label{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:#64748b;margin:0 0 10px 4px}
+
+/* phone frame */
+.phone{width:390px;max-width:100%;border-radius:34px;overflow:hidden;box-shadow:0 30px 70px -20px rgba(15,23,42,.45);position:relative;border:1px solid rgba(0,0,0,.06)}
+.screen{height:820px;overflow-y:auto;position:relative;scrollbar-width:thin}
+.screen::-webkit-scrollbar{width:5px}
+.screen::-webkit-scrollbar-thumb{background:rgba(120,120,120,.4);border-radius:9px}
+
+/* ---------- LIVE CHHATH BACKGROUND (layered, CSS-only) ---------- */
+.bg{position:absolute;inset:0;z-index:0;overflow:hidden}
+.bg .sky{position:absolute;inset:0}
+.bg .sun{position:absolute;left:50%;top:120px;width:190px;height:190px;transform:translateX(-50%);border-radius:50%;
+  background:radial-gradient(circle,#FFE9A8 0%,#FFC24B 34%,#FF8A2B 60%,rgba(255,138,43,0) 72%);
+  filter:blur(2px);animation:sunrise 8s ease-in-out infinite alternate}
+@keyframes sunrise{from{transform:translate(-50%,10px);opacity:.9}to{transform:translate(-50%,-10px);opacity:1}}
+.bg .water{position:absolute;left:0;right:0;bottom:0;height:230px;
+  background:linear-gradient(180deg,rgba(255,150,60,.30),rgba(60,60,120,.15));
+  overflow:hidden}
+.bg .water:before,.bg .water:after{content:"";position:absolute;left:-40%;right:-40%;height:60px;
+  background:radial-gradient(ellipse at center,rgba(255,255,255,.35),transparent 70%);
+  animation:ripple 6s linear infinite}
+.bg .water:after{top:60px;animation-duration:9s;opacity:.6}
+@keyframes ripple{0%{transform:translateX(0)}100%{transform:translateX(80px)}}
+.diya{position:absolute;width:8px;height:8px;border-radius:50%;background:radial-gradient(circle,#FFE9A8,#FF9A3C);
+  box-shadow:0 0 10px 3px rgba(255,170,60,.7);animation:float 7s ease-in-out infinite}
+@keyframes float{0%,100%{transform:translateY(0);opacity:.6}50%{transform:translateY(-14px);opacity:1}}
+
+.light .sky{background:linear-gradient(180deg,#FDE7C9 0%,#FBC98C 34%,#F79F5B 62%,#E98B54 100%)}
+.dark .sky{background:linear-gradient(180deg,#2a1330 0%,#5b2733 30%,#a83f24 60%,#e2691f 100%)}
+.dark .screen{color:#e7ecf3}
+
+/* content shell */
+.content{position:relative;z-index:2;padding:0 12px 90px}
+
+/* ---------- HEADER ---------- */
+.hdr{display:flex;align-items:center;gap:9px;padding:12px 6px 8px;position:relative;z-index:3}
+.logo{width:38px;height:38px;border-radius:11px;background:linear-gradient(135deg,#fff,#ffe7c9);display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 4px 12px rgba(210,99,15,.35);flex-shrink:0}
+.dark .logo{background:linear-gradient(135deg,#3a2038,#5a2a2a)}
+.brand-title{line-height:1.05}
+.brand-title .t1{font-weight:900;font-size:16px}
+.brand-title .t1 b{color:var(--brand-600)}
+.dark .brand-title .t1 b{color:#FFB86B}
+.brand-title .t2{font-size:10.5px;font-weight:700;color:#7c4a1e}
+.dark .brand-title .t2{color:#f4c79a}
+.brand-title .t3{font-size:8.5px;letter-spacing:.08em;color:#9a6a3a}
+.dark .brand-title .t3{color:#d9a878}
+.hdr-ctrls{margin-left:auto;display:flex;gap:6px;align-items:center}
+.chip{border:none;background:rgba(255,255,255,.7);backdrop-filter:blur(6px);border-radius:10px;height:32px;padding:0 9px;font-size:13px;font-weight:700;display:flex;align-items:center;gap:4px;cursor:pointer;color:#334155}
+.dark .chip{background:rgba(255,255,255,.12);color:#eee}
+.chip.year{background:linear-gradient(135deg,var(--brand-500),var(--brand-600));color:#fff}
+
+/* hero line */
+.hero-msg{position:relative;z-index:3;padding:6px 8px 2px}
+.hero-msg .hi{font-family:'Kalam',cursive;font-size:22px;font-weight:700;color:#7a2f10;text-shadow:0 1px 0 rgba(255,255,255,.4)}
+.dark .hero-msg .hi{color:#ffd9a8;text-shadow:0 1px 4px rgba(0,0,0,.5)}
+.hero-msg .sub{font-size:10px;font-weight:700;color:#fff;margin-top:120px;text-shadow:0 1px 3px rgba(0,0,0,.4)}
+
+/* ---------- CARD ---------- */
+.card{background:rgba(255,255,255,.92);backdrop-filter:blur(10px);border-radius:18px;padding:14px;margin-top:12px;box-shadow:0 10px 30px -12px rgba(15,23,42,.25);border:1px solid rgba(255,255,255,.6)}
+.dark .card{background:rgba(20,22,34,.72);border:1px solid rgba(255,255,255,.08);box-shadow:0 14px 34px -12px rgba(0,0,0,.6)}
+
+/* financial overview */
+.fin-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.live{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800}
+.live .dot{width:8px;height:8px;border-radius:50%;background:var(--success);box-shadow:0 0 0 4px rgba(16,185,129,.2);animation:pulse 1.6s infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 8px rgba(16,185,129,0)}}
+.fin-top .ttl{font-weight:800;font-size:14px;color:var(--brand-600)}
+.dark .fin-top .ttl{color:#FFB86B}
+.updated{font-size:9.5px;color:#94a3b8}
+.fin-grid{display:grid;grid-template-columns:98px 1fr;gap:14px;align-items:center}
+.ring{position:relative;width:96px;height:96px}
+.ring svg{transform:rotate(-90deg)}
+.ring .pct{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.ring .pct b{font-size:19px;font-weight:900}
+.ring .pct span{font-size:9px;color:#94a3b8}
+.budget .lab{font-size:11px;color:#64748b;font-weight:600}
+.dark .budget .lab{color:#a9b4c4}
+.budget .big{font-size:30px;font-weight:900;color:var(--brand-600);letter-spacing:-.02em;line-height:1.1}
+.dark .budget .big{color:#FF9F45}
+.budget .avail{font-size:11px;font-weight:700;color:var(--success);margin-top:2px}
+.fin-rows{border-top:1px dashed rgba(120,120,120,.25);margin-top:12px;padding-top:10px;display:grid;gap:9px}
+.frow{display:flex;align-items:center;gap:9px;font-size:12.5px}
+.frow .ic{width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:13px}
+.frow .nm{flex:1;color:#475569;font-weight:600}
+.dark .frow .nm{color:#c3cbd8}
+.frow .amt{font-weight:800}
+.ic.g{background:rgba(16,185,129,.14);color:var(--success)}
+.ic.r{background:rgba(239,68,68,.14);color:var(--danger)}
+.ic.b{background:rgba(59,130,246,.14);color:var(--info)}
+
+/* summary cards */
+.sum{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
+.scard{border-radius:14px;padding:11px 9px;text-align:left;color:#fff;box-shadow:0 8px 20px -10px rgba(15,23,42,.4)}
+.scard .ic{font-size:16px;opacity:.9}
+.scard b{display:block;font-size:16px;font-weight:900;margin-top:6px}
+.scard span{font-size:9.5px;font-weight:600;opacity:.92}
+.scard.c1{background:linear-gradient(135deg,#F58C28,#D3630F)}
+.scard.c2{background:linear-gradient(135deg,#0EA5E9,#0B62A4)}
+.scard.c3{background:linear-gradient(135deg,#8B5CF6,#6D28D9)}
+.scard.c4{background:linear-gradient(135deg,#10B981,#047857)}
+
+/* live scroll */
+.ls-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.ls-head .t{font-weight:800;font-size:13.5px}
+.ls-head .badge{font-size:9px;font-weight:800;background:rgba(16,185,129,.16);color:var(--success);padding:3px 7px;border-radius:20px}
+.ls-head .cnt{margin-left:auto;font-size:9.5px;color:#94a3b8}
+.ls-head .arw{width:26px;height:26px;border-radius:8px;background:rgba(120,120,120,.12);display:flex;align-items:center;justify-content:center;font-weight:800;cursor:pointer}
+.ls-track{display:flex;gap:9px;overflow-x:auto;padding:4px 2px 8px;scroll-snap-type:x mandatory}
+.ls-track::-webkit-scrollbar{height:0}
+.cc{scroll-snap-align:start;flex:0 0 92px;border-radius:14px;padding:11px 8px;text-align:center;position:relative;background:linear-gradient(160deg,#f1f5f9,#e2e8f0)}
+.dark .cc{background:linear-gradient(160deg,rgba(255,255,255,.08),rgba(255,255,255,.03))}
+.cc.top{background:linear-gradient(160deg,#FFF6E0,#FFE7B8);border:1.5px solid var(--gold);box-shadow:0 6px 16px -6px rgba(245,184,64,.6)}
+.dark .cc.top{background:linear-gradient(160deg,rgba(90,60,10,.55),rgba(50,32,6,.55));border:1.5px solid rgba(245,184,64,.7)}
+.cc .crown{position:absolute;top:-9px;left:50%;transform:translateX(-50%);font-size:15px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.3))}
+.cc .rankbadge{position:absolute;top:5px;left:6px;background:var(--gold);color:#5a3a00;font-size:9px;font-weight:900;width:17px;height:17px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+.cc .av{width:42px;height:42px;border-radius:50%;margin:6px auto 7px;display:flex;align-items:center;justify-content:center;font-weight:900;color:#fff;font-size:14px}
+.cc .nm{font-size:10.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cc .am{font-size:12.5px;font-weight:900;color:var(--brand-600);margin-top:2px}
+.dark .cc .am{color:#FFB86B}
+.cc .tag{font-size:7.5px;font-weight:800;color:#a06a10;margin-top:3px}
+
+/* 10 years */
+.decade{margin-top:12px;border-radius:16px;padding:14px;position:relative;overflow:hidden;
+  background:linear-gradient(120deg,#FDE8C6,#F8C889)}
+.dark .decade{background:linear-gradient(120deg,rgba(120,60,20,.6),rgba(60,30,20,.6))}
+.decade .yr{font-size:11px;font-weight:800;color:var(--brand-600)}
+.decade h3{font-size:19px;font-weight:900;margin-top:2px}
+.decade p{font-size:11px;color:#7a4a1e;margin-top:2px}
+.dark .decade p{color:#f0c79a}
+.decade .go{position:absolute;right:14px;top:50%;transform:translateY(-50%);width:36px;height:36px;border-radius:50%;background:var(--brand-500);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px}
+
+/* bottom nav */
+.bnav{position:absolute;left:0;right:0;bottom:0;z-index:5;display:flex;justify-content:space-around;padding:8px 4px calc(8px + env(safe-area-inset-bottom));background:rgba(255,255,255,.94);backdrop-filter:blur(12px);border-top:1px solid rgba(0,0,0,.06)}
+.dark .bnav{background:rgba(14,16,26,.92);border-top:1px solid rgba(255,255,255,.08)}
+.bnav a{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:9.5px;font-weight:700;color:#94a3b8;text-decoration:none}
+.bnav a.on{color:var(--brand-500)}
+.bnav a .i{font-size:19px}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</head>
+<body>
+<div class="page-head">
+  <h1>Chhath Puja Transparency Portal — Final Design Preview</h1>
+  <p>One final design · Light &amp; Dark themes · sample data only (real values come from your API) · Astro + Tailwind</p>
+</div>
+
+<div class="wrap">
+  <!-- ============ LIGHT ============ -->
+  <div>
+    <div class="frame-label">☀️ Light Theme</div>
+    <div class="phone">
+      <div class="screen light" id="lightScreen"></div>
+    </div>
+  </div>
+
+  <!-- ============ DARK ============ -->
+  <div>
+    <div class="frame-label">🌙 Dark Theme</div>
+    <div class="phone">
+      <div class="screen dark" id="darkScreen"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Sample data purely for the visual mock. Real portal pulls from ?action=portalData.
+const contributors = [
+  {n:'Ravi Kumar',   i:'RK', amt:2100, rank:1, c:'#F97316'},
+  {n:'Sanjeet Kumar',i:'SK', amt:2100, rank:1, c:'#8B5CF6'},
+  {n:'Abhishek Verma',i:'AV',amt:1501, rank:3, c:'#EC4899'},
+  {n:'Govind Verma', i:'GV', amt:1000, rank:4, c:'#10B981'},
+  {n:'Pintu Kumar',  i:'PK', amt:1000, rank:4, c:'#EF4444'},
+  {n:'Aarohi Bharti',i:'AB', amt:786,  rank:null, c:'#0EA5E9'},
+  {n:'Manish Kumar', i:'MK', amt:500,  rank:null, c:'#F43F5E'},
+  {n:'Saurav Pandey',i:'SP', amt:501,  rank:null, c:'#3B82F6'},
+];
+const fmt = n => '₹'+n.toLocaleString('en-IN');
+
+function diyas(){let s='';for(let i=0;i<7;i++){const l=8+i*12+Math.random()*4;const b=20+Math.random()*160;const d=(Math.random()*4).toFixed(1);s+=`<span class="diya" style="left:${l}%;bottom:${b}px;animation-delay:${d}s"></span>`;}return s;}
+
+function ccard(c){
+  const isTop = c.rank && c.rank<=5;
+  return `<div class="cc ${isTop?'top':''}">
+    ${isTop?`<span class="crown">👑</span><span class="rankbadge">${c.rank}</span>`:''}
+    <div class="av" style="background:linear-gradient(135deg,${c.c},#0006)">${c.i}</div>
+    <div class="nm">${c.n}</div>
+    <div class="am">${fmt(c.amt)}</div>
+    ${isTop?'<div class="tag">TOP 5</div>':''}
+  </div>`;
+}
+
+function screen(){
+  return `
+  <div class="bg">
+    <div class="sky"></div>
+    <div class="sun"></div>
+    <div class="water"></div>
+    ${diyas()}
+  </div>
+  <div class="content">
+    <div class="hdr">
+      <div class="logo">🪔</div>
+      <div class="brand-title">
+        <div class="t1">Chhath <b>Puja</b></div>
+        <div class="t2">Transparency Portal</div>
+        <div class="t3">Faith • Unity • Transparency</div>
+      </div>
+      <div class="hdr-ctrls">
+        <button class="chip">🌓</button>
+        <button class="chip">हिंदी</button>
+        <button class="chip year">2026 ▾</button>
+      </div>
+    </div>
+
+    <div class="hero-msg">
+      <div class="hi">आस्था की डोर<br>समाज को जोड़े ❤️</div>
+      <div class="sub">Clean Records • Stronger Community • Brighter Tomorrow</div>
+    </div>
+
+    <!-- FINANCIAL OVERVIEW -->
+    <div class="card">
+      <div class="fin-top">
+        <span class="live"><span class="dot"></span>LIVE</span>
+        <span class="ttl">2026 Financial Overview</span>
+        <span class="updated">Updated 12 Oct, 08:24 ↻</span>
+      </div>
+      <div class="fin-grid">
+        <div class="ring">
+          <svg width="96" height="96" viewBox="0 0 96 96">
+            <circle cx="48" cy="48" r="40" fill="none" stroke="rgba(120,120,120,.18)" stroke-width="9"/>
+            <circle cx="48" cy="48" r="40" fill="none" stroke="#F27A1A" stroke-width="9" stroke-linecap="round"
+              stroke-dasharray="251" stroke-dashoffset="240"/>
+          </svg>
+          <div class="pct"><b>4.2%</b><span>Utilized</span></div>
+        </div>
+        <div class="budget">
+          <div class="lab">Total Budget</div>
+          <div class="big">₹35,919</div>
+          <div class="avail">₹34,416 still available</div>
+        </div>
+      </div>
+      <div class="fin-rows">
+        <div class="frow"><span class="ic g">↓</span><span class="nm">Collected</span><span class="amt" style="color:var(--success)">₹23,645</span></div>
+        <div class="frow"><span class="ic r">↑</span><span class="nm">Expenses</span><span class="amt" style="color:var(--danger)">₹1,503</span></div>
+        <div class="frow"><span class="ic b">⛃</span><span class="nm">Past Loan Returned</span><span class="amt" style="color:var(--info)">₹12,274</span></div>
+      </div>
+    </div>
+
+    <!-- SUMMARY -->
+    <div class="sum">
+      <div class="scard c1"><div class="ic">👥</div><b>128</b><span>Contributors</span></div>
+      <div class="scard c2"><div class="ic">💰</div><b>₹23,645</b><span>Collected</span></div>
+      <div class="scard c3"><div class="ic">📊</div><b>₹185</b><span>Avg / person</span></div>
+      <div class="scard c4"><div class="ic">✔️</div><b>100%</b><span>Recorded</span></div>
+    </div>
+
+    <!-- LIVE SCROLL -->
+    <div class="card">
+      <div class="ls-head">
+        <span class="t">Contributors 2026</span>
+        <span class="badge">● Live Scroll</span>
+        <span class="cnt">128 total</span>
+        <span class="arw">‹</span><span class="arw">›</span>
+      </div>
+      <div class="ls-track">${contributors.map(ccard).join('')}</div>
+    </div>
+
+    <!-- 10 YEARS -->
+    <div class="decade">
+      <div class="yr">2017 → 2026</div>
+      <h3>10 Years of Chhath</h3>
+      <p>A decade of faith, unity and service</p>
+      <div class="go">→</div>
+    </div>
+  </div>
+
+  <!-- BOTTOM NAV -->
+  <div class="bnav">
+    <a class="on"><span class="i">🏠</span>Home</a>
+    <a><span class="i">🧾</span>Expenses</a>
+    <a><span class="i">🏦</span>Loans</a>
+    <a><span class="i">👥</span>Committee</a>
+    <a><span class="i">⬇️</span>Downloads</a>
+  </div>`;
+}
+
+document.getElementById('lightScreen').innerHTML = screen();
+document.getElementById('darkScreen').innerHTML = screen();
+</script>
+</body>
+</html>
