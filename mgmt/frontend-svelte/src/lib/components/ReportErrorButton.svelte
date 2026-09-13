@@ -8,7 +8,7 @@
     message: string;
     stack?: string;
   }
-  let { page, message, stack = '' }: Props = $props();
+  let { page, message, stack }: Props = $props();
 
   let errorId = $state<string | null>(null);
   let sending = $state(false);
@@ -23,7 +23,7 @@
     lastKey = key;
     let alive = true;
     logFailed = false;
-    api.logError('frontend', page, message, stack, {})
+    api.logError('frontend', page, message, stack)
       .then((res: any) => {
         if (!alive) return;
         if (res && res.errorId) errorId = res.errorId;
