@@ -2,9 +2,9 @@
  * Theme → Skin registry.
  *
  * Many themes can share one skin (e.g. Sunrise / Warm Night / Midnight are all
- * the Premium layout in different palettes). Later phases add the `classic`
- * (v3) and `slate` (v2) skins plus brand-new skins; until then every theme
- * falls back to Premium so the app always renders.
+ * the Premium layout in different palettes). The themeId → skinId mapping lives
+ * in the pure, unit-tested `skinMap.ts`; this module just resolves those skin
+ * ids to the actual Skin component bundles.
  */
 import type { Skin } from './types';
 import { premiumSkin } from './premium';
@@ -12,24 +12,18 @@ import { classicSkin } from './classic';
 import { slateSkin } from './slate';
 import { auroraSkin } from './aurora';
 import { festivalSkin } from './festival';
+import { skinIdForTheme, DEFAULT_SKIN_ID, type SkinId } from './skinMap';
 
-/** Explicit themeId → skin mapping. Unmapped themes fall back to Premium. */
-const THEME_SKIN: Record<string, Skin> = {
-  sunrise: premiumSkin,
-  'warm-night': premiumSkin,
-  midnight: premiumSkin,
-  // Classic (v3) skin:
-  'classic-light': classicSkin,
-  // Slate (v2) skin — light + dark:
-  'slate-light': slateSkin,
-  'slate-dark': slateSkin,
-  // Brand-new (v6) skins:
+const SKINS: Record<SkinId, Skin> = {
+  premium: premiumSkin,
+  classic: classicSkin,
+  slate: slateSkin,
   aurora: auroraSkin,
   festival: festivalSkin
 };
 
-export const DEFAULT_SKIN = premiumSkin;
+export const DEFAULT_SKIN = SKINS[DEFAULT_SKIN_ID];
 
 export function skinForTheme(themeId: string | null | undefined): Skin {
-  return (themeId && THEME_SKIN[themeId]) || DEFAULT_SKIN;
+  return SKINS[skinIdForTheme(themeId)];
 }

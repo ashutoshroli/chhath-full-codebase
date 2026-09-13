@@ -1,6 +1,7 @@
 <script lang="ts">
   import '../app.css';
   import { onMount } from 'svelte';
+  import { fade } from 'svelte/transition';
   import { initPortal } from '$lib/stores/portal';
   import { config } from '$lib/config';
   import { activeSkin } from '$lib/stores/skin';
@@ -24,11 +25,15 @@
 </svelte:head>
 
 <!-- The active skin owns the whole portal chrome (background, header, nav,
-     footer). Switching theme -> switches skin -> the entire portal re-renders. -->
+     footer). Switching theme -> switches skin -> the entire portal re-renders,
+     with a brief cross-fade so the change feels smooth (reduced-motion users
+     get an instant swap via app.css's global animation/transition override). -->
 {#key $activeSkin.id}
-  <Shell>
-    {@render children()}
-  </Shell>
+  <div in:fade={{ duration: 220 }}>
+    <Shell>
+      {@render children()}
+    </Shell>
+  </div>
 {/key}
 
 <!-- Skin-agnostic overlays rendered once, above every skin. -->
