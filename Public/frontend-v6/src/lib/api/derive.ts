@@ -337,6 +337,66 @@ export function computeSummary(
   return { contributors, totalCollected, average, recordedPct };
 }
 
+// ---- Decade / "Our Journey" (live figures) ----
+
+/** The founding year of the samiti's records. Fixed; the range end is live. */
+export const DECADE_START_YEAR = 2017;
+
+export interface DecadeYearStat {
+  year: number;
+  /** Live total collected (₹) for the year. */
+  total: number;
+  /** Live recorded contributor entries for the year (resold excluded). */
+  contributors: number;
+  /** True when this is the current calendar year (records not final yet). */
+  isCurrent: boolean;
+}
+
+export interface DecadeStats {
+  startYear: number;
+  /** Latest year present in the data (>= startYear, and always >= currentYear
+   *  when the current calendar year has data). Drives the "2017 → {end}" range. */
+  endYear: number;
+  /** Current calendar year — the one whose figures are still being collected. */
+  currentYear: number;
+  /** Per-year live rows from startYear..endYear (ascending). */
+  years: DecadeYearStat[];
+  /** Σ of every year's total (₹), including the current live year. */
+  grandTotal: number;
+  /** Σ of every year's contributor entries, including the current live year. */
+  grandContributors: number;
+}
+
+/**
+ * Live decade figures for the "Our Journey" page. Every number is derived from
+ * the real portal data (no hardcoded historical values): per-year total and
+ * contributor entries come straight from computeSummary for that year, and the
+ * grand totals sum all of them — including the current, still-open year.
+ *
+ * The year range starts at DECADE_START_YEAR and ends at the latest year that
+ * has data (or the current calendar year, whichever is later), so next year it
+ * extends itself automatically.
+ */
+export function decadeStats(data: PortalData): DecadeStats {
+  const currentYear = new Date().getFullYear();
+  const present = availableYears(data); // desc, from collections/loans/committee
+  const dataMax = present.length ? Math.max(...present) : currentYear;
+  const endYear = Math.max(DECADE_START_YEAR, dataMax, currentYear);
+  const userMap = buildUserMap(data);
+
+  const years: DecadeYearStat[] = [];
+  let grandTotal = 0;
+  let grandContributors = 0;
+  for (let y = DECADE_START_YEAR; y <= endYear; y++) {
+    const s = computeSummary(data, y, userMap);
+    years.push({ year: y, total: s.totalCollected, contributors: s.contributors, isCurrent: y === currentYear });
+    grandTotal += s.totalCollected;
+    grandContributors += s.contributors;
+  }
+
+  return { startYear: DECADE_START_YEAR, endYear, currentYear, years, grandTotal, grandContributors };
+}
+
 // ---- Committee ----
 
 export interface CommitteeMember {
