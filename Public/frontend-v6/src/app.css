@@ -106,7 +106,13 @@
     --aurora-b3: #f472b6;
     --aurora-b4: #f59e0b;
   }
-  /* Festival (NEW v6) — warm cream + deep maroon/gold */
+  /* Festival (NEW v6) — warm cream + deep maroon/gold.
+     The festival SKIN reads these tokens (not hardcoded hex) so a second theme
+     on the same skin (heritage-serif) can render its own palette:
+       --accent    primary (maroon here)
+       --accent-2  secondary/highlight (marigold gold here)
+       --fest-banner-from/-to  the decorated budget banner gradient
+       --fest-ink  body text on the cream cards */
   :root[data-theme='festival'] {
     --surface-bg: 255 253 247;
     --surface-alpha: 1;
@@ -116,7 +122,11 @@
     --page-via: #ffedcf;
     --page-to: #ffe0b8;
     --page-sun: 0;
-    --accent: 176 30 46;
+    --accent: 176 30 46; /* #B01E2E maroon */
+    --accent-2: 245 184 64; /* #F5B840 marigold gold */
+    --fest-banner-from: #7a1420;
+    --fest-banner-to: #b01e2e;
+    --fest-ink: 122 20 32; /* #7a1420 deep maroon text */
   }
   /* Neon Noir (Gen-Z 2026) — true-black dark glass + neon cyan/magenta */
   :root[data-theme='neon-noir'] {
@@ -247,6 +257,12 @@
     --page-via: #f5f2eb;
     --page-to: #e7e5e4;
     --page-sun: 0;
+    /* Same festival-skin tokens, editorial palette: forest green + antique gold,
+       a deep-green banner, and a warm stone-dark ink for body text. */
+    --accent-2: 217 119 6; /* #D97706 antique gold */
+    --fest-banner-from: #064e3b;
+    --fest-banner-to: #0f766e;
+    --fest-ink: 28 25 23; /* #1c1917 stone-900 text */
   }
   /* Serif headings for the editorial look (font-serif is added in tailwind.config
      + loaded non-blocking in app.html). Scoped to this theme only. */

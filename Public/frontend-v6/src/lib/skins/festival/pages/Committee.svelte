@@ -17,27 +17,27 @@
 
 <svelte:head><title>{$tr('active_committee')} — {$tr('app_title')}</title></svelte:head>
 
-<h1 class="mb-4 text-xl font-black text-[#7a1420]">{$tr('active_committee')}</h1>
+<h1 class="mb-4 text-xl font-black text-[rgb(var(--fest-ink))]">{$tr('active_committee')}</h1>
 {#if $portalState.failed}
   <ErrorState />
 {:else if loading}
-  <div class="grid gap-3 sm:grid-cols-2">{#each Array(6) as _}<div class="h-16 animate-pulse rounded-2xl bg-[#F5B840]/20"></div>{/each}</div>
+  <div class="grid gap-3 sm:grid-cols-2">{#each Array(6) as _}<div class="h-16 animate-pulse rounded-2xl bg-[rgb(var(--accent-2)/0.2)]"></div>{/each}</div>
 {:else if members.length === 0}
-  <div class="{CARD} p-8 text-center text-[#7a1420]/60">{$tr('no_committee')}</div>
+  <div class="{CARD} p-8 text-center text-[rgb(var(--fest-ink)/0.6)]">{$tr('no_committee')}</div>
 {:else}
   <div class="grid gap-3 sm:grid-cols-2">
     {#each members as m, i (m.seed + '-' + i)}
       <div class="{CARD} flex items-center gap-3 p-4">
-        <span class="grid h-11 w-11 flex-none place-items-center rounded-full bg-[#B01E2E] text-base font-black text-[#F5B840] ring-2 ring-[#F5B840]/50">{initials(nameOf(m))}</span>
+        <span class="grid h-11 w-11 flex-none place-items-center rounded-full bg-[rgb(var(--accent))] text-base font-black text-[rgb(var(--accent-2))] ring-2 ring-[rgb(var(--accent-2)/0.5)]">{initials(nameOf(m))}</span>
         <div class="min-w-0 flex-1">
-          <div class="truncate font-bold text-[#7a1420]">{nameOf(m) || $tr('na')}</div>
-          <div class="truncate text-xs font-semibold text-[#B01E2E]">{roleOf(m)}</div>
-          <div class="mt-0.5 flex flex-wrap items-center gap-x-3 text-[0.7rem] text-[#7a1420]/60">
+          <div class="truncate font-bold text-[rgb(var(--fest-ink))]">{nameOf(m) || $tr('na')}</div>
+          <div class="truncate text-xs font-semibold text-[rgb(var(--accent))]">{roleOf(m)}</div>
+          <div class="mt-0.5 flex flex-wrap items-center gap-x-3 text-[0.7rem] text-[rgb(var(--fest-ink)/0.6)]">
             {#if villageOf(m)}<span class="inline-flex items-center gap-0.5"><MapPin class="h-3 w-3" />{villageOf(m)}</span>{/if}
-            {#if m.mobile}<a href="tel:{m.mobile}" class="inline-flex items-center gap-0.5 hover:text-[#B01E2E]"><Phone class="h-3 w-3" />{m.mobile}</a>{/if}
+            {#if m.mobile}<a href="tel:{m.mobile}" class="inline-flex items-center gap-0.5 hover:text-[rgb(var(--accent))]"><Phone class="h-3 w-3" />{m.mobile}</a>{/if}
           </div>
         </div>
-        <span class="flex-none rounded bg-[#F5B840]/25 px-2 py-0.5 text-[0.7rem] font-bold text-[#7a1420]">{m.year}</span>
+        <span class="flex-none rounded bg-[rgb(var(--accent-2)/0.25)] px-2 py-0.5 text-[0.7rem] font-bold text-[rgb(var(--fest-ink))]">{m.year}</span>
       </div>
     {/each}
   </div>
