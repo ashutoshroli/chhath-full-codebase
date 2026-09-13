@@ -440,7 +440,7 @@ export const api = {
   deleteReceiptTemplate: (year: string) => call('deleteReceiptTemplate', { year }),
   getReceiptData: (rowIndex: number, year: string) => call('getReceiptData', { rowIndex, year }),
 
-  logError: (source: string, page: string, message: string, stack: string, context: unknown) =>
+  logError: (source: string, page: string, message: string, stack?: string, context?: unknown) =>
     call('logError', { source, page, message, stack, context }, true),
   reportErrorToWhatsApp: (errorId: string) => call('reportErrorToWhatsApp', { errorId }, false),
   getErrorLog: (limit: number) => call('getErrorLog', { limit }),

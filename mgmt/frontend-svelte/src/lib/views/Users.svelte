@@ -138,7 +138,7 @@
         <VillageInput
           value={form.Village}
           hiValue={form['Village (Hindi)']}
-          onChange={(en, hi) => (form = { ...form, Village: en, 'Village (Hindi)': hi || '' })}
+          onChange={(en, hi) => (form = { ...form, Village: en, 'Village (Hindi)': hi })}
         />
       </div>
 

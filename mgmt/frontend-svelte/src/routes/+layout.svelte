@@ -1,13 +1,16 @@
 <script lang="ts">
+  import '$lib/polyfills';
   import '$lib/styles.css';
   import { onMount } from 'svelte';
   import { reportClientError, isIgnorableClientError } from '$lib/api';
+  import { reloadOnceForChunkError } from '$lib/chunkGuard';
 
   let { children } = $props();
 
   // Global error reporting — mirrors React main.jsx window handlers.
   onMount(() => {
     const onError = (e: ErrorEvent) => {
+      if (reloadOnceForChunkError(e.error || e.message)) return;
       if (isIgnorableClientError(e.message)) return;
       if ((e.filename || '').includes('/_vercel/insights/')) return;
       const isOpaque = e.message === 'Script error.' && !e.error;
@@ -22,6 +25,7 @@
     };
     const onRejection = (e: PromiseRejectionEvent) => {
       const err = e.reason;
+      if (reloadOnceForChunkError(err)) return;
       const msg = (err && err.message) || String(err);
       if (isIgnorableClientError(msg)) return;
       reportClientError('window.unhandledrejection', msg, err, {});
