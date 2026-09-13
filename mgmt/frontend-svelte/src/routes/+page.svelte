@@ -19,6 +19,10 @@
   import Loans from '$lib/views/Loans.svelte';
   import Users from '$lib/views/Users.svelte';
   import Committee from '$lib/views/Committee.svelte';
+  import DocxTemplates from '$lib/views/DocxTemplates.svelte';
+  import BulkGeneratePdfs from '$lib/views/BulkGeneratePdfs.svelte';
+  import DownloadCenter from '$lib/views/DownloadCenter.svelte';
+  import PdfExport from '$lib/views/PdfExport.svelte';
 
   interface Tab { id: string; label: string; icon: string; }
   interface TabGroup { title: string; tabs: Tab[]; }
@@ -260,6 +264,14 @@
       <Users users={usersList} loading={usersLoading} error={usersError} onRefresh={refreshUsers} role={$session.role} />
     {:else if tab === 'committee'}
       <Committee {year} users={usersList} role={$session.role} {editable} />
+    {:else if tab === 'docxtemplates' && canAccessTab('docxtemplates')}
+      <DocxTemplates />
+    {:else if tab === 'bulkgenerate' && canAccessTab('bulkgenerate')}
+      <BulkGeneratePdfs />
+    {:else if tab === 'downloadcenter' && canAccessTab('downloadcenter')}
+      <DownloadCenter role={$session.role} />
+    {:else if tab === 'pdfexport' && canAccessTab('pdfexport')}
+      <PdfExport />
     {:else if canAccessTab(tab)}
       <div class="glass-card" style="text-align:center; padding:40px 20px;">
         <span class="material-icons-round" style="font-size:40px; color:var(--primary-saffron);">construction</span>
