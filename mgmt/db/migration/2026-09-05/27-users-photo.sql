@@ -1,0 +1,24 @@
+-- ============================================================================
+-- users.photo — profile picture URL — 2026-09-13  ·  DB: chhath-core
+--
+-- RUN THIS FILE AGAINST **chhath-core** ONLY:
+--   wrangler d1 execute chhath-core --remote --file=./migration/2026-09-05/27-users-photo.sql
+--
+-- Test locally first (safe, hits the local replica):
+--   wrangler d1 execute chhath-core --local --file=./migration/2026-09-05/27-users-photo.sql
+--
+-- Adds a nullable `photo` column to `users`. It holds the PUBLIC R2 URL of a
+-- member's profile picture (e.g. "https://files-chhath.shaharpura.com/users/USER0007_1699999999.jpg").
+-- NULL / empty means "no photo" — the portal then renders its initials avatar as
+-- before, so this change is backward compatible for every existing row.
+--
+-- The image bytes live in the R2 bucket (see mgmt/backend/src/userPhoto.js); this
+-- column only stores the resulting URL. Same shape as popup_slides.image_url.
+--
+-- NOTE: SQLite has no `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, so this migration
+-- is NOT idempotent — a second run fails on "duplicate column name", which is
+-- expected. It is registered in SCHEMA_ONLY_MIGRATIONS in the migration test
+-- (same as 22 / 24 / 25 / 26). Run it ONCE.
+-- ============================================================================
+
+ALTER TABLE users ADD COLUMN photo TEXT;

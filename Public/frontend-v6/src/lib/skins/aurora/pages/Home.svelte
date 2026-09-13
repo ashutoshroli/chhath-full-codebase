@@ -95,7 +95,11 @@
           {@const tags = contributorTags(entry.item)}
           <div class="relative w-24 shrink-0 rounded-xl border p-3 text-center {entry.isTop ? 'border-amber-300/50 bg-amber-300/10' : 'border-white/10 bg-white/5'}">
             {#if entry.isTop}<Crown class="absolute left-1/2 -top-2 h-4 w-4 -translate-x-1/2 fill-current text-amber-300" aria-label="Top {entry.rank}" />{/if}
-            <span class="mx-auto grid h-10 w-10 place-items-center rounded-full text-sm font-black text-white" style="background-image:linear-gradient(135deg,{g[0]},{g[1]})">{initials(nameOf(entry.item))}</span>
+            {#if entry.item.photo}
+              <img src={entry.item.photo} alt={nameOf(entry.item)} loading="lazy" class="mx-auto h-10 w-10 rounded-full object-cover" onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')} />
+            {:else}
+              <span class="mx-auto grid h-10 w-10 place-items-center rounded-full text-sm font-black text-white" style="background-image:linear-gradient(135deg,{g[0]},{g[1]})">{initials(nameOf(entry.item))}</span>
+            {/if}
             <p class="mt-1.5 truncate text-[11px] font-semibold text-white">{nameOf(entry.item)}</p>
             {#if entry.item.hasMoney}
               <p class="text-xs font-black text-violet-200">{fmt(entry.item.amount)}</p>

@@ -14,7 +14,18 @@ const BLANK = {
   "Father's Name": '', "Father's Name (Hindi)": '',
   Mobile: '', Designation: '', 'Designation (Hindi)': '',
   Email: '', WhatsApp: '',
+  Photo: '',
 };
+
+// Reads a File as a base64 data URL (the backend strips the data: prefix).
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Could not read the selected file.'));
+    reader.readAsDataURL(file);
+  });
+}
 
 export default function Users({ users, loading, error, onRefresh, role }) {
   const [search, setSearch] = useState('');
@@ -23,6 +34,7 @@ export default function Users({ users, loading, error, onRefresh, role }) {
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(null);
   const [viewingUserId, setViewingUserId] = useState(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   const filtered = (users || []).filter(u =>
     u.Name.toLowerCase().includes(search.toLowerCase()) || (u.ID || '').toLowerCase().includes(search.toLowerCase())
@@ -42,8 +54,26 @@ export default function Users({ users, loading, error, onRefresh, role }) {
       "Father's Name": u["Father's Name"] || '', "Father's Name (Hindi)": u["Father's Name (Hindi)"] || '',
       Mobile: u.Mobile || '', Designation: u.Designation || '', 'Designation (Hindi)': u['Designation (Hindi)'] || '',
       Email: u.Email || '', WhatsApp: u.WhatsApp || '',
+      Photo: u.Photo || '',
     });
     setShowAdd(true);
+  };
+
+  const onPickPhoto = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ''; // allow re-picking the same file
+    if (!file) return;
+    if (!file.type.startsWith('image/')) return alert('Please choose an image file.');
+    setUploadingPhoto(true);
+    try {
+      const dataUrl = await fileToBase64(file);
+      const res = await api.uploadUserPhoto(dataUrl, file.name, editing ? editing.ID : '');
+      setForm(f => ({ ...f, Photo: res.url || res.photo || '' }));
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setUploadingPhoto(false);
+    }
   };
 
   const submit = async (e) => {
@@ -109,6 +139,28 @@ export default function Users({ users, loading, error, onRefresh, role }) {
       <Modal open={showAdd} onClose={closeModal}>
         <h3 style={{ marginBottom: 15 }}>{editing ? 'Edit User' : 'Add User'}</h3>
         <form onSubmit={submit}>
+          <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            {form.Photo ? (
+              <img
+                src={form.Photo}
+                alt="Profile preview"
+                style={{ width: 64, height: 64, borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--border, #ddd)' }}
+              />
+            ) : (
+              <div style={{ width: 64, height: 64, borderRadius: '50%', display: 'grid', placeItems: 'center', background: '#e5e7eb', color: '#6b7280', fontWeight: 700, fontSize: '1.4rem' }}>
+                {(form.Name || '?').trim().charAt(0).toUpperCase() || '?'}
+              </div>
+            )}
+            <div>
+              <label style={{ display: 'block', marginBottom: 4 }}>Profile Photo</label>
+              <input type="file" accept="image/*" onChange={onPickPhoto} disabled={uploadingPhoto} />
+              {uploadingPhoto && <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginLeft: 8 }}>Uploading...</span>}
+              {form.Photo && !uploadingPhoto && (
+                <button type="button" className="btn-link" style={{ marginLeft: 8, fontSize: '0.8rem' }} onClick={() => setForm(f => ({ ...f, Photo: '' }))}>Remove</button>
+              )}
+            </div>
+          </div>
+
           <TransliterateInput
             label="Name"
             value={{ en: form.Name, hi: form['Name (Hindi)'] }}
@@ -163,7 +215,7 @@ export default function Users({ users, loading, error, onRefresh, role }) {
             />
           </div>
 
-          <button className="btn-submit" disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+          <button className="btn-submit" disabled={saving || uploadingPhoto}>{saving ? 'Saving...' : 'Save'}</button>
         </form>
       </Modal>
 

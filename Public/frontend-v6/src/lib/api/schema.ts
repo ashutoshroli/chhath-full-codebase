@@ -29,7 +29,8 @@ export const userRow = row.extend({
   'Designation (Hindi)': cell,
   "Father's Name": cell,
   "Father's Name (Hindi)": cell,
-  Mobile: cell
+  Mobile: cell,
+  Photo: cell
 });
 
 export const committeeRow = row.extend({

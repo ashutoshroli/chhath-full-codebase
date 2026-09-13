@@ -50,13 +50,23 @@
     </span>
   {/if}
 
-  <span
-    class="mt-1 grid h-11 w-11 place-items-center rounded-full text-sm font-black text-white"
-    style="background-image: linear-gradient(135deg, {grad[0]}, {grad[1]})"
-    aria-hidden="true"
-  >
-    {initials(displayName)}
-  </span>
+  {#if c.photo}
+    <img
+      src={c.photo}
+      alt={displayName}
+      loading="lazy"
+      class="mt-1 h-11 w-11 rounded-full object-cover"
+      onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+    />
+  {:else}
+    <span
+      class="mt-1 grid h-11 w-11 place-items-center rounded-full text-sm font-black text-white"
+      style="background-image: linear-gradient(135deg, {grad[0]}, {grad[1]})"
+      aria-hidden="true"
+    >
+      {initials(displayName)}
+    </span>
+  {/if}
 
   <span class="mt-2 line-clamp-1 w-full text-[11px] font-bold" title={displayName}>{displayName}</span>
 
