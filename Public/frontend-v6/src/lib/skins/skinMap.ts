@@ -26,7 +26,10 @@ export const THEME_SKIN_ID: Record<string, SkinId> = {
   'executive-pro': 'slate',
   'midnight-glass': 'aurora',
   'pastel-zen': 'premium',
-  'heritage-serif': 'festival'
+  'heritage-serif': 'festival',
+  // Dark variants — same festival skin as their light counterparts.
+  'festival-dark': 'festival',
+  'heritage-serif-dark': 'festival'
 };
 
 export function skinIdForTheme(themeId: string | null | undefined): SkinId {

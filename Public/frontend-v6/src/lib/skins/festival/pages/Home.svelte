@@ -78,21 +78,21 @@
       type="button"
       onclick={() => (tab = 'contributors')}
       class="rounded-lg px-3 py-1.5 text-sm font-black transition
-        {tab === 'contributors' ? 'bg-white text-[rgb(var(--accent))] shadow-sm' : 'text-[rgb(var(--fest-ink)/0.6)]'}"
+        {tab === 'contributors' ? 'bg-[rgb(var(--surface-bg))] text-[rgb(var(--accent))] shadow-sm' : 'text-[rgb(var(--fest-ink)/0.6)]'}"
       aria-pressed={tab === 'contributors'}
     >{$tr('tab_contributors')} · {ranked.length}</button>
     <button
       type="button"
       onclick={() => (tab = 'resold')}
       class="rounded-lg px-3 py-1.5 text-sm font-black transition
-        {tab === 'resold' ? 'bg-white text-[rgb(var(--accent))] shadow-sm' : 'text-[rgb(var(--fest-ink)/0.6)]'}"
+        {tab === 'resold' ? 'bg-[rgb(var(--surface-bg))] text-[rgb(var(--accent))] shadow-sm' : 'text-[rgb(var(--fest-ink)/0.6)]'}"
       aria-pressed={tab === 'resold'}
     >{$tr('tab_resold')} · {resold.length}</button>
   </div>
 
   {#if tab === 'contributors'}
     <input type="search" bind:value={search} placeholder={$tr('search_by_name')}
-      class="mb-4 w-full rounded-xl border border-[rgb(var(--accent-2)/0.6)] bg-white p-3 text-base text-[rgb(var(--fest-ink))] outline-none focus:border-[rgb(var(--accent))]" />
+      class="mb-4 w-full rounded-xl border border-[rgb(var(--accent-2)/0.6)] bg-[rgb(var(--surface-bg))] p-3 text-base text-[rgb(var(--fest-ink))] outline-none focus:border-[rgb(var(--accent))]" />
 
     <div class="{CARD} min-h-[200px] divide-y divide-[rgb(var(--accent-2)/0.3)] p-4">
       {#if loading}
