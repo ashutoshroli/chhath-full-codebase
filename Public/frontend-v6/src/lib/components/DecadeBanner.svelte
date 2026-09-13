@@ -1,6 +1,15 @@
 <script lang="ts">
   import { Trophy, ArrowRight } from '@lucide/svelte';
-  import { tr } from '$lib/stores/lang';
+  import { tr, lang } from '$lib/stores/lang';
+  import { portalState } from '$lib/stores/portal';
+  import { decadeStats, journeyTagline } from '$lib/api/derive';
+
+  // Same live year-range + DB tagline the Decade page uses, so the banner never
+  // shows the raw {start}/{end} placeholders or a stale hardcoded tagline.
+  let d = $derived(decadeStats($portalState.data));
+  let rangeVars = $derived({ start: d.startYear, end: d.endYear });
+  let tagline = $derived(journeyTagline($portalState.data));
+  let taglineText = $derived(($lang === 'hi' ? tagline.hi : tagline.en) || $tr('decade_sub'));
 </script>
 
 <a
@@ -22,9 +31,9 @@
       <Trophy class="h-6 w-6" aria-hidden="true" />
     </span>
     <div class="min-w-0 flex-1">
-      <p class="text-xs font-extrabold text-brand-600 dark:text-brand-300">{$tr('decade_years')}</p>
+      <p class="text-xs font-extrabold text-brand-600 dark:text-brand-300">{$tr('decade_years', rangeVars)}</p>
       <h3 class="text-lg font-black leading-tight sm:text-xl">{$tr('decade_title')}</h3>
-      <p class="text-xs font-medium text-brand-900/70 dark:text-white/70">{$tr('decade_sub')}</p>
+      <p class="text-xs font-medium text-brand-900/70 dark:text-white/70">{taglineText}</p>
     </div>
     <span class="hidden font-hand text-base text-brand-700 dark:text-brand-200 sm:block">
       {$tr('decade_cta')}
