@@ -91,12 +91,15 @@ const SCHEMA_FOR_MIGRATION = {
   // the misc DB (schema/misc.sql already defines it), so it applies on a fresh
   // schema and a second run is a no-op — like 15/17/20/21.
   '23-render-jobs.sql': 'misc.sql',
+  // users.photo — a real ADD COLUMN (like 09/22/24/25/26), so it is in
+  // SCHEMA_ONLY_MIGRATIONS below and asserted for idempotency-failure separately.
+  '27-users-photo.sql': 'core.sql',
 };
 
 // Migrations that legitimately do more than CREATE INDEX. Keep this list as short
 // as possible: everything on it opts out of the "cannot drop, delete, update or
 // alter" guarantee that makes the rest safe to run unattended.
-const SCHEMA_ONLY_MIGRATIONS = new Set(['09-error-log-client-ip.sql', '22-login-users-totp.sql', '24-ai-providers-purpose.sql', '25-ai-providers-priority.sql', '26-ai-providers-data-mode.sql']);
+const SCHEMA_ONLY_MIGRATIONS = new Set(['09-error-log-client-ip.sql', '22-login-users-totp.sql', '24-ai-providers-purpose.sql', '25-ai-providers-priority.sql', '26-ai-providers-data-mode.sql', '27-users-photo.sql']);
 
 const DAY = 86400000;
 const isoAgo = (d) => new Date(Date.now() - d * DAY).toISOString();

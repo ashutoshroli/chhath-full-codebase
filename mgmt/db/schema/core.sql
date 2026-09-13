@@ -107,6 +107,13 @@ CREATE TABLE users (
   fathers_name_hindi TEXT,
   designation_hindi TEXT,
   village_hindi TEXT
+  -- ---- profile photo ----
+  -- The `photo` column (public R2 URL of the member's profile picture; NULL/'' ->
+  -- the portal's initials avatar) is added by the ADD-COLUMN migration
+  -- 2026-09-05/27-users-photo.sql. As with login_users' TOTP columns and
+  -- error_log.client_ip (migration 09), an ADD-COLUMN migration is applied ON TOP
+  -- of this committed schema, so the column deliberately does NOT appear here —
+  -- the migration is its source of truth.
 );
 CREATE INDEX idx_users_village ON users(village);
 CREATE INDEX idx_users_mobile ON users(mobile);

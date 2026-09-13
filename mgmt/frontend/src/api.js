@@ -473,6 +473,7 @@ export const api = {
   deletePopup: (popupId) => call('deletePopup', { popupId }),
   savePopupSlides: (popupId, slides) => call('savePopupSlides', { popupId, slides }),
   uploadPopupImage: (base64, fileName, mimeType) => call('uploadPopupImage', { base64, fileName, mimeType }),
+  uploadUserPhoto: (base64, fileName, idCode) => call('uploadUserPhoto', { base64, fileName, idCode }),
   getActivePopups: () => call('getActivePopups'),
 
   getSeoSettings: () => call('getSeoSettings'),

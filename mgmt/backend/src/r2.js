@@ -97,6 +97,15 @@ export function keyForSeo(fileName) {
   return `seo/${Date.now()}_${safeName(fileName, 'preview.jpg')}`;
 }
 
+// User profile-picture key (no year — a member's photo is not tied to a Chhath
+// year, and it is never moved to Drive by the "Move year" feature). The id_code
+// (e.g. "USER0007") groups a person's uploads; the timestamp keeps each new photo
+// a distinct object so a stale CDN copy is never served after a re-upload.
+export function keyForUserPhoto(idCode, fileName) {
+  const who = safeName(idCode, 'user');
+  return `users/${who}_${Date.now()}_${safeName(fileName, 'photo.jpg')}`;
+}
+
 // The year prefix used by the move feature, e.g. "2026/".
 export function yearPrefix(year) {
   const y = parseInt(year);

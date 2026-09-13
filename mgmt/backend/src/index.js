@@ -14,6 +14,7 @@ import * as wa from './whatsapp.js';
 import { logError, reportErrorToWhatsApp, getErrorLog, reportErrorPublic, isLogErrorRateLimited } from './errorLog.js';
 import { logActivity, getActivityLog, logWarn, logErrorAt } from './logger.js';
 import * as popups from './popups.js';
+import { uploadUserPhoto } from './userPhoto.js';
 import * as announce from './announcements.js';
 import * as loans from './loans.js';
 import * as tpl from './templates.js';
@@ -159,6 +160,8 @@ export const EXPECTED_MUTATING_ACTIONS = new Set([
   'savePopup', 'savePopupSlides', 'deletePopup', 'uploadPopupImage',
   // seo
   'saveSeoSettings', 'uploadSeoImage',
+  // user profile photo (R2)
+  'uploadUserPhoto',
   // files / drive / backup / rebuild
   'uploadFile', 'moveYearToDrive', 'restoreBackup', 'triggerRebuild',
   // pdf conversion (writes generated files to the index / drive)
@@ -1095,6 +1098,11 @@ export default {
       savePopupSlides: () => withAuth(env, req, (user) => popups.savePopupSlides(env, req.popupId, req.slides, user)),
       uploadPopupImage: () => withAuth(env, req, (user) => popups.uploadPopupImage(env, req.base64, req.fileName, req.mimeType, user)),
       getActivePopups: () => withAuth(env, req, (user) => popups.getActivePopups(env, user)),
+
+      // Uploads a member's profile picture to R2 and returns its public URL. The
+      // Users Add/Edit form then saves that URL into the `photo` column via the
+      // normal updateRecord/saveRecord path. Staff-gated inside uploadUserPhoto.
+      uploadUserPhoto: () => withAuth(env, req, (user) => uploadUserPhoto(env, req.base64, req.fileName, req.idCode, user)),
       // Lets an Admin see exactly what the PUBLIC portal will render — including
       // which eligible popups will NOT be shown (only the first one is) and which
       // are dropped for having zero slides. Previously a 'Public'-only popup was

@@ -567,6 +567,8 @@ export const api = {
   savePopupSlides: (popupId: string, slides: unknown) => call('savePopupSlides', { popupId, slides }),
   uploadPopupImage: (base64: string, fileName: string, mimeType: string) =>
     call('uploadPopupImage', { base64, fileName, mimeType }),
+  uploadUserPhoto: (base64: string, fileName: string, idCode: string) =>
+    call('uploadUserPhoto', { base64, fileName, idCode }),
   getActivePopups: () => call('getActivePopups'),
 
   getSeoSettings: () => call('getSeoSettings'),

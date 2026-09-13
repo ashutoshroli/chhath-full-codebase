@@ -154,6 +154,8 @@ export interface Contributor {
   detail: string;
   /** representative year (for the [Year] tag in All mode). */
   year: string;
+  /** public R2 URL of the member's profile photo, or '' for the initials avatar. */
+  photo: string;
 }
 
 const truthyResell = (v: unknown): boolean => {
@@ -270,7 +272,8 @@ export function contributorsForYear(
         hasMoney: isMoney,
         kinds: new Set([kind]),
         detail,
-        year: (c.Year ?? '').toString()
+        year: (c.Year ?? '').toString(),
+        photo: (user?.Photo ?? '').toString()
       });
     }
   }

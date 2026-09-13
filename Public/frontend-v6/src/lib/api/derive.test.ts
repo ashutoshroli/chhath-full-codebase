@@ -269,6 +269,30 @@ describe('multiple contributions fold + multi-kind tags', () => {
   });
 });
 
+describe('contributor profile photo', () => {
+  const data = parsePortalData({
+    users: [
+      { ID: 'P1', Name: 'With Photo', Photo: 'https://files.example/users/P1.jpg' },
+      { ID: 'P2', Name: 'No Photo' }
+    ],
+    collections: [
+      { Year: 2026, ID: 'P1', Amount: '500', 'Contribution Type': '1' },
+      { Year: 2026, ID: 'P2', Amount: '300', 'Contribution Type': '1' }
+    ]
+  })!;
+  const list = contributorsForYear(data, 2026);
+
+  it('carries the user photo URL when present', () => {
+    const p1 = list.find((c) => c.name === 'With Photo')!;
+    expect(p1.photo).toBe('https://files.example/users/P1.jpg');
+  });
+
+  it('falls back to an empty photo (initials avatar) when absent', () => {
+    const p2 = list.find((c) => c.name === 'No Photo')!;
+    expect(p2.photo).toBe('');
+  });
+});
+
 describe('decadeStats — live "Our Journey" figures', () => {
   const currentYear = new Date().getFullYear();
   const data = parsePortalData({

@@ -25,7 +25,18 @@
     "Father's Name": '', "Father's Name (Hindi)": '',
     Mobile: '', Designation: '', 'Designation (Hindi)': '',
     Email: '', WhatsApp: '',
+    Photo: '',
   };
+
+  // Reads a File as a base64 data URL (the backend strips the data: prefix).
+  function fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error('Could not read the selected file.'));
+      reader.readAsDataURL(file);
+    });
+  }
 
   let search = $state('');
   let showAdd = $state(false);
@@ -33,6 +44,7 @@
   let saving = $state(false);
   let editing = $state<any>(null);
   let viewingUserId = $state<string | null>(null);
+  let uploadingPhoto = $state(false);
 
   let filtered = $derived(
     (users || []).filter((u) =>
@@ -55,8 +67,27 @@
       "Father's Name": u["Father's Name"] || '', "Father's Name (Hindi)": u["Father's Name (Hindi)"] || '',
       Mobile: u.Mobile || '', Designation: u.Designation || '', 'Designation (Hindi)': u['Designation (Hindi)'] || '',
       Email: u.Email || '', WhatsApp: u.WhatsApp || '',
+      Photo: u.Photo || '',
     };
     showAdd = true;
+  }
+
+  async function onPickPhoto(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    const file = input.files && input.files[0];
+    input.value = ''; // allow re-picking the same file
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { alert('Please choose an image file.'); return; }
+    uploadingPhoto = true;
+    try {
+      const dataUrl = await fileToBase64(file);
+      const res: any = await api.uploadUserPhoto(dataUrl, file.name, editing ? editing.ID : '');
+      form = { ...form, Photo: res.url || res.photo || '' };
+    } catch (err) {
+      alert((err as Error).message);
+    } finally {
+      uploadingPhoto = false;
+    }
   }
 
   async function submit(e: Event) {
@@ -127,6 +158,24 @@
   <Modal open={showAdd} onClose={closeModal}>
     <h3 style="margin-bottom:15px;">{editing ? 'Edit User' : 'Add User'}</h3>
     <form onsubmit={submit}>
+      <div class="form-group" style="display:flex; align-items:center; gap:14px;">
+        {#if form.Photo}
+          <img src={form.Photo} alt="Profile preview" style="width:64px; height:64px; border-radius:50%; object-fit:cover; border:1px solid var(--border, #ddd);" />
+        {:else}
+          <div style="width:64px; height:64px; border-radius:50%; display:grid; place-items:center; background:#e5e7eb; color:#6b7280; font-weight:700; font-size:1.4rem;">
+            {(form.Name || '?').trim().charAt(0).toUpperCase() || '?'}
+          </div>
+        {/if}
+        <div>
+          <label style="display:block; margin-bottom:4px;">Profile Photo</label>
+          <input type="file" accept="image/*" onchange={onPickPhoto} disabled={uploadingPhoto} />
+          {#if uploadingPhoto}<span style="font-size:0.8rem; color:var(--text-muted); margin-left:8px;">Uploading...</span>{/if}
+          {#if form.Photo && !uploadingPhoto}
+            <button type="button" class="btn-link" style="margin-left:8px; font-size:0.8rem;" onclick={() => (form = { ...form, Photo: '' })}>Remove</button>
+          {/if}
+        </div>
+      </div>
+
       <TransliterateInput
         label="Name"
         value={{ en: form.Name, hi: form['Name (Hindi)'] }}
@@ -181,7 +230,7 @@
         />
       </div>
 
-      <button class="btn-submit" disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+      <button class="btn-submit" disabled={saving || uploadingPhoto}>{saving ? 'Saving...' : 'Save'}</button>
     </form>
   </Modal>
 

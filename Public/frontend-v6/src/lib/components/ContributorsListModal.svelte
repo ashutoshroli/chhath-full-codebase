@@ -61,12 +61,22 @@
                 : 'border-black/5 bg-black/[.02] dark:border-white/10 dark:bg-white/[.03]'}"
           >
             <span class="relative">
-              <span
-                class="grid h-10 w-10 place-items-center rounded-full text-sm font-black text-white"
-                style="background-image: linear-gradient(135deg, {grad[0]}, {grad[1]})"
-              >
-                {initials(nameOf(entry.item))}
-              </span>
+              {#if entry.item.photo}
+                <img
+                  src={entry.item.photo}
+                  alt={nameOf(entry.item)}
+                  loading="lazy"
+                  class="h-10 w-10 rounded-full object-cover"
+                  onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+                />
+              {:else}
+                <span
+                  class="grid h-10 w-10 place-items-center rounded-full text-sm font-black text-white"
+                  style="background-image: linear-gradient(135deg, {grad[0]}, {grad[1]})"
+                >
+                  {initials(nameOf(entry.item))}
+                </span>
+              {/if}
               {#if entry.isTop}
                 <span class="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full bg-gold text-[9px] font-black text-amber-900">
                   {entry.rank}
