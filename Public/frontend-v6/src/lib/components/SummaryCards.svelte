@@ -16,7 +16,8 @@
   let loading = $derived($portalState.status === 'loading');
 
   let cards = $derived([
-    { icon: Users, grad: 'from-brand-400 to-brand-600', value: s.contributors, fmt: (n: number) => Math.round(n).toString(), label: $tr('summary_contributors'), action: false },
+    // Contributors count — clickable, opens the same contributor-list popup.
+    { icon: Users, grad: 'from-brand-400 to-brand-600', value: s.contributors, fmt: (n: number) => Math.round(n).toString(), label: $tr('summary_contributors'), action: true },
     { icon: PiggyBank, grad: 'from-sky-500 to-sky-700', value: s.totalCollected, fmt, label: $tr('summary_total_collected'), action: false },
     { icon: BarChart3, grad: 'from-violet-500 to-violet-700', value: s.average, fmt, label: $tr('summary_avg'), action: false },
     // 4th card: opens the contributor-list popup. Shows a "View" call-to-action

@@ -19,6 +19,19 @@
   let sending = $state(false);
   let messages = $state<Msg[]>([]);
   let listEl: HTMLDivElement | undefined = $state();
+  let welcomed = false;
+
+  // On first open, greet the visitor with a welcome message so the chat is never
+  // empty. Localized via $tr; seeded once per mount.
+  $effect(() => {
+    if (open && !welcomed) {
+      welcomed = true;
+      if (messages.length === 0) {
+        messages = [{ role: 'bot', text: $tr('chat_welcome') }];
+        scrollSoon();
+      }
+    }
+  });
 
   function sessionId(): string {
     if (!browser) return 'cs-ssr';
