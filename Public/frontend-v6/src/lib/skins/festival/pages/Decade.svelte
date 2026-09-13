@@ -1,14 +1,23 @@
 <script lang="ts">
   import { Trophy, Heart, Info } from '@lucide/svelte';
-  import { tr } from '$lib/stores/lang';
+  import { tr, lang } from '$lib/stores/lang';
   import { portalState } from '$lib/stores/portal';
-  import { decadeStats } from '$lib/api/derive';
+  import { decadeStats, journeyEntries, journeyTagline } from '$lib/api/derive';
   import { fmt } from '$lib/utils/format';
   import { CARD } from '../fest';
-  import { DECADE_YEARS, DECADE_TIMELINE, DECADE_MILESTONES } from '$lib/utils/decadeData';
+  import { DECADE_TIMELINE, DECADE_MILESTONES } from '$lib/utils/decadeData';
 
   let d = $derived(decadeStats($portalState.data));
-  let storyByYear = $derived(new Map(DECADE_YEARS.map((y, i) => [y.year, { ...y, i }])));
+  let story = $derived(journeyEntries($portalState.data));
+  let storyByYear = $derived(
+    new Map(story.map((e, i) => [String(e.year), {
+      i,
+      title: $lang === 'hi' && e.titleHi ? e.titleHi : e.titleEn,
+      content: $lang === 'hi' && e.contentHi ? e.contentHi : e.contentEn
+    }]))
+  );
+  let tagline = $derived(journeyTagline($portalState.data));
+  let taglineText = $derived(($lang === 'hi' ? tagline.hi : tagline.en) || $tr('decade_sub'));
   let rangeVars = $derived({ start: d.startYear, end: d.endYear });
 </script>
 
@@ -21,7 +30,7 @@
     <Trophy class="mx-auto h-8 w-8 text-[#F5B840]" aria-hidden="true" />
     <p class="mt-2 text-xs font-bold text-[#F5B840]">{$tr('decade_years', rangeVars)}</p>
     <h1 class="text-2xl font-black text-[#F5B840]">{$tr('decade_title')}</h1>
-    <p class="mt-1 text-sm text-[#ffe9c7]/80">{$tr('decade_sub')}</p>
+    <p class="mt-1 text-sm text-[#ffe9c7]/80">{taglineText}</p>
     <p class="mx-auto mt-3 max-w-xl text-sm text-[#ffe9c7]/90">{$tr('decade_intro')}</p>
   </div>
 </div>
@@ -42,11 +51,11 @@
 <div class="{CARD} p-5">
   <ol class="relative space-y-4 border-l-2 border-[#F5B840] pl-5">
     {#each d.years as row (row.year)}
-      {@const story = storyByYear.get(String(row.year))}
+      {@const entry = storyByYear.get(String(row.year))}
       <li class="relative">
         <span class="absolute -left-[27px] grid h-6 w-6 place-items-center rounded-full bg-[#B01E2E] text-[10px] font-black text-[#F5B840]">{row.year - d.startYear + 1}</span>
-        <h4 class="text-sm font-black text-[#B01E2E]">{story ? $tr(story.headingKey) : row.year}</h4>
-        {#if story}<p class="mt-1 text-sm text-[#7a1420]">{$tr(story.bodyKey)}</p>{/if}
+        <h4 class="text-sm font-black text-[#B01E2E]">{entry?.title || row.year}</h4>
+        {#if entry?.content}<p class="mt-1 text-sm text-[#7a1420]">{entry.content}</p>{/if}
         <div class="mt-2 flex flex-wrap gap-2">
           <span class="rounded-lg bg-emerald-600/10 px-3 py-1.5 text-xs font-bold text-emerald-800">{$tr('decade_total_label')}: {fmt(row.total)}</span>
           <span class="rounded-lg bg-[#B01E2E]/10 px-3 py-1.5 text-xs font-bold text-[#B01E2E]">{$tr('decade_contributors_label')}: {row.contributors}</span>

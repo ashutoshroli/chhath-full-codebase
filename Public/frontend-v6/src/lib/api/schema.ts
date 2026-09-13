@@ -101,6 +101,21 @@ export const loanConsentRow = row.extend({
 
 const arr = <T extends z.ZodTypeAny>(schema: T) => z.array(schema).catch([]);
 
+export const journeyEntryRow = z
+  .object({
+    year: z.union([z.string(), z.number(), z.null()]).optional(),
+    title_en: cell,
+    title_hi: cell,
+    content_en: cell,
+    content_hi: cell
+  })
+  .passthrough();
+
+const journeyTaglineSchema = z
+  .object({ en: cell, hi: cell })
+  .passthrough()
+  .catch({ en: '', hi: '' });
+
 export const portalDataSchema = z
   .object({
     users: arr(userRow),
@@ -111,6 +126,10 @@ export const portalDataSchema = z
     guarantors: arr(guarantorRow),
     generatedFiles: arr(generatedFileRow),
     loanConsents: arr(loanConsentRow),
+    // "Our Journey" story (DB-driven). Optional — an older backend omits them and
+    // the frontend falls back to its built-in text.
+    journeyEntries: arr(journeyEntryRow),
+    journeyTagline: journeyTaglineSchema.optional(),
     // Backend may flag a degraded (last-known-good) response.
     stale: z.boolean().optional(),
     staleReason: z.string().optional()
@@ -136,7 +155,8 @@ export const EMPTY_PORTAL_DATA: PortalData = {
   loans: [],
   guarantors: [],
   generatedFiles: [],
-  loanConsents: []
+  loanConsents: [],
+  journeyEntries: []
 };
 
 /** True when a parsed payload has at least one core array populated. */

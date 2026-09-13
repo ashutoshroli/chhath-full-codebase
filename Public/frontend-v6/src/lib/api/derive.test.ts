@@ -10,7 +10,9 @@ import {
   availableYears,
   loanTotalWithInterest,
   decadeStats,
-  DECADE_START_YEAR
+  DECADE_START_YEAR,
+  journeyEntries,
+  journeyTagline
 } from './derive';
 import { competitionRank } from '$lib/utils/ranking';
 import { resolveConfig, DEFAULTS } from '$lib/config';
@@ -337,6 +339,37 @@ describe('decadeStats — live "Our Journey" figures', () => {
   it('grand totals sum every year INCLUDING the current live year', () => {
     expect(d.grandTotal).toBe(1800); // 1500 + 300
     expect(d.grandContributors).toBe(3); // 2 + 1
+  });
+});
+
+describe('journey content (DB-driven)', () => {
+  const data = parsePortalData({
+    journeyEntries: [
+      { year: 2017, title_en: '2017 — Start', title_hi: '2017 — शुरुआत', content_en: 'Began.', content_hi: 'शुरू हुआ।' },
+      { year: 2018, title_en: '2018 — Grow', title_hi: '', content_en: 'Grew.', content_hi: '' }
+    ],
+    journeyTagline: { en: 'A decade of service', hi: 'सेवा का एक दशक' }
+  })!;
+
+  it('reads journey entries with bilingual fields', () => {
+    const entries = journeyEntries(data);
+    expect(entries).toHaveLength(2);
+    expect(entries[0].year).toBe(2017);
+    expect(entries[0].titleEn).toBe('2017 — Start');
+    expect(entries[0].titleHi).toBe('2017 — शुरुआत');
+    expect(entries[0].contentHi).toBe('शुरू हुआ।');
+  });
+
+  it('reads the bilingual tagline', () => {
+    const t = journeyTagline(data);
+    expect(t.en).toBe('A decade of service');
+    expect(t.hi).toBe('सेवा का एक दशक');
+  });
+
+  it('degrades to empty when the backend ships nothing', () => {
+    const empty = parsePortalData({ collections: [] })!;
+    expect(journeyEntries(empty)).toEqual([]);
+    expect(journeyTagline(empty)).toEqual({ en: '', hi: '' });
   });
 });
 

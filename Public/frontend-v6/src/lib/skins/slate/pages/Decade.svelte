@@ -1,13 +1,22 @@
 <script lang="ts">
   import { Trophy, Heart, Info } from '@lucide/svelte';
-  import { tr } from '$lib/stores/lang';
+  import { tr, lang } from '$lib/stores/lang';
   import { portalState } from '$lib/stores/portal';
-  import { decadeStats } from '$lib/api/derive';
+  import { decadeStats, journeyEntries, journeyTagline } from '$lib/api/derive';
   import { fmt } from '$lib/utils/format';
-  import { DECADE_YEARS, DECADE_TIMELINE, DECADE_MILESTONES } from '$lib/utils/decadeData';
+  import { DECADE_TIMELINE, DECADE_MILESTONES } from '$lib/utils/decadeData';
 
   let d = $derived(decadeStats($portalState.data));
-  let storyByYear = $derived(new Map(DECADE_YEARS.map((y, i) => [y.year, { ...y, i }])));
+  let story = $derived(journeyEntries($portalState.data));
+  let storyByYear = $derived(
+    new Map(story.map((e, i) => [String(e.year), {
+      i,
+      title: $lang === 'hi' && e.titleHi ? e.titleHi : e.titleEn,
+      content: $lang === 'hi' && e.contentHi ? e.contentHi : e.contentEn
+    }]))
+  );
+  let tagline = $derived(journeyTagline($portalState.data));
+  let taglineText = $derived(($lang === 'hi' ? tagline.hi : tagline.en) || $tr('decade_sub'));
   let rangeVars = $derived({ start: d.startYear, end: d.endYear });
 </script>
 
@@ -18,7 +27,7 @@
   <span class="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300"><Trophy class="h-6 w-6" aria-hidden="true" /></span>
   <p class="mt-2 text-xs font-bold text-brand-600 dark:text-brand-400">{$tr('decade_years', rangeVars)}</p>
   <h1 class="text-2xl font-black text-slate-900 dark:text-white">{$tr('decade_title')}</h1>
-  <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{$tr('decade_sub')}</p>
+  <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{taglineText}</p>
   <p class="mx-auto mt-3 max-w-xl text-sm text-slate-600 dark:text-slate-300">{$tr('decade_intro')}</p>
 </div>
 
@@ -38,11 +47,11 @@
 <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
   <ol class="relative space-y-4 border-l-2 border-brand-500/30 pl-5">
     {#each d.years as row (row.year)}
-      {@const story = storyByYear.get(String(row.year))}
+      {@const entry = storyByYear.get(String(row.year))}
       <li class="relative">
         <span class="absolute -left-[27px] grid h-6 w-6 place-items-center rounded-full bg-brand-600 text-[10px] font-black text-white">{row.year - d.startYear + 1}</span>
-        <h4 class="text-sm font-black text-brand-600 dark:text-brand-400">{story ? $tr(story.headingKey) : row.year}</h4>
-        {#if story}<p class="mt-1 text-sm text-slate-700 dark:text-slate-200">{$tr(story.bodyKey)}</p>{/if}
+        <h4 class="text-sm font-black text-brand-600 dark:text-brand-400">{entry?.title || row.year}</h4>
+        {#if entry?.content}<p class="mt-1 text-sm text-slate-700 dark:text-slate-200">{entry.content}</p>{/if}
         <div class="mt-2 flex flex-wrap gap-2">
           <span class="rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">{$tr('decade_total_label')}: {fmt(row.total)}</span>
           <span class="rounded-lg bg-brand-50 px-3 py-1.5 text-xs font-bold text-brand-700 dark:bg-brand-900/30 dark:text-brand-300">{$tr('decade_contributors_label')}: {row.contributors}</span>
