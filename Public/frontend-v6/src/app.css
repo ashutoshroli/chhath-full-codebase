@@ -99,6 +99,12 @@
     --page-to: #0a0f1e;
     --page-sun: 0;
     --accent: 124 92 255;
+    /* animated aurora-mesh blobs (original violet palette) */
+    --aurora-bg: #0a0f1e;
+    --aurora-b1: #7c5cff;
+    --aurora-b2: #22d3ee;
+    --aurora-b3: #f472b6;
+    --aurora-b4: #f59e0b;
   }
   /* Festival (NEW v6) — warm cream + deep maroon/gold */
   :root[data-theme='festival'] {
@@ -111,6 +117,74 @@
     --page-to: #ffe0b8;
     --page-sun: 0;
     --accent: 176 30 46;
+  }
+  /* Neon Noir (Gen-Z 2026) — true-black dark glass + neon cyan/magenta */
+  :root[data-theme='neon-noir'] {
+    --surface-bg: 13 16 23;
+    --surface-alpha: 0.5;
+    --surface-border: 34 211 238;
+    --surface-border-alpha: 0.22;
+    --page-from: #05060a;
+    --page-via: #0a1420;
+    --page-to: #05060a;
+    --page-sun: 0;
+    --accent: 34 211 238;
+    --aurora-bg: #05060a;
+    --aurora-b1: #22d3ee;
+    --aurora-b2: #e11d8f;
+    --aurora-b3: #3b82f6;
+    --aurora-b4: #06b6d4;
+  }
+  /* Cyber Lime (Gen-Z 2026) — near-black + electric lime */
+  :root[data-theme='cyber-lime'] {
+    --surface-bg: 14 21 16;
+    --surface-alpha: 0.5;
+    --surface-border: 163 230 53;
+    --surface-border-alpha: 0.24;
+    --page-from: #070b06;
+    --page-via: #0c1a0c;
+    --page-to: #05080a;
+    --page-sun: 0;
+    --accent: 163 230 53;
+    --aurora-bg: #070b06;
+    --aurora-b1: #a3e635;
+    --aurora-b2: #22c55e;
+    --aurora-b3: #14b8a6;
+    --aurora-b4: #84cc16;
+  }
+  /* Sunset Vapor (Gen-Z 2026) — vaporwave indigo -> pink -> orange */
+  :root[data-theme='sunset-vapor'] {
+    --surface-bg: 36 17 65;
+    --surface-alpha: 0.5;
+    --surface-border: 255 93 177;
+    --surface-border-alpha: 0.26;
+    --page-from: #180b2e;
+    --page-via: #6d1f6a;
+    --page-to: #ff7a4d;
+    --page-sun: 1;
+    --accent: 255 93 177;
+    --aurora-bg: #180b2e;
+    --aurora-b1: #ff5db1;
+    --aurora-b2: #a855f7;
+    --aurora-b3: #ff8a3c;
+    --aurora-b4: #6366f1;
+  }
+  /* Mint Frost (Gen-Z 2026) — cool dark glass + fresh mint/teal */
+  :root[data-theme='mint-frost'] {
+    --surface-bg: 10 28 24;
+    --surface-alpha: 0.5;
+    --surface-border: 45 212 191;
+    --surface-border-alpha: 0.22;
+    --page-from: #04120f;
+    --page-via: #0a2b26;
+    --page-to: #04140f;
+    --page-sun: 0;
+    --accent: 45 212 191;
+    --aurora-bg: #04120f;
+    --aurora-b1: #2dd4bf;
+    --aurora-b2: #34d399;
+    --aurora-b3: #22d3ee;
+    --aurora-b4: #4ade80;
   }
 
   html,

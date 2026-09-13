@@ -12,7 +12,7 @@ export default defineConfig({
     SvelteKitPWA({
       registerType: 'autoUpdate',
       manifest: {
-        name: 'Chhath Puja Transparency Portal (v6)',
+        name: 'Chhath Public Portal',
         short_name: 'Chhath Portal',
         description: 'Navyuvak Chhath Puja Samiti — Faith • Unity • Transparency',
         lang: 'en',
