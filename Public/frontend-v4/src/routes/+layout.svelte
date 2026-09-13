@@ -8,6 +8,7 @@
   import Footer from '$lib/components/Footer.svelte';
   import Chatbot from '$lib/components/Chatbot.svelte';
   import StatusBanner from '$lib/components/StatusBanner.svelte';
+  import AnnouncementPopup from '$lib/components/AnnouncementPopup.svelte';
   import { initPortal } from '$lib/stores/portal';
   import { config } from '$lib/config';
 
@@ -42,3 +43,4 @@
 
 <BottomNav />
 <Chatbot />
+<AnnouncementPopup />
