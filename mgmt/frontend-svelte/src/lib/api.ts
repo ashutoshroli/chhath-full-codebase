@@ -514,12 +514,12 @@ export const api = {
 
   convertDocxToPdf: (docType: string, year: string, recordId: string, base64: string, fileName: string) =>
     call('convertDocxToPdf', { docType, year, recordId, base64, fileName }),
-  convertDocxToPdfBulk: async (docType: string, year: string, recordId: string, base64: string, fileName: string, force: boolean) => {
+  convertDocxToPdfBulk: async (docType: string, year: string, recordId: string, base64: string, fileName: string, force?: boolean) => {
     const res: any = await call('convertDocxToPdfBulk', { docType, year, recordId, base64, fileName, force });
     if (!res || !res.jobId) return res;
     return pollRenderPdfJob(res.jobId);
   },
-  convertDocxToPdfBatch: async (docType: string, year: string, items: unknown, force: boolean) => {
+  convertDocxToPdfBatch: async (docType: string, year: string, items: unknown, force?: boolean) => {
     const res: any = await call('convertDocxToPdfBatch', { docType, year, items, force });
     const meta = {
       engine: (res && res.engine) || 'unknown',
