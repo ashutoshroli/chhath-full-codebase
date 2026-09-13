@@ -232,7 +232,7 @@ describe('config + i18n', () => {
   it('t falls back en->key and interpolates', () => {
     expect(t('en', 'nav_home')).toBe('Home');
     expect(t('hi', 'nav_home')).toBe('होम');
-    expect(t('en', 'contributors_live_scroll', { year: 2026 })).toBe('Contributors 2026 — Live Scroll');
+    expect(t('en', 'contributors_live_scroll', { year: 2026 })).toBe('Contributors 2026');
     expect(t('en', '__missing__')).toBe('__missing__');
   });
   it('localize prefers Hindi column when hi', () => {
