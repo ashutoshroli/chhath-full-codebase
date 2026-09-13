@@ -17,7 +17,7 @@
 
   let cards = $derived([
     // Contributors count — clickable, opens the same contributor-list popup.
-    { icon: Users, grad: 'from-brand-400 to-brand-600', value: s.contributors, fmt: (n: number) => Math.round(n).toString(), label: $tr('summary_contributors'), action: true },
+    { icon: Users, grad: 'from-brand-400 to-brand-600', value: s.contributors, fmt: (n: number) => Math.round(n).toString(), label: $tr('summary_contributors'), action: true, hint: $tr('summary_tap_to_view') },
     { icon: PiggyBank, grad: 'from-sky-500 to-sky-700', value: s.totalCollected, fmt, label: $tr('summary_total_collected'), action: false },
     { icon: BarChart3, grad: 'from-violet-500 to-violet-700', value: s.average, fmt, label: $tr('summary_avg'), action: false },
     // 4th card: opens the contributor-list popup. Shows a "View" call-to-action
@@ -49,6 +49,9 @@
       {/if}
     </p>
     <p class="text-[11px] font-semibold opacity-90">{c.label}</p>
+    {#if 'hint' in c && c.hint != null}
+      <p class="mt-0.5 text-[10px] font-medium opacity-75">{c.hint}</p>
+    {/if}
   {/if}
 {/snippet}
 
