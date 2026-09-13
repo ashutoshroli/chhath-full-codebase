@@ -12,10 +12,14 @@ export default defineConfig({
     SvelteKitPWA({
       registerType: 'autoUpdate',
       manifest: {
-        name: 'Chhath Public Portal',
-        short_name: 'Chhath Portal',
-        description: 'Navyuvak Chhath Puja Samiti — Faith • Unity • Transparency',
+        id: '/',
+        name: 'Navyuvak Chhath Puja Samiti',
+        short_name: 'Chhath Puja',
+        description:
+          'Navyuvak Chhath Puja Samiti, Shaharpura — a read-only public transparency portal: every contribution, expense, loan and committee record, live and accountable. Faith • Unity • Transparency.',
         lang: 'en',
+        dir: 'ltr',
+        categories: ['finance', 'social', 'utilities'],
         theme_color: '#F27A1A',
         background_color: '#0b1020',
         display: 'standalone',
