@@ -11,7 +11,8 @@ import {
 import { competitionRank } from '$lib/utils/ranking';
 import { resolveConfig, DEFAULTS } from '$lib/config';
 import { t, localize } from '$lib/i18n';
-import { pickDefaultTheme, isValidThemeId, DEFAULT_LIGHT, DEFAULT_DARK } from '$lib/themes';
+import { pickDefaultTheme, isValidThemeId, DEFAULT_LIGHT, DEFAULT_DARK, THEMES } from '$lib/themes';
+import { skinIdForTheme, THEME_SKIN_ID, DEFAULT_SKIN_ID } from '$lib/skins/skinMap';
 
 // Mirrors the reference-image contributor set so ranking behaviour is verified
 // against the exact example in the brief.
@@ -256,5 +257,27 @@ describe('theme default selection', () => {
     expect(isValidThemeId('warm-night')).toBe(true);
     expect(isValidThemeId('nope')).toBe(false);
     expect(isValidThemeId(null)).toBe(false);
+  });
+});
+
+describe('skin registry coverage', () => {
+  it('every gallery theme maps to a known skin id', () => {
+    const validSkins = new Set(['premium', 'classic', 'slate', 'aurora', 'festival']);
+    for (const t of THEMES) {
+      expect(THEME_SKIN_ID[t.id], `theme ${t.id} must map to a skin`).toBeDefined();
+      expect(validSkins.has(skinIdForTheme(t.id))).toBe(true);
+    }
+  });
+  it('an unknown theme falls back to the default skin', () => {
+    expect(skinIdForTheme('does-not-exist')).toBe(DEFAULT_SKIN_ID);
+    expect(skinIdForTheme(null)).toBe(DEFAULT_SKIN_ID);
+  });
+  it('the six themes shipped are split across all five skins', () => {
+    const used = new Set(THEMES.map((t) => skinIdForTheme(t.id)));
+    expect(used.has('premium')).toBe(true);
+    expect(used.has('classic')).toBe(true);
+    expect(used.has('slate')).toBe(true);
+    expect(used.has('aurora')).toBe(true);
+    expect(used.has('festival')).toBe(true);
   });
 });
