@@ -9,7 +9,8 @@
   import { Palette, Languages, Heart } from '@lucide/svelte';
   import { lang, tr } from '$lib/stores/lang';
   import { openThemeGallery } from '$lib/stores/ui';
-  import { NAV_ITEMS } from '$lib/components/nav';
+  import { NAV_ITEMS, NAV_PRIMARY } from '$lib/components/nav';
+  import MoreMenu from '$lib/components/MoreMenu.svelte';
   import YearSelect from '$lib/components/YearSelect.svelte';
   import StatusBanner from '$lib/components/StatusBanner.svelte';
   import FooterLinks from '$lib/components/FooterLinks.svelte';
@@ -100,7 +101,7 @@
   style="padding-bottom: env(safe-area-inset-bottom);"
   aria-label="Primary"
 >
-  {#each NAV_ITEMS as item}
+  {#each NAV_PRIMARY as item}
     {@const active = isActive(item.href, $page.url.pathname)}
     {@const Icon = item.icon}
     <a
@@ -113,4 +114,10 @@
       {$tr(item.key)}
     </a>
   {/each}
+  <MoreMenu
+    itemClass="flex-1"
+    activeClass="text-brand-600 dark:text-brand-400"
+    idleClass="text-slate-500 dark:text-slate-400"
+    triggerClass="flex w-full flex-col items-center gap-0.5 py-2 text-[10px] font-medium"
+  />
 </nav>

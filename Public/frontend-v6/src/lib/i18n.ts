@@ -79,6 +79,44 @@ export const T: Record<Lang, Dict> = {
     nav_loans: 'Loans',
     nav_committee: 'Committee',
     nav_downloads: 'Downloads',
+    nav_more: 'More',
+    nav_donate: 'Donate Now',
+    donate_title: 'Donate Now',
+    donate_subtitle: 'How to contribute',
+    donate_heading: '\uD83D\uDC90 How to Contribute \uD83D\uDC90',
+    donate_intro:
+      'To support the Chhath Puja celebration, you can use any one of the following methods:',
+    donate_online_h: '\uD83D\uDCF1 1. Online Contribution',
+    donate_online_p:
+      'You can send your contribution directly online through the UPI QR scanner / UPI ID below.',
+    donate_upi_label: '\uD83D\uDCF2 UPI ID',
+    donate_qr_label: '\uD83D\uDCF7 UPI QR',
+    donate_online_note:
+      '\uD83D\uDCA1 After making an online payment, please send a screenshot of the payment to this number:',
+    donate_whatsapp_label: '\uD83D\uDCDE WhatsApp',
+    donate_online_verify:
+      'This helps us record and verify your contribution correctly.',
+    donate_bank_h: '\uD83C\uDFE6 2. Bank Transfer',
+    donate_bank_p:
+      'You can also send your contribution to the committee\u2019s bank account below:',
+    donate_bank_account_name: 'Account Name',
+    donate_bank_name: 'Bank',
+    donate_bank_account_number: 'A/C No.',
+    donate_bank_ifsc: 'IFSC',
+    donate_bank_note:
+      'After a bank transfer, please send the transaction screenshot / UTR details to {whatsapp}.',
+    donate_cash_h: '\uD83D\uDCB5 3. Cash Contribution',
+    donate_cash_p:
+      'If you wish to contribute in cash, please hand your contribution to the committee\u2019s authorised members:',
+    donate_cash_member: '\uD83D\uDC64 Committee Member',
+    donate_cash_note:
+      'When giving a cash contribution, please be sure to collect a receipt so your contribution is recorded correctly in the committee\u2019s records.',
+    donate_closing:
+      '\uD83D\uDE4F Even your small support plays an important role in making the Chhath Puja celebration a success.',
+    donate_values: '\u2600\uFE0F Faith \u2022 Unity \u2022 Transparency',
+    donate_jai: '\uD83D\uDE4F Jai Chhathi Maiya! \uD83D\uDE4F',
+    donate_empty:
+      'Donation details have not been published yet. Please contact the committee directly.',
     back_to_home: 'Back to Home',
     master_calc: 'Master Financial Calculation',
     budget_overview: 'Budget Overview',
@@ -399,6 +437,44 @@ export const T: Record<Lang, Dict> = {
     nav_loans: 'ऋण',
     nav_committee: 'समिति',
     nav_downloads: 'डाउनलोड',
+    nav_more: 'और',
+    nav_donate: 'योगदान दें',
+    donate_title: 'योगदान दें',
+    donate_subtitle: 'योगदान देने की प्रक्रिया',
+    donate_heading: '\uD83D\uDC90 योगदान देने की प्रक्रिया \uD83D\uDC90',
+    donate_intro:
+      'छठ पूजा के आयोजन में अपना सहयोग देने के लिए आप निम्न माध्यमों में से किसी एक का उपयोग कर सकते हैं:',
+    donate_online_h: '\uD83D\uDCF1 1. Online Contribution',
+    donate_online_p:
+      'आप अपना योगदान नीचे दिए गए UPI QR Scanner / UPI ID के माध्यम से सीधे ऑनलाइन भेज सकते हैं।',
+    donate_upi_label: '\uD83D\uDCF2 UPI ID',
+    donate_qr_label: '\uD83D\uDCF7 UPI QR',
+    donate_online_note:
+      '\uD83D\uDCA1 Online payment करने के बाद कृपया payment का screenshot इस नंबर पर भेज दें:',
+    donate_whatsapp_label: '\uD83D\uDCDE WhatsApp',
+    donate_online_verify:
+      'इससे आपके contribution को सही तरीके से record और verify करने में सहायता मिलेगी।',
+    donate_bank_h: '\uD83C\uDFE6 2. Bank Transfer',
+    donate_bank_p:
+      'आप नीचे दिए गए समिति के bank account में भी contribution भेज सकते हैं:',
+    donate_bank_account_name: 'Account Name',
+    donate_bank_name: 'Bank',
+    donate_bank_account_number: 'A/C No.',
+    donate_bank_ifsc: 'IFSC',
+    donate_bank_note:
+      'Bank transfer के बाद कृपया transaction screenshot/UTR details {whatsapp} पर भेजें।',
+    donate_cash_h: '\uD83D\uDCB5 3. Cash Contribution',
+    donate_cash_p:
+      'यदि आप cash के माध्यम से योगदान देना चाहते हैं, तो अपना contribution समिति के अधिकृत members को दें:',
+    donate_cash_member: '\uD83D\uDC64 Committee Member',
+    donate_cash_note:
+      'Cash contribution देते समय कृपया receipt अवश्य प्राप्त करें, ताकि आपका योगदान समिति के records में सही तरीके से दर्ज किया जा सके।',
+    donate_closing:
+      '\uD83D\uDE4F आपका छोटा-सा सहयोग भी छठ पूजा के आयोजन को सफल बनाने में महत्वपूर्ण भूमिका निभाता है।',
+    donate_values: '\u2600\uFE0F आस्था \u2022 एकता \u2022 पारदर्शिता',
+    donate_jai: '\uD83D\uDE4F जय छठी मैया! \uD83D\uDE4F',
+    donate_empty:
+      'योगदान से जुड़ी जानकारी अभी प्रकाशित नहीं की गई है। कृपया सीधे समिति से संपर्क करें।',
     back_to_home: 'होम पर वापस',
     master_calc: 'मुख्य वित्तीय गणना',
     budget_overview: 'बजट विवरण',

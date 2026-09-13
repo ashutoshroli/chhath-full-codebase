@@ -10,7 +10,8 @@
   import { Palette, Languages, Heart } from '@lucide/svelte';
   import { lang, tr } from '$lib/stores/lang';
   import { openThemeGallery } from '$lib/stores/ui';
-  import { NAV_ITEMS } from '$lib/components/nav';
+  import { NAV_ITEMS, NAV_PRIMARY } from '$lib/components/nav';
+  import MoreMenu from '$lib/components/MoreMenu.svelte';
   import YearSelect from '$lib/components/YearSelect.svelte';
   import StatusBanner from '$lib/components/StatusBanner.svelte';
   import FooterLinks from '$lib/components/FooterLinks.svelte';
@@ -79,7 +80,7 @@
   <!-- Floating glass pill bottom nav (mobile) -->
   <nav class="fixed inset-x-0 bottom-3 z-40 px-4 md:hidden" aria-label="Primary" style="padding-bottom: env(safe-area-inset-bottom);">
     <div class="mx-auto flex max-w-md items-center justify-around rounded-2xl border border-white/10 bg-[#141b30]/80 px-1 py-1 backdrop-blur-xl">
-      {#each NAV_ITEMS as item}
+      {#each NAV_PRIMARY as item}
         {@const active = isActive(item.href, $page.url.pathname)}
         {@const Icon = item.icon}
         <a href={item.href} aria-current={active ? 'page' : undefined}
@@ -89,6 +90,12 @@
           {$tr(item.key)}
         </a>
       {/each}
+      <MoreMenu
+        itemClass="flex-1"
+        activeClass="bg-white/10 text-violet-200"
+        idleClass="text-slate-400"
+        triggerClass="flex w-full flex-col items-center gap-0.5 rounded-xl py-1.5 text-[10px] font-medium"
+      />
     </div>
   </nav>
 </div>

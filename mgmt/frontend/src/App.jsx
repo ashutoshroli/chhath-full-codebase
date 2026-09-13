@@ -24,6 +24,7 @@ const ErrorLog = lazy(() => import('./views/ErrorLog.jsx'));
 const QueueMonitor = lazy(() => import('./views/QueueMonitor.jsx'));
 const PopupManagement = lazy(() => import('./views/PopupManagement.jsx'));
 const JourneyContent = lazy(() => import('./views/JourneyContent.jsx'));
+const DonationSettings = lazy(() => import('./views/DonationSettings.jsx'));
 const AnnouncementPortal = lazy(() => import('./views/AnnouncementPortal.jsx'));
 const DocxTemplates = lazy(() => import('./views/DocxTemplates.jsx'));
 const BulkGeneratePdfs = lazy(() => import('./views/BulkGeneratePdfs.jsx'));
@@ -71,11 +72,12 @@ const AUDIT_TAB = { id: 'auditlogs', label: 'Activity & Login Logs', icon: 'secu
 const UPLOAD_CSV_TAB = { id: 'uploadcsvs', label: 'Upload CSVs', icon: 'upload_file' };
 const AI_MGMT_TAB = { id: 'aimanagement', label: 'AI Management', icon: 'smart_toy' };
 const JOURNEY_TAB = { id: 'journeycontent', label: 'Journey Content', icon: 'timeline' };
+const DONATION_TAB = { id: 'donation', label: 'Donation', icon: 'volunteer_activism' };
 const SUPERADMIN_TAB_GROUPS = [
   { title: '📄 Documents & Templates', tabs: [DOCX_TEMPLATES_TAB, BULK_GENERATE_TAB, DOWNLOAD_CENTER_TAB, PDF_TAB] },
   { title: '🤝 Loan Consent', tabs: [CONSENT_TEMPLATES_TAB, CONSENT_REVIEW_TAB] },
   { title: '💬 Communication', tabs: [WHATSAPP_TAB, EMAIL_TAB, EMAIL_OFFICIAL_TAB, POPUP_MGMT_TAB, ANNOUNCEMENT_TAB, JOURNEY_TAB] },
-  { title: '⚙️ Data & Settings', tabs: [LOCK_TAB, LIST_TAB, UPLOAD_CSV_TAB, STORAGE_TAB, BACKUP_TAB, QUEUE_MONITOR_TAB, ERROR_LOG_TAB, AI_MGMT_TAB, LOGIN_MGMT_TAB, SEO_TAB, AUDIT_TAB] },
+  { title: '⚙️ Data & Settings', tabs: [LOCK_TAB, LIST_TAB, UPLOAD_CSV_TAB, STORAGE_TAB, BACKUP_TAB, QUEUE_MONITOR_TAB, ERROR_LOG_TAB, AI_MGMT_TAB, LOGIN_MGMT_TAB, SEO_TAB, DONATION_TAB, AUDIT_TAB] },
 ];
 const ADMIN_ROLE_TAB_GROUPS = [
   { title: '📄 Documents & Templates', tabs: [DOWNLOAD_CENTER_TAB, PDF_TAB] },
@@ -287,6 +289,7 @@ export default function App() {
         {tab === 'announcementportal' && canAccessTab('announcementportal') && <AnnouncementPortal years={years} />}
         {tab === 'pdfexport' && canAccessTab('pdfexport') && <PdfExport />}
         {tab === 'seo' && canAccessTab('seo') && <SeoSettings />}
+        {tab === 'donation' && canAccessTab('donation') && <DonationSettings />}
         {tab === 'auditlogs' && canAccessTab('auditlogs') && <AuditLogs role={user.role} />}
         {tab === 'aimanagement' && canAccessTab('aimanagement') && <AiManagement />}
         {tab === 'uploadcsvs' && canAccessTab('uploadcsvs') && <UploadCsvs />}

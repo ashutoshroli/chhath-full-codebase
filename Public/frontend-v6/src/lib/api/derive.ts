@@ -439,6 +439,48 @@ export function journeyTagline(data: PortalData): { en: string; hi: string } {
   };
 }
 
+/** The "Donate Now" page fields from the backend (portal_settings donation_*).
+ *  Every field is a string; missing/unset fields are '' so the page hides them.
+ *  Optional on the payload — an older backend omits it and all fields read ''. */
+export interface Donation {
+  upiId: string;
+  qrUrl: string;
+  bankAccountName: string;
+  bankName: string;
+  accountNumber: string;
+  ifsc: string;
+  whatsapp: string;
+}
+
+export function donationSettings(data: PortalData): Donation {
+  const d = (data as { donation?: Record<string, unknown> }).donation;
+  const s = (v: unknown) => (v ?? '').toString().trim();
+  return {
+    upiId: s(d?.upiId),
+    qrUrl: s(d?.qrUrl),
+    bankAccountName: s(d?.bankAccountName),
+    bankName: s(d?.bankName),
+    accountNumber: s(d?.accountNumber),
+    ifsc: s(d?.ifsc),
+    whatsapp: s(d?.whatsapp)
+  };
+}
+
+/** The CURRENT/live committee, independent of any user-selected year. Uses the
+ *  current calendar year when the data has committee rows for it, otherwise the
+ *  newest year present (availableYears is desc). The Donate page uses this so the
+ *  member list never changes when the visitor picks an older year in the header. */
+export function currentCommittee(
+  data: PortalData,
+  userMap = buildUserMap(data)
+): CommitteeMember[] {
+  const years = availableYears(data);
+  if (years.length === 0) return [];
+  const nowYear = new Date().getFullYear();
+  const live = years.includes(nowYear) ? nowYear : years[0];
+  return committeeForYear(data, live, userMap);
+}
+
 /** The Decade page's static text blocks for the given language, as a flat
  *  field->string map. Empty/missing fields are simply absent, so the caller does
  *  `journeyText(data, lang).intro ?? $tr('decade_intro')` to fall back to i18n.

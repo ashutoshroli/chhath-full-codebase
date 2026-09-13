@@ -103,6 +103,10 @@ const SCHEMA_FOR_MIGRATION = {
   // guarded by WHERE NOT EXISTS — applies on a fresh schema and a second run is a
   // no-op. Fully idempotent (no ALTER), like 28.
   '29-journey-page-text.sql': 'core.sql',
+  // donation settings seed (core DB): seven portal_settings key/value rows, each
+  // INSERT guarded by WHERE NOT EXISTS — applies on a fresh schema and a second
+  // run is a no-op. Fully idempotent (no ALTER), like 28/29.
+  '30-donation-settings.sql': 'core.sql',
 };
 
 // Migrations that legitimately do more than CREATE INDEX. Keep this list as short

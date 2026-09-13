@@ -8,7 +8,8 @@
   import { Palette, Languages, Heart } from '@lucide/svelte';
   import { lang, tr } from '$lib/stores/lang';
   import { openThemeGallery } from '$lib/stores/ui';
-  import { NAV_ITEMS } from '$lib/components/nav';
+  import { NAV_ITEMS, NAV_PRIMARY } from '$lib/components/nav';
+  import MoreMenu from '$lib/components/MoreMenu.svelte';
   import YearSelect from '$lib/components/YearSelect.svelte';
   import StatusBanner from '$lib/components/StatusBanner.svelte';
   import FooterLinks from '$lib/components/FooterLinks.svelte';
@@ -74,7 +75,7 @@
 
 <!-- Warm bottom nav (mobile) -->
 <nav class="fixed inset-x-0 bottom-0 z-40 flex items-center justify-around border-t border-[rgb(var(--accent-2)/0.4)] bg-[rgb(var(--surface-bg))] md:hidden" style="padding-bottom: env(safe-area-inset-bottom);" aria-label="Primary">
-  {#each NAV_ITEMS as item}
+  {#each NAV_PRIMARY as item}
     {@const active = isActive(item.href, $page.url.pathname)}
     {@const Icon = item.icon}
     <a href={item.href} aria-current={active ? 'page' : undefined}
@@ -84,4 +85,10 @@
       {$tr(item.key)}
     </a>
   {/each}
+  <MoreMenu
+    itemClass="flex-1"
+    activeClass="text-[rgb(var(--accent))]"
+    idleClass="text-[rgb(var(--fest-ink)/0.6)]"
+    triggerClass="flex w-full flex-col items-center gap-0.5 py-2 text-[10px] font-bold"
+  />
 </nav>

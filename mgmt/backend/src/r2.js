@@ -106,6 +106,14 @@ export function keyForUserPhoto(idCode, fileName) {
   return `users/${who}_${Date.now()}_${safeName(fileName, 'photo.jpg')}`;
 }
 
+// Donation UPI-QR image key (no year — a single site-wide QR shown on the public
+// "Donate Now" page, never moved to Drive by the "Move year" feature). The
+// timestamp keeps each re-upload a distinct object so a stale CDN copy is never
+// served after the QR is replaced.
+export function keyForDonationQr(fileName) {
+  return `donation/${Date.now()}_${safeName(fileName, 'qr.png')}`;
+}
+
 // The year prefix used by the move feature, e.g. "2026/".
 export function yearPrefix(year) {
   const y = parseInt(year);
