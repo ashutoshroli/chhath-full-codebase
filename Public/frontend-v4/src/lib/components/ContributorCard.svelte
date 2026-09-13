@@ -16,6 +16,11 @@
   let c = $derived(entry.item);
   let displayName = $derived($lang === 'hi' && c.nameHindi ? c.nameHindi : c.name);
   let grad = $derived(avatarGradient(c.key));
+  // Kind badge for non-money contributors (material / service) — shown INSTEAD
+  // of a ₹ amount so material/service never render as ₹0.
+  let kindLabel = $derived(
+    c.hasMoney ? '' : c.kinds.has('material') ? $tr('material') : c.kinds.has('service') ? $tr('service') : ''
+  );
 </script>
 
 <button
@@ -54,7 +59,12 @@
   </span>
 
   <span class="mt-2 line-clamp-1 w-full text-[11px] font-bold" title={displayName}>{displayName}</span>
-  <span class="mt-0.5 text-sm font-black text-brand-600 dark:text-brand-300">{fmt(c.amount)}</span>
+
+  {#if c.hasMoney}
+    <span class="mt-0.5 text-sm font-black text-brand-600 dark:text-brand-300">{fmt(c.amount)}</span>
+  {:else}
+    <span class="mt-0.5 rounded-full bg-info/15 px-2 py-0.5 text-[9px] font-bold text-info">{kindLabel}</span>
+  {/if}
 
   {#if entry.isTop}
     <span class="mt-1 rounded-full bg-gold/20 px-2 py-0.5 text-[8px] font-black uppercase tracking-wide text-amber-700 dark:text-amber-300">

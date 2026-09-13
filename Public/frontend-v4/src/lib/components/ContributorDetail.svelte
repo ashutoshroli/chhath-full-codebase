@@ -14,6 +14,13 @@
   let c = $derived(entry?.item ?? null);
   let displayName = $derived(c ? ($lang === 'hi' && c.nameHindi ? c.nameHindi : c.name) : '');
   let displayVillage = $derived(c ? ($lang === 'hi' && c.villageHindi ? c.villageHindi : c.village) : '');
+  let displayDesignation = $derived(
+    c ? ($lang === 'hi' && c.designationHindi ? c.designationHindi : c.designation) : ''
+  );
+  let displayFather = $derived(c ? ($lang === 'hi' && c.fatherNameHindi ? c.fatherNameHindi : c.fatherName) : '');
+  let kindLabel = $derived(
+    c && !c.hasMoney ? (c.kinds.has('material') ? $tr('material') : $tr('service')) : ''
+  );
   let grad = $derived(avatarGradient(c?.key));
 
   function onKey(e: KeyboardEvent) {
@@ -55,6 +62,9 @@
           {initials(displayName)}
         </span>
         <p class="mt-3 text-lg font-black">{displayName}</p>
+        {#if displayDesignation}
+          <p class="text-xs font-semibold text-brand-600 dark:text-brand-300">{displayDesignation}</p>
+        {/if}
         {#if displayVillage}
           <p class="mt-0.5 flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
             <MapPin class="h-3.5 w-3.5" />{displayVillage}
@@ -70,10 +80,24 @@
       <dl class="mt-4 space-y-2 rounded-xl bg-black/[.03] p-3 text-sm dark:bg-white/[.04]">
         <div class="flex justify-between">
           <dt class="text-slate-500 dark:text-slate-400">{$tr('amount')}</dt>
-          <dd class="font-extrabold text-brand-600 dark:text-brand-300">{fmt(c.amount)}</dd>
+          <dd class="font-extrabold text-brand-600 dark:text-brand-300">
+            {#if c.hasMoney}{fmt(c.amount)}{:else}<span class="text-info">{kindLabel}</span>{/if}
+          </dd>
         </div>
+        {#if displayFather}
+          <div class="flex justify-between gap-4">
+            <dt class="shrink-0 text-slate-500 dark:text-slate-400">{$tr('father_name')}</dt>
+            <dd class="truncate text-right font-semibold">{displayFather}</dd>
+          </div>
+        {/if}
+        {#if c.detail}
+          <div class="flex justify-between gap-4">
+            <dt class="shrink-0 text-slate-500 dark:text-slate-400">{$tr('detail')}</dt>
+            <dd class="truncate text-right font-semibold">{c.detail}</dd>
+          </div>
+        {/if}
         <div class="flex justify-between">
-          <dt class="text-slate-500 dark:text-slate-400">{$tr('total_contributions', { count: c.count })}</dt>
+          <dt class="text-slate-500 dark:text-slate-400">{$tr('contributions_count')}</dt>
           <dd class="font-bold">{c.count}</dd>
         </div>
       </dl>

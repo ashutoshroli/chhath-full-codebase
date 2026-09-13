@@ -136,24 +136,27 @@
         />
       {/if}
 
-      <div class="p-4">
-        {#if popup?.title}
-          <h2 class="mb-1 text-base font-black">{popup.title}</h2>
-        {/if}
-        {#if s.text}
-          <p class="whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">{s.text}</p>
-        {/if}
-        {#if s.link_url && safeUrl(s.link_url.toString())}
-          <a
-            class="btn-primary mt-3 w-full"
-            href={s.link_url.toString()}
-            target="_blank"
-            rel="noreferrer"
-          >
-            {s.link_text || 'Learn more'}
-          </a>
-        {/if}
-      </div>
+      <!-- popup.title is a Superadmin-only reference label (backend marks it
+           "not shown to viewers") so it is intentionally NOT rendered. The text
+           block only renders when a slide actually has text or a link, so an
+           image-only announcement shows no empty padding strip. -->
+      {#if s.text || (s.link_url && safeUrl(s.link_url.toString()))}
+        <div class="p-4">
+          {#if s.text}
+            <p class="whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">{s.text}</p>
+          {/if}
+          {#if s.link_url && safeUrl(s.link_url.toString())}
+            <a
+              class="btn-primary mt-3 w-full"
+              href={s.link_url.toString()}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {s.link_text || 'Learn more'}
+            </a>
+          {/if}
+        </div>
+      {/if}
 
       {#if slides.length > 1}
         <div class="flex items-center justify-between border-t border-black/5 px-3 py-2 dark:border-white/10">

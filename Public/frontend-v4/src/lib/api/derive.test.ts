@@ -165,6 +165,49 @@ describe('display order: EVERYONE in entry (SL No.) order, top-5 flagged in plac
   });
 });
 
+describe('resell excluded, material/service present but unranked', () => {
+  const data = parsePortalData({
+    users: [
+      { ID: 'M1', Name: 'Money Person' },
+      { ID: 'X1', Name: 'Material Person' },
+      { ID: 'S1', Name: 'Service Person' }
+    ],
+    collections: [
+      { Year: 2026, ID: 'M1', Amount: '1000', 'Contribution Type': '1' },
+      { Year: 2026, ID: 'X1', Amount: '0', 'Contribution Type': '2', Detail: 'Bamboo soop' },
+      { Year: 2026, ID: 'S1', Amount: '0', 'Contribution Type': '3', Detail: 'Sound system' },
+      { Year: 2026, Name: 'Old Chair', Amount: '500', 'Is Resell': 'TRUE' }
+    ]
+  })!;
+  const ranked = rankedContributors(data, 2026);
+
+  it('resold items never appear as a contributor', () => {
+    expect(ranked.find((r) => r.item.name === 'Old Chair')).toBeUndefined();
+    expect(ranked.length).toBe(3); // money + material + service, NOT the resell row
+  });
+
+  it('material/service are listed but carry no rank and are never top-5', () => {
+    const mat = ranked.find((r) => r.item.name === 'Material Person')!;
+    const svc = ranked.find((r) => r.item.name === 'Service Person')!;
+    expect(mat.item.hasMoney).toBe(false);
+    expect(mat.rank).toBe(0);
+    expect(mat.isTop).toBe(false);
+    expect(svc.item.hasMoney).toBe(false);
+    expect(svc.isTop).toBe(false);
+  });
+
+  it('only money contributors get a rank', () => {
+    const money = ranked.find((r) => r.item.name === 'Money Person')!;
+    expect(money.item.hasMoney).toBe(true);
+    expect(money.rank).toBe(1);
+  });
+
+  it('resold amount is NOT counted in total collected', () => {
+    const s = computeSummary(data, 2026);
+    expect(s.totalCollected).toBe(1000); // 500 resell excluded, material/service = 0
+  });
+});
+
 describe('summary + years', () => {
   const data = parsePortalData(sample)!;
   it('summary reflects real data', () => {
