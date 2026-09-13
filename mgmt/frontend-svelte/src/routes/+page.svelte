@@ -14,6 +14,11 @@
   import Login from '$lib/components/Login.svelte';
   import Modal from '$lib/components/Modal.svelte';
   import AppFooter from '$lib/components/AppFooter.svelte';
+  import Home from '$lib/views/Home.svelte';
+  import Expenses from '$lib/views/Expenses.svelte';
+  import Loans from '$lib/views/Loans.svelte';
+  import Users from '$lib/views/Users.svelte';
+  import Committee from '$lib/views/Committee.svelte';
 
   interface Tab { id: string; label: string; icon: string; }
   interface TabGroup { title: string; tabs: Tab[]; }
@@ -114,7 +119,10 @@
   let years = $state<string[]>([]);
   let lockedYearsSet = $state<Set<number>>(new Set());
   let usersList = $state<any[]>([]);
+  let usersLoading = $state(true);
+  let usersError = $state('');
   let committeeAll = $state<any[]>([]);
+  let refreshUsers = $state<() => void>(() => {});
 
   let started = false;
   $effect(() => {
@@ -126,6 +134,7 @@
     const lockedView = createViewData<any[]>('lockedYears', () => api.getLockedYears());
     const usersView = createViewData<any[]>('users', () => api.getUsers());
     const committeeView = createViewData<any[]>('committee:All', () => api.getCommittee('All'));
+    refreshUsers = () => usersView.refresh();
 
     yearsView.subscribe((v) => {
       years = Array.isArray(v.data) ? v.data : [];
@@ -137,7 +146,11 @@
     lockedView.subscribe((v) => {
       lockedYearsSet = new Set((v.list as any[]).map((y) => parseInt(y)));
     });
-    usersView.subscribe((v) => (usersList = v.list as any[]));
+    usersView.subscribe((v) => {
+      usersList = v.list as any[];
+      usersLoading = v.loading;
+      usersError = v.error;
+    });
     committeeView.subscribe((v) => (committeeAll = v.list as any[]));
 
     // Data-version check → invalidate caches if the backend moved on.
@@ -201,8 +214,6 @@
     yearInitialized = false;
   }
 
-  // Views land in later phases; for now show a clear placeholder per tab.
-  const PHASED_TABS = new Set(['home', 'expenses', 'loans', 'users', 'committee']);
 </script>
 
 {#if !checkedSession}
@@ -239,12 +250,22 @@
   </header>
 
   <main class="page-view">
-    {#if PHASED_TABS.has(tab) || canAccessTab(tab)}
+    {#if tab === 'home'}
+      <Home {year} users={usersList} onUserCreated={refreshUsers} role={$session.role} {editable} />
+    {:else if tab === 'expenses'}
+      <Expenses {year} role={$session.role} {editable} />
+    {:else if tab === 'loans'}
+      <Loans {year} users={usersList} committee={committeeAll} role={$session.role} {editable} />
+    {:else if tab === 'users'}
+      <Users users={usersList} loading={usersLoading} error={usersError} onRefresh={refreshUsers} role={$session.role} />
+    {:else if tab === 'committee'}
+      <Committee {year} users={usersList} role={$session.role} {editable} />
+    {:else if canAccessTab(tab)}
       <div class="glass-card" style="text-align:center; padding:40px 20px;">
         <span class="material-icons-round" style="font-size:40px; color:var(--primary-saffron);">construction</span>
         <h3 style="margin:12px 0 4px;">{[...BASE_TABS, ...toolTabs].find((t) => t.id === tab)?.label || tab}</h3>
         <p style="color:var(--text-muted); font-size:0.9rem;">
-          This view is being migrated to the new Svelte portal in a later phase. The shell, login, navigation, roles and year selector are live now.
+          This tool is being migrated to the new Svelte portal in a later phase. The shell, login, navigation, roles and year selector are live now.
         </p>
         <p style="color:var(--text-muted); font-size:0.8rem; margin-top:8px;">
           Year: <strong>{year || '—'}</strong> · Editable: <strong>{editable ? 'yes' : 'no'}</strong>
