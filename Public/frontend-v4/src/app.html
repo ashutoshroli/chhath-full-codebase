@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en" class="scroll-smooth">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="%sveltekit.assets%/favicon.svg" />
+    <link rel="mask-icon" href="%sveltekit.assets%/favicon.svg" color="#F27A1A" />
+    <link rel="apple-touch-icon" href="%sveltekit.assets%/icons/icon-180.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Chhath Portal" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+
+    <!-- Default SEO / social preview (per-page <title>/<meta> override these). -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Chhath Puja Transparency Portal" />
+    <meta property="og:title" content="Chhath Puja Transparency Portal — Navyuvak Chhath Puja Samiti" />
+    <meta
+      property="og:description"
+      content="Every contribution is visible. Every expense is accountable. Live financial transparency for Navyuvak Chhath Puja Samiti, Shaharpura, Gardih."
+    />
+    <meta property="og:image" content="https://chhath.shaharpura.com/icons/icon-512.png" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="theme-color" content="#F27A1A" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0b1020" media="(prefers-color-scheme: dark)" />
+
+    <!-- No-flash theme + language: run BEFORE first paint so there is no
+         light->dark flicker on load, matching cpm_public_theme/lang semantics
+         used by the other frontends. -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('cpm_public_theme');
+          if (t !== 'dark' && t !== 'light') {
+            t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          document.documentElement.classList.toggle('dark', t === 'dark');
+          var l = localStorage.getItem('cpm_public_lang') === 'hi' ? 'hi' : 'en';
+          document.documentElement.setAttribute('lang', l);
+        } catch (e) {}
+      })();
+    </script>
+
+    <!-- Fonts: non-render-blocking (print->all swap) so first paint is not
+         blocked on the network. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      media="print"
+      onload="this.media='all'"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Kalam:wght@400;700&display=swap"
+    />
+    <noscript>
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Kalam:wght@400;700&display=swap"
+      />
+    </noscript>
+
+    %sveltekit.head%
+  </head>
+  <body data-sveltekit-preload-data="hover" class="bg-slate-100 dark:bg-ink">
+    <div style="display: contents">%sveltekit.body%</div>
+  </body>
+</html>

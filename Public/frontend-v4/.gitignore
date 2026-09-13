@@ -1,0 +1,22 @@
+# Dependencies — restored by `npm install`, never committed.
+node_modules/
+
+# SvelteKit / Vite build output and generated type cache.
+.svelte-kit/
+build/
+dist/
+.vercel/
+.output/
+
+# PWA generated service worker artifacts (regenerated on build).
+dev-dist/
+
+# Local environment overrides. PUBLIC_* vars live in Vercel project settings;
+# these local-only files must never be committed.
+.env
+.env.*
+!.env.example
+
+# Editor / OS noise
+.DS_Store
+*.local
