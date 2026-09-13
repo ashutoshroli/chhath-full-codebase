@@ -233,6 +233,116 @@
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
+
+  /* ===== Chatbot launcher orb =====
+     Same markup on every theme; the look is theme-driven here. BASE = a clean
+     flat accent circle (classic / slate / sunrise / warm-night / midnight).
+     The modern + gen-z themes override this into a glossy "3D" orb below. */
+  .chat-orb {
+    position: fixed;
+    background: rgb(var(--accent));
+    box-shadow: 0 6px 16px -6px rgb(var(--accent) / 0.7);
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .chat-orb__gloss { display: none; }
+  .chat-orb__icon { display: grid; place-items: center; }
+  .chat-orb--mini {
+    position: relative;
+    box-shadow: 0 3px 8px -4px rgb(var(--accent) / 0.7);
+  }
+
+  /* ---- 3D orb (modern + gen-z themes) ----
+     A layered radial gradient gives a lit sphere; --chat-orb-3d is the switch
+     each 3D theme flips on. The gloss span is the top highlight; a soft outer
+     glow + inner shadow add depth; a gentle float animation sells the "3D". */
+  :root[data-theme='aurora'],
+  :root[data-theme='festival'],
+  :root[data-theme='neon-noir'],
+  :root[data-theme='cyber-lime'],
+  :root[data-theme='sunset-vapor'],
+  :root[data-theme='mint-frost'] {
+    --chat-orb-3d: 1;
+  }
+
+  :root[data-theme='aurora'] .chat-orb,
+  :root[data-theme='festival'] .chat-orb,
+  :root[data-theme='neon-noir'] .chat-orb,
+  :root[data-theme='cyber-lime'] .chat-orb,
+  :root[data-theme='sunset-vapor'] .chat-orb,
+  :root[data-theme='mint-frost'] .chat-orb {
+    background:
+      radial-gradient(120% 120% at 32% 24%,
+        rgb(var(--accent) / 0.98) 0%,
+        rgb(var(--accent) / 0.85) 38%,
+        rgb(var(--accent) / 0.55) 66%,
+        rgb(0 0 0 / 0.55) 100%);
+    box-shadow:
+      0 10px 26px -8px rgb(var(--accent) / 0.75),   /* drop */
+      0 0 22px -2px rgb(var(--accent) / 0.55),       /* outer glow */
+      inset 0 -6px 12px -4px rgb(0 0 0 / 0.55),      /* bottom inner shadow */
+      inset 0 5px 10px -4px rgb(255 255 255 / 0.55); /* top inner highlight */
+    animation: chat-orb-float 4.5s ease-in-out infinite;
+  }
+
+  /* Glossy top highlight (only on 3D themes). */
+  :root[data-theme='aurora'] .chat-orb__gloss,
+  :root[data-theme='festival'] .chat-orb__gloss,
+  :root[data-theme='neon-noir'] .chat-orb__gloss,
+  :root[data-theme='cyber-lime'] .chat-orb__gloss,
+  :root[data-theme='sunset-vapor'] .chat-orb__gloss,
+  :root[data-theme='mint-frost'] .chat-orb__gloss {
+    display: block;
+    position: absolute;
+    top: 8%;
+    left: 14%;
+    width: 62%;
+    height: 42%;
+    border-radius: 50%;
+    background: linear-gradient(to bottom, rgb(255 255 255 / 0.65), rgb(255 255 255 / 0));
+    filter: blur(1px);
+    pointer-events: none;
+    z-index: 1;
+  }
+  /* Keep the icon crisp above the gloss, with a touch of depth. */
+  :root[data-theme='aurora'] .chat-orb__icon,
+  :root[data-theme='festival'] .chat-orb__icon,
+  :root[data-theme='neon-noir'] .chat-orb__icon,
+  :root[data-theme='cyber-lime'] .chat-orb__icon,
+  :root[data-theme='sunset-vapor'] .chat-orb__icon,
+  :root[data-theme='mint-frost'] .chat-orb__icon {
+    z-index: 2;
+    filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.45));
+  }
+  .chat-orb:hover { transform: translateY(-1px) scale(1.04); }
+  .chat-orb--open { animation: none !important; }
+  /* The mini header orb: same 3D skin but no float (it sits in a row). */
+  .chat-orb--mini { animation: none !important; }
+
+  @keyframes chat-orb-float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-4px); }
+  }
+
+  /* ---- Chat panel accent on 3D themes ----
+     Give the panel header a faint accent wash + glow border so the open chat
+     visually matches its 3D launcher; classic themes keep the plain surface. */
+  :root[data-theme='aurora'] .chat-panel,
+  :root[data-theme='festival'] .chat-panel,
+  :root[data-theme='neon-noir'] .chat-panel,
+  :root[data-theme='cyber-lime'] .chat-panel,
+  :root[data-theme='sunset-vapor'] .chat-panel,
+  :root[data-theme='mint-frost'] .chat-panel {
+    box-shadow: 0 12px 40px -12px rgb(var(--accent) / 0.45), 0 0 0 1px rgb(var(--accent) / 0.25);
+  }
+  :root[data-theme='aurora'] .chat-panel__header,
+  :root[data-theme='festival'] .chat-panel__header,
+  :root[data-theme='neon-noir'] .chat-panel__header,
+  :root[data-theme='cyber-lime'] .chat-panel__header,
+  :root[data-theme='sunset-vapor'] .chat-panel__header,
+  :root[data-theme='mint-frost'] .chat-panel__header {
+    background: linear-gradient(to bottom, rgb(var(--accent) / 0.16), rgb(var(--accent) / 0));
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

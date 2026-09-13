@@ -86,32 +86,38 @@
   }
 </script>
 
-<!-- Launcher -->
+<!-- Launcher — a layered "3D" orb on the modern/gen-z themes (see .chat-orb in
+  app.css), a clean flat circle on the classic/enterprise themes. The markup is
+  the same everywhere; CSS decides the look per [data-theme]. -->
 <button
-  class="fixed bottom-20 right-4 z-50 grid place-items-center rounded-full
-    bg-gradient-to-br from-brand-500 to-brand-600 p-3.5 text-white shadow-glow
-    transition active:scale-95 md:bottom-6"
+  class="chat-orb fixed bottom-20 right-4 z-50 grid h-14 w-14 place-items-center rounded-full
+    text-white transition active:scale-95 md:bottom-6"
+  class:chat-orb--open={open}
   onclick={() => (open = !open)}
   aria-label={$tr('ask_assistant')}
   aria-expanded={open}
 >
-  {#if open}
-    <X class="h-6 w-6" aria-hidden="true" />
-  {:else}
-    <MessageCircle class="h-6 w-6" aria-hidden="true" />
-  {/if}
+  <span class="chat-orb__gloss" aria-hidden="true"></span>
+  <span class="chat-orb__icon relative">
+    {#if open}
+      <X class="h-6 w-6" aria-hidden="true" />
+    {:else}
+      <MessageCircle class="h-6 w-6" aria-hidden="true" />
+    {/if}
+  </span>
 </button>
 
 {#if open}
   <div
-    class="surface fixed bottom-36 right-4 z-50 flex h-[26rem] w-[min(22rem,calc(100vw-2rem))]
+    class="surface chat-panel fixed bottom-36 right-4 z-50 flex h-[26rem] w-[min(22rem,calc(100vw-2rem))]
       flex-col overflow-hidden md:bottom-24"
     role="dialog"
     aria-label={$tr('ask_assistant')}
   >
-    <div class="flex items-center gap-2 border-b border-black/5 px-3 py-2 dark:border-white/10">
-      <span class="grid h-7 w-7 place-items-center rounded-lg bg-brand-500/15 text-brand-600 dark:text-brand-300">
-        <MessageCircle class="h-4 w-4" />
+    <div class="chat-panel__header flex items-center gap-2 border-b border-black/5 px-3 py-2 dark:border-white/10">
+      <span class="chat-orb chat-orb--mini grid h-8 w-8 place-items-center rounded-full text-white">
+        <span class="chat-orb__gloss" aria-hidden="true"></span>
+        <MessageCircle class="chat-orb__icon relative h-4 w-4" />
       </span>
       <span class="text-sm font-bold">{$tr('ask_assistant')}</span>
     </div>
