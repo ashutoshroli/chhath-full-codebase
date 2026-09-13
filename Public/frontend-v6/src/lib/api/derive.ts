@@ -400,6 +400,45 @@ export function decadeStats(data: PortalData): DecadeStats {
   return { startYear: DECADE_START_YEAR, endYear, currentYear, years, grandTotal, grandContributors };
 }
 
+// ---- "Our Journey" story content (DB-driven) ----
+
+export interface JourneyEntry {
+  year: number | null;
+  titleEn: string;
+  titleHi: string;
+  contentEn: string;
+  contentHi: string;
+}
+
+/** The year-by-year story rows from the backend, ordered as delivered. Empty
+ *  when the backend hasn't shipped them (older deploy) — callers then fall back
+ *  to their built-in text. */
+export function journeyEntries(data: PortalData): JourneyEntry[] {
+  const rows = (data as { journeyEntries?: unknown }).journeyEntries;
+  if (!Array.isArray(rows)) return [];
+  return rows.map((r) => {
+    const row = r as Record<string, unknown>;
+    const y = parseInt((row.year ?? '').toString(), 10);
+    return {
+      year: Number.isFinite(y) ? y : null,
+      titleEn: (row.title_en ?? '').toString(),
+      titleHi: (row.title_hi ?? '').toString(),
+      contentEn: (row.content_en ?? '').toString(),
+      contentHi: (row.content_hi ?? '').toString()
+    };
+  });
+}
+
+/** The bilingual journey tagline from the backend, or empty strings when unset
+ *  (the caller then uses its i18n default). */
+export function journeyTagline(data: PortalData): { en: string; hi: string } {
+  const t = (data as { journeyTagline?: { en?: unknown; hi?: unknown } }).journeyTagline;
+  return {
+    en: (t?.en ?? '').toString(),
+    hi: (t?.hi ?? '').toString()
+  };
+}
+
 // ---- Committee ----
 
 export interface CommitteeMember {

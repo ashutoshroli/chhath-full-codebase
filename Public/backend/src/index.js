@@ -393,7 +393,57 @@ async function getAllPortalData(env) {
     guarantors: await tableRows(env.DB_LOANS_EXPENSES, 'loan_guarantors', REVERSE_MAPS.loan_guarantors, null, LOAN_GUARANTORS_PUBLIC_COLS),
     generatedFiles: await tableRows(env.DB_FILE_INDEX, 'generated_files', REVERSE_MAPS.generated_files, null, GENERATED_FILES_PUBLIC_COLS),
     loanConsents: await tableRows(env.DB_LOANS_EXPENSES, 'loan_consents', REVERSE_MAPS.loan_consents, null, LOAN_CONSENTS_PUBLIC_COLS),
+    // "Our Journey" year-by-year story (DB-driven, managed in the mgmt portal).
+    // A missing table on an older deployment degrades to [] rather than failing.
+    journeyEntries: await getJourneyEntries(env),
+    // The journey tagline (bilingual), from the same portal_settings key/value
+    // table this Worker already reads for the data version + SEO.
+    journeyTagline: await getJourneyTagline(env),
   };
+}
+
+// Public "Our Journey" entries — read-only, only the columns the portal renders.
+// Ordered by position then year. Fails soft ([]) on a missing table/column.
+async function getJourneyEntries(env) {
+  if (!env || !env.DB_CORE) return [];
+  try {
+    const { results } = await env.DB_CORE
+      .prepare('SELECT year, title_en, title_hi, content_en, content_hi, position FROM journey_entries ORDER BY position ASC, year ASC')
+      .all();
+    return (results || []).map(r => ({
+      year: r.year == null ? '' : Number(r.year),
+      title_en: r.title_en || '',
+      title_hi: r.title_hi || '',
+      content_en: r.content_en || '',
+      content_hi: r.content_hi || '',
+    }));
+  } catch (e) {
+    const msg = (e && e.message ? e.message : String(e)).toLowerCase();
+    if (msg.includes('no such table') || msg.includes('no such column')) return [];
+    throw e;
+  }
+}
+
+// The bilingual journey tagline from portal_settings (journey_tagline_en/_hi).
+// Returns { en, hi } with '' fallbacks so the frontend can fall back to its
+// built-in default when both are empty.
+async function getJourneyTagline(env) {
+  const out = { en: '', hi: '' };
+  if (!env || !env.DB_CORE) return out;
+  try {
+    const { results } = await env.DB_CORE
+      .prepare('SELECT "key", value FROM portal_settings WHERE "key" IN (?, ?)')
+      .bind('journey_tagline_en', 'journey_tagline_hi')
+      .all();
+    for (const r of results || []) {
+      if (r.key === 'journey_tagline_en') out.en = r.value || '';
+      if (r.key === 'journey_tagline_hi') out.hi = r.value || '';
+    }
+  } catch (e) {
+    const msg = (e && e.message ? e.message : String(e)).toLowerCase();
+    if (!msg.includes('no such table') && !msg.includes('no such column')) throw e;
+  }
+  return out;
 }
 
 // audit H-5 — per-year AGGREGATES only, computed in SQL (SUM/COUNT), NOT by shipping

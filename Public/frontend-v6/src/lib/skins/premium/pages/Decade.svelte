@@ -1,19 +1,33 @@
 <script lang="ts">
   import { Trophy, Sunrise, HandHeart, Users, ShieldCheck, Sparkles, Heart, Info } from '@lucide/svelte';
   import PageHeading from '$lib/components/PageHeading.svelte';
-  import { tr } from '$lib/stores/lang';
+  import { tr, lang } from '$lib/stores/lang';
   import { portalState } from '$lib/stores/portal';
-  import { decadeStats } from '$lib/api/derive';
+  import { decadeStats, journeyEntries, journeyTagline } from '$lib/api/derive';
   import { fmt } from '$lib/utils/format';
-  import { DECADE_YEARS, DECADE_TIMELINE, DECADE_MILESTONES } from '$lib/utils/decadeData';
+  import { DECADE_TIMELINE, DECADE_MILESTONES } from '$lib/utils/decadeData';
 
   const yearIcons = [Sunrise, Users, Users, HandHeart, ShieldCheck, ShieldCheck, ShieldCheck, Users, Sparkles, Sparkles];
   const msIcons = [Sunrise, ShieldCheck, Sparkles];
 
   // Live decade figures (no hardcoded numbers).
   let d = $derived(decadeStats($portalState.data));
-  // Story text (heading/body) looked up per year; numbers come from `d`.
-  let storyByYear = $derived(new Map(DECADE_YEARS.map((y, i) => [y.year, { ...y, i }])));
+  // Story text (title/content per year) now comes from the DB (journey_entries),
+  // keyed by year; the numbers still come from `d`. Falls back to empty when the
+  // backend hasn't shipped journey content yet.
+  let story = $derived(journeyEntries($portalState.data));
+  let storyByYear = $derived(
+    new Map(story.map((e, i) => [String(e.year), {
+      i,
+      title: $lang === 'hi' && e.titleHi ? e.titleHi : e.titleEn,
+      content: $lang === 'hi' && e.contentHi ? e.contentHi : e.contentEn
+    }]))
+  );
+  // Tagline: DB value (bilingual) with the built-in i18n string as fallback.
+  let tagline = $derived(journeyTagline($portalState.data));
+  let taglineText = $derived(
+    ($lang === 'hi' ? tagline.hi : tagline.en) || $tr('decade_sub')
+  );
   // Range vars for the placeholder-based headings.
   let rangeVars = $derived({ start: d.startYear, end: d.endYear });
 </script>
@@ -38,7 +52,7 @@
   <div class="relative">
     <p class="font-hand text-xl text-brand-700 dark:text-brand-200">{$tr('decade_years', rangeVars)}</p>
     <h2 class="mt-1 text-2xl font-black sm:text-3xl">{$tr('decade_title')}</h2>
-    <p class="mt-1 text-sm font-medium text-brand-900/70 dark:text-white/70">{$tr('decade_sub')}</p>
+    <p class="mt-1 text-sm font-medium text-brand-900/70 dark:text-white/70">{taglineText}</p>
     <p class="mx-auto mt-3 max-w-xl text-sm text-brand-900/80 dark:text-brand-50/80">
       {$tr('decade_intro')}
     </p>
@@ -61,15 +75,15 @@
   <h3 class="mb-3 px-1 text-sm font-extrabold text-slate-600 dark:text-slate-300">{$tr('decade_journey')}</h3>
   <ol class="relative space-y-3 border-l-2 border-brand-500/30 pl-5">
     {#each d.years as row (row.year)}
-      {@const story = storyByYear.get(String(row.year))}
-      {@const Icon = yearIcons[story?.i ?? DECADE_YEARS.length] ?? Sparkles}
+      {@const entry = storyByYear.get(String(row.year))}
+      {@const Icon = yearIcons[entry?.i ?? story.length] ?? Sparkles}
       <li class="relative">
         <span class="absolute -left-[27px] grid h-6 w-6 place-items-center rounded-full bg-brand-500 text-white shadow-glow">
           <Icon class="h-3.5 w-3.5" aria-hidden="true" />
         </span>
         <div class="surface p-4">
-          <h4 class="text-sm font-black text-brand-700 dark:text-brand-300">{story ? $tr(story.headingKey) : row.year}</h4>
-          {#if story}<p class="mt-1 text-sm text-slate-700 dark:text-slate-200">{$tr(story.bodyKey)}</p>{/if}
+          <h4 class="text-sm font-black text-brand-700 dark:text-brand-300">{entry?.title || row.year}</h4>
+          {#if entry?.content}<p class="mt-1 text-sm text-slate-700 dark:text-slate-200">{entry.content}</p>{/if}
           <div class="mt-3 flex flex-wrap gap-2">
             <span class="rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300">
               {$tr('decade_total_label')}: {fmt(row.total)}

@@ -28,6 +28,7 @@
   import EmailOfficial from '$lib/views/EmailOfficial.svelte';
   import WhatsApp from '$lib/views/WhatsApp.svelte';
   import PopupManagement from '$lib/views/PopupManagement.svelte';
+  import JourneyContent from '$lib/views/JourneyContent.svelte';
   import QueueMonitor from '$lib/views/QueueMonitor.svelte';
   import LoginPopups from '$lib/components/LoginPopups.svelte';
   import DownloadCenter from '$lib/views/DownloadCenter.svelte';
@@ -76,12 +77,13 @@
   const AUDIT_TAB = { id: 'auditlogs', label: 'Activity & Login Logs', icon: 'security' };
   const UPLOAD_CSV_TAB = { id: 'uploadcsvs', label: 'Upload CSVs', icon: 'upload_file' };
   const AI_MGMT_TAB = { id: 'aimanagement', label: 'AI Management', icon: 'smart_toy' };
+  const JOURNEY_TAB = { id: 'journeycontent', label: 'Journey Content', icon: 'timeline' };
   const MORE_TAB: Tab = { id: '__more__', label: 'More', icon: 'more_horiz' };
 
   const SUPERADMIN_TAB_GROUPS: TabGroup[] = [
     { title: '📄 Documents & Templates', tabs: [DOCX_TEMPLATES_TAB, BULK_GENERATE_TAB, DOWNLOAD_CENTER_TAB, PDF_TAB] },
     { title: '🤝 Loan Consent', tabs: [CONSENT_TEMPLATES_TAB, CONSENT_REVIEW_TAB] },
-    { title: '💬 Communication', tabs: [WHATSAPP_TAB, EMAIL_TAB, EMAIL_OFFICIAL_TAB, POPUP_MGMT_TAB, ANNOUNCEMENT_TAB] },
+    { title: '💬 Communication', tabs: [WHATSAPP_TAB, EMAIL_TAB, EMAIL_OFFICIAL_TAB, POPUP_MGMT_TAB, ANNOUNCEMENT_TAB, JOURNEY_TAB] },
     { title: '⚙️ Data & Settings', tabs: [LOCK_TAB, LIST_TAB, UPLOAD_CSV_TAB, STORAGE_TAB, BACKUP_TAB, QUEUE_MONITOR_TAB, ERROR_LOG_TAB, AI_MGMT_TAB, LOGIN_MGMT_TAB, SEO_TAB, AUDIT_TAB] }
   ];
   const ADMIN_ROLE_TAB_GROUPS: TabGroup[] = [
@@ -312,6 +314,8 @@
       <EmailOfficial />
     {:else if tab === 'popupmgmt' && canAccessTab('popupmgmt')}
       <PopupManagement />
+    {:else if tab === 'journeycontent' && canAccessTab('journeycontent')}
+      <JourneyContent />
     {:else if tab === 'announcementportal' && canAccessTab('announcementportal')}
       <AnnouncementPortal {years} />
     {:else if tab === 'queuemonitor' && canAccessTab('queuemonitor')}

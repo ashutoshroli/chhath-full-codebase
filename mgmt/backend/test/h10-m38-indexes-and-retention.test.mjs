@@ -94,6 +94,11 @@ const SCHEMA_FOR_MIGRATION = {
   // users.photo — a real ADD COLUMN (like 09/22/24/25/26), so it is in
   // SCHEMA_ONLY_MIGRATIONS below and asserted for idempotency-failure separately.
   '27-users-photo.sql': 'core.sql',
+  // journey_entries table + tagline seed (core DB). CREATE TABLE/INDEX IF NOT
+  // EXISTS + every seed INSERT guarded by WHERE NOT EXISTS, so it applies on a
+  // fresh schema and a second run is a no-op — NOT schema-only (fully idempotent),
+  // like 15/17/20/21/23.
+  '28-journey-content.sql': 'core.sql',
 };
 
 // Migrations that legitimately do more than CREATE INDEX. Keep this list as short

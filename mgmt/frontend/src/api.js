@@ -474,6 +474,10 @@ export const api = {
   savePopupSlides: (popupId, slides) => call('savePopupSlides', { popupId, slides }),
   uploadPopupImage: (base64, fileName, mimeType) => call('uploadPopupImage', { base64, fileName, mimeType }),
   uploadUserPhoto: (base64, fileName, idCode) => call('uploadUserPhoto', { base64, fileName, idCode }),
+  getJourneyEntries: () => call('getJourneyEntries'),
+  saveJourneyEntry: (entry) => call('saveJourneyEntry', { entry }),
+  deleteJourneyEntry: (id) => call('deleteJourneyEntry', { id }),
+  reorderJourneyEntries: (orderedIds) => call('reorderJourneyEntries', { orderedIds }),
   getActivePopups: () => call('getActivePopups'),
 
   getSeoSettings: () => call('getSeoSettings'),

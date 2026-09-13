@@ -48,6 +48,21 @@ CREATE TABLE portal_settings (
   value TEXT
 );
 
+-- "Our Journey / 10 Years of Chhath" year-by-year story (DB-driven, editable from
+-- the mgmt "Journey Content" tab). Seeded by migration 28-journey-content.sql.
+-- The tagline lives in portal_settings under journey_tagline_en / journey_tagline_hi.
+DROP TABLE IF EXISTS journey_entries;
+CREATE TABLE journey_entries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  year INTEGER,
+  title_en TEXT,
+  title_hi TEXT,
+  content_en TEXT,
+  content_hi TEXT,
+  position INTEGER
+);
+CREATE INDEX idx_journey_entries_position ON journey_entries(position);
+
 -- source sheet: "FESTIVAL_DATES"
 DROP TABLE IF EXISTS festival_dates;
 CREATE TABLE festival_dates (

@@ -569,6 +569,10 @@ export const api = {
     call('uploadPopupImage', { base64, fileName, mimeType }),
   uploadUserPhoto: (base64: string, fileName: string, idCode: string) =>
     call('uploadUserPhoto', { base64, fileName, idCode }),
+  getJourneyEntries: () => call('getJourneyEntries'),
+  saveJourneyEntry: (entry: unknown) => call('saveJourneyEntry', { entry }),
+  deleteJourneyEntry: (id: number) => call('deleteJourneyEntry', { id }),
+  reorderJourneyEntries: (orderedIds: number[]) => call('reorderJourneyEntries', { orderedIds }),
   getActivePopups: () => call('getActivePopups'),
 
   getSeoSettings: () => call('getSeoSettings'),

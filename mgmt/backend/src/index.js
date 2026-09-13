@@ -15,6 +15,7 @@ import { logError, reportErrorToWhatsApp, getErrorLog, reportErrorPublic, isLogE
 import { logActivity, getActivityLog, logWarn, logErrorAt } from './logger.js';
 import * as popups from './popups.js';
 import { uploadUserPhoto } from './userPhoto.js';
+import * as journey from './journey.js';
 import * as announce from './announcements.js';
 import * as loans from './loans.js';
 import * as tpl from './templates.js';
@@ -70,6 +71,7 @@ export const READ_ONLY_ACTIONS = new Set([
   'exportBackup',
   'getCollectionQueueStatus', 'getQueueJobsForSuperadmin',
   'getPopups', 'getPopupWithSlides', 'getActivePopups', 'previewPublicPopups',
+  'getJourneyEntries',
   'reportErrorToWhatsApp', 'reportErrorPublic', 'getErrorLog',
   'getAiFixes', 'getAiFix', 'getLatestAiFixForError', 'getRenderJobStatus',
   // AI Management: getAiProviders reads; testAiProvider makes an external ping but
@@ -162,6 +164,8 @@ export const EXPECTED_MUTATING_ACTIONS = new Set([
   'saveSeoSettings', 'uploadSeoImage',
   // user profile photo (R2)
   'uploadUserPhoto',
+  // "Our Journey" content
+  'saveJourneyEntry', 'deleteJourneyEntry', 'reorderJourneyEntries',
   // files / drive / backup / rebuild
   'uploadFile', 'moveYearToDrive', 'restoreBackup', 'triggerRebuild',
   // pdf conversion (writes generated files to the index / drive)
@@ -1103,6 +1107,12 @@ export default {
       // Users Add/Edit form then saves that URL into the `photo` column via the
       // normal updateRecord/saveRecord path. Staff-gated inside uploadUserPhoto.
       uploadUserPhoto: () => withAuth(env, req, (user) => uploadUserPhoto(env, req.base64, req.fileName, req.idCode, user)),
+
+      // ---- "Our Journey" content (journey_entries) ----
+      getJourneyEntries: () => withAuth(env, req, (user) => journey.getJourneyEntries(env, user)),
+      saveJourneyEntry: () => withAuth(env, req, (user) => journey.saveJourneyEntry(env, req.entry, user)),
+      deleteJourneyEntry: () => withAuth(env, req, (user) => journey.deleteJourneyEntry(env, req.id, user)),
+      reorderJourneyEntries: () => withAuth(env, req, (user) => journey.reorderJourneyEntries(env, req.orderedIds, user)),
       // Lets an Admin see exactly what the PUBLIC portal will render — including
       // which eligible popups will NOT be shown (only the first one is) and which
       // are dropped for having zero slides. Previously a 'Public'-only popup was
