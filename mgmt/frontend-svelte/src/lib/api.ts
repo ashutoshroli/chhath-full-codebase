@@ -343,21 +343,21 @@ export const api = {
     call('deleteLoan', { rowIndex, year, loanerId, loanId }),
 
   getPersonTemplates: () => call('getPersonTemplates'),
-  addPersonTemplate: (text: string, messageType: string, contributionType: string, fileLink: string, docSubType: string, fileDocType: string) =>
+  addPersonTemplate: (text: string, messageType: string, contributionType: string, fileLink: string, docSubType?: string, fileDocType?: string) =>
     call('addPersonTemplate', { text, messageType, contributionType, fileLink, docSubType, fileDocType }),
-  updatePersonTemplate: (rowIndex: number, text: string, active: unknown, messageType: string, contributionType: string, fileLink: string, docSubType: string, fileDocType: string) =>
+  updatePersonTemplate: (rowIndex: number, text?: string, active?: unknown, messageType?: string, contributionType?: string, fileLink?: string, docSubType?: string, fileDocType?: string) =>
     call('updatePersonTemplate', { rowIndex, text, active, messageType, contributionType, fileLink, docSubType, fileDocType }),
   deletePersonTemplate: (rowIndex: number) => call('deletePersonTemplate', { rowIndex }),
   getGroupTemplates: () => call('getGroupTemplates'),
   addGroupTemplate: (text: string, messageType: string, contributionType: string, fileLink: string, docSubType: string, fileDocType: string) =>
     call('addGroupTemplate', { text, messageType, contributionType, fileLink, docSubType, fileDocType }),
-  updateGroupTemplate: (rowIndex: number, text: string, active: unknown, messageType: string, contributionType: string, fileLink: string, docSubType: string, fileDocType: string) =>
+  updateGroupTemplate: (rowIndex: number, text?: string, active?: unknown, messageType?: string, contributionType?: string, fileLink?: string, docSubType?: string, fileDocType?: string) =>
     call('updateGroupTemplate', { rowIndex, text, active, messageType, contributionType, fileLink, docSubType, fileDocType }),
   deleteGroupTemplate: (rowIndex: number) => call('deleteGroupTemplate', { rowIndex }),
   getEmailTemplates: () => call('getEmailTemplates'),
   addEmailTemplate: (subject: string, text: string, messageType: string, contributionType: string, fileLink: string, docSubType: string, fileDocType: string) =>
     call('addEmailTemplate', { subject, text, messageType, contributionType, fileLink, docSubType, fileDocType }),
-  updateEmailTemplate: (rowIndex: number, subject: string, text: string, active: unknown, messageType: string, contributionType: string, fileLink: string, docSubType: string, fileDocType: string) =>
+  updateEmailTemplate: (rowIndex: number, subject?: string, text?: string, active?: unknown, messageType?: string, contributionType?: string, fileLink?: string, docSubType?: string, fileDocType?: string) =>
     call('updateEmailTemplate', { rowIndex, subject, text, active, messageType, contributionType, fileLink, docSubType, fileDocType }),
   deleteEmailTemplate: (rowIndex: number) => call('deleteEmailTemplate', { rowIndex }),
   getStuckEmails: (olderThanMinutes: number) => call('getStuckEmails', { olderThanMinutes }),
@@ -370,18 +370,18 @@ export const api = {
   replyOfficialEmail: (message_id: string, body: string, attachments: unknown) =>
     call('replyOfficialEmail', { message_id, body, attachments }),
   markOfficialEmailRead: (message_id: string) => call('markOfficialEmailRead', { message_id }),
-  cleanupPreview: (target: string, mode: string, days: number) => call('cleanupPreview', { target, mode, days }),
-  cleanupData: (target: string, mode: string, days: number) => call('cleanupData', { target, mode, days }),
+  cleanupPreview: (target: string, mode: string, days?: number | string) => call('cleanupPreview', { target, mode, days }),
+  cleanupData: (target: string, mode: string, days?: number | string) => call('cleanupData', { target, mode, days }),
   getLoanEmailTemplates: (type: string) => call('getLoanEmailTemplates', { type }),
   addLoanEmailTemplate: (type: string, subject: string, text: string, messageType: string, fileLink: string) =>
     call('addLoanEmailTemplate', { type, subject, text, messageType, fileLink }),
-  updateLoanEmailTemplate: (rowIndex: number, subject: string, text: string, active: unknown, messageType: string, fileLink: string) =>
+  updateLoanEmailTemplate: (rowIndex: number, subject?: string, text?: string, active?: unknown, messageType?: string, fileLink?: string) =>
     call('updateLoanEmailTemplate', { rowIndex, subject, text, active, messageType, fileLink }),
   deleteLoanEmailTemplate: (rowIndex: number) => call('deleteLoanEmailTemplate', { rowIndex }),
 
   getWhatsappGroups: () => call('getWhatsappGroups'),
   addWhatsappGroup: (groupName: string, groupid: string) => call('addWhatsappGroup', { groupName, groupid }),
-  updateWhatsappGroup: (rowIndex: number, groupName: string, groupid: string, active: unknown) =>
+  updateWhatsappGroup: (rowIndex: number, groupName?: string, groupid?: string, active?: unknown) =>
     call('updateWhatsappGroup', { rowIndex, groupName, groupid, active }),
   deleteWhatsappGroup: (rowIndex: number) => call('deleteWhatsappGroup', { rowIndex }),
 
@@ -483,7 +483,7 @@ export const api = {
   getLoanTemplates: (type: string) => call('getLoanTemplates', { type }),
   addLoanTemplate: (type: string, text: string, messageType: string, fileLink: string) =>
     call('addLoanTemplate', { type, text, messageType, fileLink }),
-  updateLoanTemplate: (rowIndex: number, text: string, active: unknown, messageType: string, fileLink: string) =>
+  updateLoanTemplate: (rowIndex: number, text?: string, active?: unknown, messageType?: string, fileLink?: string) =>
     call('updateLoanTemplate', { rowIndex, text, active, messageType, fileLink }),
   deleteLoanTemplate: (rowIndex: number) => call('deleteLoanTemplate', { rowIndex }),
 
@@ -556,12 +556,12 @@ export const api = {
   enqueueCollectionJob: (job: unknown) => call('enqueueCollectionJob', { job }),
   getCollectionQueueStatus: () => call('getCollectionQueueStatus'),
   processCollectionQueue: () => call('processCollectionQueue'),
-  getQueueJobsForSuperadmin: (status: string, limit: number) => call('getQueueJobsForSuperadmin', { status, limit }),
+  getQueueJobsForSuperadmin: (status: string | undefined, limit: number) => call('getQueueJobsForSuperadmin', { status, limit }),
   retryQueueJob: (jobId: string) => call('retryQueueJob', { jobId }),
 
   getPopups: () => call('getPopups'),
   getPopupWithSlides: (popupId: string) => call('getPopupWithSlides', { popupId }),
-  savePopup: (popupId: string, title: string, roles: unknown, active: unknown, startAt: string, endAt: string) =>
+  savePopup: (popupId: string | undefined, title: string, roles: unknown, active: unknown, startAt: string, endAt: string) =>
     call('savePopup', { popupId, title, roles, active, startAt, endAt }),
   deletePopup: (popupId: string) => call('deletePopup', { popupId }),
   savePopupSlides: (popupId: string, slides: unknown) => call('savePopupSlides', { popupId, slides }),
@@ -575,24 +575,24 @@ export const api = {
   triggerRebuild: (target: string) => call('triggerRebuild', { target }),
   previewPublicPopups: () => call('previewPublicPopups'),
 
-  generateAnnouncementLink: (year: string, pin: string, expiresAt: number) =>
+  generateAnnouncementLink: (year: string, pin: string, expiresAt: string | null) =>
     call('generateAnnouncementLink', { year, pin, expiresAt }),
   getAnnouncementLinks: () => call('getAnnouncementLinks'),
   revokeAnnouncementLink: (token: string) => call('revokeAnnouncementLink', { token }),
 
   getCustomAnnouncements: (year: string) => call('getCustomAnnouncements', { year }),
-  addCustomAnnouncement: (year: string, textHindi: string, textEnglish: string, priority: number) =>
+  addCustomAnnouncement: (year: string, textHindi: string, textEnglish: string, priority: boolean) =>
     call('addCustomAnnouncement', { year, textHindi, textEnglish, priority }),
-  updateCustomAnnouncement: (id: string, textHindi: string, textEnglish: string, priority: number) =>
+  updateCustomAnnouncement: (id: string, textHindi: string, textEnglish: string, priority: boolean) =>
     call('updateCustomAnnouncement', { id, textHindi, textEnglish, priority }),
   deleteCustomAnnouncement: (id: string) => call('deleteCustomAnnouncement', { id }),
 
   verifyAnnouncementPin: (token: string, pin: string) => call('verifyAnnouncementPin', { token, pin }, false),
-  getAnnouncementQueue: (announceToken: string, statusFilter: string, typeFilter: string) =>
+  getAnnouncementQueue: (announceToken: string | null, statusFilter: string, typeFilter: string) =>
     call('getAnnouncementQueue', { announceToken, statusFilter, typeFilter }, false),
-  markAnnounced: (announceToken: string, itemId: string, itemType: string) =>
+  markAnnounced: (announceToken: string | null, itemId: string, itemType: string) =>
     call('markAnnounced', { announceToken, itemId, itemType }, false),
-  reannounceAll: (announceToken: string, typeFilter: string) => call('reannounceAll', { announceToken, typeFilter }, false)
+  reannounceAll: (announceToken: string | null, typeFilter: string) => call('reannounceAll', { announceToken, typeFilter }, false)
 };
 
 export const fmt = (n: number): string =>
