@@ -1,8 +1,15 @@
 <script lang="ts">
   import { Trophy, Heart, Info } from '@lucide/svelte';
   import { tr } from '$lib/stores/lang';
+  import { portalState } from '$lib/stores/portal';
+  import { decadeStats } from '$lib/api/derive';
+  import { fmt } from '$lib/utils/format';
   import { CARD } from '../fest';
-  import { DECADE_YEARS, DECADE_TABLE, DECADE_TIMELINE, DECADE_MILESTONES } from '$lib/utils/decadeData';
+  import { DECADE_YEARS, DECADE_TIMELINE, DECADE_MILESTONES } from '$lib/utils/decadeData';
+
+  let d = $derived(decadeStats($portalState.data));
+  let storyByYear = $derived(new Map(DECADE_YEARS.map((y, i) => [y.year, { ...y, i }])));
+  let rangeVars = $derived({ start: d.startYear, end: d.endYear });
 </script>
 
 <svelte:head><title>{$tr('decade_title')} — {$tr('app_title')}</title></svelte:head>
@@ -12,7 +19,7 @@
   <div class="pointer-events-none absolute inset-0 opacity-30" style="background: radial-gradient(70% 60% at 50% 0%, rgba(245,184,64,.6), transparent 60%);"></div>
   <div class="relative">
     <Trophy class="mx-auto h-8 w-8 text-[#F5B840]" aria-hidden="true" />
-    <p class="mt-2 text-xs font-bold text-[#F5B840]">{$tr('decade_years')}</p>
+    <p class="mt-2 text-xs font-bold text-[#F5B840]">{$tr('decade_years', rangeVars)}</p>
     <h1 class="text-2xl font-black text-[#F5B840]">{$tr('decade_title')}</h1>
     <p class="mt-1 text-sm text-[#ffe9c7]/80">{$tr('decade_sub')}</p>
     <p class="mx-auto mt-3 max-w-xl text-sm text-[#ffe9c7]/90">{$tr('decade_intro')}</p>
@@ -34,22 +41,22 @@
 <h3 class="mb-3 mt-4 px-1 text-sm font-extrabold text-[#B01E2E]">{$tr('decade_journey')}</h3>
 <div class="{CARD} p-5">
   <ol class="relative space-y-4 border-l-2 border-[#F5B840] pl-5">
-    {#each DECADE_YEARS as y, i}
+    {#each d.years as row (row.year)}
+      {@const story = storyByYear.get(String(row.year))}
       <li class="relative">
-        <span class="absolute -left-[27px] grid h-6 w-6 place-items-center rounded-full bg-[#B01E2E] text-[10px] font-black text-[#F5B840]">{i + 1}</span>
-        <h4 class="text-sm font-black text-[#B01E2E]">{$tr(y.headingKey)}</h4>
-        <p class="mt-1 text-sm text-[#7a1420]">{$tr(y.bodyKey)}</p>
-        {#if y.total}
-          <div class="mt-2 flex flex-wrap gap-2">
-            <span class="rounded-lg bg-emerald-600/10 px-3 py-1.5 text-xs font-bold text-emerald-800">{$tr('decade_total_label')}: {y.total}</span>
-            <span class="rounded-lg bg-[#B01E2E]/10 px-3 py-1.5 text-xs font-bold text-[#B01E2E]">{$tr('decade_contributors_label')}: {y.contributors}</span>
-          </div>
-        {:else}
+        <span class="absolute -left-[27px] grid h-6 w-6 place-items-center rounded-full bg-[#B01E2E] text-[10px] font-black text-[#F5B840]">{row.year - d.startYear + 1}</span>
+        <h4 class="text-sm font-black text-[#B01E2E]">{story ? $tr(story.headingKey) : row.year}</h4>
+        {#if story}<p class="mt-1 text-sm text-[#7a1420]">{$tr(story.bodyKey)}</p>{/if}
+        <div class="mt-2 flex flex-wrap gap-2">
+          <span class="rounded-lg bg-emerald-600/10 px-3 py-1.5 text-xs font-bold text-emerald-800">{$tr('decade_total_label')}: {fmt(row.total)}</span>
+          <span class="rounded-lg bg-[#B01E2E]/10 px-3 py-1.5 text-xs font-bold text-[#B01E2E]">{$tr('decade_contributors_label')}: {row.contributors}</span>
+        </div>
+        {#if row.isCurrent}
           <div class="mt-2 flex items-start gap-2 rounded-lg bg-[#F5B840]/20 p-3 text-xs text-[#7a1420]">
             <Info class="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             <div>
-              <p class="font-bold">{$tr('decade_2026_note_h')}</p>
-              <p class="mt-0.5">{$tr('decade_2026_note_p')}</p>
+              <p class="font-bold">{$tr('decade_current_note_h', { year: row.year })}</p>
+              <p class="mt-0.5">{$tr('decade_current_note_p', { year: row.year })}</p>
             </div>
           </div>
         {/if}
@@ -67,26 +74,26 @@
 
 <!-- Table -->
 <div class="{CARD} mt-4 p-5">
-  <h3 class="text-base font-black text-[#5a0f18]">{$tr('decade_table_h')}</h3>
+  <h3 class="text-base font-black text-[#5a0f18]">{$tr('decade_table_h', rangeVars)}</h3>
   <div class="mt-3">
     <div class="grid grid-cols-[1fr_1.4fr_1fr] gap-2 border-b border-[#F5B840]/50 pb-2 text-xs font-bold uppercase text-[#7a1420]/70">
       <span>{$tr('decade_th_year')}</span>
       <span>{$tr('decade_th_total')}</span>
       <span>{$tr('decade_th_contributors')}</span>
     </div>
-    {#each DECADE_TABLE as r}
+    {#each d.years as r (r.year)}
       <div class="grid grid-cols-[1fr_1.4fr_1fr] gap-2 border-b border-[#F5B840]/30 py-2 text-sm last:border-0">
-        <span class="font-bold text-[#B01E2E]">{r.year}</span>
-        <span class="font-semibold text-emerald-800">{r.total}</span>
+        <span class="font-bold text-[#B01E2E]">{r.year}{#if r.isCurrent} •{/if}</span>
+        <span class="font-semibold text-emerald-800">{fmt(r.total)}</span>
         <span class="text-[#7a1420]">{r.contributors}</span>
       </div>
     {/each}
   </div>
   <div class="mt-4 rounded-xl bg-[#B01E2E]/10 p-4">
-    <p class="text-xs font-extrabold uppercase text-[#B01E2E]">{$tr('decade_totals_h')}</p>
-    <p class="mt-1 text-lg font-black text-[#5a0f18]">{$tr('decade_total_amount')}</p>
-    <p class="text-sm font-bold text-[#7a1420]">{$tr('decade_total_entries')}</p>
-    <p class="mt-2 text-xs text-[#7a1420]/70">{$tr('decade_total_clarify')}</p>
+    <p class="text-xs font-extrabold uppercase text-[#B01E2E]">{$tr('decade_totals_h', rangeVars)}</p>
+    <p class="mt-1 text-lg font-black text-[#5a0f18]">{$tr('decade_total_amount', { amount: fmt(d.grandTotal) })}</p>
+    <p class="text-sm font-bold text-[#7a1420]">{$tr('decade_total_entries', { count: d.grandContributors })}</p>
+    <p class="mt-2 text-xs text-[#7a1420]/70">{$tr('decade_total_clarify', { count: d.grandContributors })}</p>
   </div>
 </div>
 

@@ -8,7 +8,9 @@ import {
   contributorTags,
   computeSummary,
   availableYears,
-  loanTotalWithInterest
+  loanTotalWithInterest,
+  decadeStats,
+  DECADE_START_YEAR
 } from './derive';
 import { competitionRank } from '$lib/utils/ranking';
 import { resolveConfig, DEFAULTS } from '$lib/config';
@@ -264,6 +266,68 @@ describe('multiple contributions fold + multi-kind tags', () => {
     const c = get('Material+Service');
     expect(c.hasMoney).toBe(false);
     expect(contributorTags(c)).toEqual(['material', 'service']);
+  });
+});
+
+describe('decadeStats — live "Our Journey" figures', () => {
+  const currentYear = new Date().getFullYear();
+  const data = parsePortalData({
+    collections: [
+      // A finalised historical year.
+      { Year: 2017, ID: 'A', Amount: '1000', 'Contribution Type': '1' },
+      { Year: 2017, ID: 'B', Amount: '500', 'Contribution Type': '1' },
+      // The current (still-open) year — should be included live.
+      { Year: currentYear, ID: 'A', Amount: '300', 'Contribution Type': '1' },
+      // A resold row in the current year — excluded from count + total.
+      { Year: currentYear, Name: 'Old Table', Amount: '999', 'Is Resell': 'TRUE' }
+    ]
+  })!;
+  const d = decadeStats(data);
+
+  it('starts at the fixed founding year and ends at the current year', () => {
+    expect(d.startYear).toBe(DECADE_START_YEAR); // 2017
+    expect(d.endYear).toBe(currentYear);
+    expect(d.currentYear).toBe(currentYear);
+  });
+
+  it('produces a contiguous row per year from start to end', () => {
+    expect(d.years[0].year).toBe(DECADE_START_YEAR);
+    expect(d.years[d.years.length - 1].year).toBe(currentYear);
+    expect(d.years.length).toBe(currentYear - DECADE_START_YEAR + 1);
+  });
+
+  it('per-year figures come from live data (2017 = 1500 / 2 people)', () => {
+    const y2017 = d.years.find((y) => y.year === 2017)!;
+    expect(y2017.total).toBe(1500);
+    expect(y2017.contributors).toBe(2);
+    expect(y2017.isCurrent).toBe(false);
+  });
+
+  it('flags the current year and reflects its live (partial) figure, resold excluded', () => {
+    const cur = d.years.find((y) => y.year === currentYear)!;
+    expect(cur.isCurrent).toBe(true);
+    expect(cur.total).toBe(300); // 999 resold excluded
+    expect(cur.contributors).toBe(1); // resold row is not a contributor
+  });
+
+  it('grand totals sum every year INCLUDING the current live year', () => {
+    expect(d.grandTotal).toBe(1800); // 1500 + 300
+    expect(d.grandContributors).toBe(3); // 2 + 1
+  });
+});
+
+describe('decade i18n placeholders', () => {
+  it('interpolates start/end range', () => {
+    expect(t('en', 'decade_years', { start: 2017, end: 2027 })).toBe('2017 → 2027');
+    expect(t('en', 'decade_table_h', { start: 2017, end: 2027 })).toBe('2017 → 2027 — Our Financial Journey');
+  });
+  it('interpolates the current-year note (all occurrences)', () => {
+    expect(t('en', 'decade_current_note_h', { year: 2027 })).toBe('The 2027 financial records are not final yet');
+  });
+  it('interpolates every {count} occurrence in the clarify text', () => {
+    const s = t('en', 'decade_total_clarify', { count: 700 });
+    expect(s.includes('{count}')).toBe(false);
+    expect(s.startsWith('700')).toBe(true);
   });
 });
 
