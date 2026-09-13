@@ -22,7 +22,8 @@ const sample = {
     { ID: 'U4', Name: 'Govind Verma', Village: 'Gardih' },
     { ID: 'U5', Name: 'Pintu Kumar', Village: 'Shaharpura' },
     { ID: 'U6', Name: 'Aarohi Bharti', Village: 'Gardih' },
-    { ID: 'U7', Name: 'Manish Kumar', Village: 'Shaharpura' }
+    { ID: 'U7', Name: 'Manish Kumar', Village: 'Shaharpura' },
+    { ID: 'U8', Name: 'Sunil Das', Village: 'Gardih' }
   ],
   collections: [
     { Year: 2026, ID: 'U1', Amount: '2100', 'Contribution Type': '1' },
@@ -32,6 +33,7 @@ const sample = {
     { Year: 2026, ID: 'U5', Amount: '1000', 'Contribution Type': '1' },
     { Year: 2026, ID: 'U6', Amount: '786', 'Contribution Type': '1' },
     { Year: 2026, ID: 'U7', Amount: '500', 'Contribution Type': '1' },
+    { Year: 2026, ID: 'U8', Amount: '600', 'Contribution Type': '1' },
     { Year: 2025, ID: 'U1', Amount: '999', 'Contribution Type': '1' }
   ],
   expenses: [{ Year: 2026, Amount: '1503', Discription: 'Decoration' }],
@@ -60,23 +62,23 @@ describe('financials (2026)', () => {
   const fin = computeFinancials(data, 2026);
 
   it('current-year collection sums money rows', () => {
-    // 2100+2100+1501+1000+1000+786+500 = 8987
-    expect(fin.collection).toBe(8987);
+    // 2100+2100+1501+1000+1000+786+500+600 = 9587
+    expect(fin.collection).toBe(9587);
   });
   it('past loan returned uses previous-year (2025) loans with per-month simple interest', () => {
     // 10000 + 10000*(2/100)*12 = 10000 + 2400 = 12400
     expect(fin.pastLoanReturned).toBe(12400);
   });
   it('total budget = collection + past loan returned', () => {
-    expect(fin.totalBudget).toBe(8987 + 12400);
+    expect(fin.totalBudget).toBe(9587 + 12400);
   });
   it('total expense and net surplus', () => {
     expect(fin.totalExpense).toBe(1503);
-    expect(fin.netSurplus).toBe(8987 + 12400 - 1503);
+    expect(fin.netSurplus).toBe(9587 + 12400 - 1503);
     expect(fin.available).toBe(fin.netSurplus);
   });
   it('utilized % is derived and clamped', () => {
-    expect(fin.utilizedPct).toBeCloseTo((1503 / (8987 + 12400)) * 100, 5);
+    expect(fin.utilizedPct).toBeCloseTo((1503 / (9587 + 12400)) * 100, 5);
     expect(fin.utilizedPct).toBeGreaterThanOrEqual(0);
     expect(fin.utilizedPct).toBeLessThanOrEqual(100);
   });
@@ -125,10 +127,36 @@ describe('contributor aggregation', () => {
   const data = parsePortalData(sample)!;
   it('sums multiple rows per person and filters by year', () => {
     const c2026 = contributorsForYear(data, 2026);
-    expect(c2026.length).toBe(7);
+    expect(c2026.length).toBe(8);
     const c2025 = contributorsForYear(data, 2025);
     expect(c2025.length).toBe(1);
     expect(c2025[0].amount).toBe(999);
+  });
+});
+
+describe('display order: top-5 by amount, rest by entry order', () => {
+  // U6 (786) entered before U7 (500) in the data. Both are outside top-5, so
+  // they must appear in ENTRY order (U6 then U7), NOT amount order.
+  const data = parsePortalData(sample)!;
+  const ranked = rankedContributors(data, 2026);
+  const names = ranked.map((r) => r.item.name);
+
+  it('top-5 come first in amount-descending order', () => {
+    expect(names.slice(0, 5)).toEqual([
+      'Ravi Kumar',
+      'Sanjeet Kumar',
+      'Abhishek Verma',
+      'Govind Verma',
+      'Pintu Kumar'
+    ]);
+  });
+
+  it('non-top-5 follow in entry (first-given) order, not amount order', () => {
+    // Entry order: Aarohi(786), Manish(500), Sunil(600). Amount order would be
+    // Aarohi, Sunil, Manish — so this proves entry-order wins for non-top-5.
+    expect(names.slice(5)).toEqual(['Aarohi Bharti', 'Manish Kumar', 'Sunil Das']);
+    const manish = ranked.find((r) => r.item.name === 'Manish Kumar')!;
+    expect(manish.isTop).toBe(false);
   });
 });
 
@@ -136,9 +164,9 @@ describe('summary + years', () => {
   const data = parsePortalData(sample)!;
   it('summary reflects real data', () => {
     const s = computeSummary(data, 2026);
-    expect(s.contributors).toBe(7);
-    expect(s.totalCollected).toBe(8987);
-    expect(s.average).toBe(Math.round(8987 / 7));
+    expect(s.contributors).toBe(8);
+    expect(s.totalCollected).toBe(9587);
+    expect(s.average).toBe(Math.round(9587 / 8));
     expect(s.recordedPct).toBe(100);
   });
   it('years are distinct and descending', () => {
