@@ -13,6 +13,7 @@
   import { NAV_ITEMS } from '$lib/components/nav';
   import YearSelect from '$lib/components/YearSelect.svelte';
   import StatusBanner from '$lib/components/StatusBanner.svelte';
+  import FooterLinks from '$lib/components/FooterLinks.svelte';
   import AuroraBg from './AuroraBg.svelte';
 
   let { children } = $props();
@@ -72,6 +73,7 @@
   <footer class="mx-auto max-w-6xl px-4 py-6 pb-28 text-center text-xs text-slate-400 md:pb-6">
     <p>{$tr('org_name')}, {$tr('org_location')}</p>
     <p class="mt-1 flex items-center justify-center gap-1">{$tr('seva_line')} <Heart class="h-3.5 w-3.5 fill-current text-pink-400" /></p>
+    <FooterLinks />
   </footer>
 
   <!-- Floating glass pill bottom nav (mobile) -->
