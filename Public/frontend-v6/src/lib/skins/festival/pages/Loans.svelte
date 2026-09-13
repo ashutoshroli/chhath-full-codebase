@@ -47,7 +47,7 @@
                 {#if g.ruleViolation}
                   <span class="flex-none rounded bg-[rgb(var(--accent)/0.1)] px-2 py-0.5 text-[0.68rem] font-bold text-[rgb(var(--accent))]">{$tr('rule_violation')}</span>
                 {:else}
-                  <span class="flex-none rounded bg-emerald-100 px-2 py-0.5 text-[0.68rem] font-bold text-emerald-700">{$tr('valid_guarantor')}</span>
+                  <span class="flex-none rounded bg-[rgb(var(--fest-pos)/0.12)] px-2 py-0.5 text-[0.68rem] font-bold text-[rgb(var(--fest-pos))]">{$tr('valid_guarantor')}</span>
                 {/if}
               </div>
             {/each}

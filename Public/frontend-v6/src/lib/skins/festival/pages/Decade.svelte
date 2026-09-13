@@ -32,7 +32,7 @@
 <svelte:head><title>{$tr('decade_title')} — {$tr('app_title')}</title></svelte:head>
 
 <!-- Hero -->
-<div class="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[rgb(var(--fest-ink))] to-[rgb(var(--accent))] p-6 text-center text-white shadow-lg">
+<div class="relative overflow-hidden rounded-2xl p-6 text-center text-white shadow-lg" style="background-image: linear-gradient(to bottom right, var(--fest-banner-from), var(--fest-banner-to));">
   <div class="pointer-events-none absolute inset-0 opacity-30" style="background: radial-gradient(70% 60% at 50% 0%, rgb(var(--accent-2) / 0.6), transparent 60%);"></div>
   <div class="relative">
     <Trophy class="mx-auto h-8 w-8 text-[rgb(var(--accent-2))]" aria-hidden="true" />
@@ -65,7 +65,7 @@
         <h4 class="text-sm font-black text-[rgb(var(--accent))]">{entry?.title || row.year}</h4>
         {#if entry?.content}<p class="mt-1 text-sm text-[rgb(var(--fest-ink))]">{entry.content}</p>{/if}
         <div class="mt-2 flex flex-wrap gap-2">
-          <span class="rounded-lg bg-emerald-600/10 px-3 py-1.5 text-xs font-bold text-emerald-800">{T('total_label', 'decade_total_label')}: {fmt(row.total)}</span>
+          <span class="rounded-lg bg-[rgb(var(--fest-pos)/0.12)] px-3 py-1.5 text-xs font-bold text-[rgb(var(--fest-pos))]">{T('total_label', 'decade_total_label')}: {fmt(row.total)}</span>
           <span class="rounded-lg bg-[rgb(var(--accent)/0.1)] px-3 py-1.5 text-xs font-bold text-[rgb(var(--accent))]">{T('contributors_label', 'decade_contributors_label')}: {row.contributors}</span>
         </div>
         {#if row.isCurrent}
@@ -101,7 +101,7 @@
     {#each d.years as r (r.year)}
       <div class="grid grid-cols-[1fr_1.4fr_1fr] gap-2 border-b border-[rgb(var(--accent-2)/0.3)] py-2 text-sm last:border-0">
         <span class="font-bold text-[rgb(var(--accent))]">{r.year}{#if r.isCurrent} •{/if}</span>
-        <span class="font-semibold text-emerald-800">{fmt(r.total)}</span>
+        <span class="font-semibold text-[rgb(var(--fest-pos))]">{fmt(r.total)}</span>
         <span class="text-[rgb(var(--fest-ink))]">{r.contributors}</span>
       </div>
     {/each}
@@ -145,7 +145,7 @@
 </div>
 
 <!-- Closing -->
-<div class="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[rgb(var(--fest-ink))] to-[rgb(var(--accent))] p-6 text-center text-white shadow-lg mt-4">
+<div class="relative mt-4 overflow-hidden rounded-2xl p-6 text-center text-white shadow-lg" style="background-image: linear-gradient(to bottom right, var(--fest-banner-from), var(--fest-banner-to));">
   <div class="pointer-events-none absolute inset-0 opacity-30" style="background: radial-gradient(70% 60% at 50% 0%, rgb(var(--accent-2) / 0.6), transparent 60%);"></div>
   <div class="relative">
     <h3 class="text-lg font-black text-[rgb(var(--accent-2))]">{T('closing_h', 'decade_closing_h')}</h3>

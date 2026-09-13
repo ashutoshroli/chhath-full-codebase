@@ -129,6 +129,7 @@
     --fest-banner-from: #7a1420;
     --fest-banner-to: #b01e2e;
     --fest-ink: 122 20 32; /* #7a1420 deep maroon text */
+    --fest-pos: 4 120 87; /* positive/amount green — emerald-700, reads on the light cream cards */
   }
   /* Neon Noir (Gen-Z 2026) — true-black dark glass + neon cyan/magenta */
   [data-theme='neon-noir'] {
@@ -265,6 +266,7 @@
     --fest-banner-from: #064e3b;
     --fest-banner-to: #0f766e;
     --fest-ink: 28 25 23; /* #1c1917 stone-900 text */
+    --fest-pos: 4 120 87; /* positive/amount green — emerald-700, reads on the light cream cards */
   }
 
   /* Festival Dark — the festive maroon/gold scheme on a dark maroon-charcoal
@@ -284,6 +286,7 @@
     --fest-banner-from: #4a0c14;
     --fest-banner-to: #7a1420;
     --fest-ink: 255 236 214; /* warm cream body text on dark */
+    --fest-pos: 52 211 153; /* positive/amount green — emerald-400, reads on the dark maroon cards */
   }
 
   /* Heritage Serif Dark — the editorial serif look on a deep charcoal canvas,
@@ -303,6 +306,7 @@
     --fest-banner-from: #052e21;
     --fest-banner-to: #064e3b;
     --fest-ink: 231 229 228; /* stone-200 body text on dark */
+    --fest-pos: 110 231 183; /* positive/amount green — emerald-300, reads on the dark green cards (accent is also emerald here) */
   }
 
   /* Serif headings for the editorial look (font-serif is added in tailwind.config

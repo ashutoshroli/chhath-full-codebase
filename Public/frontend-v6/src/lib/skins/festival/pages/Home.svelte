@@ -68,7 +68,7 @@
     </div>
     <div class="{CARD} p-4">
       <div class="text-xs font-semibold text-[rgb(var(--fest-ink)/0.7)]">{$tr('net_surplus')}</div>
-      <div class="text-lg font-black text-emerald-700">{fmt(fin.netSurplus)}</div>
+      <div class="text-lg font-black text-[rgb(var(--fest-pos))]">{fmt(fin.netSurplus)}</div>
     </div>
   </div>
 
@@ -112,7 +112,7 @@
               {#if entry.item.village}<div class="truncate text-xs text-[rgb(var(--fest-ink)/0.6)]">{entry.item.village}</div>{/if}
             </div>
             <div class="flex flex-none items-center gap-1.5">
-              {#if entry.item.hasMoney}<strong class="text-emerald-700">+{fmt(entry.item.amount)}</strong>{/if}
+              {#if entry.item.hasMoney}<strong class="text-[rgb(var(--fest-pos))]">+{fmt(entry.item.amount)}</strong>{/if}
               {#each tags.filter((t) => t !== 'money') as t}
                 <span class="rounded-md bg-[rgb(var(--accent)/0.1)] px-2 py-0.5 text-xs font-bold text-[rgb(var(--accent))]">{tagLabel(t as 'material' | 'service')}</span>
               {/each}
@@ -129,7 +129,7 @@
         {#each resold as item (item.key)}
           <div class="flex items-center justify-between gap-3 py-3">
             <span class="min-w-0 truncate font-semibold text-[rgb(var(--fest-ink))]">{item.name || $tr('resold_item')}</span>
-            <strong class="flex-none text-emerald-700">+{fmt(item.amount)}</strong>
+            <strong class="flex-none text-[rgb(var(--fest-pos))]">+{fmt(item.amount)}</strong>
           </div>
         {/each}
       {/if}
