@@ -182,6 +182,35 @@ jobs:
         working-directory: Public/frontend-v6
         run: npm run build
 
+  mgmt-frontend-svelte:
+    name: mgmt SvelteKit — type-check, tests and static build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mgmt/frontend-svelte/package-lock.json
+
+      - name: Install
+        working-directory: mgmt/frontend-svelte
+        run: npm ci
+
+      - name: Type-check (svelte-check)
+        working-directory: mgmt/frontend-svelte
+        run: npm run check
+
+      - name: Unit tests (flags / permissions / core)
+        working-directory: mgmt/frontend-svelte
+        run: npm test
+
+      - name: Static build (adapter-static)
+        working-directory: mgmt/frontend-svelte
+        # VITE_API_URL is required at build for import.meta.env; a placeholder is
+        # fine here — the real value comes from Vercel env at deploy time.
+        run: VITE_API_URL="https://example.invalid" npm run build
+
   secrets:
     name: No real data or credentials committed
     runs-on: ubuntu-latest
