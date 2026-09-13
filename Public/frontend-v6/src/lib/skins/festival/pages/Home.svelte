@@ -38,7 +38,7 @@
        distinct on the same skin. -->
   <div
     class="relative overflow-hidden rounded-2xl p-6 text-center text-white shadow-lg"
-    style="background-image: linear-gradient(to bottom right, rgb(var(--fest-banner-from)), rgb(var(--fest-banner-to)));"
+    style="background-image: linear-gradient(to bottom right, var(--fest-banner-from), var(--fest-banner-to));"
   >
     <div class="pointer-events-none absolute inset-0 opacity-30" style="background: radial-gradient(70% 60% at 50% 0%, rgb(var(--accent-2) / 0.6), transparent 60%);"></div>
     <div class="relative">

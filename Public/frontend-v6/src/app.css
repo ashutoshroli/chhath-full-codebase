@@ -111,8 +111,10 @@
      on the same skin (heritage-serif) can render its own palette:
        --accent    primary (maroon here)
        --accent-2  secondary/highlight (marigold gold here)
-       --fest-banner-from/-to  the decorated budget banner gradient
-       --fest-ink  body text on the cream cards */
+       --fest-banner-from/-to  the decorated budget banner gradient (FULL color
+                               values, used as var(--fest-banner-from) directly —
+                               NOT rgb triplets, unlike --accent/--fest-ink)
+       --fest-ink  body text on the cream cards (rgb triplet) */
   :root[data-theme='festival'] {
     --surface-bg: 255 253 247;
     --surface-alpha: 1;
