@@ -15,7 +15,13 @@ export const THEME_SKIN_ID: Record<string, SkinId> = {
   'slate-light': 'slate',
   'slate-dark': 'slate',
   aurora: 'aurora',
-  festival: 'festival'
+  festival: 'festival',
+  // Gen-Z 2026 themes reuse the aurora skin (glassmorphism + animated mesh +
+  // bento layout) with their own palette + live-background tokens.
+  'neon-noir': 'aurora',
+  'cyber-lime': 'aurora',
+  'sunset-vapor': 'aurora',
+  'mint-frost': 'aurora'
 };
 
 export function skinIdForTheme(themeId: string | null | undefined): SkinId {

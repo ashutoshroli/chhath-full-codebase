@@ -86,6 +86,38 @@ export const THEMES: ThemeDef[] = [
     mode: 'light',
     originKey: 'theme_origin_new',
     swatch: ['#fff6e6', '#fffdf7', '#B01E2E']
+  },
+  {
+    // Gen-Z 2026: dark glassmorphism, true-black canvas + neon cyan accent.
+    id: 'neon-noir',
+    labelKey: 'theme_neon_noir',
+    mode: 'dark',
+    originKey: 'theme_origin_genz',
+    swatch: ['#05060a', '#0d1017', '#22d3ee']
+  },
+  {
+    // Gen-Z 2026: near-black + electric lime — high-energy, high-contrast.
+    id: 'cyber-lime',
+    labelKey: 'theme_cyber_lime',
+    mode: 'dark',
+    originKey: 'theme_origin_genz',
+    swatch: ['#070b06', '#0e1510', '#a3e635']
+  },
+  {
+    // Gen-Z 2026: vaporwave aurora — deep indigo -> pink -> orange gradient.
+    id: 'sunset-vapor',
+    labelKey: 'theme_sunset_vapor',
+    mode: 'dark',
+    originKey: 'theme_origin_genz',
+    swatch: ['#180b2e', '#241141', '#ff5db1']
+  },
+  {
+    // Gen-Z 2026: cool dark-glass with a fresh mint/teal accent.
+    id: 'mint-frost',
+    labelKey: 'theme_mint_frost',
+    mode: 'dark',
+    originKey: 'theme_origin_genz',
+    swatch: ['#04120f', '#0a1c18', '#2dd4bf']
   }
 ];
 
