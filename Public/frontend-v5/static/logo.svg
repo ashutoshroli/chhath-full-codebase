@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Navyuvak Chhath Puja Samiti — official emblem (vector recreation).
+  Circular badge: rising sun with rays over river ripples, a bamboo 'soop'
+  holding fruits and a lit diya, curved committee name on top, "EST. 2017"
+  ribbon at the bottom. Transparent background, scalable to any size.
+  Palette: saffron / orange / gold / maroon on cream.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="Navyuvak Chhath Puja Samiti logo">
+  <defs>
+    <radialGradient id="sunGrad" cx="50%" cy="62%" r="60%">
+      <stop offset="0%" stop-color="#FFE49A"/>
+      <stop offset="45%" stop-color="#FCC24B"/>
+      <stop offset="100%" stop-color="#F5972A"/>
+    </radialGradient>
+    <linearGradient id="innerBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFF7E8"/>
+      <stop offset="55%" stop-color="#FFE9C6"/>
+      <stop offset="100%" stop-color="#FCD08A"/>
+    </linearGradient>
+    <linearGradient id="ribbonGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FBB53F"/>
+      <stop offset="100%" stop-color="#F1922A"/>
+    </linearGradient>
+    <linearGradient id="soopGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#C98A4B"/>
+      <stop offset="100%" stop-color="#9B5F2C"/>
+    </linearGradient>
+    <path id="topArc" d="M 512 512 m -372 0 a 372 372 0 0 1 744 0" fill="none"/>
+    <path id="bottomArc" d="M 512 512 m -300 0 a 300 300 0 0 0 600 0" fill="none"/>
+  </defs>
+
+  <!-- Outer ring -->
+  <circle cx="512" cy="512" r="500" fill="#FFFDF7" stroke="#F3B24A" stroke-width="10"/>
+  <circle cx="512" cy="512" r="470" fill="none" stroke="#F7D89B" stroke-width="4"/>
+
+  <!-- Inner scene disc (clipped) -->
+  <clipPath id="innerClip"><circle cx="512" cy="512" r="360"/></clipPath>
+  <g clip-path="url(#innerClip)">
+    <rect x="152" y="152" width="720" height="720" fill="url(#innerBg)"/>
+
+    <!-- Sun rays -->
+    <g fill="#F6A82F" opacity="0.85">
+      <g id="rays">
+        <polygon points="512,150 500,470 524,470"/>
+      </g>
+      <use href="#rays" transform="rotate(15 512 512)"/>
+      <use href="#rays" transform="rotate(30 512 512)"/>
+      <use href="#rays" transform="rotate(45 512 512)"/>
+      <use href="#rays" transform="rotate(-15 512 512)"/>
+      <use href="#rays" transform="rotate(-30 512 512)"/>
+      <use href="#rays" transform="rotate(-45 512 512)"/>
+      <use href="#rays" transform="rotate(60 512 512)"/>
+      <use href="#rays" transform="rotate(-60 512 512)"/>
+    </g>
+
+    <!-- Sun disc -->
+    <circle cx="512" cy="512" r="150" fill="url(#sunGrad)"/>
+
+    <!-- Water surface + ripples -->
+    <rect x="152" y="560" width="720" height="312" fill="#FBE3B4"/>
+    <g stroke="#F6A82F" stroke-width="6" stroke-linecap="round" opacity="0.7" fill="none">
+      <line x1="220" y1="600" x2="360" y2="600"/>
+      <line x1="640" y1="600" x2="800" y2="600"/>
+      <line x1="200" y1="640" x2="330" y2="640"/>
+      <line x1="690" y1="640" x2="820" y2="640"/>
+      <line x1="230" y1="690" x2="380" y2="690"/>
+      <line x1="650" y1="690" x2="800" y2="690"/>
+      <line x1="210" y1="740" x2="340" y2="740"/>
+      <line x1="680" y1="740" x2="810" y2="740"/>
+    </g>
+
+    <!-- Soop (bamboo tray) -->
+    <ellipse cx="512" cy="700" rx="185" ry="70" fill="url(#soopGrad)"/>
+    <ellipse cx="512" cy="682" rx="168" ry="58" fill="#E8C88E"/>
+    <ellipse cx="512" cy="678" rx="150" ry="48" fill="#D9B476"/>
+    <g stroke="#B98A4E" stroke-width="3" opacity="0.6">
+      <line x1="380" y1="700" x2="392" y2="740"/>
+      <line x1="440" y1="712" x2="448" y2="756"/>
+      <line x1="512" y1="716" x2="512" y2="762"/>
+      <line x1="584" y1="712" x2="576" y2="756"/>
+      <line x1="644" y1="700" x2="632" y2="740"/>
+    </g>
+
+    <!-- Fruits in the soop -->
+    <circle cx="440" cy="662" r="30" fill="#8E2B2B"/>            <!-- apple -->
+    <ellipse cx="500" cy="656" rx="26" ry="30" fill="#F6B733"/>  <!-- orange/mango -->
+    <path d="M 560 650 q 34 -6 46 22 q -30 16 -50 -2 z" fill="#F4C63B"/> <!-- bananas -->
+    <path d="M 560 664 q 34 -4 48 20 q -32 16 -52 -4 z" fill="#EBB92E"/>
+    <path d="M 470 636 q -14 -34 8 -50 q 20 14 12 44 z" fill="#5C8A3A"/> <!-- leaf -->
+    <path d="M 512 632 q -6 -30 16 -42 q 14 18 2 42 z" fill="#6FA046"/>  <!-- leaf -->
+
+    <!-- Lit diya at the centre of the soop -->
+    <ellipse cx="500" cy="694" rx="40" ry="16" fill="#B23A2E"/>
+    <path d="M 462 690 q 38 22 76 0 q -6 16 -38 16 q -32 0 -38 -16 z" fill="#7E241C"/>
+    <path d="M 500 688 q -10 -20 0 -40 q 10 20 0 40 z" fill="#FFC93C"/>
+    <path d="M 500 680 q -5 -12 0 -24 q 5 12 0 24 z" fill="#FFF0B0"/>
+  </g>
+
+  <!-- Small decorative diyas on left/right of the ring -->
+  <g fill="#F0A63A">
+    <path d="M 96 512 q 16 -10 32 0 q -6 14 -16 14 q -10 0 -16 -14 z"/>
+    <circle cx="112" cy="498" r="5"/>
+    <path d="M 928 512 q -16 -10 -32 0 q 6 14 16 14 q 10 0 16 -14 z"/>
+    <circle cx="912" cy="498" r="5"/>
+  </g>
+
+  <!-- Curved committee name (top) -->
+  <text font-family="Georgia, 'Times New Roman', serif" font-weight="700" font-size="60" letter-spacing="6" fill="#8B1E1E">
+    <textPath href="#topArc" startOffset="50%" text-anchor="middle">NAVYUVAK CHHATH PUJA SAMITI</textPath>
+  </text>
+
+  <!-- Bottom ribbon banner -->
+  <g>
+    <path d="M 300 852 L 724 852 L 700 908 L 324 908 Z" fill="url(#ribbonGrad)"/>
+    <path d="M 300 852 L 268 866 L 300 888 Z" fill="#D97E22"/>
+    <path d="M 724 852 L 756 866 L 724 888 Z" fill="#D97E22"/>
+    <text x="512" y="890" font-family="Georgia, 'Times New Roman', serif" font-weight="700" font-size="42" letter-spacing="8" fill="#FFF7E8" text-anchor="middle">EST. 2017</text>
+  </g>
+</svg>

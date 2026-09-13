@@ -1,0 +1,149 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* ---- Theme tokens ----
+     Each [data-theme] sets the palette the shared components read via
+     var(--surface-*) etc. The `dark` class (set alongside data-theme) still
+     drives Tailwind's dark: variants; these vars add the per-theme *tint* so
+     e.g. "Warm Night" and "Slate Dark" look different even though both are dark.
+     --page-* are consumed by the LiveBackground component. */
+  :root {
+    color-scheme: light;
+    --surface-bg: 255 255 255; /* rgb triplets so we can add alpha */
+    --surface-border: 255 255 255;
+    --surface-border-alpha: 0.6;
+    --surface-alpha: 0.9;
+    --accent: 242 122 26;
+    --page-from: #fde7c9;
+    --page-via: #fbc98c;
+    --page-to: #e98b54;
+    --page-sun: 1; /* show the sunrise sun glow (1) or not (0) */
+  }
+  :root.dark {
+    color-scheme: dark;
+    --surface-bg: 255 255 255;
+    --surface-alpha: 0.06;
+    --surface-border: 255 255 255;
+    --surface-border-alpha: 0.1;
+  }
+
+  /* Sunrise (v4 warm-glass light) — the baseline light look */
+  :root[data-theme='sunrise'] {
+    --page-from: #fde7c9;
+    --page-via: #fbc98c;
+    --page-to: #e98b54;
+    --page-sun: 1;
+  }
+  /* Warm Night (v4 dark) */
+  :root[data-theme='warm-night'] {
+    --page-from: #241033;
+    --page-via: #5b2733;
+    --page-to: #e2691f;
+    --page-sun: 1;
+    --accent: 255 159 69;
+  }
+  /* Classic Light (v1/v3 saffron + off-white, flat & clean) */
+  :root[data-theme='classic-light'] {
+    --surface-alpha: 1;
+    --surface-border: 226 232 240;
+    --surface-border-alpha: 1;
+    --page-from: #f8f9fa;
+    --page-via: #f8f9fa;
+    --page-to: #f1f3f5;
+    --page-sun: 0;
+  }
+  /* Slate Light (v2 enterprise) */
+  :root[data-theme='slate-light'] {
+    --surface-alpha: 1;
+    --surface-border: 226 232 240;
+    --surface-border-alpha: 1;
+    --page-from: #f8fafc;
+    --page-via: #f1f5f9;
+    --page-to: #e2e8f0;
+    --page-sun: 0;
+  }
+  /* Slate Dark (v2 enterprise dark) */
+  :root[data-theme='slate-dark'] {
+    --surface-bg: 15 23 42; /* slate-900 */
+    --surface-alpha: 0.85;
+    --surface-border: 148 163 184;
+    --surface-border-alpha: 0.18;
+    --page-from: #020617;
+    --page-via: #0b1220;
+    --page-to: #0f172a;
+    --page-sun: 0;
+    --accent: 245 140 40;
+  }
+  /* Midnight (v5 deep navy + gold) */
+  :root[data-theme='midnight'] {
+    --surface-bg: 21 26 46;
+    --surface-alpha: 0.7;
+    --surface-border: 245 184 64;
+    --surface-border-alpha: 0.12;
+    --page-from: #0b1020;
+    --page-via: #131a30;
+    --page-to: #1e2748;
+    --page-sun: 1;
+    --accent: 245 184 64;
+  }
+
+  html,
+  body {
+    @apply antialiased;
+    font-family: theme('fontFamily.sans');
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Comfortable, consistent focus ring for keyboard users. */
+  :where(a, button, input, select, [tabindex]):focus-visible {
+    @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-white dark:ring-offset-ink rounded-lg;
+  }
+}
+
+@layer components {
+  /* Frosted card surface — theme-driven via CSS vars so each theme (warm,
+     slate, classic, midnight) gets its own surface tint while sharing layout. */
+  .surface {
+    @apply rounded-2xl shadow-card backdrop-blur-md dark:shadow-card-dark;
+    background-color: rgb(var(--surface-bg) / var(--surface-alpha));
+    border: 1px solid rgb(var(--surface-border) / var(--surface-border-alpha));
+  }
+
+  .chip {
+    @apply inline-flex h-9 items-center gap-1.5 rounded-xl border border-black/5 bg-white/70 px-3
+      text-sm font-semibold text-slate-700 backdrop-blur transition
+      hover:bg-white active:scale-95 dark:border-white/10 dark:bg-white/10 dark:text-slate-100 dark:hover:bg-white/20;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-brand-500
+      to-brand-600 px-4 py-2 font-bold text-white shadow-glow transition active:scale-95;
+  }
+
+  /* Skeleton shimmer for loading states. */
+  .skeleton {
+    @apply animate-pulse rounded-lg bg-slate-200/80 dark:bg-white/10;
+  }
+
+  /* Hide scrollbar for horizontal ticker but keep it scrollable/swipeable. */
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
