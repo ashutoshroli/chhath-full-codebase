@@ -207,11 +207,10 @@ export function contributorsForYear(
 /**
  * Contributors with competition ranking (1,1,3,4,4…; top-5 flagged), returned in
  * the requested DISPLAY order:
- *   1. Top-5 (rank <= 5) first, kept in amount-descending order.
- *   2. Everyone else after, in ENTRY order (first-given first) — i.e. NOT sorted
- *      by amount, so "jo pehle diya wo pehle aaye".
- * Ranks/flags are always computed from the true amount order, so a person's rank
- * never changes regardless of where they render.
+ *   EVERYONE — including the Top-5 — stays in ENTRY (SL No. / first-given) order.
+ *   The Top-5 are NOT moved to the front; they simply carry the badge/crown/gold
+ *   in place. Ranks/flags are still computed from the true amount order, so a
+ *   person's rank (and whether they're Top-5) never changes with position.
  */
 export function rankedContributors(
   data: PortalData,
@@ -220,13 +219,8 @@ export function rankedContributors(
 ): Ranked<Contributor>[] {
   const byAmount = contributorsForYear(data, sel, userMap);
   const ranked = competitionRank(byAmount, (c) => c.amount);
-
-  const top = ranked.filter((r) => r.isTop); // already amount-desc
-  const rest = ranked
-    .filter((r) => !r.isTop)
-    .sort((a, b) => a.item.order - b.item.order); // entry order
-
-  return [...top, ...rest];
+  // Re-order back to entry order for display; rank/isTop stay attached per person.
+  return [...ranked].sort((a, b) => a.item.order - b.item.order);
 }
 
 // ---- Summary statistics ----

@@ -134,29 +134,34 @@ describe('contributor aggregation', () => {
   });
 });
 
-describe('display order: top-5 by amount, rest by entry order', () => {
-  // U6 (786) entered before U7 (500) in the data. Both are outside top-5, so
-  // they must appear in ENTRY order (U6 then U7), NOT amount order.
+describe('display order: EVERYONE in entry (SL No.) order, top-5 flagged in place', () => {
   const data = parsePortalData(sample)!;
   const ranked = rankedContributors(data, 2026);
   const names = ranked.map((r) => r.item.name);
 
-  it('top-5 come first in amount-descending order', () => {
-    expect(names.slice(0, 5)).toEqual([
+  it('renders every contributor in entry order — top-5 are NOT moved to the front', () => {
+    // Data entry order is U1..U8. Even though U8(Sunil,600) > U7(Manish,500),
+    // and the top-5 have the biggest amounts, display stays in entry order.
+    expect(names).toEqual([
       'Ravi Kumar',
       'Sanjeet Kumar',
       'Abhishek Verma',
       'Govind Verma',
-      'Pintu Kumar'
+      'Pintu Kumar',
+      'Aarohi Bharti',
+      'Manish Kumar',
+      'Sunil Das'
     ]);
   });
 
-  it('non-top-5 follow in entry (first-given) order, not amount order', () => {
-    // Entry order: Aarohi(786), Manish(500), Sunil(600). Amount order would be
-    // Aarohi, Sunil, Manish — so this proves entry-order wins for non-top-5.
-    expect(names.slice(5)).toEqual(['Aarohi Bharti', 'Manish Kumar', 'Sunil Das']);
-    const manish = ranked.find((r) => r.item.name === 'Manish Kumar')!;
-    expect(manish.isTop).toBe(false);
+  it('top-5 flag/rank stays correct in place (computed from amount, not position)', () => {
+    const byName = Object.fromEntries(ranked.map((r) => [r.item.name, r]));
+    expect(byName['Ravi Kumar'].isTop).toBe(true);
+    expect(byName['Ravi Kumar'].rank).toBe(1);
+    expect(byName['Pintu Kumar'].isTop).toBe(true);
+    expect(byName['Pintu Kumar'].rank).toBe(4);
+    expect(byName['Aarohi Bharti'].isTop).toBe(false);
+    expect(byName['Sunil Das'].isTop).toBe(false);
   });
 });
 
