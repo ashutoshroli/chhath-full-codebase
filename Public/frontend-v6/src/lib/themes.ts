@@ -118,6 +118,38 @@ export const THEMES: ThemeDef[] = [
     mode: 'dark',
     originKey: 'theme_origin_genz',
     swatch: ['#04120f', '#0a1c18', '#2dd4bf']
+  },
+  {
+    // Corporate / fintech clean — flat white surfaces + trust-blue accent (slate skin).
+    id: 'executive-pro',
+    labelKey: 'theme_executive_pro',
+    mode: 'light',
+    originKey: 'theme_origin_corporate',
+    swatch: ['#f8fafc', '#ffffff', '#2563eb']
+  },
+  {
+    // Premium dark glassmorphism — slate glass + cyan accent (aurora skin).
+    id: 'midnight-glass',
+    labelKey: 'theme_midnight_glass',
+    mode: 'dark',
+    originKey: 'theme_origin_genz',
+    swatch: ['#0b1120', '#1e293b', '#38bdf8']
+  },
+  {
+    // Minimalist community light — soft neutral surfaces + soft-orange accent (premium skin).
+    id: 'pastel-zen',
+    labelKey: 'theme_pastel_zen',
+    mode: 'light',
+    originKey: 'theme_origin_calm',
+    swatch: ['#fafafa', '#ffffff', '#f97316']
+  },
+  {
+    // Editorial / cultural trust — cream canvas + deep-forest-green accent (festival skin).
+    id: 'heritage-serif',
+    labelKey: 'theme_heritage_serif',
+    mode: 'light',
+    originKey: 'theme_origin_heritage',
+    swatch: ['#fdfbf7', '#ffffff', '#064e3b']
   }
 ];
 

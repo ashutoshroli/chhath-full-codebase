@@ -33,7 +33,9 @@ export default {
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'Arial', 'sans-serif'],
-        hand: ['Kalam', 'cursive']
+        hand: ['Kalam', 'cursive'],
+        // Editorial serif for the heritage-serif theme's headings.
+        serif: ['Playfair Display', 'Lora', 'Georgia', 'Cambria', 'Times New Roman', 'serif']
       },
       boxShadow: {
         card: '0 10px 30px -12px rgba(15,23,42,.25)',

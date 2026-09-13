@@ -21,7 +21,12 @@ export const THEME_SKIN_ID: Record<string, SkinId> = {
   'neon-noir': 'aurora',
   'cyber-lime': 'aurora',
   'sunset-vapor': 'aurora',
-  'mint-frost': 'aurora'
+  'mint-frost': 'aurora',
+  // 4 new themes — all reuse existing skins (no new skins).
+  'executive-pro': 'slate',
+  'midnight-glass': 'aurora',
+  'pastel-zen': 'premium',
+  'heritage-serif': 'festival'
 };
 
 export function skinIdForTheme(themeId: string | null | undefined): SkinId {
