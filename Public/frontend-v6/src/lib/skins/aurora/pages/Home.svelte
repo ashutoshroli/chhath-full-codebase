@@ -76,7 +76,12 @@
   <div class="{GLASS} mt-3 p-4">
     <div class="mb-3 flex items-center justify-between">
       <h2 class="text-sm font-bold text-white">{$tr('contributors_live_scroll', { year: yearLabel })}</h2>
-      <span class="text-[10px] text-slate-400">{$tr('total_contributions', { count: ranked.length })}</span>
+      <button
+        type="button"
+        onclick={() => (listOpen = true)}
+        aria-label={$tr('summary_view_list_label')}
+        class="rounded text-[10px] text-slate-400 underline decoration-dotted underline-offset-2 transition hover:text-violet-200 focus:outline-none focus:ring-2 focus:ring-violet-400/50 cursor-pointer"
+      >{$tr('total_contributions', { count: ranked.length })}</button>
     </div>
     {#if loading}
       <div class="flex gap-2.5 overflow-hidden">{#each Array(7) as _}<div class="h-28 w-24 shrink-0 animate-pulse rounded-xl bg-white/10"></div>{/each}</div>

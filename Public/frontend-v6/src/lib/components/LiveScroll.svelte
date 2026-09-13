@@ -22,8 +22,9 @@
 
   interface Props {
     onselect?: (key: string) => void;
+    oncountclick?: () => void;
   }
-  let { onselect }: Props = $props();
+  let { onselect, oncountclick }: Props = $props();
 
   let ranked = $derived(rankedContributors($portalState.data, $year));
   let loading = $derived($portalState.status === 'loading');
@@ -82,9 +83,18 @@
     <span class="hidden rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-bold text-success xs:inline">
       ● {$tr('live')}
     </span>
-    <span class="ml-auto hidden text-[10px] text-slate-400 sm:inline">
-      {$tr('total_contributions', { count: ranked.length })}
-    </span>
+    {#if oncountclick}
+      <button
+        type="button"
+        onclick={oncountclick}
+        aria-label={$tr('summary_view_list_label')}
+        class="ml-auto hidden rounded text-[10px] text-slate-400 underline decoration-dotted underline-offset-2 transition hover:text-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 cursor-pointer sm:inline"
+      >{$tr('total_contributions', { count: ranked.length })}</button>
+    {:else}
+      <span class="ml-auto hidden text-[10px] text-slate-400 sm:inline">
+        {$tr('total_contributions', { count: ranked.length })}
+      </span>
+    {/if}
 
     <div class="flex items-center gap-1">
       <button class="chip !h-8 !px-2" onclick={() => nudge(-1)} aria-label={$tr('prev')}>

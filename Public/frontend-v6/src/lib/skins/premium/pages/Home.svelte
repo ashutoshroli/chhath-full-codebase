@@ -36,7 +36,7 @@
     <HeroBanner />
     <FinancialOverview />
     <SummaryCards onRecordedClick={() => (listOpen = true)} />
-    <LiveScroll onselect={onSelect} />
+    <LiveScroll onselect={onSelect} oncountclick={() => (listOpen = true)} />
     <DecadeBanner />
   </div>
 {/if}
