@@ -303,6 +303,67 @@ thi, sirf chunking ke baare me hain.
 
 ---
 
+## Step 6b — mgmt SvelteKit frontend deploy (naya portal — pehle alag URL pe test)
+
+`mgmt/frontend-svelte` React SPA ka **1:1 SvelteKit rewrite** hai (same design,
+same backend). Recommendation: ise **pehle ek alag Vercel project / preview URL
+pe** deploy karke test karein, phir hi original domain se connect karein.
+
+### Vercel pe alag project banao (React project ko chhue bina)
+
+Ek **naya** Vercel project banao isi repo ke liye, sirf ye settings badlo:
+
+| Setting | Value |
+|---|---|
+| **Root Directory** | `mgmt/frontend-svelte` |
+| **Framework Preset** | SvelteKit (ya "Other" — `vercel.json` sab handle karta hai) |
+| **Build Command** | `npm run build` (already `vercel.json` me) |
+| **Output Directory** | `build` (already `vercel.json` me) |
+| **Environment Variable** | `VITE_API_URL = https://chhath-mgmt-api.<aapka-subdomain>.workers.dev` |
+
+> `VITE_API_URL` **build-time** pe bake hota hai — set na hua to API calls fail
+> hongi. Ye wahi Worker URL hai jo React `mgmt/frontend` use karta hai.
+
+`vercel.json` me SPA fallback `200.html` pe jaata hai (React `index.html` pe
+jaata tha) — isse deep-link refresh (`#loans`) aur public token routes
+(`/consent/<token>`, `/announce/<token>`) sahi chalte hain.
+
+### Ya CLI se
+
+```bash
+cd ~/chhath-full-codebase/mgmt/frontend-svelte
+npm install
+VITE_API_URL="https://chhath-mgmt-api.<aapka-subdomain>.workers.dev" npm run build
+# output: build/  -> ise apne host pe upload karein
+# (Vercel: `npx vercel --prod` chalao is folder ke andar se, naye project me)
+```
+
+> **PWA?** — nahi. React `mgmt/frontend` ki tarah is portal me bhi PWA/service
+> worker/manifest nahi hai (jaanbujhkar — behaviour 1:1 rakha hai). PWA sirf
+> public portal (`Public/frontend-v6`) me hai, mgmt me nahi.
+
+### Alag URL pe test karte waqt do baatein (dhyaan rakhein)
+
+1. **Google Sign-In** — agar login me Google button use karte ho, to naye
+   test-URL ko Google OAuth "Authorized JavaScript origins" me add karna padega,
+   warna Google popup error dega. (Password login bina iske chalega.)
+2. **Consent / Announce links** — jo consent/announce link bante hain wo
+   `CONSENT_BASE_URL` (Step 2) waale domain pe khulenge, is test-URL pe nahi.
+   Test-URL pe direct `/consent/<token>` type karke bhi verify kar sakte ho.
+
+Original domain se connect karte waqt: Vercel project ka domain switch karo (ya
+React project hata ke isi ko wo domain do). Tab CSP tighten karne ke liye bolo —
+abhi `vercel.json` me CSP **Report-Only** hai (kuchh block nahi karta, sirf report),
+React jaisa hi.
+
+### Verify (build ke baad)
+
+- Login screen React jaisa pixel-identical dikhe.
+- Kisi tab pe jaake **refresh** karo — 404 nahi aana chahiye (SPA fallback).
+- Collection add / User add / Loan issue — sab React jaisa.
+
+---
+
 ## Step 7 — Public frontend deploy
 
 `Public/frontend` me koi build step nahi hai (plain HTML/JS). Bas files upload
