@@ -122,7 +122,6 @@ export const T: Record<Lang, Dict> = {
     donate_cash_h: '\uD83D\uDCB5 3. Cash Contribution',
     donate_cash_p:
       'If you wish to contribute in cash, please hand your contribution to the committee\u2019s authorised members:',
-    donate_cash_member: '\uD83D\uDC64 Committee Member',
     donate_cash_note:
       'When giving a cash contribution, please be sure to collect a receipt so your contribution is recorded correctly in the committee\u2019s records.',
     donate_closing:
@@ -494,7 +493,6 @@ export const T: Record<Lang, Dict> = {
     donate_cash_h: '\uD83D\uDCB5 3. Cash Contribution',
     donate_cash_p:
       'यदि आप cash के माध्यम से योगदान देना चाहते हैं, तो अपना contribution समिति के अधिकृत members को दें:',
-    donate_cash_member: '\uD83D\uDC64 Committee Member',
     donate_cash_note:
       'Cash contribution देते समय कृपया receipt अवश्य प्राप्त करें, ताकि आपका योगदान समिति के records में सही तरीके से दर्ज किया जा सके।',
     donate_closing:
