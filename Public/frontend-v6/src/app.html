@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en" class="scroll-smooth">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="%sveltekit.assets%/favicon.svg" />
+    <link rel="mask-icon" href="%sveltekit.assets%/favicon.svg" color="#F27A1A" />
+    <link rel="apple-touch-icon" href="%sveltekit.assets%/icons/icon-180.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Chhath Portal" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+
+    <!-- Default SEO / social preview (per-page <title>/<meta> override these). -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Chhath Puja Transparency Portal" />
+    <meta property="og:title" content="Chhath Puja Transparency Portal — Navyuvak Chhath Puja Samiti" />
+    <meta
+      property="og:description"
+      content="Every contribution is visible. Every expense is accountable. Live financial transparency for Navyuvak Chhath Puja Samiti, Shaharpura, Gardih."
+    />
+    <meta property="og:image" content="https://chhath.shaharpura.com/icons/icon-512.png" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="theme-color" content="#F27A1A" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0b1020" media="(prefers-color-scheme: dark)" />
+
+    <!-- No-flash theme + language: runs BEFORE first paint (no light->dark
+         flicker). v5 multi-theme: apply the saved theme id if valid; else pick a
+         default from the device dark/light preference; else (no signal) random.
+         Sets data-theme + the `dark` class. Must mirror src/lib/themes.ts. -->
+    <script>
+      (function () {
+        try {
+          var LIGHT = { sunrise: 1, 'classic-light': 1, 'slate-light': 1 };
+          var DARK = { 'warm-night': 1, 'slate-dark': 1, midnight: 1 };
+          var DEFAULT_LIGHT = 'sunrise';
+          var DEFAULT_DARK = 'warm-night';
+          var id = localStorage.getItem('cpm_public_v5_theme');
+          if (!id || (!LIGHT[id] && !DARK[id])) {
+            var m = window.matchMedia;
+            if (m && m('(prefers-color-scheme: dark)').matches) id = DEFAULT_DARK;
+            else if (m && m('(prefers-color-scheme: light)').matches) id = DEFAULT_LIGHT;
+            else id = Math.random() < 0.5 ? DEFAULT_LIGHT : DEFAULT_DARK;
+          }
+          var root = document.documentElement;
+          root.setAttribute('data-theme', id);
+          root.classList.toggle('dark', !!DARK[id]);
+          var l = localStorage.getItem('cpm_public_lang') === 'hi' ? 'hi' : 'en';
+          root.setAttribute('lang', l);
+        } catch (e) {}
+      })();
+    </script>
+
+    <!-- Fonts: non-render-blocking (print->all swap) so first paint is not
+         blocked on the network. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      media="print"
+      onload="this.media='all'"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Kalam:wght@400;700&display=swap"
+    />
+    <noscript>
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Kalam:wght@400;700&display=swap"
+      />
+    </noscript>
+
+    %sveltekit.head%
+  </head>
+  <body data-sveltekit-preload-data="hover" class="bg-slate-100 dark:bg-ink">
+    <div style="display: contents">%sveltekit.body%</div>
+  </body>
+</html>
