@@ -30,14 +30,14 @@
   }
 
   /* Sunrise (v4 warm-glass light) — the baseline light look */
-  :root[data-theme='sunrise'] {
+  [data-theme='sunrise'] {
     --page-from: #fde7c9;
     --page-via: #fbc98c;
     --page-to: #e98b54;
     --page-sun: 1;
   }
   /* Warm Night (v4 dark) */
-  :root[data-theme='warm-night'] {
+  [data-theme='warm-night'] {
     --page-from: #241033;
     --page-via: #5b2733;
     --page-to: #e2691f;
@@ -45,7 +45,7 @@
     --accent: 255 159 69;
   }
   /* Classic Light (v1/v3 saffron + off-white, flat & clean) */
-  :root[data-theme='classic-light'] {
+  [data-theme='classic-light'] {
     --surface-alpha: 1;
     --surface-border: 226 232 240;
     --surface-border-alpha: 1;
@@ -55,7 +55,7 @@
     --page-sun: 0;
   }
   /* Slate Light (v2 enterprise) */
-  :root[data-theme='slate-light'] {
+  [data-theme='slate-light'] {
     --surface-alpha: 1;
     --surface-border: 226 232 240;
     --surface-border-alpha: 1;
@@ -65,7 +65,7 @@
     --page-sun: 0;
   }
   /* Slate Dark (v2 enterprise dark) */
-  :root[data-theme='slate-dark'] {
+  [data-theme='slate-dark'] {
     --surface-bg: 15 23 42; /* slate-900 */
     --surface-alpha: 0.85;
     --surface-border: 148 163 184;
@@ -77,7 +77,7 @@
     --accent: 245 140 40;
   }
   /* Midnight (v5 deep navy + gold) */
-  :root[data-theme='midnight'] {
+  [data-theme='midnight'] {
     --surface-bg: 21 26 46;
     --surface-alpha: 0.7;
     --surface-border: 245 184 64;
@@ -89,7 +89,7 @@
     --accent: 245 184 64;
   }
   /* Aurora (NEW v6) — deep space navy + violet glass */
-  :root[data-theme='aurora'] {
+  [data-theme='aurora'] {
     --surface-bg: 20 27 48;
     --surface-alpha: 0.55;
     --surface-border: 124 92 255;
@@ -115,7 +115,7 @@
                                values, used as var(--fest-banner-from) directly —
                                NOT rgb triplets, unlike --accent/--fest-ink)
        --fest-ink  body text on the cream cards (rgb triplet) */
-  :root[data-theme='festival'] {
+  [data-theme='festival'] {
     --surface-bg: 255 253 247;
     --surface-alpha: 1;
     --surface-border: 176 30 46;
@@ -131,7 +131,7 @@
     --fest-ink: 122 20 32; /* #7a1420 deep maroon text */
   }
   /* Neon Noir (Gen-Z 2026) — true-black dark glass + neon cyan/magenta */
-  :root[data-theme='neon-noir'] {
+  [data-theme='neon-noir'] {
     --surface-bg: 13 16 23;
     --surface-alpha: 0.5;
     --surface-border: 34 211 238;
@@ -148,7 +148,7 @@
     --aurora-b4: #06b6d4;
   }
   /* Cyber Lime (Gen-Z 2026) — near-black + electric lime */
-  :root[data-theme='cyber-lime'] {
+  [data-theme='cyber-lime'] {
     --surface-bg: 14 21 16;
     --surface-alpha: 0.5;
     --surface-border: 163 230 53;
@@ -165,7 +165,7 @@
     --aurora-b4: #84cc16;
   }
   /* Sunset Vapor (Gen-Z 2026) — vaporwave indigo -> pink -> orange */
-  :root[data-theme='sunset-vapor'] {
+  [data-theme='sunset-vapor'] {
     --surface-bg: 36 17 65;
     --surface-alpha: 0.5;
     --surface-border: 255 93 177;
@@ -182,7 +182,7 @@
     --aurora-b4: #6366f1;
   }
   /* Mint Frost (Gen-Z 2026) — cool dark glass + fresh mint/teal */
-  :root[data-theme='mint-frost'] {
+  [data-theme='mint-frost'] {
     --surface-bg: 10 28 24;
     --surface-alpha: 0.5;
     --surface-border: 45 212 191;
@@ -201,7 +201,7 @@
 
   /* Executive Pro — corporate/fintech clean (slate skin): flat white surfaces,
      hairline slate borders, no card gradients, trust-blue accent. */
-  :root[data-theme='executive-pro'] {
+  [data-theme='executive-pro'] {
     --surface-bg: 255 255 255;
     --surface-alpha: 1;
     --surface-border: 15 23 42;
@@ -215,7 +215,7 @@
 
   /* Midnight Glass — premium dark glassmorphism (aurora skin): slate-800 glass +
      cyan accent + a cool blue/violet mesh. */
-  :root[data-theme='midnight-glass'] {
+  [data-theme='midnight-glass'] {
     --surface-bg: 30 41 59; /* slate-800 */
     --surface-alpha: 0.7; /* glassy */
     --surface-border: 255 255 255;
@@ -235,7 +235,7 @@
 
   /* Pastel Zen — minimalist community light (premium skin): soft neutral canvas,
      very light borders, soft-orange accent. */
-  :root[data-theme='pastel-zen'] {
+  [data-theme='pastel-zen'] {
     --surface-bg: 255 255 255;
     --surface-alpha: 1;
     --surface-border: 39 39 42;
@@ -249,7 +249,7 @@
 
   /* Heritage Serif — editorial/cultural trust (festival skin): cream canvas,
      1px borders, deep forest-green accent; headings render in a serif face. */
-  :root[data-theme='heritage-serif'] {
+  [data-theme='heritage-serif'] {
     --surface-bg: 255 255 255;
     --surface-alpha: 1;
     --surface-border: 28 25 23;
@@ -270,7 +270,7 @@
   /* Festival Dark — the festive maroon/gold scheme on a dark maroon-charcoal
      canvas (festival skin). Same accents as light Festival; --fest-ink is now a
      warm cream so body text reads on the dark surfaces. */
-  :root[data-theme='festival-dark'] {
+  [data-theme='festival-dark'] {
     --surface-bg: 42 20 24; /* deep maroon-charcoal */
     --surface-alpha: 0.8;
     --surface-border: 245 184 64;
@@ -289,7 +289,7 @@
   /* Heritage Serif Dark — the editorial serif look on a deep charcoal canvas,
      forest green + antique gold; --fest-ink is a light stone so body text reads
      on the dark surfaces. */
-  :root[data-theme='heritage-serif-dark'] {
+  [data-theme='heritage-serif-dark'] {
     --surface-bg: 26 32 29; /* charcoal with a faint green tint */
     --surface-alpha: 0.85;
     --surface-border: 217 119 6;
@@ -307,12 +307,12 @@
 
   /* Serif headings for the editorial look (font-serif is added in tailwind.config
      + loaded non-blocking in app.html). Scoped to the heritage themes only. */
-  :root[data-theme='heritage-serif'] h1,
-  :root[data-theme='heritage-serif'] h2,
-  :root[data-theme='heritage-serif'] h3,
-  :root[data-theme='heritage-serif-dark'] h1,
-  :root[data-theme='heritage-serif-dark'] h2,
-  :root[data-theme='heritage-serif-dark'] h3 {
+  [data-theme='heritage-serif'] h1,
+  [data-theme='heritage-serif'] h2,
+  [data-theme='heritage-serif'] h3,
+  [data-theme='heritage-serif-dark'] h1,
+  [data-theme='heritage-serif-dark'] h2,
+  [data-theme='heritage-serif-dark'] h3 {
     font-family: theme('fontFamily.serif');
   }
 
@@ -385,23 +385,23 @@
      A layered radial gradient gives a lit sphere; --chat-orb-3d is the switch
      each 3D theme flips on. The gloss span is the top highlight; a soft outer
      glow + inner shadow add depth; a gentle float animation sells the "3D". */
-  :root[data-theme='aurora'],
-  :root[data-theme='festival'],
-  :root[data-theme='neon-noir'],
-  :root[data-theme='cyber-lime'],
-  :root[data-theme='sunset-vapor'],
-  :root[data-theme='mint-frost'],
-  :root[data-theme='midnight-glass'] {
+  [data-theme='aurora'],
+  [data-theme='festival'],
+  [data-theme='neon-noir'],
+  [data-theme='cyber-lime'],
+  [data-theme='sunset-vapor'],
+  [data-theme='mint-frost'],
+  [data-theme='midnight-glass'] {
     --chat-orb-3d: 1;
   }
 
-  :root[data-theme='aurora'] .chat-orb,
-  :root[data-theme='festival'] .chat-orb,
-  :root[data-theme='neon-noir'] .chat-orb,
-  :root[data-theme='cyber-lime'] .chat-orb,
-  :root[data-theme='sunset-vapor'] .chat-orb,
-  :root[data-theme='mint-frost'] .chat-orb,
-  :root[data-theme='midnight-glass'] .chat-orb {
+  [data-theme='aurora'] .chat-orb,
+  [data-theme='festival'] .chat-orb,
+  [data-theme='neon-noir'] .chat-orb,
+  [data-theme='cyber-lime'] .chat-orb,
+  [data-theme='sunset-vapor'] .chat-orb,
+  [data-theme='mint-frost'] .chat-orb,
+  [data-theme='midnight-glass'] .chat-orb {
     background:
       radial-gradient(120% 120% at 32% 24%,
         rgb(var(--accent) / 0.98) 0%,
@@ -417,13 +417,13 @@
   }
 
   /* Glossy top highlight (only on 3D themes). */
-  :root[data-theme='aurora'] .chat-orb__gloss,
-  :root[data-theme='festival'] .chat-orb__gloss,
-  :root[data-theme='neon-noir'] .chat-orb__gloss,
-  :root[data-theme='cyber-lime'] .chat-orb__gloss,
-  :root[data-theme='sunset-vapor'] .chat-orb__gloss,
-  :root[data-theme='mint-frost'] .chat-orb__gloss,
-  :root[data-theme='midnight-glass'] .chat-orb__gloss {
+  [data-theme='aurora'] .chat-orb__gloss,
+  [data-theme='festival'] .chat-orb__gloss,
+  [data-theme='neon-noir'] .chat-orb__gloss,
+  [data-theme='cyber-lime'] .chat-orb__gloss,
+  [data-theme='sunset-vapor'] .chat-orb__gloss,
+  [data-theme='mint-frost'] .chat-orb__gloss,
+  [data-theme='midnight-glass'] .chat-orb__gloss {
     display: block;
     position: absolute;
     top: 8%;
@@ -437,13 +437,13 @@
     z-index: 1;
   }
   /* Keep the icon crisp above the gloss, with a touch of depth. */
-  :root[data-theme='aurora'] .chat-orb__icon,
-  :root[data-theme='festival'] .chat-orb__icon,
-  :root[data-theme='neon-noir'] .chat-orb__icon,
-  :root[data-theme='cyber-lime'] .chat-orb__icon,
-  :root[data-theme='sunset-vapor'] .chat-orb__icon,
-  :root[data-theme='mint-frost'] .chat-orb__icon,
-  :root[data-theme='midnight-glass'] .chat-orb__icon {
+  [data-theme='aurora'] .chat-orb__icon,
+  [data-theme='festival'] .chat-orb__icon,
+  [data-theme='neon-noir'] .chat-orb__icon,
+  [data-theme='cyber-lime'] .chat-orb__icon,
+  [data-theme='sunset-vapor'] .chat-orb__icon,
+  [data-theme='mint-frost'] .chat-orb__icon,
+  [data-theme='midnight-glass'] .chat-orb__icon {
     z-index: 2;
     filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.45));
   }
@@ -460,22 +460,22 @@
   /* ---- Chat panel accent on 3D themes ----
      Give the panel header a faint accent wash + glow border so the open chat
      visually matches its 3D launcher; classic themes keep the plain surface. */
-  :root[data-theme='aurora'] .chat-panel,
-  :root[data-theme='festival'] .chat-panel,
-  :root[data-theme='neon-noir'] .chat-panel,
-  :root[data-theme='cyber-lime'] .chat-panel,
-  :root[data-theme='sunset-vapor'] .chat-panel,
-  :root[data-theme='mint-frost'] .chat-panel,
-  :root[data-theme='midnight-glass'] .chat-panel {
+  [data-theme='aurora'] .chat-panel,
+  [data-theme='festival'] .chat-panel,
+  [data-theme='neon-noir'] .chat-panel,
+  [data-theme='cyber-lime'] .chat-panel,
+  [data-theme='sunset-vapor'] .chat-panel,
+  [data-theme='mint-frost'] .chat-panel,
+  [data-theme='midnight-glass'] .chat-panel {
     box-shadow: 0 12px 40px -12px rgb(var(--accent) / 0.45), 0 0 0 1px rgb(var(--accent) / 0.25);
   }
-  :root[data-theme='aurora'] .chat-panel__header,
-  :root[data-theme='festival'] .chat-panel__header,
-  :root[data-theme='neon-noir'] .chat-panel__header,
-  :root[data-theme='cyber-lime'] .chat-panel__header,
-  :root[data-theme='sunset-vapor'] .chat-panel__header,
-  :root[data-theme='mint-frost'] .chat-panel__header,
-  :root[data-theme='midnight-glass'] .chat-panel__header {
+  [data-theme='aurora'] .chat-panel__header,
+  [data-theme='festival'] .chat-panel__header,
+  [data-theme='neon-noir'] .chat-panel__header,
+  [data-theme='cyber-lime'] .chat-panel__header,
+  [data-theme='sunset-vapor'] .chat-panel__header,
+  [data-theme='mint-frost'] .chat-panel__header,
+  [data-theme='midnight-glass'] .chat-panel__header {
     background: linear-gradient(to bottom, rgb(var(--accent) / 0.16), rgb(var(--accent) / 0));
   }
 }

@@ -66,7 +66,7 @@
 
     <!-- Contributor list rows -->
     <div class="mt-1.5 rounded-md" style="background: {surface}; border: 1px solid {border};">
-      {#each [['GV', 'Govind V.', '₹2,176'], ['AB', 'Aarohi B.', '₹1,167']] as [ini, name, amt], i}
+      {#each [['1', '1 Ashutosh Chandan', '₹2,176'], ['2', '2 Sujit Kumar', '₹1,167']] as [ini, name, amt], i}
         <div class="flex items-center gap-1.5 px-2 py-1.5 {i === 0 ? 'border-b' : ''}" style="border-color: {border};">
           <span class="grid h-4 w-4 place-items-center rounded-full text-[6px] font-black text-white" style="background: {accent};">{ini}</span>
           <span class="flex-1 truncate text-[8px] font-semibold" style="color: rgb(var(--surface-border));">{name}</span>
