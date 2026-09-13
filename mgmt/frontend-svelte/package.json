@@ -1,0 +1,39 @@
+{
+  "name": "chhath-management-portal-svelte",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Chhath Puja Management Portal — SvelteKit + TypeScript migration of the React SPA. SAME design/layout (reuses styles.css). Consumes the UNCHANGED management API. Work-in-progress, phase-by-phase.",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-static": "^3.0.6",
+    "@sveltejs/kit": "^2.8.1",
+    "@sveltejs/vite-plugin-svelte": "^4.0.0",
+    "svelte": "^5.2.7",
+    "svelte-check": "^4.1.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.5"
+  },
+  "dependencies": {
+    "@vercel/analytics": "^1.6.1",
+    "docxtemplater": "^3.69.3",
+    "docxtemplater-image-module-free": "^1.1.1",
+    "dompurify": "^3.4.13",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
+    "marked": "^18.0.9",
+    "pizzip": "^3.2.0",
+    "qrcode": "^1.5.4"
+  },
+  "comment:overrides": "SECURITY (audit S3): docxtemplater-image-module-free pulls in deprecated xmldom (0.1.x, CRITICAL advisories). Redirect to @xmldom/xmldom via override, same as the React app.",
+  "overrides": {
+    "xmldom": "npm:@xmldom/xmldom@^0.9.12"
+  }
+}
