@@ -99,6 +99,10 @@ const SCHEMA_FOR_MIGRATION = {
   // fresh schema and a second run is a no-op — NOT schema-only (fully idempotent),
   // like 15/17/20/21/23.
   '28-journey-content.sql': 'core.sql',
+  // journey page-text seed (core DB): two portal_settings JSON rows, each INSERT
+  // guarded by WHERE NOT EXISTS — applies on a fresh schema and a second run is a
+  // no-op. Fully idempotent (no ALTER), like 28.
+  '29-journey-page-text.sql': 'core.sql',
 };
 
 // Migrations that legitimately do more than CREATE INDEX. Keep this list as short
@@ -207,11 +211,20 @@ test('H-10: the error_log de-dup query (runs on EVERY log write) is index-backed
   db.close();
 });
 
+// Strip line comments AND single-quoted string literals before scanning for SQL
+// keywords, so a seed VALUES('...') that happens to contain a word like "update"
+// or "delete" inside prose (e.g. journey page text) is never mistaken for an
+// actual DDL/DML statement. '' (an escaped quote inside a literal) is handled.
+function sqlWithoutCommentsAndStrings(file) {
+  return readFileSync(new URL(file, MIGRATION_DIR), 'utf8')
+    .replace(/--.*$/gm, '')            // line comments
+    .replace(/'(?:''|[^'])*'/g, "''"); // single-quoted string literals -> empty
+}
+
 test('H-10: no INDEX-ONLY migration drops anything or mutates a row', () => {
   for (const file of migrationFiles()) {
     if (SCHEMA_ONLY_MIGRATIONS.has(file)) continue; // asserted explicitly below
-    const sql = readFileSync(new URL(file, MIGRATION_DIR), 'utf8')
-      .replace(/--.*$/gm, '');   // strip comments; several discuss DELETE/UPDATE
+    const sql = sqlWithoutCommentsAndStrings(file);
     assert.ok(!/\bDROP\b/i.test(sql), `${file} must not DROP anything`);
     assert.ok(!/\bDELETE\b/i.test(sql), `${file} must not DELETE rows`);
     assert.ok(!/\bUPDATE\b/i.test(sql), `${file} must not UPDATE rows`);

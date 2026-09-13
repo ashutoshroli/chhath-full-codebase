@@ -11,6 +11,62 @@
   }
   const BLANK = { id: null as number | null, year: '', title_en: '', title_hi: '', content_en: '', content_hi: '' };
 
+  // Static page-text fields, grouped for the editor (parity with React).
+  interface TextField { key: string; label: string; area?: boolean; }
+  const PAGE_TEXT_GROUPS: { title: string; fields: TextField[] }[] = [
+    { title: 'Intro & Origin', fields: [
+      { key: 'intro', label: 'Intro paragraph', area: true },
+      { key: 'origin_h', label: 'Origin — heading' },
+      { key: 'origin_p1', label: 'Origin — paragraph 1', area: true },
+      { key: 'origin_p2', label: 'Origin — paragraph 2', area: true },
+      { key: 'origin_p3', label: 'Origin — paragraph 3', area: true },
+      { key: 'origin_p4', label: 'Origin — paragraph 4', area: true },
+      { key: 'journey_h', label: 'Section heading: "Our Journey"' },
+    ] },
+    { title: 'Portal callout & note', fields: [
+      { key: 'evolution_line', label: 'Evolution line (Paper → … → Portal)' },
+      { key: 'portal_h', label: 'Portal callout — heading' },
+      { key: 'portal_p', label: 'Portal callout — paragraph', area: true },
+      { key: 'current_note_h', label: 'Current-year note — heading (use {year})' },
+      { key: 'current_note_p', label: 'Current-year note — text (use {year})', area: true },
+    ] },
+    { title: 'Financial table labels', fields: [
+      { key: 'table_h', label: 'Table heading (use {start}/{end})' },
+      { key: 'th_year', label: 'Column: Year' },
+      { key: 'th_total', label: 'Column: Total' },
+      { key: 'th_contributors', label: 'Column: Contributors' },
+      { key: 'total_label', label: 'Year card — total label' },
+      { key: 'contributors_label', label: 'Year card — contributors label' },
+      { key: 'totals_h', label: 'Totals box — heading (use {start}/{end})' },
+      { key: 'total_amount', label: 'Totals box — amount line (use {amount})', area: true },
+      { key: 'total_entries', label: 'Totals box — entries line (use {count})', area: true },
+      { key: 'total_clarify', label: 'Totals box — clarify (use {count})', area: true },
+    ] },
+    { title: 'Transparency timeline', fields: [
+      { key: 'timeline_h', label: 'Timeline — section heading' },
+      { key: 'tl_paper_h', label: 'Step 1 — heading' }, { key: 'tl_paper_d', label: 'Step 1 — text', area: true },
+      { key: 'tl_pdf_h', label: 'Step 2 — heading' }, { key: 'tl_pdf_d', label: 'Step 2 — text', area: true },
+      { key: 'tl_wa_h', label: 'Step 3 — heading' }, { key: 'tl_wa_d', label: 'Step 3 — text', area: true },
+      { key: 'tl_sheets_h', label: 'Step 4 — heading' }, { key: 'tl_sheets_d', label: 'Step 4 — text', area: true },
+      { key: 'tl_portal_h', label: 'Step 5 — heading' }, { key: 'tl_portal_d', label: 'Step 5 — text', area: true },
+    ] },
+    { title: 'Our Thinking & milestones', fields: [
+      { key: 'think_h', label: 'Our Thinking — heading' },
+      { key: 'think_lead', label: 'Our Thinking — lead' },
+      { key: 'think_p', label: 'Our Thinking — paragraph', area: true },
+      { key: 'ms_2017_h', label: 'Milestone 2017 — heading' }, { key: 'ms_2017_d', label: 'Milestone 2017 — text', area: true },
+      { key: 'ms_2021_h', label: 'Milestone 2021 — heading' }, { key: 'ms_2021_d', label: 'Milestone 2021 — text', area: true },
+      { key: 'ms_2026_h', label: 'Milestone 2026 — heading' }, { key: 'ms_2026_d', label: 'Milestone 2026 — text', area: true },
+    ] },
+    { title: 'Closing & footer', fields: [
+      { key: 'closing_h', label: 'Closing — heading' },
+      { key: 'closing_p1', label: 'Closing — paragraph 1', area: true },
+      { key: 'closing_p2', label: 'Closing — paragraph 2', area: true },
+      { key: 'closing_p3', label: 'Closing — paragraph 3', area: true },
+      { key: 'footer', label: 'Footer line' },
+    ] },
+  ];
+
   let entries = $state<Entry[]>([]);
   let loading = $state(true);
   let error = $state('');
@@ -22,6 +78,24 @@
   let taglineHi = $state('');
   let taglineSaving = $state(false);
   let taglineMsg = $state('');
+
+  // Page text (two JSON blobs).
+  let textEn = $state<Record<string, string>>({});
+  let textHi = $state<Record<string, string>>({});
+  let textLang = $state<'en' | 'hi'>('en');
+  let textSaving = $state(false);
+  let textMsg = $state('');
+
+  const parseJson = (v: unknown): Record<string, string> => {
+    try { return v ? JSON.parse(v as string) : {}; } catch { return {}; }
+  };
+  function textVal(key: string): string {
+    return (textLang === 'hi' ? textHi : textEn)[key] || '';
+  }
+  function setTextVal(key: string, val: string) {
+    if (textLang === 'hi') textHi = { ...textHi, [key]: val };
+    else textEn = { ...textEn, [key]: val };
+  }
 
   async function refresh() {
     loading = true;
@@ -39,6 +113,9 @@
     refresh();
     Promise.all([api.getPortalSetting('journey_tagline_en'), api.getPortalSetting('journey_tagline_hi')])
       .then(([en, hi]: any) => { taglineEn = (en && en.value) || ''; taglineHi = (hi && hi.value) || ''; })
+      .catch(() => {});
+    Promise.all([api.getPortalSetting('journey_page_text_en'), api.getPortalSetting('journey_page_text_hi')])
+      .then(([en, hi]: any) => { textEn = parseJson(en && en.value); textHi = parseJson(hi && hi.value); })
       .catch(() => {});
   });
 
@@ -118,6 +195,21 @@
       taglineSaving = false;
     }
   }
+
+  async function savePageText(ev: Event) {
+    ev.preventDefault();
+    textSaving = true;
+    textMsg = '';
+    try {
+      await api.setPortalSetting('journey_page_text_en', JSON.stringify(textEn));
+      await api.setPortalSetting('journey_page_text_hi', JSON.stringify(textHi));
+      textMsg = 'Saved.';
+    } catch (err) {
+      alert((err as Error).message);
+    } finally {
+      textSaving = false;
+    }
+  }
 </script>
 
 <h2 style="margin-bottom:15px;">Journey Content</h2>
@@ -136,6 +228,41 @@
     </div>
     <button class="btn-submit" disabled={taglineSaving}>{taglineSaving ? 'Saving...' : 'Save Tagline'}</button>
     {#if taglineMsg}<span style="margin-left:10px; color:var(--success); font-size:0.85rem;">{taglineMsg}</span>{/if}
+  </form>
+</div>
+
+<!-- Page text editor -->
+<div class="glass-card" style="margin-bottom:20px;">
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; gap:10px; flex-wrap:wrap;">
+    <h3 style="margin:0;">Page Text</h3>
+    <div style="display:inline-flex; gap:4px;">
+      <button type="button" class={textLang === 'en' ? 'btn-submit' : 'btn-secondary'} style="padding:4px 12px;" onclick={() => (textLang = 'en')}>English</button>
+      <button type="button" class={textLang === 'hi' ? 'btn-submit' : 'btn-secondary'} style="padding:4px 12px;" onclick={() => (textLang = 'hi')}>हिंदी</button>
+    </div>
+  </div>
+  <p style="font-size:0.8rem; color:var(--text-muted); margin-top:0;">
+    Editing <strong>{textLang === 'hi' ? 'Hindi' : 'English'}</strong>. Leave a field blank to fall back to the built-in text. Keep any {'{placeholders}'} (e.g. {'{start}'}, {'{amount}'}, {'{year}'}).
+  </p>
+  <form onsubmit={savePageText}>
+    {#each PAGE_TEXT_GROUPS as g (g.title)}
+      <details style="margin-bottom:10px; border:1px solid var(--border, #e5e7eb); border-radius:8px; padding:8px 12px;">
+        <summary style="cursor:pointer; font-weight:700; font-size:0.9rem;">{g.title}</summary>
+        <div style="margin-top:8px;">
+          {#each g.fields as f (f.key)}
+            <div class="form-group">
+              <label>{f.label}</label>
+              {#if f.area}
+                <textarea rows={3} value={textVal(f.key)} oninput={(e) => setTextVal(f.key, (e.currentTarget as HTMLTextAreaElement).value)}></textarea>
+              {:else}
+                <input value={textVal(f.key)} oninput={(e) => setTextVal(f.key, (e.currentTarget as HTMLInputElement).value)} />
+              {/if}
+            </div>
+          {/each}
+        </div>
+      </details>
+    {/each}
+    <button class="btn-submit" disabled={textSaving}>{textSaving ? 'Saving...' : 'Save Page Text'}</button>
+    {#if textMsg}<span style="margin-left:10px; color:var(--success); font-size:0.85rem;">{textMsg}</span>{/if}
   </form>
 </div>
 

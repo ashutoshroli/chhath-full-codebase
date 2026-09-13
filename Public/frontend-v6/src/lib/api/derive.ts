@@ -439,6 +439,33 @@ export function journeyTagline(data: PortalData): { en: string; hi: string } {
   };
 }
 
+/** The Decade page's static text blocks for the given language, as a flat
+ *  field->string map. Empty/missing fields are simply absent, so the caller does
+ *  `journeyText(data, lang).intro ?? $tr('decade_intro')` to fall back to i18n.
+ *  Values may contain {placeholders} ({start}/{end}/{amount}/{count}/{year}) —
+ *  the caller interpolates them the same way $tr does. */
+/** Replace {placeholder} tokens in a string (same rule as the i18n `t()`), for
+ *  DB-sourced journey text that carries {start}/{end}/{amount}/{count}/{year}. */
+export function interp(str: string, vars?: Record<string, string | number>): string {
+  if (!vars) return str;
+  let s = str;
+  for (const [k, v] of Object.entries(vars)) s = s.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
+  return s;
+}
+
+export function journeyText(data: PortalData, lang: 'en' | 'hi'): Record<string, string> {
+  const t = (data as { journeyPageText?: { en?: unknown; hi?: unknown } }).journeyPageText;
+  const block = (lang === 'hi' ? t?.hi : t?.en) as Record<string, unknown> | undefined;
+  const out: Record<string, string> = {};
+  if (block && typeof block === 'object') {
+    for (const [k, v] of Object.entries(block)) {
+      const s = (v ?? '').toString();
+      if (s) out[k] = s;
+    }
+  }
+  return out;
+}
+
 // ---- Committee ----
 
 export interface CommitteeMember {

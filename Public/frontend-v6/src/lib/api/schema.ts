@@ -130,6 +130,13 @@ export const portalDataSchema = z
     // the frontend falls back to its built-in text.
     journeyEntries: arr(journeyEntryRow),
     journeyTagline: journeyTaglineSchema.optional(),
+    // The Decade page's static text blocks — { en: {...}, hi: {...} }. Optional +
+    // permissive; each field falls back to i18n on the frontend when absent.
+    journeyPageText: z
+      .object({ en: z.record(z.string()).catch({}), hi: z.record(z.string()).catch({}) })
+      .passthrough()
+      .catch({ en: {}, hi: {} })
+      .optional(),
     // Backend may flag a degraded (last-known-good) response.
     stale: z.boolean().optional(),
     staleReason: z.string().optional()

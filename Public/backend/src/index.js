@@ -399,7 +399,36 @@ async function getAllPortalData(env) {
     // The journey tagline (bilingual), from the same portal_settings key/value
     // table this Worker already reads for the data version + SEO.
     journeyTagline: await getJourneyTagline(env),
+    // The rest of the "Our Journey" static prose (intro, origin, timeline,
+    // milestones, closing, labels…) — one JSON blob per language in
+    // portal_settings. The frontend falls back to its built-in i18n per field.
+    journeyPageText: await getJourneyPageText(env),
   };
+}
+
+// The Decade page's static text blocks, stored as two portal_settings JSON rows
+// (journey_page_text_en / _hi). Returns { en: {...}, hi: {...} }; a missing row
+// or bad JSON degrades to an empty object so the frontend uses its i18n default.
+async function getJourneyPageText(env) {
+  const out = { en: {}, hi: {} };
+  if (!env || !env.DB_CORE) return out;
+  try {
+    const { results } = await env.DB_CORE
+      .prepare('SELECT "key", value FROM portal_settings WHERE "key" IN (?, ?)')
+      .bind('journey_page_text_en', 'journey_page_text_hi')
+      .all();
+    for (const r of results || []) {
+      const lang = r.key === 'journey_page_text_hi' ? 'hi' : 'en';
+      try {
+        const obj = JSON.parse((r.value || '{}').toString());
+        if (obj && typeof obj === 'object') out[lang] = obj;
+      } catch (e) { /* leave as {} — frontend falls back to i18n */ }
+    }
+  } catch (e) {
+    const msg = (e && e.message ? e.message : String(e)).toLowerCase();
+    if (!msg.includes('no such table') && !msg.includes('no such column')) throw e;
+  }
+  return out;
 }
 
 // Public "Our Journey" entries — read-only, only the columns the portal renders.
