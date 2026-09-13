@@ -308,9 +308,9 @@ export const api = {
   getUserProfile: (userId: string) => call('getUserProfile', { userId }),
   getYearContributors: (year: string) => call('getYearContributors', { year }),
   getLockedYears: () => call('getLockedYears'),
-  lockYear: (year: string) => call('lockYear', { year }),
-  unlockYear: (year: string) => call('unlockYear', { year }),
-  addYear: (year: string) => call('addYear', { year }),
+  lockYear: (year: string | number) => call('lockYear', { year }),
+  unlockYear: (year: string | number) => call('unlockYear', { year }),
+  addYear: (year: string | number) => call('addYear', { year }),
   updateOwnProfile: (payload: unknown) => call('updateOwnProfile', { payload }),
   changePassword: (currentPassword: string, newPassword: string) =>
     call('changePassword', { currentPassword, newPassword }),
@@ -319,11 +319,11 @@ export const api = {
   revokeSession: (sessionId: string) => call('revokeSession', { sessionId }),
   revokeAllOtherSessions: () => call('revokeAllOtherSessions'),
   getUserSessions: (targetName: string) => call('getUserSessions', { targetName }),
-  revokeUserSession: (targetName: string, sessionId: string) => call('revokeUserSession', { targetName, sessionId }),
+  revokeUserSession: (targetName: string, sessionId: string | null) => call('revokeUserSession', { targetName, sessionId }),
   getLoginAttempts: (opts?: unknown) => call('getLoginAttempts', (opts as Record<string, unknown>) || {}),
   getActivityLog: (opts?: unknown) => call('getActivityLog', (opts as Record<string, unknown>) || {}),
   getLockedAccounts: () => call('getLockedAccounts'),
-  revokeLock: (lockKey: string, targetName: string, ip: string) => call('revokeLock', { lockKey, targetName, ip }),
+  revokeLock: (lockKey: string, targetName?: string, ip?: string) => call('revokeLock', { lockKey, targetName, ip }),
   revokeAllLocks: () => call('revokeAllLocks'),
 
   getLoginUsers: () => call('getLoginUsers', {}),
@@ -446,7 +446,7 @@ export const api = {
   getErrorLog: (limit: number) => call('getErrorLog', { limit }),
   generateAiFix: (errorId: string, force: boolean, guidance: string) =>
     call('generateAiFix', { errorId, force: !!force, guidance: guidance || '' }),
-  getAiFixes: (errorId: string) => call('getAiFixes', { errorId }),
+  getAiFixes: (errorId?: string) => call('getAiFixes', { errorId }),
   getAiFix: (fixId: string) => call('getAiFix', { fixId }),
   getLatestAiFixForError: (errorId: string) => call('getLatestAiFixForError', { errorId }),
   createAiFixPr: (fixId: string) => call('createAiFixPr', { fixId }),
@@ -454,9 +454,9 @@ export const api = {
   getAiProviders: () => call('getAiProviders'),
   saveAiProvider: (p: unknown) => call('saveAiProvider', p as Record<string, unknown>),
   deleteAiProvider: (providerId: string) => call('deleteAiProvider', { providerId }),
-  setDefaultAiProvider: (providerId: string, purpose: string) => call('setDefaultAiProvider', { providerId, purpose }),
+  setDefaultAiProvider: (providerId: string, purpose?: string) => call('setDefaultAiProvider', { providerId, purpose }),
   reorderAiProviders: (purpose: string, orderedIds: unknown) => call('reorderAiProviders', { purpose, orderedIds }),
-  testAiProvider: async (providerId: string, prompt: string, maxTokens: number) => {
+  testAiProvider: async (providerId: string, prompt?: string, maxTokens?: number) => {
     const res: any = await call('testAiProvider', { providerId, prompt, maxTokens });
     if (!res || !res.jobId) {
       return {
@@ -551,7 +551,7 @@ export const api = {
   moveYearToDrive: (year: string) => call('moveYearToDrive', { year }),
 
   exportBackup: () => call('exportBackup'),
-  restoreBackup: (backup: unknown, confirm: boolean, opts: unknown = {}) => call('restoreBackup', { backup, confirm, opts }),
+  restoreBackup: (backup: unknown, confirm: string | boolean, opts: unknown = {}) => call('restoreBackup', { backup, confirm, opts }),
 
   enqueueCollectionJob: (job: unknown) => call('enqueueCollectionJob', { job }),
   getCollectionQueueStatus: () => call('getCollectionQueueStatus'),

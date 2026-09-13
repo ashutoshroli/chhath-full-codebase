@@ -31,6 +31,17 @@
   import QueueMonitor from '$lib/views/QueueMonitor.svelte';
   import LoginPopups from '$lib/components/LoginPopups.svelte';
   import DownloadCenter from '$lib/views/DownloadCenter.svelte';
+  import LockYears from '$lib/views/LockYears.svelte';
+  import StorageManagement from '$lib/views/StorageManagement.svelte';
+  import Backup from '$lib/views/Backup.svelte';
+  import ListManagement from '$lib/views/ListManagement.svelte';
+  import LoginManagement from '$lib/views/LoginManagement.svelte';
+  import SeoSettings from '$lib/views/SeoSettings.svelte';
+  import AuditLogs from '$lib/views/AuditLogs.svelte';
+  import AiManagement from '$lib/views/AiManagement.svelte';
+  import UploadCsvs from '$lib/views/UploadCsvs.svelte';
+  import ProfileMenu from '$lib/components/ProfileMenu.svelte';
+  import SettingsModal from '$lib/components/SettingsModal.svelte';
   import PdfExport from '$lib/views/PdfExport.svelte';
 
   interface Tab { id: string; label: string; icon: string; }
@@ -137,6 +148,9 @@
   let usersError = $state('');
   let committeeAll = $state<any[]>([]);
   let refreshUsers = $state<() => void>(() => {});
+  let refreshYears = $state<() => void>(() => {});
+  let refreshLockedYears = $state<() => void>(() => {});
+  let showSettings = $state(false);
 
   let started = false;
   $effect(() => {
@@ -149,6 +163,8 @@
     const usersView = createViewData<any[]>('users', () => api.getUsers());
     const committeeView = createViewData<any[]>('committee:All', () => api.getCommittee('All'));
     refreshUsers = () => usersView.refresh();
+    refreshYears = () => yearsView.refresh();
+    refreshLockedYears = () => lockedView.refresh();
 
     yearsView.subscribe((v) => {
       years = Array.isArray(v.data) ? v.data : [];
@@ -255,13 +271,15 @@
         </button>
       {/each}
     </nav>
-    <div style="display:flex; align-items:center; gap:10px;">
-      <span style="font-size:0.85rem; color:var(--text-muted);">{displayName} · {$session.role}</span>
-      <button class="nav-btn" onclick={logout} title="Logout">
-        <span class="material-icons-round">logout</span>
-      </button>
-    </div>
+    <ProfileMenu
+      name={displayName}
+      role={$session.role}
+      onOpenSettings={() => (showSettings = true)}
+      onLogout={logout}
+    />
   </header>
+
+  <SettingsModal open={showSettings} onClose={() => (showSettings = false)} userId={$session.name} />
 
   <main class="page-view">
     {#if tab === 'home'}
@@ -298,6 +316,24 @@
       <AnnouncementPortal {years} />
     {:else if tab === 'queuemonitor' && canAccessTab('queuemonitor')}
       <QueueMonitor />
+    {:else if tab === 'lock' && canAccessTab('lock')}
+      <LockYears {years} lockedYears={lockedYearsSet} onChange={refreshLockedYears} onYearAdded={refreshYears} />
+    {:else if tab === 'storage' && canAccessTab('storage')}
+      <StorageManagement />
+    {:else if tab === 'backup' && canAccessTab('backup')}
+      <Backup />
+    {:else if tab === 'lists' && canAccessTab('lists')}
+      <ListManagement />
+    {:else if tab === 'loginmgmt' && canAccessTab('loginmgmt')}
+      <LoginManagement users={usersList} role={$session.role} />
+    {:else if tab === 'seo' && canAccessTab('seo')}
+      <SeoSettings />
+    {:else if tab === 'auditlogs' && canAccessTab('auditlogs')}
+      <AuditLogs role={$session.role} />
+    {:else if tab === 'aimanagement' && canAccessTab('aimanagement')}
+      <AiManagement />
+    {:else if tab === 'uploadcsvs' && canAccessTab('uploadcsvs')}
+      <UploadCsvs />
     {:else if canAccessTab(tab)}
       <div class="glass-card" style="text-align:center; padding:40px 20px;">
         <span class="material-icons-round" style="font-size:40px; color:var(--primary-saffron);">construction</span>
