@@ -10,6 +10,9 @@
   import AnnouncementPopup from '$lib/components/AnnouncementPopup.svelte';
   import ThemeGallery from '$lib/components/ThemeGallery.svelte';
   import { pwaInfo } from 'virtual:pwa-info';
+  import { browser } from '$app/environment';
+  import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
 
   let { children } = $props();
 
@@ -21,6 +24,17 @@
   // discoverable by PWABuilder/browsers). app.html also carries a static
   // fallback link for pre-hydration crawlers.
   let webManifestLink = $derived(pwaInfo ? pwaInfo.webManifest.linkTag : '');
+
+  // The QR printed on every receipt / certificate opens the portal at the ROOT
+  // with `?record=<id>` (see mgmt qrCode.js publicRecordUrl). Forward those to
+  // the verification page, keeping the id, so every already-printed QR works.
+  $effect(() => {
+    if (!browser) return;
+    const rec = $page.url.searchParams.get('record');
+    if (rec && $page.url.pathname !== '/verify') {
+      void goto(`/verify?record=${encodeURIComponent(rec)}`, { replaceState: true });
+    }
+  });
 
   onMount(() => {
     initPortal();
