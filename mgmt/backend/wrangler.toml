@@ -99,6 +99,16 @@ AI_FIX_MODEL = "claude-sonnet-4-5-20250929"
 # The two shared secrets are set with `wrangler secret put` (below), never here.
 RENDER_SERVICE_URL = "https://chhath-server-render.onrender.com"
 
+# ---- Web Push (public portal notifications — see src/push.js) ----
+# VAPID_PUBLIC_KEY is genuinely PUBLIC: the browser needs it as the
+# applicationServerKey to subscribe at all, so it ships to every visitor and
+# belongs here (same as GOOGLE_SIGNIN_CLIENT_ID above). The public frontend uses
+# the SAME value via PUBLIC_VAPID_KEY.
+# ⚠️ The matching VAPID_PRIVATE_KEY is a SECRET — `wrangler secret put`, never here.
+# With either unset, push is simply skipped (pushConfigured() returns false).
+VAPID_PUBLIC_KEY = "BFoFsfDkYfYdHbKwGBZ7xtbOaXAKQRiCRwkXF4Nuz23q6fyidU-0VHjv3fhBA8177tavQfe2-dWGYcgKsWgVp-s"
+VAPID_SUBJECT = "mailto:chhath@shaharpura.com"
+
 # ---- Secrets (set with `wrangler secret put NAME`, NOT here) ----
 # ANTHROPIC_API_KEY       (Claude API key for src/aiFix.js — `wrangler secret put ANTHROPIC_API_KEY`)
 # GITHUB_TOKEN            (fine-grained PAT scoped to GITHUB_REPO ONLY — Contents R/W,
@@ -115,6 +125,11 @@ RENDER_SERVICE_URL = "https://chhath-server-render.onrender.com"
 #                          Same value must be set in the Render service's env — `wrangler secret put RENDER_API_KEY`)
 # RENDER_WEBHOOK_SECRET   (shared secret Render->Worker; Render sends it and the ?render-webhook route verifies it
 #                          constant-time. DISTINCT from RENDER_API_KEY — `wrangler secret put RENDER_WEBHOOK_SECRET`)
+# VAPID_PRIVATE_KEY       (base64url PKCS8 private half of VAPID_PUBLIC_KEY in [vars] above; signs the Web Push
+#                          VAPID JWT in src/push.js — `wrangler secret put VAPID_PRIVATE_KEY`.
+#                          ⚠️ Never put this in [vars]. If rotated, the PUBLIC key in [vars] and the public
+#                          frontend's PUBLIC_VAPID_KEY must be updated together, and every existing
+#                          push_subscriptions row becomes undeliverable and has to be re-subscribed.)
 # DRIVE_FOLDER_ID         (used by account.js's uploadFileToDrive — popups, consent photos/signatures)
 # DRIVE_ROOT_FOLDER_ID    (used by docxTemplates.js — root folder that "DOCX Templates" and "Generated PDFs" live under)
 #
