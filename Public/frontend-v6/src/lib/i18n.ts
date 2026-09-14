@@ -170,6 +170,10 @@ export const T: Record<Lang, Dict> = {
     chat_welcome: '🙏 Namaste! I am the Chhath portal assistant. Ask me about contributions, expenses, loans, committee members, or downloads.',
     verified_record: 'Verified Record',
     record_not_found: 'Record Not Found',
+    verify_title: 'Record Verification',
+    verify_subtitle: 'Check a receipt or certificate',
+    verify_no_id:
+      'No record id was supplied. Scan the QR code printed on your receipt or certificate to verify it.',
     verify_help:
       "This record could not be verified against the committee's records. If you believe this is an error, please contact the committee.",
     year: 'Year',
@@ -542,6 +546,10 @@ export const T: Record<Lang, Dict> = {
     chat_welcome: '🙏 नमस्ते! मैं छठ पोर्टल सहायक हूँ। योगदान, खर्च, ऋण, समिति सदस्य या डाउनलोड के बारे में पूछें।',
     verified_record: 'सत्यापित रिकॉर्ड',
     record_not_found: 'रिकॉर्ड नहीं मिला',
+    verify_title: 'रिकॉर्ड सत्यापन',
+    verify_subtitle: 'रसीद या प्रमाणपत्र जाँचें',
+    verify_no_id:
+      'कोई record id नहीं मिली। सत्यापित करने के लिए अपनी रसीद या प्रमाणपत्र पर छपे QR code को scan करें।',
     verify_help:
       'यह रिकॉर्ड समिति के अभिलेखों से सत्यापित नहीं हो सका। यदि आपको लगता है कि यह त्रुटि है, तो कृपया समिति से संपर्क करें।',
     year: 'वर्ष',

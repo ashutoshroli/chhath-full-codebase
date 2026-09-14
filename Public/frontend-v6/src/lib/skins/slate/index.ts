@@ -7,9 +7,10 @@ import Committee from './pages/Committee.svelte';
 import Downloads from './pages/Downloads.svelte';
 import Decade from './pages/Decade.svelte';
 import Donate from './pages/Donate.svelte';
+import Verify from './pages/Verify.svelte';
 
 export const slateSkin: Skin = {
   id: 'slate',
   Shell,
-  pages: { Home, Expenses, Loans, Committee, Downloads, Decade, Donate }
+  pages: { Home, Expenses, Loans, Committee, Downloads, Decade, Donate, Verify }
 };

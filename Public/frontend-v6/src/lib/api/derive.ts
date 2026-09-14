@@ -717,6 +717,124 @@ function generatedLink(
   return hit ? (hit.public_link ?? '').toString() : '';
 }
 
+// ---- Record verification (?record=<docType>-<year>-<ref>) ----
+//
+// The QR printed on every receipt / certificate opens the public portal with
+// `?record=<recordId>`. A record is VERIFIED when a generated_files row carries
+// exactly that record_id — i.e. the committee really did issue that document.
+// For the collection-backed documents we additionally resolve the underlying
+// collections row (matched on __rowIndex + Year, the same key the record id is
+// built from) so the visitor sees the name / village / amount / detail to check
+// against the paper in their hand. Ported from Public/frontend/script.js
+// checkRecordVerification() so both portals verify identically.
+
+/** Document types whose record id is deterministic (docType-year-__rowIndex). */
+const COLLECTION_DOC_TYPES = ['receipt', 'receipt_work', 'certificate', 'samaan'];
+
+export interface VerifyResult {
+  /** the raw id from the URL */
+  recordId: string;
+  /** true when a generated_files row has this exact record_id */
+  verified: boolean;
+  /** i18n key for the document label, e.g. 'doc_receipt' (falls back to raw) */
+  docLabelKey: string;
+  /** raw docType when there is no i18n label */
+  docType: string;
+  year: string;
+  /** true when the id is not in the `docType-year-ref` shape at all */
+  malformed: boolean;
+  /** resolved record details (only for collection-backed, verified ids) */
+  details: {
+    name: string;
+    nameHindi: string;
+    village: string;
+    villageHindi: string;
+    amount: number;
+    detail: string;
+    isResell: boolean;
+  } | null;
+}
+
+const DOC_LABEL_KEYS: Record<string, string> = {
+  receipt: 'doc_receipt',
+  receipt_work: 'doc_receipt_work',
+  certificate: 'doc_certificate',
+  samaan: 'doc_samaan',
+  consent_loaner: 'doc_consent_loaner',
+  consent_guarantor: 'doc_consent_guarantor'
+};
+
+/**
+ * Verify a `?record=` id against the public payload. Never throws — an unknown
+ * or malformed id simply comes back `verified: false` so the UI can show the
+ * "record not found" state.
+ */
+export function verifyRecord(data: PortalData, recordId: string): VerifyResult {
+  const id = (recordId ?? '').toString().trim();
+  const parts = id.split('-');
+  const base: VerifyResult = {
+    recordId: id,
+    verified: false,
+    docLabelKey: '',
+    docType: '',
+    year: '',
+    malformed: parts.length < 3,
+    details: null
+  };
+  if (parts.length < 3) return base;
+
+  const docType = parts[0];
+  const year = parts[1];
+  const ref = parts.slice(2).join('-');
+
+  base.docType = docType;
+  base.year = year;
+  base.docLabelKey = DOC_LABEL_KEYS[docType] || '';
+
+  // A record is verified iff a generated file carries exactly this record_id.
+  base.verified = (data.generatedFiles || []).some(
+    (g) => (g.record_id ?? '').toString().trim() === id
+  );
+
+  if (!base.verified || !COLLECTION_DOC_TYPES.includes(docType)) return base;
+
+  // Resolve the collections row the id was built from, to show the details.
+  const wantYear = parseInt(year, 10);
+  const entry = (data.collections || []).find(
+    (c) => (c.__rowIndex ?? '').toString() === ref && yint(c.Year) === wantYear
+  );
+  if (!entry) return base;
+
+  const isResell = truthyResell(entry['Is Resell']);
+  if (isResell) {
+    base.details = {
+      name: (entry.Detail ?? entry.Name ?? '').toString().trim(),
+      nameHindi: '',
+      village: '',
+      villageHindi: '',
+      amount: parseAmt(entry.Amount),
+      detail: '',
+      isResell: true
+    };
+    return base;
+  }
+
+  // Join to the user for the display name + village (by ID, falling back to Name).
+  const map = buildUserMap(data);
+  const key = (entry.ID ?? entry.Name ?? '').toString().trim();
+  const u = map.get(key);
+  base.details = {
+    name: (u?.Name ?? entry.Name ?? '').toString(),
+    nameHindi: (u?.['Name (Hindi)'] ?? '').toString(),
+    village: (u?.Village ?? '').toString(),
+    villageHindi: (u?.['Village (Hindi)'] ?? '').toString(),
+    amount: parseAmt(entry.Amount),
+    detail: (entry.Detail ?? '').toString(),
+    isResell: false
+  };
+  return base;
+}
+
 /** Distinct, sorted village names from users. */
 export function villages(data: PortalData, lang: 'en' | 'hi' = 'en'): string[] {
   const set = new Set<string>();

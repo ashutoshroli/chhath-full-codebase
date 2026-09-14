@@ -22,6 +22,7 @@ export interface SkinPages {
   Downloads: Component;
   Decade: Component;
   Donate: Component;
+  Verify: Component;
 }
 
 export interface Skin {
