@@ -13,9 +13,13 @@
    * `position: fixed` child is contained by that blurred ancestor (backdrop-
    * filter creates a containing block), so without the portal the "fixed" modal
    * would be clipped to the nav bar and appear inline. Rendered on <body> it
-   * covers the whole viewport. Colours come from the ACTIVE THEME tokens
-   * (--surface-bg / --accent / --surface-border / --page-*) so the sheet matches
-   * whatever theme is applied, light or dark — not a hardcoded scheme.
+   * covers the whole viewport. The SURFACE colour comes from the active theme
+   * tokens (--surface-bg over --page-to) and the icons/active row use --accent,
+   * so the sheet matches whatever theme is applied. Text / close / dividers use
+   * Tailwind slate + `dark:` pairs (NOT --surface-border, which is a border/
+   * hairline token that is white or an accent colour in several themes and left
+   * the labels unreadable on light surfaces) — the sheet carries data-theme +
+   * the `dark` class so those variants flip correctly.
    */
   import { page } from '$app/stores';
   import { tr } from '$lib/stores/lang';
@@ -144,29 +148,26 @@
     <!-- Bottom sheet — opaque, theme-tokened surface (page gradient base +
          surface tint on top so it is solid on both light and dark themes). -->
     <div
-      class="absolute inset-x-0 bottom-0 rounded-t-2xl border-t shadow-2xl"
+      class="absolute inset-x-0 bottom-0 rounded-t-2xl border-t border-black/10 text-slate-700 shadow-2xl dark:border-white/10 dark:text-slate-200"
       style="
-        border-color: rgb(var(--surface-border) / 0.25);
         background-color: var(--page-to, var(--page-from));
         background-image: linear-gradient(rgb(var(--surface-bg) / var(--surface-alpha, 1)), rgb(var(--surface-bg) / var(--surface-alpha, 1)));
-        color: rgb(var(--surface-border));
         padding-bottom: env(safe-area-inset-bottom);
       "
       transition:fly={{ y: 340, duration: 260 }}
     >
       <!-- grabber -->
       <div class="flex justify-center pt-2.5">
-        <span class="h-1.5 w-10 rounded-full" style="background: rgb(var(--surface-border) / 0.35);"></span>
+        <span class="h-1.5 w-10 rounded-full bg-black/15 dark:bg-white/20"></span>
       </div>
       <!-- header -->
       <div class="flex items-center justify-between px-5 pb-2 pt-2.5">
-        <h2 class="text-base font-black" style="color: rgb(var(--surface-border));">{$tr('nav_more')}</h2>
+        <h2 class="text-base font-black text-slate-900 dark:text-white">{$tr('nav_more')}</h2>
         <button
           type="button"
           onclick={() => (open = false)}
           aria-label="Close"
-          class="grid h-9 w-9 place-items-center rounded-full transition hover:opacity-80"
-          style="color: rgb(var(--surface-border) / 0.7); background: rgb(var(--surface-border) / 0.08);"
+          class="grid h-9 w-9 place-items-center rounded-full text-slate-500 transition hover:bg-black/5 dark:text-slate-300 dark:hover:bg-white/10"
         >
           <X class="h-5 w-5" aria-hidden="true" />
         </button>
@@ -180,11 +181,11 @@
             href={item.href}
             aria-current={active ? 'page' : undefined}
             onclick={() => (open = false)}
-            class="flex items-center gap-3.5 rounded-xl px-3 py-3.5 text-[15px] font-semibold transition"
-            style="
-              color: {active ? 'rgb(var(--accent))' : 'rgb(var(--surface-border))'};
-              background: {active ? 'rgb(var(--accent) / 0.12)' : 'transparent'};
-            "
+            class="flex items-center gap-3.5 rounded-xl px-3 py-3.5 text-[15px] font-semibold transition
+              {active ? '' : 'text-slate-800 hover:bg-black/[0.05] dark:text-slate-100 dark:hover:bg-white/5'}"
+            style={active
+              ? 'color: rgb(var(--accent)); background: rgb(var(--accent) / 0.12);'
+              : ''}
           >
             <span
               class="grid h-10 w-10 shrink-0 place-items-center rounded-xl"
@@ -193,7 +194,7 @@
               <Icon class="h-5 w-5" aria-hidden="true" />
             </span>
             <span class="min-w-0 flex-1">{$tr(item.key)}</span>
-            <ChevronRight class="h-4 w-4 shrink-0" style="color: rgb(var(--surface-border) / 0.5);" aria-hidden="true" />
+            <ChevronRight class="h-4 w-4 shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
           </a>
         {/each}
       </nav>
