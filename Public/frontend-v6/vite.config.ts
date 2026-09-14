@@ -72,12 +72,38 @@ export default defineConfig({
         runtimeCaching: [
           {
             // Portal API: prefer network, fall back to cache when offline.
-            urlPattern: ({ url }) => /workers\.dev|shaharpura\.com/.test(url.host),
+            // Scoped to the API WORKER host only. It used to match /shaharpura\.com/,
+            // which also matched files-chhath.shaharpura.com (the R2 file domain) —
+            // so every profile photo / donation QR was pushed through this
+            // NetworkFirst "api" cache. Those are cross-origin images with no CORS
+            // headers, so the SW sees an opaque (status 0) response that workbox
+            // will not cache; combined with networkTimeoutSeconds the request fell
+            // back to an empty cache and the image failed to load. R2 files are
+            // handled by their own image rule below.
+            urlPattern: ({ url }) =>
+              /(^|\.)workers\.dev$/.test(url.host) ||
+              url.host === 'chhath-public-worker.shaharpura.com',
             handler: 'NetworkFirst',
             options: {
               cacheName: 'chhath-api',
               networkTimeoutSeconds: 6,
               expiration: { maxEntries: 32, maxAgeSeconds: 60 * 60 * 24 }
+            }
+          },
+          {
+            // Uploaded images: R2 files (profile photos, donation QR) and the
+            // Google-hosted popup/document images. CacheFirst with
+            // cacheableResponse statuses [0, 200] so OPAQUE cross-origin
+            // responses are cached and served instead of being dropped.
+            urlPattern: ({ url }) =>
+              url.host === 'files-chhath.shaharpura.com' ||
+              /(^|\.)googleusercontent\.com$/.test(url.host) ||
+              url.host === 'drive.google.com',
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'chhath-images',
+              cacheableResponse: { statuses: [0, 200] },
+              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 }
             }
           },
           {
