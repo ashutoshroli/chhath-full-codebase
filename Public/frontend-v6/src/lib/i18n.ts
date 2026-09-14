@@ -108,6 +108,7 @@ export const T: Record<Lang, Dict> = {
     donate_online_note:
       '\uD83D\uDCA1 After making an online payment, please send a screenshot of the payment to this number:',
     donate_whatsapp_label: '\uD83D\uDCDE WhatsApp',
+    donate_qr_unavailable: 'QR image could not be loaded — please use the UPI ID above.',
     donate_online_verify:
       'This helps us record and verify your contribution correctly.',
     donate_bank_h: '\uD83C\uDFE6 2. Bank Transfer',
@@ -479,6 +480,7 @@ export const T: Record<Lang, Dict> = {
     donate_online_note:
       '\uD83D\uDCA1 Online payment करने के बाद कृपया payment का screenshot इस नंबर पर भेज दें:',
     donate_whatsapp_label: '\uD83D\uDCDE WhatsApp',
+    donate_qr_unavailable: 'QR image लोड नहीं हो सका — कृपया ऊपर दी गई UPI ID का उपयोग करें।',
     donate_online_verify:
       'इससे आपके contribution को सही तरीके से record और verify करने में सहायता मिलेगी।',
     donate_bank_h: '\uD83C\uDFE6 2. Bank Transfer',

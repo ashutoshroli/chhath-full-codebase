@@ -25,6 +25,16 @@
   let d = $derived(donationSettings($portalState.data));
   let members = $derived(currentCommittee($portalState.data));
 
+  // Mirror the profile-photo pattern: if the QR image fails to load we hide the
+  // broken-image icon and show a graceful note instead. Reset whenever the URL
+  // changes so a new/edited QR gets a fresh attempt.
+  let qrFailed = $state(false);
+  $effect(() => {
+    // reference d.qrUrl so this re-runs when it changes
+    void d.qrUrl;
+    qrFailed = false;
+  });
+
   // Any concrete detail present at all? (Used to show a graceful empty note.)
   let hasAny = $derived(
     !!(d.upiId || d.qrUrl || d.bankAccountName || d.bankName || d.accountNumber || d.ifsc || d.whatsapp)
@@ -64,12 +74,22 @@
       {#if d.qrUrl}
         <div>
           <p class="mb-2 font-semibold text-slate-500 dark:text-slate-400">{$tr('donate_qr_label')}:</p>
-          <img
-            src={d.qrUrl}
-            alt={$tr('donate_qr_label')}
-            loading="lazy"
-            class="h-48 w-48 rounded-xl border border-black/10 bg-white object-contain p-2 dark:border-white/10"
-          />
+          {#if qrFailed}
+            <p class="text-sm text-slate-500 dark:text-slate-400">{$tr('donate_qr_unavailable')}</p>
+          {:else}
+            <!-- Clean white square rounded card holding the QR. Same robustness
+                 as the contributor profile photo: on load error hide the broken
+                 image and fall back to the note above. -->
+            <div class="grid aspect-square w-44 place-items-center overflow-hidden rounded-2xl border border-black/10 bg-white p-2 shadow-sm dark:border-white/10 sm:w-48">
+              <img
+                src={d.qrUrl}
+                alt={$tr('donate_qr_label')}
+                loading="lazy"
+                class="h-full w-full object-contain"
+                onerror={() => (qrFailed = true)}
+              />
+            </div>
+          {/if}
         </div>
       {/if}
       {#if d.whatsapp}
