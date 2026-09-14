@@ -1,4 +1,4 @@
-import { Home, ReceiptText, Landmark, Users, Download, HeartHandshake } from '@lucide/svelte';
+import { Home, ReceiptText, Landmark, Users, Download, HeartHandshake, BookOpen } from '@lucide/svelte';
 
 export interface NavItem {
   href: string;
@@ -18,7 +18,8 @@ export const NAV_PRIMARY: NavItem[] = [
 export const NAV_MORE: NavItem[] = [
   { href: '/downloads', key: 'nav_downloads', icon: Download },
   { href: '/committee', key: 'nav_committee', icon: Users },
-  { href: '/donate', key: 'nav_donate', icon: HeartHandshake }
+  { href: '/donate', key: 'nav_donate', icon: HeartHandshake },
+  { href: '/guide', key: 'guide_title', icon: BookOpen }
 ];
 
 /** The full, flat nav list — used by the DESKTOP navs, which show every item
