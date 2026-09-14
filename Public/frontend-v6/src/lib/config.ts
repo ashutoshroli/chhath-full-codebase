@@ -16,11 +16,16 @@ export const DEFAULTS = Object.freeze({
   PUBLIC_RENDER_CHAT_URL: 'https://chhath-server-render.onrender.com/public-chat',
   PUBLIC_MGMT_LOGIN_URL: 'https://mgmt-chhath.shaharpura.com/',
   PUBLIC_SITE_URL: 'https://chhath.shaharpura.com',
-  // VAPID application server key (base64url, RAW P-256 public key) used to
-  // subscribe to push. Deliberately EMPTY by default: with no key configured the
-  // portal simply does not offer notifications. It is a PUBLIC key — the private
-  // half lives only as a mgmt Worker secret.
-  PUBLIC_VAPID_KEY: ''
+  // VAPID application server key (base64url, RAW P-256 public key) the browser
+  // needs as applicationServerKey to subscribe to push. Genuinely PUBLIC — it is
+  // handed to every visitor by design; only the private half is a secret, and it
+  // lives solely as a mgmt Worker secret (VAPID_PRIVATE_KEY).
+  // Carries a production fallback like the URLs above, so notifications work
+  // without any extra env. Must stay in step with the mgmt Worker's
+  // VAPID_PUBLIC_KEY — if they disagree, subscriptions are created against a key
+  // the sender cannot sign for and every push silently fails.
+  // Set to '' to disable the feature outright.
+  PUBLIC_VAPID_KEY: 'BFoFsfDkYfYdHbKwGBZ7xtbOaXAKQRiCRwkXF4Nuz23q6fyidU-0VHjv3fhBA8177tavQfe2-dWGYcgKsWgVp-s'
 });
 
 export type ConfigKey = keyof typeof DEFAULTS;
