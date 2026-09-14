@@ -13,6 +13,7 @@
   import ThemePreviewCard from '$lib/components/ThemePreviewCard.svelte';
   import InstallButton from '$lib/components/InstallButton.svelte';
   import NotifyButton from '$lib/components/NotifyButton.svelte';
+  import AgeRatings from '$lib/components/AgeRatings.svelte';
   import { tr } from '$lib/stores/lang';
   import { THEMES } from '$lib/themes';
   import { themeId } from '$lib/stores/theme';
@@ -109,6 +110,9 @@
   </div>
   <p class="mt-3 text-xs text-slate-500 dark:text-slate-400">{$tr('notify_ios_note')}</p>
 </section>
+
+<!-- Age ratings (IARC) — same certificate the PWA manifest advertises -->
+<AgeRatings />
 
 <!-- Bug testing / responsible disclosure -->
 <section class="surface mt-8 border-l-4 border-amber-500 p-5">
