@@ -7,7 +7,7 @@
   import {
     BookOpen, Users, Landmark, Download, Palette, Languages, Calendar,
     MessageCircle, ShieldAlert, Mail, LayoutGrid, HeartHandshake, Smartphone,
-    Share, MonitorDown, Bell
+    Share, MonitorDown, Bell, CodeXml, ExternalLink
   } from '@lucide/svelte';
   import PageHeading from '$lib/components/PageHeading.svelte';
   import ThemePreviewCard from '$lib/components/ThemePreviewCard.svelte';
@@ -19,6 +19,8 @@
   import { themeId } from '$lib/stores/theme';
 
   const BUG_EMAIL = 'chhath@shaharpura.com';
+  /** Public source repository, linked from the bug-testing section. */
+  const SOURCE_REPO = 'https://github.com/ashutoshroli/Chhath-Public';
 
   // Core-feature cards: [icon, title key, body key].
   const FEATURES = [
@@ -132,11 +134,30 @@
     <p class="mt-1 text-sm leading-relaxed text-slate-700 dark:text-slate-200">{$tr('guide_bug_low_p')}</p>
   </div>
 
-  <a
-    href="mailto:{BUG_EMAIL}"
-    class="mt-4 inline-flex items-center gap-2 rounded-lg bg-brand-500 px-4 py-2 text-sm font-bold text-white transition hover:bg-brand-600 active:scale-95"
-  >
-    <Mail class="h-4 w-4" aria-hidden="true" />
-    {$tr('guide_bug_email_label')} · {BUG_EMAIL}
-  </a>
+  <!-- Where to read the code before/while testing. Accent-token styled (not the
+       fixed brand ramp) so it follows the active theme, and visually secondary
+       to the primary "Report a bug" action next to it. -->
+  <p class="mt-4 text-sm leading-relaxed text-slate-600 dark:text-slate-300">{$tr('guide_bug_source_p')}</p>
+
+  <div class="mt-3 flex flex-wrap items-center gap-2">
+    <a
+      href="mailto:{BUG_EMAIL}"
+      class="inline-flex items-center gap-2 rounded-lg bg-brand-500 px-4 py-2 text-sm font-bold text-white transition hover:bg-brand-600 active:scale-95"
+    >
+      <Mail class="h-4 w-4" aria-hidden="true" />
+      {$tr('guide_bug_email_label')} · {BUG_EMAIL}
+    </a>
+
+    <a
+      href={SOURCE_REPO}
+      target="_blank"
+      rel="noreferrer"
+      class="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold transition active:scale-95"
+      style="color: rgb(var(--accent)); background: rgb(var(--accent) / 0.12); border: 1px solid rgb(var(--accent) / 0.35);"
+    >
+      <CodeXml class="h-4 w-4" aria-hidden="true" />
+      {$tr('guide_bug_source_label')}
+      <ExternalLink class="h-3.5 w-3.5 opacity-70" aria-hidden="true" />
+    </a>
+  </div>
 </section>
