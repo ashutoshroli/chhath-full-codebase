@@ -21,6 +21,14 @@
   let tags = $derived(contributorTags(c));
   let nonMoneyTags = $derived(tags.filter((t) => t !== 'money') as Array<'material' | 'service'>);
   const tagLabel = (t: 'material' | 'service') => (t === 'material' ? $tr('material') : $tr('service'));
+
+  // If the photo fails to load, fall back to the initials avatar instead of
+  // hiding the image and leaving a blank gap. Reset when the URL changes.
+  let photoFailed = $state(false);
+  $effect(() => {
+    void c.photo;
+    photoFailed = false;
+  });
 </script>
 
 <button
@@ -50,13 +58,13 @@
     </span>
   {/if}
 
-  {#if c.photo}
+  {#if c.photo && !photoFailed}
     <img
       src={c.photo}
       alt={displayName}
       loading="lazy"
       class="mt-1 h-11 w-11 rounded-full object-cover"
-      onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+      onerror={() => (photoFailed = true)}
     />
   {:else}
     <span

@@ -90,22 +90,16 @@ export default defineConfig({
               expiration: { maxEntries: 32, maxAgeSeconds: 60 * 60 * 24 }
             }
           },
-          {
-            // Uploaded images: R2 files (profile photos, donation QR) and the
-            // Google-hosted popup/document images. CacheFirst with
-            // cacheableResponse statuses [0, 200] so OPAQUE cross-origin
-            // responses are cached and served instead of being dropped.
-            urlPattern: ({ url }) =>
-              url.host === 'files-chhath.shaharpura.com' ||
-              /(^|\.)googleusercontent\.com$/.test(url.host) ||
-              url.host === 'drive.google.com',
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'chhath-images',
-              cacheableResponse: { statuses: [0, 200] },
-              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 }
-            }
-          },
+          // NOTE — deliberately NO runtimeCaching rule for the uploaded images
+          // (R2 profile photos / donation QR on files-chhath.shaharpura.com, and
+          // the Google-hosted popup images). Those hosts send NO CORS headers, so
+          // when the service worker re-fetches them through a workbox strategy the
+          // response is unusable and the image breaks — the classic "loads on the
+          // first visit, disappears after a reload" symptom, because the SW only
+          // takes control from the second load onwards. With no matching route,
+          // workbox lets the request go straight to the network, exactly as it did
+          // before the SW existed, so the images always load. (Trade-off: uploaded
+          // images are not available offline; correctness wins.)
           {
             urlPattern: ({ url }) => /fonts\.(googleapis|gstatic)\.com/.test(url.host),
             handler: 'CacheFirst',
