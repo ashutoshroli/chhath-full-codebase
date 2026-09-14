@@ -1,13 +1,17 @@
 <script lang="ts">
   /**
-   * "Install app" button for the guide. On Chromium browsers that fire the
-   * `beforeinstallprompt` event, tapping it triggers the native install prompt.
-   * On browsers without programmatic install (iOS Safari, or when already
-   * installed), the button is hidden and the guide's step-by-step instructions
-   * are the fallback path.
+   * "Install app" button for the guide.
+   *
+   * The button is ALWAYS visible (unless the app is already installed):
+   *  - On Chromium browsers that fired `beforeinstallprompt`, tapping it opens
+   *    the real native install prompt.
+   *  - Otherwise (iOS Safari, Firefox, or Chrome that has not fired the event
+   *    yet / already dismissed it) tapping it reveals a short hint pointing at
+   *    the per-platform steps below, instead of the button silently not
+   *    existing — which is what used to happen.
    */
   import { onMount } from 'svelte';
-  import { Download, Check } from '@lucide/svelte';
+  import { Download, Check, Info } from '@lucide/svelte';
   import { tr } from '$lib/stores/lang';
 
   interface BeforeInstallPromptEvent extends Event {
@@ -18,6 +22,7 @@
   let deferred = $state<BeforeInstallPromptEvent | null>(null);
   let installed = $state(false);
   let busy = $state(false);
+  let showHint = $state(false);
 
   onMount(() => {
     // Already running as an installed app? Then don't offer install.
@@ -30,10 +35,12 @@
     const onPrompt = (e: Event) => {
       e.preventDefault();
       deferred = e as BeforeInstallPromptEvent;
+      showHint = false;
     };
     const onInstalled = () => {
       installed = true;
       deferred = null;
+      showHint = false;
     };
     window.addEventListener('beforeinstallprompt', onPrompt);
     window.addEventListener('appinstalled', onInstalled);
@@ -44,13 +51,21 @@
   });
 
   async function install() {
-    if (!deferred || busy) return;
+    if (busy) return;
+    // No native prompt available → guide the visitor to the manual steps.
+    if (!deferred) {
+      showHint = true;
+      return;
+    }
     busy = true;
     try {
       await deferred.prompt();
-      await deferred.userChoice;
+      const choice = await deferred.userChoice;
+      // A dismissed prompt cannot be re-shown for this page load; fall back to
+      // the manual hint if they change their mind.
+      if (choice?.outcome !== 'accepted') showHint = true;
     } catch {
-      /* user dismissed / not available */
+      showHint = true;
     } finally {
       deferred = null;
       busy = false;
@@ -63,7 +78,7 @@
     <Check class="h-4 w-4" aria-hidden="true" />
     {$tr('guide_install_installed')}
   </span>
-{:else if deferred}
+{:else}
   <button
     type="button"
     onclick={install}
@@ -71,6 +86,13 @@
     class="inline-flex items-center gap-2 rounded-lg bg-brand-500 px-4 py-2 text-sm font-bold text-white transition hover:bg-brand-600 active:scale-95 disabled:opacity-60"
   >
     <Download class="h-4 w-4" aria-hidden="true" />
-    {$tr('guide_install_btn')}
+    {busy ? $tr('guide_install_busy') : $tr('guide_install_btn')}
   </button>
+
+  {#if showHint}
+    <p class="mt-2 flex items-start gap-1.5 text-xs text-slate-600 dark:text-slate-300">
+      <Info class="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-500" aria-hidden="true" />
+      <span>{$tr('guide_install_manual_hint')}</span>
+    </p>
+  {/if}
 {/if}
