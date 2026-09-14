@@ -63,6 +63,27 @@ CREATE TABLE journey_entries (
 );
 CREATE INDEX idx_journey_entries_position ON journey_entries(position);
 
+-- Web Push subscriptions for the PUBLIC portal. The public worker upserts a row
+-- when a visitor opts in (?action=savePushSubscription); the mgmt worker reads
+-- them to broadcast (auto on a new contribution, or the "Custom Notification"
+-- tab). Both workers bind this same database. Created by migration
+-- 31-push-subscriptions.sql. `endpoint` is an opaque browser handle — no personal
+-- data is stored and it is never joined to a contributor/user row.
+DROP TABLE IF EXISTS push_subscriptions;
+CREATE TABLE push_subscriptions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  endpoint TEXT,
+  p256dh TEXT,
+  auth TEXT,
+  user_agent TEXT,
+  active INTEGER DEFAULT 1,
+  last_error TEXT,
+  created_at TEXT,
+  updated_at TEXT
+);
+CREATE UNIQUE INDEX uq_push_subscriptions_endpoint ON push_subscriptions(endpoint);
+CREATE INDEX idx_push_subscriptions_active ON push_subscriptions(active);
+
 -- source sheet: "FESTIVAL_DATES"
 DROP TABLE IF EXISTS festival_dates;
 CREATE TABLE festival_dates (

@@ -54,6 +54,17 @@ export const T: Record<Lang, Dict> = {
     guide_install_manual_hint:
       'Your browser did not offer an automatic install. Please follow the steps for your device below (Android: menu \u22ee \u2192 "Install app"; iPhone: Share \u2192 "Add to Home Screen").',
     guide_install_installed: 'App installed',
+    notify_h: 'Get notifications',
+    notify_p:
+      'Turn on notifications to hear about new contributions and committee announcements. Entirely optional — you can turn it off any time, and nothing is sent until you opt in.',
+    notify_btn: 'Turn on notifications',
+    notify_busy: 'Please wait…',
+    notify_on: 'Notifications are on',
+    notify_turn_off: 'Turn off',
+    notify_blocked:
+      'Notifications are blocked for this site in your browser. To use them, allow notifications for this site in your browser settings and reload.',
+    notify_ios_note:
+      'On iPhone/iPad, install the app to the Home Screen first (see the steps above) — iOS only allows notifications for installed apps.',
     guide_install_android_h: 'Android (Chrome)',
     guide_install_android_p: 'Open the browser menu (\u22ee, top-right) and tap "Install app" or "Add to Home screen".',
     guide_install_ios_h: 'iPhone / iPad (Safari)',
@@ -433,6 +444,17 @@ export const T: Record<Lang, Dict> = {
     guide_install_manual_hint:
       'आपके browser ने स्वतः install का विकल्प नहीं दिया। कृपया नीचे अपने device के अनुसार steps अपनाएँ (Android: menu \u22ee \u2192 "Install app"; iPhone: Share \u2192 "Add to Home Screen")।',
     guide_install_installed: 'ऐप इंस्टॉल हो गया',
+    notify_h: 'सूचनाएँ (Notifications) पाएँ',
+    notify_p:
+      'नए योगदान और समिति की घोषणाओं की जानकारी पाने के लिए notifications on करें। यह पूरी तरह आपकी मर्ज़ी है — जब चाहें बंद कर सकते हैं, और आपकी अनुमति के बिना कुछ नहीं भेजा जाता।',
+    notify_btn: 'सूचनाएँ on करें',
+    notify_busy: 'कृपया प्रतीक्षा करें…',
+    notify_on: 'सूचनाएँ चालू हैं',
+    notify_turn_off: 'बंद करें',
+    notify_blocked:
+      'आपके browser में इस साइट के लिए notifications blocked हैं। उपयोग करने के लिए browser settings में इस साइट को notifications की अनुमति दें और page reload करें।',
+    notify_ios_note:
+      'iPhone/iPad पर पहले ऐप को Home Screen पर install करें (ऊपर दिए steps देखें) — iOS केवल installed ऐप्स के लिए notifications देता है।',
     guide_install_android_h: 'Android (Chrome)',
     guide_install_android_p: 'Browser menu (\u22ee, ऊपर-दाईं ओर) खोलें और "Install app" या "Add to Home screen" पर tap करें।',
     guide_install_ios_h: 'iPhone / iPad (Safari)',

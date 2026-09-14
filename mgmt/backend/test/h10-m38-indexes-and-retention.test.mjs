@@ -107,6 +107,10 @@ const SCHEMA_FOR_MIGRATION = {
   // INSERT guarded by WHERE NOT EXISTS — applies on a fresh schema and a second
   // run is a no-op. Fully idempotent (no ALTER), like 28/29.
   '30-donation-settings.sql': 'core.sql',
+  // push_subscriptions table (core DB): CREATE TABLE/INDEX IF NOT EXISTS only, so
+  // it applies on a fresh schema and a second run is a no-op. Fully idempotent
+  // (no ALTER), like 28/29/30.
+  '31-push-subscriptions.sql': 'core.sql',
 };
 
 // Migrations that legitimately do more than CREATE INDEX. Keep this list as short

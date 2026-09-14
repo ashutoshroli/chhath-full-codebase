@@ -10,9 +10,18 @@ compatibility_date = "2025-01-01"
 # ALLOWED_ORIGINS = "https://YOUR-PUBLIC-PORTAL-DOMAIN.example.com"
 
 # READ-ONLY scope by convention (see MIGRATION_NOTES.md) — this Worker's code
-# never issues an INSERT/UPDATE/DELETE, but D1 bindings themselves don't have
-# a separate read-only permission mode yet. If Cloudflare ships read-only D1
-# tokens before you deploy this, use one here for defense in depth.
+# issues no INSERT/UPDATE/DELETE except the two narrow, documented exceptions
+# below, but D1 bindings themselves don't have a separate read-only permission
+# mode yet. If Cloudflare ships read-only D1 tokens before you deploy this, use
+# one here for defense in depth.
+#
+# The two write exceptions, both single-table and both in src/index.js:
+#   1. DB_LOGS  -> INSERT into `error_log` only (see the DB_LOGS note below).
+#   2. DB_CORE  -> upsert into `push_subscriptions` only. A visitor opting in to
+#      push notifications can only reach THIS Worker (the mgmt Worker is locked to
+#      the mgmt origins and needs a session), so the subscription is stored here.
+#      Only the subscription is written; SENDING — and therefore the VAPID PRIVATE
+#      key — stays in the mgmt Worker, which binds the same physical database.
 
 # KV — used for two lightweight guards (hardening A + C): a per-IP request rate
 # limit, and a daily D1 read-budget counter that makes the public portal serve from

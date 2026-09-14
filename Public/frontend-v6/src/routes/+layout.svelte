@@ -10,6 +10,7 @@
   import AnnouncementPopup from '$lib/components/AnnouncementPopup.svelte';
   import ThemeGallery from '$lib/components/ThemeGallery.svelte';
   import { pwaInfo } from 'virtual:pwa-info';
+  import { listenForSubscriptionChange } from '$lib/push';
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
@@ -44,6 +45,9 @@
     import('virtual:pwa-register').then(({ registerSW }) => {
       registerSW({ immediate: true });
     });
+    // Keep a push subscription alive if the browser rotates its keys. No-op
+    // unless the visitor has opted in.
+    return listenForSubscriptionChange();
   });
 </script>
 

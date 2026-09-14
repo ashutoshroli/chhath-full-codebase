@@ -69,6 +69,13 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,webp,avif,woff2}'],
+        // Pull the push/notification event handlers into the generated service
+        // worker. Kept as a separate static script (static/push-sw.js) on purpose:
+        // the generated SW owns the precache manifest and the runtime-caching
+        // rules below, and rewriting those as a hand-written injectManifest SW
+        // would risk regressing caching behaviour that took several fixes to get
+        // right. importScripts only ADDS listeners and leaves all of it untouched.
+        importScripts: ['/push-sw.js'],
         runtimeCaching: [
           {
             // Portal API: prefer network, fall back to cache when offline.
