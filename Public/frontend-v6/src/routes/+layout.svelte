@@ -11,6 +11,7 @@
   import ThemeGallery from '$lib/components/ThemeGallery.svelte';
   import { pwaInfo } from 'virtual:pwa-info';
   import { listenForSubscriptionChange } from '$lib/push';
+  import { initInbox } from '$lib/stores/notifications';
   import { startSync } from '$lib/sync';
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
@@ -52,9 +53,13 @@
     // Keep a push subscription alive if the browser rotates its keys. No-op
     // unless the visitor has opted in.
     const stopPushListener = listenForSubscriptionChange();
+    // Load the notification inbox and follow new arrivals, so the Menu sheet's
+    // bell badge is correct on every page without polling.
+    const stopInbox = initInbox();
     return () => {
       stopSync();
       stopPushListener();
+      stopInbox();
     };
   });
 </script>
