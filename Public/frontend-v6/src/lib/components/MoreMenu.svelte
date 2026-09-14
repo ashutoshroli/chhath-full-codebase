@@ -6,14 +6,33 @@
    * own header ("More" + close X). Tapping the overlay, the X, an item, Escape,
    * or a route change all close it. Shown only on mobile — desktop navs list
    * every item inline. Each skin passes its active/idle trigger classes so the
-   * tab matches the surrounding bar; the sheet itself is theme-agnostic (brand +
-   * slate utilities that resolve on every theme, light + dark).
+   * tab matches the surrounding bar.
+   *
+   * IMPORTANT — the overlay is teleported to <body> via the `portal` action.
+   * Each skin's <nav> is `position: fixed` and uses `backdrop-blur`; a nested
+   * `position: fixed` child is contained by that blurred ancestor (backdrop-
+   * filter creates a containing block), so without the portal the "fixed" modal
+   * would be clipped to the nav bar and appear inline. Rendered on <body> it
+   * covers the whole viewport. Colours come from the ACTIVE THEME tokens
+   * (--surface-bg / --accent / --surface-border / --page-*) so the sheet matches
+   * whatever theme is applied, light or dark — not a hardcoded scheme.
    */
   import { page } from '$app/stores';
   import { tr } from '$lib/stores/lang';
   import { NAV_MORE, NAV_MORE_PATHS } from './nav';
   import { MoreHorizontal, X, ChevronRight } from '@lucide/svelte';
   import { fade, fly } from 'svelte/transition';
+
+  // Teleport a node to document.body so it escapes the nav's fixed/blur
+  // containing block and truly overlays the viewport.
+  function portal(node: HTMLElement) {
+    document.body.appendChild(node);
+    return {
+      destroy() {
+        if (node.parentNode) node.parentNode.removeChild(node);
+      }
+    };
+  }
 
   interface Props {
     /** Wrapper <li>/<div> class so the trigger sizes like the other tabs. */
@@ -38,7 +57,7 @@
   let open = $state(false);
   const isMoreActive = $derived(NAV_MORE_PATHS.some((h) => $page.url.pathname.startsWith(h)));
 
-  // Close the popover whenever the route changes.
+  // Close the sheet whenever the route changes.
   let lastPath = $state($page.url.pathname);
   $effect(() => {
     if ($page.url.pathname !== lastPath) {
@@ -47,7 +66,33 @@
     }
   });
 
+  // Lock background scroll while the sheet is open.
+  $effect(() => {
+    if (typeof document === 'undefined') return;
+    if (open) {
+      const prev = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = prev;
+      };
+    }
+  });
+
   const isItemActive = (href: string) => $page.url.pathname.startsWith(href);
+
+  // The theme lives on <html> (data-theme + the `dark` class). The portaled
+  // overlay is moved to <body>, OUTSIDE the element tree that carries those, so
+  // its CSS custom properties would not resolve. Copy the current theme onto the
+  // overlay so --surface-bg/--accent/etc. apply. Read fresh each time it opens.
+  let activeTheme = $state('sunrise');
+  let isDark = $state(false);
+  $effect(() => {
+    if (open && typeof document !== 'undefined') {
+      const root = document.documentElement;
+      activeTheme = root.getAttribute('data-theme') || 'sunrise';
+      isDark = root.classList.contains('dark');
+    }
+  });
 </script>
 
 <svelte:window onkeydown={(e) => e.key === 'Escape' && (open = false)} />
@@ -70,63 +115,88 @@
     {/if}
     {$tr('nav_more')}
   </button>
-
-  {#if open}
-    <!-- Dimmed overlay + bottom-sheet modal (portal-style), rendered fixed to
-         the viewport so it sits cleanly above ALL page content, not anchored to
-         the tab. Tap the overlay to close. -->
-    <div class="fixed inset-0 z-[60] md:hidden" role="dialog" aria-modal="true" aria-label={$tr('nav_more')}>
-      <button
-        type="button"
-        class="absolute inset-0 h-full w-full cursor-default bg-black/50 backdrop-blur-sm"
-        aria-label="Close menu"
-        tabindex="-1"
-        onclick={() => (open = false)}
-        transition:fade={{ duration: 180 }}
-      ></button>
-
-      <div
-        class="absolute inset-x-0 bottom-0 rounded-t-2xl border-t border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-ink"
-        style="padding-bottom: env(safe-area-inset-bottom);"
-        transition:fly={{ y: 320, duration: 260, opacity: 1 }}
-      >
-        <!-- grabber -->
-        <div class="flex justify-center pt-2.5">
-          <span class="h-1.5 w-10 rounded-full bg-black/15 dark:bg-white/20"></span>
-        </div>
-        <!-- header -->
-        <div class="flex items-center justify-between px-5 pb-2 pt-2.5">
-          <h2 class="text-base font-black text-slate-900 dark:text-white">{$tr('nav_more')}</h2>
-          <button
-            type="button"
-            onclick={() => (open = false)}
-            aria-label="Close"
-            class="grid h-9 w-9 place-items-center rounded-full text-slate-500 transition hover:bg-black/5 dark:text-slate-400 dark:hover:bg-white/10"
-          >
-            <X class="h-5 w-5" aria-hidden="true" />
-          </button>
-        </div>
-        <!-- full-width rows -->
-        <nav class="px-2 pb-3">
-          {#each NAV_MORE as item}
-            {@const Icon = item.icon}
-            {@const active = isItemActive(item.href)}
-            <a
-              href={item.href}
-              aria-current={active ? 'page' : undefined}
-              onclick={() => (open = false)}
-              class="flex items-center gap-3.5 rounded-xl px-3 py-3.5 text-[15px] font-semibold transition
-                {active ? 'bg-brand-500/10 text-brand-600 dark:text-brand-300' : 'text-slate-700 hover:bg-black/[0.04] dark:text-slate-200 dark:hover:bg-white/5'}"
-            >
-              <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-500/15 text-brand-600 dark:text-brand-300">
-                <Icon class="h-5 w-5" aria-hidden="true" />
-              </span>
-              <span class="min-w-0 flex-1">{$tr(item.key)}</span>
-              <ChevronRight class="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
-            </a>
-          {/each}
-        </nav>
-      </div>
-    </div>
-  {/if}
 </div>
+
+{#if open}
+  <!-- Teleported to <body> so it escapes the nav's fixed/backdrop-blur
+       containing block and covers the whole viewport. Carries `data-theme` +
+       the `dark` class copied from <html> so the theme tokens resolve here too
+       (a portaled node lives outside the app root that holds them). -->
+  <div
+    use:portal
+    data-theme={activeTheme}
+    class:dark={isDark}
+    class="fixed inset-0 z-[100] md:hidden"
+    role="dialog"
+    aria-modal="true"
+    aria-label={$tr('nav_more')}
+  >
+    <!-- Dim backdrop -->
+    <button
+      type="button"
+      class="absolute inset-0 h-full w-full cursor-default bg-black/60 backdrop-blur-sm"
+      aria-label="Close menu"
+      tabindex="-1"
+      onclick={() => (open = false)}
+      transition:fade={{ duration: 180 }}
+    ></button>
+
+    <!-- Bottom sheet — opaque, theme-tokened surface (page gradient base +
+         surface tint on top so it is solid on both light and dark themes). -->
+    <div
+      class="absolute inset-x-0 bottom-0 rounded-t-2xl border-t shadow-2xl"
+      style="
+        border-color: rgb(var(--surface-border) / 0.25);
+        background-color: var(--page-to, var(--page-from));
+        background-image: linear-gradient(rgb(var(--surface-bg) / var(--surface-alpha, 1)), rgb(var(--surface-bg) / var(--surface-alpha, 1)));
+        color: rgb(var(--surface-border));
+        padding-bottom: env(safe-area-inset-bottom);
+      "
+      transition:fly={{ y: 340, duration: 260 }}
+    >
+      <!-- grabber -->
+      <div class="flex justify-center pt-2.5">
+        <span class="h-1.5 w-10 rounded-full" style="background: rgb(var(--surface-border) / 0.35);"></span>
+      </div>
+      <!-- header -->
+      <div class="flex items-center justify-between px-5 pb-2 pt-2.5">
+        <h2 class="text-base font-black" style="color: rgb(var(--surface-border));">{$tr('nav_more')}</h2>
+        <button
+          type="button"
+          onclick={() => (open = false)}
+          aria-label="Close"
+          class="grid h-9 w-9 place-items-center rounded-full transition hover:opacity-80"
+          style="color: rgb(var(--surface-border) / 0.7); background: rgb(var(--surface-border) / 0.08);"
+        >
+          <X class="h-5 w-5" aria-hidden="true" />
+        </button>
+      </div>
+      <!-- full-width rows -->
+      <nav class="px-2 pb-3">
+        {#each NAV_MORE as item}
+          {@const Icon = item.icon}
+          {@const active = isItemActive(item.href)}
+          <a
+            href={item.href}
+            aria-current={active ? 'page' : undefined}
+            onclick={() => (open = false)}
+            class="flex items-center gap-3.5 rounded-xl px-3 py-3.5 text-[15px] font-semibold transition"
+            style="
+              color: {active ? 'rgb(var(--accent))' : 'rgb(var(--surface-border))'};
+              background: {active ? 'rgb(var(--accent) / 0.12)' : 'transparent'};
+            "
+          >
+            <span
+              class="grid h-10 w-10 shrink-0 place-items-center rounded-xl"
+              style="background: rgb(var(--accent) / 0.16); color: rgb(var(--accent));"
+            >
+              <Icon class="h-5 w-5" aria-hidden="true" />
+            </span>
+            <span class="min-w-0 flex-1">{$tr(item.key)}</span>
+            <ChevronRight class="h-4 w-4 shrink-0" style="color: rgb(var(--surface-border) / 0.5);" aria-hidden="true" />
+          </a>
+        {/each}
+      </nav>
+    </div>
+  </div>
+{/if}
