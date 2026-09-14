@@ -2,6 +2,10 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { SvelteKitPWA } from '@vite-pwa/sveltekit';
 import { defineConfig } from 'vite';
+// Single source of truth for the IARC certificate — the same module the /guide
+// page's "Age ratings" block renders from, so the manifest and the UI can never
+// advertise different ratings. Dependency-free on purpose (see src/lib/ratings.ts).
+import { IARC_RATING_ID } from './src/lib/ratings';
 
 // PWA: app-shell offline support. Static assets are precached; the portal API
 // (Cloudflare Worker) uses NetworkFirst so visitors always get fresh data when
@@ -12,7 +16,13 @@ export default defineConfig({
     SvelteKitPWA({
       registerType: 'autoUpdate',
       manifest: {
+        // App identity — the stable manifest id for this PWA. Kept as '/' (it
+        // must never change once published, or stores treat it as a NEW app).
         id: '/',
+        // IARC age-rating certificate (Partner Center -> "Current Rating ID").
+        // Lets the Microsoft Store / Google Play / PWABuilder reuse the ratings
+        // already issued for this app instead of re-running the questionnaire.
+        iarc_rating_id: IARC_RATING_ID,
         name: 'Navyuvak Chhath Puja Samiti',
         short_name: 'Chhath Puja',
         description:
