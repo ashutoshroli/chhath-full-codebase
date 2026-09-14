@@ -16,6 +16,7 @@ import { logActivity, getActivityLog, logWarn, logErrorAt } from './logger.js';
 import * as popups from './popups.js';
 import { uploadUserPhoto } from './userPhoto.js';
 import { uploadDonationQr } from './donationQr.js';
+import * as push from './push.js';
 import * as journey from './journey.js';
 import * as announce from './announcements.js';
 import * as loans from './loans.js';
@@ -88,6 +89,8 @@ export const READ_ONLY_ACTIONS = new Set([
   'whatsappDiagnostic',
   'getAnnouncementLinks', 'getCustomAnnouncements', 'getAnnouncementQueue',
   'publicGetSeo', 'getSeoSettings',
+  // Push subscriptions are written by the PUBLIC worker; this only reads them.
+  'listPushSubscriptions',
   // OTP request/verify only touch consent-flow state, not public-portal data.
   'requestConsentOtp', 'verifyConsentOtp', 'verifyAnnouncementPin',
 ]);
@@ -167,6 +170,10 @@ export const EXPECTED_MUTATING_ACTIONS = new Set([
   'uploadUserPhoto',
   // donation UPI-QR image (R2)
   'uploadDonationQr',
+  // manual push broadcast ("Custom Notification" tab). Not a data mutation, but
+  // it is an outbound side effect, so it is classified as mutating rather than
+  // read-only (and must never be cached).
+  'sendCustomPush',
   // "Our Journey" content
   'saveJourneyEntry', 'deleteJourneyEntry', 'reorderJourneyEntries',
   // files / drive / backup / rebuild
@@ -828,6 +835,19 @@ export default {
       saveRecord: () => withAuth(env, req, async (user) => {
         const res = await saveRecord(env, req.sheet, req.payload, user);
         ctx.waitUntil(logActivity(env, { name: user.name, action: 'add ' + (req.sheet || ''), details: summarizePayload(req.sheet, req.payload, res), deviceInfo: req.deviceInfo, ip: req.serverIp, deviceId: req.deviceId }));
+        // Notify the public portal's subscribers about a NEW contribution.
+        //
+        // Hooked at the ROUTER, not inside crud.saveRecord(), on purpose: the CSV
+        // bulk import (importCsvRows) also calls saveRecord(), and hooking deeper
+        // would fire one notification per imported row. This handler only runs for
+        // a single manual add.
+        //
+        // saveRecord() is INSERT-only (updateRecord is a separate action), so this
+        // can never fire on an edit. Fire-and-forget + log-and-swallow inside
+        // notifyNewContribution: a notification problem must never fail the save.
+        if ((req.sheet || '').toString().trim().toUpperCase() === 'COLLECTIONS' && res && res.success !== false) {
+          ctx.waitUntil(push.notifyNewContribution(env, ctx, req.payload));
+        }
         return res;
       }),
       queueCollectionMessages: () => withAuth(env, req, (user) => wa.queueCollectionMessages(env, req.payload, req.rowIndex, req.fileLink, user)),
@@ -1116,6 +1136,19 @@ export default {
       // the portal_settings key `donation_qr_url` via setPortalSetting.
       // Staff-gated inside uploadDonationQr.
       uploadDonationQr: () => withAuth(env, req, (user) => uploadDonationQr(env, req.base64, req.fileName, user)),
+
+      // ---- Web Push to the public portal's subscribers ----
+      // Subscribing happens on the PUBLIC worker; only SENDING lives here (the
+      // VAPID private key is a mgmt secret). sendCustomPush is the manual
+      // broadcast behind the "Custom Notification" tab.
+      sendCustomPush: () => withAuth(env, req, (user) => {
+        requireAdminOrAbove(user);
+        return push.sendCustom(env, ctx, req.title, req.body, req.url);
+      }),
+      listPushSubscriptions: () => withAuth(env, req, (user) => {
+        requireSuperadmin(user);
+        return push.listSubscriptions(env, req.limit);
+      }),
 
       // ---- "Our Journey" content (journey_entries) ----
       getJourneyEntries: () => withAuth(env, req, (user) => journey.getJourneyEntries(env, user)),
