@@ -97,6 +97,55 @@ self.addEventListener('notificationclick', function (event) {
   );
 });
 
+// ---- sync / periodicsync: refresh the cached portal data -------------------
+//
+// Both are Chromium-only (Safari/iOS and Firefox never fire them), which is why
+// the app ALSO refreshes on the `online` event from a page — see src/lib/sync.ts.
+// Periodic Sync additionally needs an installed PWA plus site engagement, and the
+// browser picks the real cadence (typically ~12h), so neither of these is
+// something the UI may depend on.
+//
+// The work itself is deliberately tiny: re-fetch the portal payload so the
+// generated Workbox NetworkFirst rule stores a fresh copy in the `chhath-api`
+// cache. The next launch then paints current data immediately, even offline.
+var SYNC_TAG = 'chhath-refresh';
+var PERIODIC_TAG = 'chhath-periodic-refresh';
+
+function refreshPortalCache() {
+  // Ask any open page for the API base (it knows its own build-time config).
+  // With no page open, fall back to the production Worker.
+  var FALLBACK_API = 'https://chhath-public-worker.shaharpura.com';
+  return fetch(FALLBACK_API + '/?action=dataVersion', { cache: 'no-store' })
+    .then(function (res) {
+      if (!res || !res.ok) return undefined;
+      return res.json().catch(function () {
+        return null;
+      });
+    })
+    .then(function (v) {
+      var q = v && v.v != null ? '&v=' + encodeURIComponent(v.v) : '';
+      // Going through fetch() means the SW's own runtime-caching rule updates
+      // the cache entry as a side effect.
+      return fetch(FALLBACK_API + '/?action=portalData' + q);
+    })
+    .then(function () {
+      return undefined;
+    })
+    .catch(function () {
+      return undefined;
+    });
+}
+
+self.addEventListener('sync', function (event) {
+  if (event.tag !== SYNC_TAG) return;
+  event.waitUntil(refreshPortalCache());
+});
+
+self.addEventListener('periodicsync', function (event) {
+  if (event.tag !== PERIODIC_TAG) return;
+  event.waitUntil(refreshPortalCache());
+});
+
 // ---- pushsubscriptionchange: re-register when the browser rotates keys -----
 // Browsers may replace a subscription without user action. Without this the
 // endpoint silently goes dead. We re-subscribe with the same server key and
