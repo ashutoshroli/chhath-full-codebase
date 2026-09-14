@@ -5,6 +5,7 @@
   import { tr, lang } from '$lib/stores/lang';
   import { rankedContributors, resoldItemsForYear, contributorTags, ALL_YEARS } from '$lib/api/derive';
   import { fmt, initials, avatarGradient } from '$lib/utils/format';
+  import { SvelteSet } from 'svelte/reactivity';
 
   interface Props {
     open: boolean;
@@ -21,6 +22,10 @@
   type Tab = 'contributors' | 'resold';
   let tab = $state<Tab>('contributors');
   const tagLabel = (k: 'material' | 'service') => (k === 'material' ? $tr('material') : $tr('service'));
+
+  // Photos that failed to load — those rows fall back to the initials avatar
+  // instead of hiding the image and leaving a blank gap.
+  let failedPhotos = $state(new SvelteSet<string>());
 </script>
 
 <Modal {open} {onclose} title={$tr('contributors_live_scroll', { year: yearLabel })}>
@@ -61,13 +66,13 @@
                 : 'border-black/5 bg-black/[.02] dark:border-white/10 dark:bg-white/[.03]'}"
           >
             <span class="relative">
-              {#if entry.item.photo}
+              {#if entry.item.photo && !failedPhotos.has(entry.item.key)}
                 <img
                   src={entry.item.photo}
                   alt={nameOf(entry.item)}
                   loading="lazy"
                   class="h-10 w-10 rounded-full object-cover"
-                  onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+                  onerror={() => failedPhotos.add(entry.item.key)}
                 />
               {:else}
                 <span

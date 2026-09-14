@@ -11,6 +11,7 @@
   import { initials, avatarGradient } from '$lib/utils/format';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import ContributorsListModal from '$lib/components/ContributorsListModal.svelte';
+  import { SvelteSet } from 'svelte/reactivity';
   import { GLASS } from '../glass';
 
   let loading = $derived($portalState.status === 'loading');
@@ -20,6 +21,9 @@
   let yearLabel = $derived($year === ALL_YEARS ? $tr('all_years') : String($year));
   const nameOf = (c: { name: string; nameHindi: string }) => ($lang === 'hi' && c.nameHindi ? c.nameHindi : c.name);
   let listOpen = $state(false);
+  // Photos that failed to load — fall back to the initials avatar rather than
+  // hiding the image and leaving a blank gap.
+  let failedPhotos = $state(new SvelteSet<string>());
 </script>
 
 <svelte:head><title>Chhath Puja Transparency Portal — Navyuvak Chhath Puja Samiti</title></svelte:head>
@@ -95,8 +99,8 @@
           {@const tags = contributorTags(entry.item)}
           <div class="relative w-24 shrink-0 rounded-xl border p-3 text-center {entry.isTop ? 'border-amber-300/50 bg-amber-300/10' : 'border-white/10 bg-white/5'}">
             {#if entry.isTop}<Crown class="absolute left-1/2 -top-2 h-4 w-4 -translate-x-1/2 fill-current text-amber-300" aria-label="Top {entry.rank}" />{/if}
-            {#if entry.item.photo}
-              <img src={entry.item.photo} alt={nameOf(entry.item)} loading="lazy" class="mx-auto h-10 w-10 rounded-full object-cover" onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')} />
+            {#if entry.item.photo && !failedPhotos.has(entry.item.key)}
+              <img src={entry.item.photo} alt={nameOf(entry.item)} loading="lazy" class="mx-auto h-10 w-10 rounded-full object-cover" onerror={() => failedPhotos.add(entry.item.key)} />
             {:else}
               <span class="mx-auto grid h-10 w-10 place-items-center rounded-full text-sm font-black text-white" style="background-image:linear-gradient(135deg,{g[0]},{g[1]})">{initials(nameOf(entry.item))}</span>
             {/if}
