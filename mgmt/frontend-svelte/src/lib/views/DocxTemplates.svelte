@@ -149,27 +149,6 @@
   <p style="font-size:0.8rem; color:var(--text-muted); margin:8px 0 0;">
     This sample already comes with a professional design — open it in Word and edit it directly (colors, logo, layout — change whatever you like), keep the placeholders (like <code>{'{NAME}'}</code>) as they are, and upload it here.
   </p>
-  {#if docType === 'receipt'}
-    <p style="font-size:0.8rem; color:#1E40AF; background:#DBEAFE; border-radius:6px; padding:6px 10px; margin:8px 0 0;">
-      ℹ️ This <strong>Receipt</strong> template is used for <strong>Cash (Money)</strong> contributions.
-      A <strong>Service (Work)</strong> contribution where "Receipt" is chosen now uses the separate
-      <strong> Receipt — Work</strong> tab. Upload a template for the selected year, or the receipt won't be attached.
-    </p>
-  {/if}
-  {#if docType === 'receipt_work'}
-    <p style="font-size:0.8rem; color:#1E40AF; background:#DBEAFE; border-radius:6px; padding:6px 10px; margin:8px 0 0;">
-      ℹ️ This <strong>Receipt — Work</strong> template is used for <strong>Service (Work)</strong> contributions
-      where "Receipt" is chosen (as opposed to a Certificate). It has the same fields as a normal Receipt, so you
-      can start from the sample. If a Service (Work) — Receipt message says a document is attached but none arrives,
-      it means this template has <strong>not been uploaded for the selected year</strong> — upload it here.
-    </p>
-  {/if}
-  {#if !isReport}
-    <p style="font-size:0.8rem; color:#92400E; background:#FEF3C7; border-radius:6px; padding:6px 10px; margin:8px 0 0;">
-      ⚠️ The sample does <strong>not</strong> include the QR code. If you want the scannable QR (used by the public
-      portal to verify this document), add <code>{'{%QR_CODE}'}</code> yourself where you want it — see instruction 7 below.
-    </p>
-  {/if}
   <button type="button" class="btn-submit" style="width:auto; margin-top:10px; background:#e5e7eb; color:#111;" onclick={() => (showInstructions = !showInstructions)}>
     {showInstructions ? 'Hide Instructions' : '📖 How to Create a Template in Word'}
   </button>
