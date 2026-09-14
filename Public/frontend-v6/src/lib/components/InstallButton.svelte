@@ -1,79 +1,53 @@
 <script lang="ts">
   /**
-   * "Install app" button for the guide.
+   * "Install app" button. Rendered in two places — the /guide page's install
+   * section, and the mobile "More" bottom sheet.
    *
    * The button is ALWAYS visible (unless the app is already installed):
    *  - On Chromium browsers that fired `beforeinstallprompt`, tapping it opens
    *    the real native install prompt.
    *  - Otherwise (iOS Safari, Firefox, or Chrome that has not fired the event
    *    yet / already dismissed it) tapping it reveals a short hint pointing at
-   *    the per-platform steps below, instead of the button silently not
-   *    existing — which is what used to happen.
+   *    the per-platform steps on the guide page, instead of the button silently
+   *    not existing — which is what used to happen.
+   *
+   * The `beforeinstallprompt` / `appinstalled` listeners deliberately live in
+   * $lib/stores/install (registered at app bootstrap) rather than in this
+   * component's onMount: the More sheet mounts only when it is opened, which is
+   * long after the browser fires that event, so a per-instance listener would
+   * never receive it. See that module for the full explanation.
    */
-  import { onMount } from 'svelte';
   import { Download, Check, Info } from '@lucide/svelte';
   import { tr } from '$lib/stores/lang';
+  import { canPrompt, installed, promptInstall } from '$lib/stores/install';
 
-  interface BeforeInstallPromptEvent extends Event {
-    prompt: () => Promise<void>;
-    userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
-  }
-
-  let deferred = $state<BeforeInstallPromptEvent | null>(null);
-  let installed = $state(false);
   let busy = $state(false);
   let showHint = $state(false);
 
-  onMount(() => {
-    // Already running as an installed app? Then don't offer install.
-    const standalone =
-      window.matchMedia?.('(display-mode: standalone)').matches ||
-      // iOS Safari
-      (navigator as unknown as { standalone?: boolean }).standalone === true;
-    if (standalone) installed = true;
-
-    const onPrompt = (e: Event) => {
-      e.preventDefault();
-      deferred = e as BeforeInstallPromptEvent;
-      showHint = false;
-    };
-    const onInstalled = () => {
-      installed = true;
-      deferred = null;
-      showHint = false;
-    };
-    window.addEventListener('beforeinstallprompt', onPrompt);
-    window.addEventListener('appinstalled', onInstalled);
-    return () => {
-      window.removeEventListener('beforeinstallprompt', onPrompt);
-      window.removeEventListener('appinstalled', onInstalled);
-    };
+  // If the browser offers a real prompt after the hint was shown, drop the hint.
+  $effect(() => {
+    if ($canPrompt) showHint = false;
   });
 
   async function install() {
     if (busy) return;
     // No native prompt available → guide the visitor to the manual steps.
-    if (!deferred) {
+    if (!$canPrompt) {
       showHint = true;
       return;
     }
     busy = true;
     try {
-      await deferred.prompt();
-      const choice = await deferred.userChoice;
       // A dismissed prompt cannot be re-shown for this page load; fall back to
       // the manual hint if they change their mind.
-      if (choice?.outcome !== 'accepted') showHint = true;
-    } catch {
-      showHint = true;
+      if ((await promptInstall()) !== 'accepted') showHint = true;
     } finally {
-      deferred = null;
       busy = false;
     }
   }
 </script>
 
-{#if installed}
+{#if $installed}
   <span class="inline-flex items-center gap-2 rounded-lg bg-success/15 px-4 py-2 text-sm font-bold text-success">
     <Check class="h-4 w-4" aria-hidden="true" />
     {$tr('guide_install_installed')}

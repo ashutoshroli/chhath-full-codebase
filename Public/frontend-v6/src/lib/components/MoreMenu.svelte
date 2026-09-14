@@ -26,6 +26,7 @@
   import { NAV_MORE, NAV_MORE_PATHS } from './nav';
   import { MoreHorizontal, X, ChevronRight } from '@lucide/svelte';
   import { fade, fly } from 'svelte/transition';
+  import InstallButton from './InstallButton.svelte';
 
   // Teleport a node to document.body so it escapes the nav's fixed/blur
   // containing block and truly overlays the viewport.
@@ -171,6 +172,14 @@
         >
           <X class="h-5 w-5" aria-hidden="true" />
         </button>
+      </div>
+      <!-- Install app — the SAME InstallButton component the /guide page uses,
+           reused as-is (no duplicated install logic). Only reachable on mobile,
+           because this whole sheet is md:hidden. The prompt it opens is captured
+           by $lib/stores/install at app bootstrap, not on mount, so it still
+           works even though this sheet mounts late (see that module). -->
+      <div class="border-b border-black/10 px-5 pb-3 dark:border-white/10">
+        <InstallButton />
       </div>
       <!-- full-width rows -->
       <nav class="px-2 pb-3">
