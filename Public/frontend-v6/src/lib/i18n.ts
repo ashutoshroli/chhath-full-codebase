@@ -50,6 +50,9 @@ export const T: Record<Lang, Dict> = {
     guide_install_h: 'Install the app',
     guide_install_p: 'Add the portal to your home screen to open it like an app — full-screen, with the last-loaded records available even when you are offline. Tap Install below if your browser shows it, or follow the steps for your device.',
     guide_install_btn: 'Install app',
+    guide_install_busy: 'Installing…',
+    guide_install_manual_hint:
+      'Your browser did not offer an automatic install. Please follow the steps for your device below (Android: menu \u22ee \u2192 "Install app"; iPhone: Share \u2192 "Add to Home Screen").',
     guide_install_installed: 'App installed',
     guide_install_android_h: 'Android (Chrome)',
     guide_install_android_p: 'Open the browser menu (\u22ee, top-right) and tap "Install app" or "Add to Home screen".',
@@ -426,6 +429,9 @@ export const T: Record<Lang, Dict> = {
     guide_install_h: 'ऐप इंस्टॉल करें',
     guide_install_p: 'पोर्टल को अपनी home screen पर add करें ताकि यह किसी app की तरह खुले — full-screen, और offline होने पर भी आखिरी बार लोड हुए records उपलब्ध रहें। अगर आपका browser दिखाए तो नीचे Install पर tap करें, या अपने device के अनुसार steps अपनाएँ।',
     guide_install_btn: 'ऐप इंस्टॉल करें',
+    guide_install_busy: 'इंस्टॉल हो रहा है…',
+    guide_install_manual_hint:
+      'आपके browser ने स्वतः install का विकल्प नहीं दिया। कृपया नीचे अपने device के अनुसार steps अपनाएँ (Android: menu \u22ee \u2192 "Install app"; iPhone: Share \u2192 "Add to Home Screen")।',
     guide_install_installed: 'ऐप इंस्टॉल हो गया',
     guide_install_android_h: 'Android (Chrome)',
     guide_install_android_p: 'Browser menu (\u22ee, ऊपर-दाईं ओर) खोलें और "Install app" या "Add to Home screen" पर tap करें।',
