@@ -48,9 +48,21 @@ for db in "${DATABASES[@]}"; do
     continue
   fi
 
-  # One UNION ALL so the whole database is a single query, and tag each row with
-  # what the reset should have left behind.
+  # UNION ALL, tagging each row with what the reset should have left behind.
+  #
+  # Chunked at 4 terms per query on purpose. D1 caps the number of terms in a
+  # compound SELECT far below stock SQLite's 500 -- a 6-term UNION ALL already
+  # comes back as "too many terms in compound SELECT" (SQLITE_ERROR 7500), while
+  # 4 is accepted. So a database with 10 tables becomes 3 queries rather than one.
   q=""
+  terms=0
+  flush() {
+    [[ -z "$q" ]] && return 0
+    npx wrangler d1 execute "$db" $REMOTE --command "$q ORDER BY tbl"
+    q=""
+    terms=0
+  }
+
   for t in $tables; do
     if   [[ "$KEEP" == *" $t "* ]]; then expect="KEEP"
     elif [[ "$ONE"  == *" $t "* ]]; then expect="1"
@@ -58,9 +70,10 @@ for db in "${DATABASES[@]}"; do
     fi
     [[ -n "$q" ]] && q="$q UNION ALL "
     q="$q SELECT '$t' tbl, COUNT(*) n, '$expect' expect FROM $t"
+    terms=$((terms + 1))
+    [[ "$terms" -ge 4 ]] && flush
   done
-
-  npx wrangler d1 execute "$db" $REMOTE --command "$q ORDER BY tbl"
+  flush
 done
 
 echo
