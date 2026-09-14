@@ -686,6 +686,68 @@ function randomHexId(bytes = 8) {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// WRITE EXCEPTION #2 — push_subscriptions (chhath-core)
+//
+// This Worker is READ-ONLY by convention (see wrangler.toml / MIGRATION_NOTES.md).
+// `error_log` was the first blessed exception; this is the second and, like it,
+// is deliberately narrow: the ONLY statement below is an upsert of ONE row into
+// the ONE table `push_subscriptions`, and nothing else in this Worker writes.
+//
+// Why it has to live here: the public frontend can only reach THIS Worker (the
+// mgmt Worker's ALLOWED_ORIGINS is locked to the mgmt domains and every action
+// needs a session), so a visitor opting in to notifications must land here. Only
+// the SUBSCRIPTION is stored here — sending (and therefore the VAPID PRIVATE key)
+// stays in the mgmt Worker, which binds this same physical database.
+//
+// A subscription is an opaque browser handle: no personal data, never joined to a
+// contributor/user row. `endpoint` has a UNIQUE index (migration
+// 2026-09-05/31-push-subscriptions.sql), so a browser re-subscribing refreshes
+// its existing row instead of creating duplicates.
+const PUSH_ENDPOINT_MAX = 500;
+const PUSH_KEY_MAX = 200;
+const PUSH_UA_MAX = 200;
+
+async function savePushSubscription(env, body, userAgent) {
+  try {
+    if (!env.DB_CORE) return { success: false, message: 'Not available' };
+    const clamp = (v, n) => (v === undefined || v === null ? '' : v.toString().trim()).slice(0, n);
+
+    // Accept either the raw PushSubscription JSON shape or a flattened one.
+    const sub = body && typeof body.subscription === 'object' && body.subscription ? body.subscription : body || {};
+    const keys = (sub && typeof sub.keys === 'object' && sub.keys) || {};
+    const endpoint = clamp(sub.endpoint, PUSH_ENDPOINT_MAX);
+    const p256dh = clamp(keys.p256dh ?? sub.p256dh, PUSH_KEY_MAX);
+    const auth = clamp(keys.auth ?? sub.auth, PUSH_KEY_MAX);
+
+    // Only accept a real push-service endpoint; never store arbitrary strings.
+    if (!endpoint || !/^https:\/\//i.test(endpoint) || !p256dh || !auth) {
+      return { success: false, message: 'Invalid subscription' };
+    }
+
+    const now = new Date().toISOString();
+    const ua = clamp(userAgent, PUSH_UA_MAX);
+    await env.DB_CORE.prepare(
+      `INSERT INTO push_subscriptions (endpoint, p256dh, auth, user_agent, active, last_error, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 1, NULL, ?, ?)
+       ON CONFLICT(endpoint) DO UPDATE SET
+         p256dh = excluded.p256dh,
+         auth = excluded.auth,
+         user_agent = excluded.user_agent,
+         active = 1,
+         last_error = NULL,
+         updated_at = excluded.updated_at`
+    )
+      .bind(endpoint, p256dh, auth, ua, now, now)
+      .run();
+    return { success: true };
+  } catch (e) {
+    // Never surface internals to an anonymous caller; the opt-in simply fails.
+    console.error('[public savePushSubscription] failed:', e && e.message);
+    return { success: false, message: 'Could not save the subscription' };
+  }
+}
+
 // Per-IP rate limit for the public logError endpoint (audit 1.3). This Worker
 // has no KV binding, so the limiter is enforced against error_log itself: at
 // most PUBLIC_LOG_MAX_PER_IP distinct rows may originate from one edge IP within
@@ -1069,6 +1131,19 @@ export default {
         env, 'public-frontend', body.page, body.message, body.stack, body.context, edgeIp
       );
       return new Response(JSON.stringify(res), { headers: cors, status: res && res.rateLimited ? 429 : 200 });
+    }
+
+    // A visitor opting in to notifications on the portal. Upserts one row into
+    // push_subscriptions — see the "WRITE EXCEPTION #2" note above. Already
+    // covered by the per-IP rate limit a few lines up.
+    if (action === 'savePushSubscription' && request.method === 'POST') {
+      let body = {};
+      try { body = await request.json(); } catch (e) { /* keep the empty object */ }
+      const res = await savePushSubscription(env, body, request.headers.get('User-Agent') || '');
+      return new Response(JSON.stringify(res), {
+        headers: { ...cors, 'Cache-Control': 'no-store' },
+        status: res && res.success ? 200 : 400
+      });
     }
 
     // Every read path is wrapped now — previously a single D1 hiccup took the whole

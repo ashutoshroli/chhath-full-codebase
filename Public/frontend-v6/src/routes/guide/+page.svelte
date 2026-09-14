@@ -7,11 +7,12 @@
   import {
     BookOpen, Users, Landmark, Download, Palette, Languages, Calendar,
     MessageCircle, ShieldAlert, Mail, LayoutGrid, HeartHandshake, Smartphone,
-    Share, MonitorDown
+    Share, MonitorDown, Bell
   } from '@lucide/svelte';
   import PageHeading from '$lib/components/PageHeading.svelte';
   import ThemePreviewCard from '$lib/components/ThemePreviewCard.svelte';
   import InstallButton from '$lib/components/InstallButton.svelte';
+  import NotifyButton from '$lib/components/NotifyButton.svelte';
   import { tr } from '$lib/stores/lang';
   import { THEMES } from '$lib/themes';
   import { themeId } from '$lib/stores/theme';
@@ -94,6 +95,19 @@
       </div>
     {/each}
   </div>
+</section>
+
+<!-- Notifications opt-in (renders nothing when push is unavailable/unconfigured) -->
+<section class="surface mt-8 p-5">
+  <h2 class="flex items-center gap-2 text-base font-black text-slate-900 dark:text-white">
+    <Bell class="h-5 w-5 text-brand-500" aria-hidden="true" />
+    {$tr('notify_h')}
+  </h2>
+  <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">{$tr('notify_p')}</p>
+  <div class="mt-3">
+    <NotifyButton />
+  </div>
+  <p class="mt-3 text-xs text-slate-500 dark:text-slate-400">{$tr('notify_ios_note')}</p>
 </section>
 
 <!-- Bug testing / responsible disclosure -->
