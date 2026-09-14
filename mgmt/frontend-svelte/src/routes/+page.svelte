@@ -39,6 +39,7 @@
   import LoginManagement from '$lib/views/LoginManagement.svelte';
   import SeoSettings from '$lib/views/SeoSettings.svelte';
   import DonationSettings from '$lib/views/DonationSettings.svelte';
+  import CustomNotification from '$lib/views/CustomNotification.svelte';
   import AuditLogs from '$lib/views/AuditLogs.svelte';
   import AiManagement from '$lib/views/AiManagement.svelte';
   import UploadCsvs from '$lib/views/UploadCsvs.svelte';
@@ -80,18 +81,19 @@
   const AI_MGMT_TAB = { id: 'aimanagement', label: 'AI Management', icon: 'smart_toy' };
   const JOURNEY_TAB = { id: 'journeycontent', label: 'Journey Content', icon: 'timeline' };
   const DONATION_TAB = { id: 'donation', label: 'Donation', icon: 'volunteer_activism' };
+  const CUSTOM_PUSH_TAB = { id: 'custompush', label: 'Custom Notification', icon: 'notifications_active' };
   const MORE_TAB: Tab = { id: '__more__', label: 'More', icon: 'more_horiz' };
 
   const SUPERADMIN_TAB_GROUPS: TabGroup[] = [
     { title: '📄 Documents & Templates', tabs: [DOCX_TEMPLATES_TAB, BULK_GENERATE_TAB, DOWNLOAD_CENTER_TAB, PDF_TAB] },
     { title: '🤝 Loan Consent', tabs: [CONSENT_TEMPLATES_TAB, CONSENT_REVIEW_TAB] },
-    { title: '💬 Communication', tabs: [WHATSAPP_TAB, EMAIL_TAB, EMAIL_OFFICIAL_TAB, POPUP_MGMT_TAB, ANNOUNCEMENT_TAB, JOURNEY_TAB] },
+    { title: '💬 Communication', tabs: [WHATSAPP_TAB, EMAIL_TAB, EMAIL_OFFICIAL_TAB, POPUP_MGMT_TAB, ANNOUNCEMENT_TAB, JOURNEY_TAB, CUSTOM_PUSH_TAB] },
     { title: '⚙️ Data & Settings', tabs: [LOCK_TAB, LIST_TAB, UPLOAD_CSV_TAB, STORAGE_TAB, BACKUP_TAB, QUEUE_MONITOR_TAB, ERROR_LOG_TAB, AI_MGMT_TAB, LOGIN_MGMT_TAB, SEO_TAB, DONATION_TAB, AUDIT_TAB] }
   ];
   const ADMIN_ROLE_TAB_GROUPS: TabGroup[] = [
     { title: '📄 Documents & Templates', tabs: [DOWNLOAD_CENTER_TAB, PDF_TAB] },
     { title: '🤝 Loan Consent', tabs: [CONSENT_REVIEW_TAB] },
-    { title: '💬 Communication', tabs: [POPUP_MGMT_TAB, ANNOUNCEMENT_TAB] },
+    { title: '💬 Communication', tabs: [POPUP_MGMT_TAB, ANNOUNCEMENT_TAB, CUSTOM_PUSH_TAB] },
     { title: '⚙️ Data & Settings', tabs: [LOGIN_MGMT_TAB] }
   ];
   const SUBADMIN_ROLE_TAB_GROUPS: TabGroup[] = [
@@ -336,6 +338,8 @@
       <SeoSettings />
     {:else if tab === 'donation' && canAccessTab('donation')}
       <DonationSettings />
+    {:else if tab === 'custompush' && canAccessTab('custompush')}
+      <CustomNotification />
     {:else if tab === 'auditlogs' && canAccessTab('auditlogs')}
       <AuditLogs role={$session.role} />
     {:else if tab === 'aimanagement' && canAccessTab('aimanagement')}

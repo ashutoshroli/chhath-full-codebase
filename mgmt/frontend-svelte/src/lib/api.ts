@@ -571,6 +571,9 @@ export const api = {
     call('uploadUserPhoto', { base64, fileName, idCode }),
   uploadDonationQr: (base64: string, fileName: string) =>
     call('uploadDonationQr', { base64, fileName }),
+  sendCustomPush: (title: string, body: string, url?: string) =>
+    call('sendCustomPush', { title, body, url }),
+  listPushSubscriptions: (limit?: number) => call('listPushSubscriptions', { limit }),
   getJourneyEntries: () => call('getJourneyEntries'),
   saveJourneyEntry: (entry: unknown) => call('saveJourneyEntry', { entry }),
   deleteJourneyEntry: (id: number) => call('deleteJourneyEntry', { id }),
