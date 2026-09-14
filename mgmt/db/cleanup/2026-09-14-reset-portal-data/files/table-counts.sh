@@ -39,8 +39,13 @@ for db in "${DATABASES[@]}"; do
   echo
   echo "════════════════ $db ════════════════"
 
+  # `_cf_KV` is D1's own internal table. It is not matched by NOT LIKE 'sqlite_%',
+  # and touching it comes back as "not authorized: SQLITE_AUTH", which would fail
+  # whichever chunk it landed in. Excluded with an escaped LIKE so the underscores
+  # are literal rather than single-character wildcards, which also covers any
+  # future _cf_* internals.
   tables=$(npx wrangler d1 execute "$db" $REMOTE --json --command \
-      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name" 2>/dev/null \
+      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '\_cf\_%' ESCAPE '\' ORDER BY name" 2>/dev/null \
     | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const i=s.indexOf("[");if(i<0)process.exit(0);const b=JSON.parse(s.slice(i));console.log((Array.isArray(b)?b:[b]).flatMap(x=>x.results||[]).map(x=>x.name).join(" "))})')
 
   if [[ -z "${tables// /}" ]]; then
