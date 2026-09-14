@@ -122,6 +122,9 @@ export const T: Record<Lang, Dict> = {
     guide_bug_high_p: 'BEFORE testing anything high-risk, email chhath@shaharpura.com first, wait for a reply, and test only after you get permission. Running a high-risk test without permission is treated as an offensive act and a violation.',
     guide_bug_low_h: 'Normal / low-risk bugs',
     guide_bug_low_p: 'No permission needed — go ahead and test. But after testing, you MUST write up a report and send it to chhath@shaharpura.com. Not sending a report is also treated as an offensive act and a violation.',
+    guide_bug_source_p:
+      'The portal\u2019s source code is on GitHub. Read through it to see how a feature actually works, and point at the exact file in your report \u2014 it makes a bug far quicker to confirm and fix.',
+    guide_bug_source_label: 'View the source code',
     guide_bug_email_label: 'Report a bug',
     guide_footer_link: 'User Guide',
     footer_privacy: 'Privacy',
@@ -557,6 +560,9 @@ export const T: Record<Lang, Dict> = {
     guide_bug_high_p: 'कोई भी high-risk test करने से पहले chhath@shaharpura.com पर mail करें, reply का इंतज़ार करें, और अनुमति मिलने के बाद ही test करें। बिना अनुमति high-risk test करना एक offensive कार्य और उल्लंघन (violation) माना जाएगा।',
     guide_bug_low_h: 'सामान्य / low-risk bugs',
     guide_bug_low_p: 'अनुमति की ज़रूरत नहीं — सीधे test करें। लेकिन test के बाद आपको एक report बनाकर chhath@shaharpura.com पर ज़रूर भेजनी होगी। Report न भेजना भी एक offensive कार्य और उल्लंघन (violation) माना जाएगा।',
+    guide_bug_source_p:
+      '\u092A\u094B\u0930\u094D\u091F\u0932 \u0915\u093E source code GitHub \u092A\u0930 \u0939\u0948\u0964 \u0915\u094B\u0908 feature \u0935\u093E\u0938\u094D\u0924\u0935 \u092E\u0947\u0902 \u0915\u0948\u0938\u0947 \u0915\u093E\u092E \u0915\u0930\u0924\u093E \u0939\u0948 \u092F\u0939 \u0938\u092E\u091D\u0928\u0947 \u0915\u0947 \u0932\u093F\u090F \u0909\u0938\u0947 \u092A\u0922\u093C\u0947\u0902, \u0914\u0930 \u0905\u092A\u0928\u0940 report \u092E\u0947\u0902 \u0938\u0939\u0940 file \u0915\u093E \u0939\u0935\u093E\u0932\u093E \u0926\u0947\u0902 \u2014 \u0907\u0938\u0938\u0947 bug \u0915\u094B confirm \u0914\u0930 fix \u0915\u0930\u0928\u093E \u092C\u0939\u0941\u0924 \u0924\u0947\u091C\u093C \u0939\u094B \u091C\u093E\u0924\u093E \u0939\u0948\u0964',
+    guide_bug_source_label: '\u0938\u094B\u0930\u094D\u0938 \u0915\u094B\u0921 \u0926\u0947\u0916\u0947\u0902',
     guide_bug_email_label: 'Bug रिपोर्ट करें',
     guide_footer_link: 'उपयोग गाइड',
     footer_privacy: 'गोपनीयता',
