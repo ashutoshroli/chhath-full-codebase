@@ -27,6 +27,128 @@ var DEFAULT_TITLE = 'Chhath Puja';
 var DEFAULT_ICON = '/icons/icon-192.png';
 var DEFAULT_BADGE = '/icons/icon-192.png';
 
+// ---- notification inbox (IndexedDB) ----------------------------------------
+//
+// Every push is also written to IndexedDB so the portal can show an in-app
+// notification list (the "Notifications" view in the Menu sheet). The pushed
+// payload is all we get — mgmt keeps no server-side history of what it sent
+// (mgmt/backend/src/push.js only writes push_subscriptions), so this device
+// inbox IS the history.
+//
+// TWO THINGS TO KNOW, both deliberate:
+//
+//  1. Records are keyed by an auto-incrementing id, NOT by `tag`. The tag is
+//     meant to COLLAPSE the tray notification (a second "new contribution"
+//     replaces the first one in the system tray), but the in-app list must
+//     still show both. Keying by tag would silently reduce a whole festival's
+//     contributions to one row.
+//
+//  2. `receivedAt` is stamped HERE. The payload carries no timestamp or id
+//     ({ title, body, url, tag } is the whole of it), so the moment of arrival
+//     is the only time information that exists.
+//
+// SCHEMA IS SHARED with src/lib/notifications.ts, which reads the same database
+// from the page. Change one, change the other.
+var NOTIF_DB = 'chhath-notifications';
+var NOTIF_DB_VERSION = 1;
+var NOTIF_STORE = 'items';
+/** Keep only the newest N so the inbox cannot grow without bound. */
+var NOTIF_MAX = 50;
+
+function openNotifDb() {
+  return new Promise(function (resolve, reject) {
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('no indexedDB'));
+      return;
+    }
+    var req = indexedDB.open(NOTIF_DB, NOTIF_DB_VERSION);
+    req.onupgradeneeded = function () {
+      var db = req.result;
+      if (!db.objectStoreNames.contains(NOTIF_STORE)) {
+        var store = db.createObjectStore(NOTIF_STORE, { keyPath: 'id', autoIncrement: true });
+        store.createIndex('receivedAt', 'receivedAt');
+      }
+    };
+    req.onsuccess = function () {
+      resolve(req.result);
+    };
+    req.onerror = function () {
+      reject(req.error || new Error('indexedDB open failed'));
+    };
+  });
+}
+
+/** Drop the oldest rows once the store grows past NOTIF_MAX. */
+function trimNotifications(db) {
+  return new Promise(function (resolve) {
+    var tx = db.transaction(NOTIF_STORE, 'readwrite');
+    var store = tx.objectStore(NOTIF_STORE);
+    var countReq = store.count();
+    countReq.onsuccess = function () {
+      var extra = countReq.result - NOTIF_MAX;
+      if (extra <= 0) {
+        resolve();
+        return;
+      }
+      // A plain cursor walks the primary key ascending, and the key is an
+      // autoIncrement id, so this visits insertion order — oldest first.
+      var removed = 0;
+      var cursorReq = store.openCursor();
+      cursorReq.onsuccess = function () {
+        var cursor = cursorReq.result;
+        if (!cursor || removed >= extra) {
+          resolve();
+          return;
+        }
+        cursor.delete();
+        removed++;
+        cursor.continue();
+      };
+      cursorReq.onerror = function () {
+        resolve();
+      };
+    };
+    countReq.onerror = function () {
+      resolve();
+    };
+  });
+}
+
+function saveNotification(item) {
+  return openNotifDb()
+    .then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(NOTIF_STORE, 'readwrite');
+        tx.objectStore(NOTIF_STORE).add(item);
+        tx.oncomplete = function () {
+          resolve(db);
+        };
+        tx.onerror = function () {
+          reject(tx.error || new Error('inbox write failed'));
+        };
+        tx.onabort = function () {
+          reject(tx.error || new Error('inbox write aborted'));
+        };
+      });
+    })
+    .then(function (db) {
+      return trimNotifications(db);
+    });
+}
+
+/** Tell any open page that the inbox changed, so its badge/list updates live. */
+function notifyPages(type) {
+  return self.clients
+    .matchAll({ type: 'window', includeUncontrolled: true })
+    .then(function (list) {
+      for (var i = 0; i < list.length; i++) list[i].postMessage({ type: type });
+      return undefined;
+    })
+    .catch(function () {
+      return undefined;
+    });
+}
+
 // ---- push: show the notification -------------------------------------------
 self.addEventListener('push', function (event) {
   var payload = {};
@@ -62,8 +184,29 @@ self.addEventListener('push', function (event) {
     data: { url: url }
   };
 
-  // waitUntil keeps the SW alive until the notification is actually shown.
-  event.waitUntil(self.registration.showNotification(title, options));
+  // waitUntil keeps the SW alive until the notification is actually shown AND
+  // the inbox row is written. The inbox write is best-effort and swallowed on
+  // its own: a storage failure (private mode, quota, blocked IDB) must never
+  // stop the notification itself from appearing.
+  event.waitUntil(
+    Promise.all([
+      self.registration.showNotification(title, options),
+      saveNotification({
+        title: title,
+        body: body,
+        url: url,
+        tag: tag,
+        receivedAt: Date.now(),
+        read: 0
+      })
+        .then(function () {
+          return notifyPages('push-received');
+        })
+        .catch(function () {
+          return undefined;
+        })
+    ])
+  );
 });
 
 // ---- notificationclick: focus an open tab, else open one -------------------
