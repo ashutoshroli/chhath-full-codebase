@@ -95,6 +95,33 @@ export const v = {
     } };
   },
 
+  // audit P0-09/P0-12: money is NOT `v.number()`. A contribution, an expense and a
+  // loan are all "an amount of rupees", and the old checks only asked
+  // `isNaN(parseFloat(x))` — so -500, 1e21, '12.3456' and Infinity all passed, and
+  // a negative expense silently inflated the surplus the lending budget is derived
+  // from. This validator is the one place that says what an amount may be.
+  money({ required = false, min = 0.01, max = 100000000, decimals = 2 } = {}) {
+    return { required, kind: 'money', run(raw) {
+      // Deliberately NO comma stripping: validatePayload only validates, the raw
+      // value is what reaches D1. Accepting '1,200' here would store NaN in a REAL
+      // column — worse than refusing it and letting the operator retype 1200.
+      const s = raw.toString().trim();
+      if (!/^-?\d+(\.\d+)?$/.test(s)) return { ok: false, message: 'must be a plain number of rupees, e.g. 1500 or 1500.50 (no commas)' };
+      const n = Number(s);
+      if (!Number.isFinite(n)) return { ok: false, message: 'must be a number of rupees' };
+      const dp = s.includes('.') ? s.split('.')[1].length : 0;
+      if (dp > decimals) return { ok: false, message: `may have at most ${decimals} decimal places` };
+      if (n < min) {
+        return {
+          ok: false,
+          message: min > 0 ? `must be more than zero (got ${s})` : `must be at least ${min}`,
+        };
+      }
+      if (n > max) return { ok: false, message: `must be at most ${max.toLocaleString('en-IN')}` };
+      return { ok: true, value: n };
+    } };
+  },
+
   oneOf(allowed, { required = false } = {}) {
     const set = allowed.map((a) => a.toString());
     return { required, kind: 'oneOf', run(raw) {
@@ -169,4 +196,103 @@ export function assertEmail(value, { required = false } = {}) {
   }
   if (!EMAIL_RE.test(s)) throw ValidationError('A valid Email is required.');
   return s;
+}
+
+// ---------------------------------------------------------------------------
+// audit P0-09 — money and year, for every write that records or moves rupees.
+// ---------------------------------------------------------------------------
+
+// The smallest/largest amount the portal will record. The lower bound is what
+// actually matters: a negative amount corrupts every total derived from it (the
+// Home surplus, the yearly lending budget, the public portal's figures).
+export const MIN_MONEY = 0.01;
+export const MAX_MONEY = 100000000; // ₹10 crore — far above any real entry
+
+// Returns the amount as a Number, or throws a ValidationError naming the field.
+export function assertMoney(value, label, { required = true, min = MIN_MONEY } = {}) {
+  const raw = (value === undefined || value === null) ? '' : value.toString().trim();
+  if (raw === '') {
+    if (required) throw ValidationError(`${label} is required.`);
+    return null;
+  }
+  const res = v.money({ min, max: MAX_MONEY }).run(raw);
+  if (!res.ok) throw ValidationError(`${label} ${res.message}.`);
+  return res.value;
+}
+
+// A festival year: a 4-digit year the portal could plausibly run in. Financial
+// rows MUST carry one — the year drives the lock check, the access check, the
+// receipt number and every aggregate.
+export const MIN_YEAR = 2000;
+export const MAX_YEAR = 2100;
+
+export function assertYear(value, label = 'Year', { required = true } = {}) {
+  const raw = (value === undefined || value === null) ? '' : value.toString().trim();
+  if (raw === '') {
+    if (required) throw ValidationError(`${label} is required.`);
+    return null;
+  }
+  const res = v.integer({ min: MIN_YEAR, max: MAX_YEAR }).run(raw);
+  if (!res.ok) throw ValidationError(`${label} ${res.message}.`);
+  return res.value;
+}
+
+// ---------------------------------------------------------------------------
+// audit P0-09 — fields the SERVER owns.
+//
+// toColumnPayload() accepts any key that is already snake_case, so a client could
+// send `id`, `created_by`, `sl_no`, `id_code`, `loan_id`, `loan_status`,
+// `announcedcount`, … and have it written straight through: rewriting a receipt
+// number, re-attributing someone else's entry, or flipping a loan's status without
+// going near the workflow that is supposed to do it.
+//
+// These are rejected when they arrive from a client. The server still sets them
+// itself (it calls toColumnPayload with its own values), so nothing internal
+// changes.
+const SERVER_OWNED_FIELDS = {
+  collections: ['id', 'sl_no', 'created_by', 'announced', 'announcedcount'],
+  expenses: ['id', 'created_by'],
+  users: ['id', 'id_code', 'created_by'],
+  committee_members: ['id', 'created_by'],
+  loans: ['id', 'loan_id', 'loan_status', 'created_by', 'cash_amount', 'online_amount', 'final_repayment_date'],
+  loan_guarantors: ['id', 'loan_id', 'created_by'],
+  login_users: ['id', 'password', 'totp_secret_enc', 'totp_pending_enc', 'totp_backup_codes', 'totp_recovery_hash', 'totp_enabled'],
+};
+
+// Compare keys ignoring case, spaces, dots and underscores, so 'Sl. No.',
+// 'sl_no' and 'SLNO' are all recognised as the same protected column.
+const foldKey = (k) => k.toString().toLowerCase().replace(/[^a-z0-9]/g, '');
+
+// `allow` lists columns the CALLER already discards safely, so they may still be
+// present. saveRecord passes the two generated ids (`id_code`, `sl_no`): it deletes
+// them from the payload and allocates them inside the INSERT (audit H-9), and that
+// silent-ignore contract is what stops a caller planting itself on an existing id.
+// updateRecordByIdx does NOT allow them — there they would be a real rewrite of a
+// member id or a receipt number.
+export function assertNoServerOwnedFields(table, payload, { aliases = {}, allow = [] } = {}) {
+  const owned = SERVER_OWNED_FIELDS[table];
+  if (!owned || !payload || typeof payload !== 'object') return;
+
+  const allowed = new Set(allow.map(foldKey));
+  // Fold both the column names and their header aliases (e.g. 'Sl. No.' -> sl_no).
+  const protectedKeys = new Set(owned.map(foldKey).filter((k) => !allowed.has(k)));
+  for (const [header, column] of Object.entries(aliases)) {
+    if (protectedKeys.has(foldKey(column))) protectedKeys.add(foldKey(header));
+    if (allowed.has(foldKey(column))) allowed.add(foldKey(header));
+  }
+  for (const k of allowed) protectedKeys.delete(k);
+
+  for (const key of Object.keys(payload)) {
+    if (key === '__rowIndex') continue;
+    if (protectedKeys.has(foldKey(key))) {
+      throw ValidationError(
+        `"${key}" is set by the server and cannot be sent from the browser. `
+        + 'Please reload the page and try again.'
+      );
+    }
+  }
+}
+
+export function _serverOwnedFieldsFor(table) {
+  return SERVER_OWNED_FIELDS[table] || [];
 }
