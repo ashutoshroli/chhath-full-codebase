@@ -221,16 +221,21 @@ describe('one canonical cache key per action and version (PUB-BE-01)', () => {
     await call(`?action=portalData&v=${VERSION}`);
     await call(`?action=summary&v=${VERSION}`);
     await call(`?action=activePopups&v=${VERSION}`);
-    assert.deepEqual(
-      [...cacheStore.keys()].sort(),
-      [
-        `${CACHE_ORIGIN}/activePopups?v=${VERSION}`,
-        `${CACHE_ORIGIN}/portalData?v=${VERSION}`,
-        `${CACHE_ORIGIN}/summary?v=${VERSION}`,
-      ].sort()
-    );
-    // Nothing can serve a body from a previous version: the version is IN the key.
-    assert.ok(![...cacheStore.keys()].some((k) => !k.includes(`v=${VERSION}`)));
+
+    const keys = [...cacheStore.keys()].sort();
+    assert.equal(keys.length, 3, 'one key per action, and no key per caller');
+    assert.ok(keys.includes(`${CACHE_ORIGIN}/portalData?v=${VERSION}`));
+    assert.ok(keys.includes(`${CACHE_ORIGIN}/summary?v=${VERSION}`));
+
+    // `activePopups` carries a time bucket alongside the version (audit PUB-BE-04):
+    // its answer depends on the CLOCK, not only on the data version, so the key has
+    // to be able to expire on time. It is still derived from nothing the caller
+    // controls, which is what this suite is about.
+    const popupKey = keys.find((k) => k.startsWith(`${CACHE_ORIGIN}/activePopups`));
+    assert.match(popupKey, new RegExp(`^${CACHE_ORIGIN}/activePopups\\?v=${VERSION}\\.t\\d+$`));
+
+    // Nothing can serve a body from a previous version: the version is IN every key.
+    assert.ok(!keys.some((k) => !k.includes(`v=${VERSION}`)));
   });
 
   test('ETag revalidation still returns 304', async () => {

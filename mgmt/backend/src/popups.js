@@ -300,10 +300,24 @@ async function slidesForPopups(env, popupIds) {
 }
 
 // Shared window/role evaluation so mgmt and the public portal can never drift.
+//
+// A stored stamp is one of THREE things and two of them used to be indistinguishable
+// (audit PUB-BE-04): empty means "this end of the window is unbounded", a parseable
+// value means a real instant, and non-empty JUNK means we do not know the schedule at
+// all. `parseStoredDate` returns null for the first and the third alike, so
+// `if (start && start > now)` skipped the check whenever the stamp was malformed —
+// a popup with a typo'd `start_at` went live immediately and never expired, the exact
+// opposite of what scheduling it asked for. A window we cannot read fails CLOSED.
+//
+// Kept identical to popupWindow/popupIsLiveNow in Public/backend/src/index.js, so the
+// admin's "Active" badge and the public portal always agree about what is live.
 export function popupIsLiveNow(p, now) {
   if (!isTruthyFlag(p.active)) return false;
-  const start = parseStoredDate(p.start_at);
-  const end = parseStoredDate(p.end_at);
+  const startRaw = p.start_at == null ? '' : p.start_at.toString().trim();
+  const endRaw = p.end_at == null ? '' : p.end_at.toString().trim();
+  const start = startRaw ? parseStoredDate(startRaw) : null;
+  const end = endRaw ? parseStoredDate(endRaw) : null;
+  if ((startRaw && !start) || (endRaw && !end)) return false; // unreadable -> not live
   if (start && start > now) return false;
   if (end && end < now) return false;
   return true;

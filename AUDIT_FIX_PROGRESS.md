@@ -6,9 +6,9 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status: 19 of 48 PRs merged · 1 open (this one) · 28 pending**
+**Status: 20 of 48 PRs merged · 1 open (this one) · 27 pending**
 
-Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 2/8 in progress** · W3–W7 not started
+Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 3/8 in progress** · W3–W7 not started
 
 ---
 
@@ -34,48 +34,59 @@ Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is c
 | [#327](https://github.com/ashutoshroli/chhath-full-codebase/pull/327) | never report a genuine record as not found | P0-10 | Verify screen's two-way verdict → seven explicit states in a pure `verifyVerdict.ts`; the red "not found" is asserted only against **live** data (otherwise "Verification Unavailable" / "Could Not Confirm" + Retry); `idle` counts as checking | Freshness provenance behind the stale flag = #328 |
 | [#328](https://github.com/ashutoshroli/chhath-full-codebase/pull/328) | distinguish live data from a saved copy, and bound every request | PUB-FE-01 | `source: network\|snapshot\|empty`; `savedAt` only from a real network response; SW API rule `NetworkFirst` → `NetworkOnly`; 12 s request / 30 s chat deadlines; concurrent loads share one request | Showing the age prominently in the UI is a design change → W5/W6 |
 | [#329](https://github.com/ashutoshroli/chhath-full-codebase/pull/329) | one canonical cache key and one method per action | PUB-BE-01, PUB-BE-02 | Cache key = (action, live version) only, so junk params can no longer force a rebuild; body-only caching (CORS never shared); `ACTION_METHODS` → `405` + `Allow`, enforced before any I/O. **First tests for this Worker** (19) + a CI step | Popup time-awareness → PR-20; single-flight → PR-24; lockfile/Miniflare → PR-25 |
+| [#330](https://github.com/ashutoshroli/chhath-full-codebase/pull/330) | cheap liveness, throttled readiness, no D1 errors in public replies | PUB-BE-03 | `?health=1` is liveness with **zero I/O** (was 6 D1 round-trips + a KV read per call, before the rate limiter); `?health=1&deep=1` is readiness, probed in parallel and edge-cached 60 s; dependency *states* are public, D1 error text goes to `error_log` and is released only to a `HEALTH_TOKEN` holder; 15 tests + the mgmt-side M-36/M-37 assertions moved onto the split contract | — |
 
 <sub>#322 was closed as superseded by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — the health probe stops paying for itself in database calls
+## 2. This PR — a scheduled popup is no longer cached past its own schedule
 
-**Audit ID:** PUB-BE-03. Second W2 PR.
+**Audit ID:** PUB-BE-04 (plus the report's related observations on popup dates and popup row reads). Third W2 PR.
 
-`GET ?health=1` ran **six D1 round-trips and a KV read on every call**, and it sits before the rate limiter on purpose (a monitor must not be able to throttle itself into a false alarm). A monitor polling every 30 s therefore spent ~17,000 D1 round-trips a day answering *"is the Worker running?"* — which needs none — and any anonymous caller could multiply that at will against a quota shared with the management API. The health check could help cause the outage it exists to detect. The same response also handed out raw D1 error text, which is where SQLite echoes table, column and database names.
+Every other payload this Worker serves is a pure function of the data version: nothing but an admin edit can change the right answer, an edit bumps the version, and a new version is a new URL — which is exactly what makes `immutable` correct for them.
+
+`activePopups` is not like that. Its answer depends on `start_at` / `end_at` versus **now**, so it changes on a schedule with no write anywhere to bump anything. It was nevertheless served `public, max-age=31536000, immutable` to any caller passing the current `?v=`, under an ETag of `activePopups-v<version>` that does not change with time either. So a popup scheduled to open tomorrow was answered *"no popups"* today and that answer was cached **in the visitor's browser for a year** — the popup simply never appeared for anyone who visited before it opened. In the other direction a popup that ended last night stayed cached as visible, and revalidating could not dislodge it, because the unchanged ETag returned `304`. Scheduling a popup is the entire point of the feature, so this was the feature being broken by its own cache.
 
 Done:
 
-- **`?health=1` is liveness and does no I/O at all.** Binding presence is a synchronous property of `env`, so the answer needs no database: a hundred polls now perform zero queries. 503 with `missingRequired: [...]` when a required binding is absent (binding names are already in the committed `wrangler.toml`; error messages are the sensitive part).
-- **`?health=1&deep=1` (or `?health=ready`) is readiness.** It probes every D1 binding and KV — now **in parallel**, so the latency is one round-trip instead of the sum of six — and the result is **cached at the edge for 60 s**, with the per-IP limiter applied on its own bucket. Ten probes in a row cost one set of round-trips. The cache is the edge, not KV, deliberately: a 60 s KV throttle would cost up to 1,440 writes/day against the ~1,000/day budget this file already treats as scarce.
-- **Dependency states are public; database internals are not.** An anonymous caller sees `state: ok | missing | error` plus what a degraded feature costs; the actual messages are withheld and written to `error_log`. Full detail is released only to a caller presenting `HEALTH_TOKEN` (`X-Health-Token`, or `?token=` for monitors that cannot set headers), compared in constant time. **An unset `HEALTH_TOKEN` does not mean "open to everyone"** — nobody gets the detail.
-- A failing *optional* dependency stays `200` + `degraded: true` (it must not page anyone at 2 a.m.); only a required one is `503`.
-- `?action=x&health=1` is a request for `x` again, not a health probe.
-- Operator docs: `docs/POST_AUDIT_MANUAL_STEPS.md` B3 now says which URL to monitor and how to get detail; `wrangler.toml` documents `HEALTH_TOKEN` as a secret to set (no value committed).
+- **The cache identity is now (data version, time bucket).** The edge key, the ETag and the client `max-age` are all derived from `floor(now / 60s)`, so one bucket is built once per version per colo and everything inside it is a cache hit; when the bucket rolls over the key *and* the validator both change, so the edge misses and a revalidation cannot answer `304` with yesterday's popup set. The key is still derived from nothing the caller controls, so PUB-BE-01 holds: `?v=` is still accepted and still cannot influence it — it just no longer buys a year.
+- **`immutable` and `stale-while-revalidate` are both gone from this action.** Both mean "you may keep showing this after it expires", which is the defect. `max-age` is the time remaining in the current bucket, so every client converges on the same boundary instead of each holding its own offset window.
+- **Why a bucket and not a TTL computed to the next `start_at`/`end_at`:** the next boundary is only known *after* building the payload, so a cache **hit** — the case that has to stay cheap — would have no idea when its own answer expires. The bucket comes from the clock alone, so hit and miss agree without reading anything. The trade is stated plainly in the code: a popup can be up to 60 s late to appear or disappear. Against a payload that could previously be a *year* wrong, that is a rounding error, and it costs one rebuild per minute per colo (two small queries) instead of one per year.
+- **A schedule that cannot be read now fails CLOSED.** A stored stamp is one of three things — empty (that end is unbounded), parseable, or non-empty junk — and `parseStoredDate` returned `null` for the first *and* the third alike. So `if (start && start > now)` skipped the check entirely for a typo'd value: a popup with `start_at = '22/08/2026'` went live immediately and, having no readable end either, never stopped. Unreadable now means not served. The legacy space-separated format (`'2026-08-22 14:31:00'`, read as UTC) is *not* malformed and keeps working. The same rule is applied to `popupIsLiveNow` in `mgmt/backend/src/popups.js`, whose comment already promised the two could never drift — otherwise the admin's "Active" badge and the public portal would now disagree.
+- **Only eligible popups are read.** The `popups` scan is pre-filtered in SQL (deliberately *more* permissive than the JS predicate, which stays the real decision, so a wrong clause can only let too many rows through — never hide a popup), and slides are fetched with `popup_id IN (...)` instead of an unconditional `SELECT … FROM popup_slides`. Previously every slide of every popup was read on every rebuild, including popups that had just been filtered out — D1 bills rows read, against the quota shared with the management API.
+- `getActivePublicPopups` reads the clock as `new Date(Date.now())`, so eligibility and the cache bucket cannot disagree about what "now" is.
 
-New `Public/backend/test/health-liveness-and-readiness.test.mjs` (15 tests) — **14 of them fail on `main`**, including "a hundred liveness polls do no I/O" (600+ D1 queries before, 0 now), "repeated deep probes reuse one 60 s result", and "an anonymous caller never sees the D1 error text" (the test seeds `no such column: users.password_hash in database chhath-core` and asserts it appears in the *log* and not in the response).
+New `Public/backend/test/popup-schedule-and-ttl.test.mjs` — 17 tests, **10 of which fail on `main`**:
 
-`mgmt/backend/test/ops-and-cleanup.test.mjs` also asserts this endpoint (audit M-36 / M-37 — it imports the public Worker to prove a monitor cannot read a healthy deployment as DOWN). Those five assertions were written against the fused endpoint, so they are moved to whichever half now answers them: the "is it up" and "which required binding is missing" cases stay on `?health=1`, and the three that need a real probe — a degraded optional binding, a present-but-broken one, the legacy `KV_SESSIONS` fallback — move to `?health=1&deep=1` and read the per-binding `{state, required, consequence}` shape. The broken-binding case now additionally asserts that the D1 text is **absent** from the response body, which is the PUB-BE-03 finding restated from the mgmt side.
+| | on `main` | on this branch |
+|---|---|---|
+| a popup opening in 10 minutes, requested with `?v=` | `max-age=31536000, immutable` | `max-age` = rest of the bucket, no `immutable` |
+| revalidating with a live popup's ETag after it expired | `304` — the expired popup stays on screen | `200` + an empty list, new ETag |
+| `start_at = '22/08/2026'` (and three more malformed forms) | live immediately, never expires | not served |
+| one live popup out of four rows | every slide of all four read | one query bound to `['LIVE']` |
 
-Verification: `Public/backend` `npm test` **34/34** · `mgmt/backend` `npm test` **714/714** · `npm run lint:errors` clean · `node --check` on all 51 Worker files · migration coverage check passes.
+Also pinned: eleven requests inside one bucket issue exactly one popup query and the next bucket rebuilds exactly once; `max-age` is `60 - offset` across a bucket; a version bump still invalidates instantly; an empty stamp still means unbounded; slide order and `duration_ms` normalisation are unchanged.
 
-Left for later (same wave): the popup payload is still cached `immutable` per data version, so a *scheduled* popup can be served outside its window — PR-20 next. Single-flight for a concurrent cache miss is PR-24.
+The PUB-BE-01 key test in `cache-key-and-methods.test.mjs` is updated in the same commit: it asserted the exact key `activePopups?v=<version>`, which now carries the bucket. It still asserts one key per action and that the version is in every key.
+
+Verification: `Public/backend` `npm test` **51/51** (34 + 17) · `mgmt/backend` `npm test` **714/714** · `npm run lint:errors` clean · `node --check` on all 51 Worker files.
+
+Left for later (same wave): single-flight for a concurrent cache miss is PR-24 — two simultaneous misses in a fresh bucket can still both build. The public `users` projection is PR-21.
 
 ---
 
 ## 3. Pending
 
-**W2 — Public backend (6 left):**
+**W2 — Public backend (5 left):**
 
 | PR | Branch | What |
 |---|---|---|
-| 20 | `fix/public-popup-ttl` | Time-aware popup TTL — a scheduled popup is cached `immutable` per version, so it can be served outside its window |
 | 21 | `fix/public-users-allowlist` | Explicit column allowlist on the public users payload |
 | 22 | `fix/public-write-hardening` | Size/shape/rate limits on the public write paths |
 | 23 | `fix/public-snapshot-atomicity` | KV last-known-good snapshot written atomically |
 | 24 | `perf/public-assembly` | Parallel section reads + single-flight cache fill + post-assembly version re-check |
-| 25 | `test/public-backend-harness` | Lockfile + a Miniflare/workerd harness covering every action (extends the tests added in PR-18/19) |
+| 25 | `test/public-backend-harness` | Lockfile + a Miniflare/workerd harness covering every action (extends the tests added in PR-18/19/20) |
 
 **W3 — Render / AI / chat (7):** payload size contract · durable idempotent jobs · callback outbox + version bump · provider SSRF policy · AI write allowlist · chat abuse controls · chat privacy + Neon
 **W4 — Database (3):** duplicate/orphan detection · enforce keys & relations · migration ledger
