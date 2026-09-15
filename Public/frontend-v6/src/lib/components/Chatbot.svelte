@@ -17,6 +17,8 @@
   let open = $state(false);
   let input = $state('');
   let sending = $state(false);
+  /** Hard deadline for one chat round-trip (audit PUB-FE-01). */
+  const CHAT_TIMEOUT_MS = 30_000;
   let messages = $state<Msg[]>([]);
   let listEl: HTMLDivElement | undefined = $state();
   let welcomed = false;
@@ -54,9 +56,15 @@
     input = '';
     sending = true;
     scrollSoon();
+    // audit PUB-FE-01: this fetch had no deadline, so a connection that accepts
+    // and then stalls left the panel stuck on "sending" with no way out except a
+    // reload. The chat service answers in a second or two; 30s is generous.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), CHAT_TIMEOUT_MS);
     try {
       const res = await fetch(chatUrl, {
         method: 'POST',
+        signal: controller.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: q, sessionId: sessionId(), lang: $lang })
       });
@@ -69,6 +77,7 @@
     } catch {
       messages = [...messages, { role: 'bot', text: $tr('chat_error') }];
     } finally {
+      clearTimeout(timer);
       sending = false;
       scrollSoon();
     }

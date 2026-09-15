@@ -5,7 +5,7 @@
  */
 import { writable, derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
-import { loadPortalData, type PortalResult } from '$lib/api/client';
+import { loadPortalData, type PortalResult, type PortalSource } from '$lib/api/client';
 import { EMPTY_PORTAL_DATA, type PortalData } from '$lib/api/schema';
 import { availableYears, ALL_YEARS, type YearSel } from '$lib/api/derive';
 
@@ -15,10 +15,13 @@ export interface PortalState {
   status: LoadStatus;
   data: PortalData;
   stale: boolean;
+  /** epoch ms of the NETWORK fetch this data came from (0 = never fetched). */
   savedAt: number;
   version: string;
   /** true only on a cold failure with no snapshot at all */
   failed: boolean;
+  /** provenance — 'network' | 'snapshot' | 'empty' (audit PUB-FE-01). */
+  source: PortalSource;
 }
 
 const initialState: PortalState = {
@@ -27,7 +30,8 @@ const initialState: PortalState = {
   stale: false,
   savedAt: 0,
   version: '',
-  failed: false
+  failed: false,
+  source: 'empty'
 };
 
 export const portalState = writable<PortalState>(initialState);
@@ -57,10 +61,13 @@ export async function initPortal(force = false): Promise<void> {
   portalState.set({
     status: cold ? 'error' : 'ready',
     data: result.data,
-    stale: result.stale,
+    // A saved copy is stale by definition, and the Worker can also flag its own
+    // last-known-good payload as stale — either way the UI must be told.
+    stale: result.stale || result.source === 'snapshot',
     savedAt: result.savedAt,
     version: result.version,
-    failed: cold
+    failed: cold,
+    source: result.source
   });
 
   // Choose a sensible default year on first successful load: newest available,

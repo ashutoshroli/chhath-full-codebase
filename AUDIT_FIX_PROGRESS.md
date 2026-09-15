@@ -6,9 +6,9 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status: 16 of 48 PRs merged · 1 open (this one) · 31 pending**
+**Status: 17 of 48 PRs merged · 1 open (this one) · 30 pending**
 
-Wave progress: **W0 ✅ done** · **W1 16/17** (all management P0 work closed; one public-portal PR left) · W2–W7 not started
+Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · W2–W7 not started
 
 ---
 
@@ -31,41 +31,46 @@ Wave progress: **W0 ✅ done** · **W1 16/17** (all management P0 work closed; o
 | [#324](https://github.com/ashutoshroli/chhath-full-codebase/pull/324) | validate money and payment details before saving | P0-09 (UI half) | `lib/money.ts` mirrors the backend limits, applied in Home/Expenses/Loans (add + edit); loan year switch no longer keeps the previous year's contributors; donation details validated before any write | Field-level inline errors (still `alert()`) → PR-40; donation publish still setting-by-setting (C3) |
 | [#325](https://github.com/ashutoshroli/chhath-full-codebase/pull/325) | keep consent evidence private and update the DB before deleting R2 | P0-06 | Archive order is upload → conditional update → verify → delete; consent photos/signatures archived private while PDFs stay public; stale archive cannot overwrite a re-generated file | Consent copies already published by earlier archive runs need a one-off ACL pass (C11) |
 | [#326](https://github.com/ashutoshroli/chhath-full-codebase/pull/326) | back up every table and restore an empty table faithfully | P0-07 | All 9 bindings + every schema table (12 were missing, incl. all of `DB_AUDIT`); a schema-vs-map test fails on drift either way; manifest v2 records `{rows, present}`; a present-and-empty table is now cleared on restore while v1 files keep the lenient skip | R2/Drive object backup stays an operational step (the file stores links); `collection_jobs.filled_base64` excluded on purpose |
+| [#327](https://github.com/ashutoshroli/chhath-full-codebase/pull/327) | never report a genuine record as not found | P0-10 | Verify screen's two-way verdict → seven explicit states in a pure `verifyVerdict.ts`; the red "not found" is asserted only against **live** data (otherwise "Verification Unavailable" / "Could Not Confirm" + Retry); `idle` counts as checking | The freshness *provenance* behind the stale flag = this PR |
 
 <sub>#322 was closed as superseded by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — the public portal stops calling genuine records invalid
+## 2. This PR — a saved copy can no longer pose as live data
 
-**Audit ID:** P0-10.
+**Audit ID:** PUB-FE-01 (the freshness half of P0-10). Last W1 PR.
 
 Done:
 
-- The Verify screen's two-way verdict is replaced by seven explicit states, decided in a new pure module `src/lib/api/verifyVerdict.ts`: `checking` · `no-id` · `malformed` · `unavailable` · `verified` · `inconclusive` · `not-found`.
-- **`not-found` (the red verdict) is now asserted only against live records.** With no data at all the screen says **"Verification Unavailable"** and states plainly that this does not mean the document is invalid; with only a stale snapshot it says **"Could Not Confirm"**. Both offer a **Retry** that refreshes the portal data.
-- A hit inside a stale snapshot still reads **verified** — a hit is a real hit — with a note saying it was checked against the saved copy.
-- `status: 'idle'` (the prerendered shell, before the client load starts) now counts as *checking*; previously it fell through to the red verdict with an empty payload.
-- New i18n keys in **both** languages; the amber heading uses `amber-700` in light mode because the `warning` token is ~2.2:1 on white at this size.
-- Removed a dead always-false `failed` expression in `stores/portal.ts`.
-- New `src/lib/api/verifyVerdict.test.ts` (15 tests) including an exhaustive walk of all 16 `status` × `failed` × `stale` combinations asserting the authoritative negative appears only when the data is trustworthy.
+- **Provenance is explicit.** `PortalResult` carries `source: 'network' | 'snapshot' | 'empty'`, and `savedAt` is now set **only** by a real network response. Previously every usable payload was stamped `savedAt: now()`, so an eight-hour-old saved copy was presented with a "just updated" timestamp; the store also derives `stale` from the source, not just from the flag.
+- **The service worker no longer caches the API.** The portal API rule was `NetworkFirst` with a 6 s timeout and a 24 h cache: when the network missed that deadline, workbox replayed a cached `200` that the client cannot tell apart from a live response — yesterday's contribution figures under a brand-new "last updated" time. It is `NetworkOnly` now, so the only cache left is our own localStorage snapshot, whose age we know and surface honestly. Offline still works, and now says so.
+- **Every request has a deadline.** `fetchJson` aborts at `REQUEST_TIMEOUT_MS` (12 s) and falls back to the saved copy; the chat `fetch` aborts at 30 s instead of leaving the panel stuck on "sending" until a page reload.
+- **One load at a time.** The root layout, the reconnect handler and the visibility handler could each start a load of the same shared store, and whichever response landed *last* won — even the oldest one. Concurrent callers now share the in-flight promise; `force` still supersedes it.
+- New `src/lib/api/client.test.ts` (9 tests): provenance for all three sources, snapshot age preserved, backend-declared staleness respected, snapshot `savedAt` = fetch time, stalled request aborted (fake timers), and single-flight / memory-TTL / `force` behaviour.
 
-Verification: `Public/frontend-v6` `npm test` 61/61 · `npm run check` **0 errors, 0 warnings** · build pass.
+Verification: `Public/frontend-v6` `npm test` **70/70** · `npm run check` **0 errors, 0 warnings** · build pass.
 
-Left for later: the freshness *provenance* problem behind the stale flag itself (a Workbox cache hit can look like fresh network data) is PR-17, next.
+Left for later: showing the age itself more prominently in the UI (a relative "updated 8 hours ago" line) is a design change, not a correctness fix — it rides along with the a11y/UX wave (W5/W6). The Worker-side caching contract is PR-18, next.
 
 ---
 
 ## 3. Pending
 
-**W1 — remaining P0 (2 PRs, both public portal)**
+**W1 is complete** once this PR merges — all 11 P0 findings are closed. Next up is W2.
 
-| PR | Branch | Depends |
+**W2 — Public backend (8 PRs, next):**
+
+| PR | Branch | What |
 |---|---|---|
-| 16 | `fix/public-verify-truthful-states` | — |
-| 17 | `fix/public-data-freshness-provenance` | 16 |
-
-**W2 — Public backend (8):** canonical cache keys + method enforcement · health split · popup time-aware TTL · users allowlist · write hardening · snapshot atomicity · assembly perf · tests + lockfile
+| 18 | `fix/public-api-cache-key-and-methods` | Canonical cache keys + per-action HTTP method enforcement |
+| 19 | `fix/public-health-split` | Split liveness from dependency health |
+| 20 | `fix/public-popup-ttl` | Time-aware popup TTL (a scheduled popup can currently be cached past its window) |
+| 21 | `fix/public-users-allowlist` | Explicit column allowlist on the public users payload |
+| 22 | `fix/public-write-hardening` | Size/shape/rate limits on the public write paths |
+| 23 | `fix/public-snapshot-atomicity` | KV last-known-good snapshot written atomically |
+| 24 | `perf/public-assembly` | Portal assembly does per-row work that belongs in one pass |
+| 25 | `test/public-backend-harness` | First tests + a lockfile for `Public/backend` (C8) |
 **W3 — Render / AI / chat (7):** payload size contract · durable idempotent jobs · callback outbox + version bump · provider SSRF policy · AI write allowlist · chat abuse controls · chat privacy + Neon
 **W4 — Database (3):** duplicate/orphan detection · enforce keys & relations · migration ledger
 **W5 — Accessibility (6):** dialog primitives (public + mgmt) · combobox/buttons · contrast/focus/zoom · live regions + labels · structure/motion

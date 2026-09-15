@@ -16,14 +16,27 @@ const SNAPSHOT_KEY = 'cpm_public_portalData_v4';
 const VERSION_KEY = 'cpm_public_dataVersion_v4';
 const MEMORY_TTL_MS = 60_000; // serve in-memory result without refetch for 1 min
 
+/** Where a payload actually came from (audit PUB-FE-01). */
+export type PortalSource = 'network' | 'snapshot' | 'empty';
+
 export interface PortalResult {
   data: PortalData;
   /** true when served from a saved copy because the network failed/offline. */
   stale: boolean;
-  /** epoch ms when this data was fetched/saved. */
+  /**
+   * epoch ms when this data was FETCHED FROM THE NETWORK.
+   *
+   * audit PUB-FE-01: this used to be stamped with `now()` on every successful
+   * parse, so a payload replayed from a saved copy claimed to be current. It is
+   * only ever set by a real network response now, and a snapshot keeps the
+   * timestamp of the fetch that produced it — which is what lets the UI show a
+   * truthful "last updated" and a stale badge.
+   */
   savedAt: number;
   /** the data version token this payload corresponds to (best effort). */
   version: string;
+  /** provenance of this payload; never inferred from `stale` alone. */
+  source: PortalSource;
 }
 
 interface MemoryCache {
@@ -43,7 +56,14 @@ function readSnapshot(): PortalResult | null {
     const parsed = JSON.parse(raw) as { savedAt?: number; version?: string; data?: unknown };
     const data = parsePortalData(parsed?.data);
     if (!data) return null;
-    return { data, stale: true, savedAt: parsed.savedAt || 0, version: parsed.version || '' };
+    return {
+      data,
+      stale: true,
+      // The age of the ORIGINAL fetch, not of this read — see PortalResult.savedAt.
+      savedAt: parsed.savedAt || 0,
+      version: parsed.version || '',
+      source: 'snapshot'
+    };
   } catch {
     return null;
   }
@@ -65,10 +85,33 @@ function writeSnapshot(result: PortalResult) {
   }
 }
 
-async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
-  const res = await fetch(url, { ...init, headers: { Accept: 'application/json', ...(init?.headers || {}) } });
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-  return res.json();
+/**
+ * How long any single portal request may take before we give up and fall back to
+ * the saved copy (audit PUB-FE-01). Without this, `fetch` had no deadline at all:
+ * a connection that accepts and then stalls left the UI on its skeletons for as
+ * long as the browser kept the socket open.
+ */
+export const REQUEST_TIMEOUT_MS = 12_000;
+
+async function fetchJson(url: string, init?: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS): Promise<unknown> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+      headers: { Accept: 'application/json', ...(init?.headers || {}) }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+    return await res.json();
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`Timed out after ${timeoutMs}ms for ${url}`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function fetchDataVersion(): Promise<string> {
@@ -96,6 +139,27 @@ export async function loadPortalData(opts: LoadOptions = {}): Promise<PortalResu
     return memory.result;
   }
 
+  // audit PUB-FE-01: one load at a time. The root layout starts a load while the
+  // reconnect and visibility handlers can each start another, and every page
+  // shares this one store — so the same payload was being fetched two or three
+  // times over, and whichever response happened to land LAST won, even if it was
+  // the oldest request. Callers now share the in-flight promise; a `force` refresh
+  // deliberately supersedes it (the visitor asked for new data).
+  if (!opts.force && inFlight) return inFlight;
+
+  const request = runLoad();
+  inFlight = request;
+  try {
+    return await request;
+  } finally {
+    // Only clear if a newer load has not already replaced it.
+    if (inFlight === request) inFlight = null;
+  }
+}
+
+let inFlight: Promise<PortalResult> | null = null;
+
+async function runLoad(): Promise<PortalResult> {
   try {
     const version = await fetchDataVersion();
     const vq = version ? `&v=${encodeURIComponent(version)}` : '';
@@ -106,25 +170,34 @@ export async function loadPortalData(opts: LoadOptions = {}): Promise<PortalResu
       throw new Error('portalData returned no usable data');
     }
 
+    // The Worker itself can tell us it served a last-known-good KV snapshot
+    // because D1 was unavailable — that is stale data even though the request
+    // succeeded, so it must not be presented as live.
     const backendStale = data.stale === true;
     const result: PortalResult = {
       data,
       stale: backendStale,
       savedAt: now(),
-      version
+      version,
+      source: 'network'
     };
     memory = { result, fetchedAt: now() };
-    writeSnapshot({ ...result, stale: false }); // snapshot is authoritative, not stale
+    // The snapshot records the network fetch it came from: same savedAt, and
+    // `stale: false` because on disk it is simply "the last good payload" — it is
+    // marked stale when it is READ back (see readSnapshot).
+    writeSnapshot({ ...result, stale: false });
     return result;
   } catch (err) {
     reportError('portalData load failed', err);
     const snap = readSnapshot();
     if (snap) {
+      // Cache the snapshot in memory too, but keep its ORIGINAL savedAt so the UI
+      // can say how old the data really is.
       memory = { result: snap, fetchedAt: now() };
       return snap;
     }
     // Cold failure: valid empty payload so the UI shows empty/error states.
-    return { data: EMPTY_PORTAL_DATA, stale: true, savedAt: 0, version: '' };
+    return { data: EMPTY_PORTAL_DATA, stale: true, savedAt: 0, version: '', source: 'empty' };
   }
 }
 
