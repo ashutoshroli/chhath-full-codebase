@@ -199,7 +199,15 @@ export async function getQueueJobsForSuperadmin(env, user, opts = {}) {
   }
   const { results: jobs } = await db.prepare(query).bind(...binds).all();
 
-  return { success: true, counts, jobs: jobs || [], maxAttempts: MAX_ATTEMPTS };
+  // `claimed_at` now carries a verifiable claim token (`<iso>#<uuid>`, see the
+  // claim in processPendingJobs). The monitor only wants the timestamp.
+  const cleaned = (jobs || []).map(j => (
+    j && typeof j.claimed_at === 'string' && j.claimed_at.includes('#')
+      ? { ...j, claimed_at: j.claimed_at.split('#')[0] }
+      : j
+  ));
+
+  return { success: true, counts, jobs: cleaned, maxAttempts: MAX_ATTEMPTS };
 }
 
 // ---- SUPERADMIN QUEUE MONITOR: retry a job ----
@@ -255,10 +263,9 @@ export async function retryQueueJob(env, user, jobId) {
 // realistic case (one client or script hammering the endpoint) at zero quota cost.
 //
 // It is deliberately NOT a distributed lock, and it does not need to be: correctness
-// against concurrent drains is already guaranteed by the optimistic claim in
-// processPendingJobs (`UPDATE ... WHERE id = ? AND status IN ('pending','processing')`,
-// then `if (claim.meta.changes === 0) continue`), so two simultaneous runs can never
-// double-process a job. This throttle only trims wasted work.
+// against concurrent drains comes from the verifiable claim in processPendingJobs
+// (an exact-state `UPDATE ... SET claimed_at = <token>` followed by a re-read that
+// confirms the token is ours — audit P0-04). This throttle only trims wasted work.
 const DRAIN_COOLDOWN_MS = 5000;
 let lastDrainStartedAt = 0;
 
@@ -304,14 +311,36 @@ export async function processPendingJobs(env) {
 
   let processed = 0;
   for (const job of jobs || []) {
-    // Claim it (optimistic — only if it's still in the state we read). This
-    // guards against two overlapping cron ticks grabbing the same row.
+    // ---- audit P0-04: the claim must match the state we actually read ----
+    //
+    // The old predicate was `WHERE id = ? AND status IN ('pending','processing')`.
+    // It did NOT repeat the staleness cutoff, so a row another drain had just
+    // claimed (status now 'processing', claimed_at = a second ago) STILL matched:
+    // both drains got changes = 1 and both ran the job. That means a duplicate
+    // PDF in Drive, a duplicate WhatsApp message and a duplicate email to the
+    // contributor, plus double attempts and a racing finalise — while the comment
+    // above claimed concurrent drains were safe.
+    //
+    // Now the claim repeats the exact eligibility it selected on (pending, or
+    // processing but stale) and carries a unique claim token in claimed_at — the
+    // same verifiable-claim pattern whatsapp.js getPendingMessages() uses. After
+    // the write we re-read the row and only proceed if the token is ours.
+    const claimToken = `${new Date().toISOString()}#${crypto.randomUUID()}`;
     const claim = await db.prepare(
       `UPDATE collection_jobs
           SET status = 'processing', claimed_at = ?, attempts = attempts + 1
-        WHERE id = ? AND status IN ('pending', 'processing')`
-    ).bind(new Date().toISOString(), job.id).run().catch(() => null);
+        WHERE id = ?
+          AND attempts < ?
+          AND (status = 'pending' OR (status = 'processing' AND (claimed_at IS NULL OR claimed_at < ?)))`
+    ).bind(claimToken, job.id, MAX_ATTEMPTS, stuckCutoff).run().catch(() => null);
     if (!claim || !claim.meta || claim.meta.changes === 0) continue; // someone else took it
+
+    // Belt-and-braces: confirm the row carries OUR token. A concurrent drain that
+    // wrote in the same instant would have replaced it, and that drain — not this
+    // one — owns the job.
+    const owner = await db.prepare('SELECT claimed_at FROM collection_jobs WHERE id = ?')
+      .bind(job.id).first('claimed_at').catch(() => null);
+    if (owner !== claimToken) continue;
 
     try {
       // Now that THIS row is ours, load the heavy blob for just this one row.
