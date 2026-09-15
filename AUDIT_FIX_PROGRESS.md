@@ -52,7 +52,7 @@ Verification: `mgmt/backend` `npm test` 713 tests / 712 pass (the 1 failure is t
 
 Left for later: R2/Drive object backup is still out of scope for this file (it stores links) — that stays an operational step, and the screens now say so.
 
-## 3. Previous PR — consent evidence privacy + archival ordering
+## 2b. Previous PR (#325) — consent evidence privacy + archival ordering
 
 **Audit ID:** P0-06.
 
