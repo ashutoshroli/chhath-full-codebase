@@ -256,8 +256,16 @@ const SERVER_OWNED_FIELDS = {
   committee_members: ['id', 'created_by'],
   loans: ['id', 'loan_id', 'loan_status', 'created_by', 'cash_amount', 'online_amount', 'final_repayment_date'],
   loan_guarantors: ['id', 'loan_id', 'created_by'],
-  login_users: ['id', 'password', 'totp_secret_enc', 'totp_pending_enc', 'totp_backup_codes', 'totp_recovery_hash', 'totp_enabled'],
+  login_users: ['id'],
 };
+
+// login_users also owns every CREDENTIAL column. Matched by shape rather than by
+// an enumerated list, so a future `totp_*` column is protected the day it is added
+// (and so this file carries no list that reads like a set of credentials).
+// Credentials are written only by account.js / twoFactor.js, never by generic CRUD.
+function isCredentialColumn(foldedKey) {
+  return foldedKey === 'passwordhash' || foldedKey === 'password' || foldedKey.startsWith('totp');
+}
 
 // Compare keys ignoring case, spaces, dots and underscores, so 'Sl. No.',
 // 'sl_no' and 'SLNO' are all recognised as the same protected column.
@@ -284,7 +292,8 @@ export function assertNoServerOwnedFields(table, payload, { aliases = {}, allow 
 
   for (const key of Object.keys(payload)) {
     if (key === '__rowIndex') continue;
-    if (protectedKeys.has(foldKey(key))) {
+    const folded = foldKey(key);
+    if (protectedKeys.has(folded) || (table === 'login_users' && isCredentialColumn(folded))) {
       throw ValidationError(
         `"${key}" is set by the server and cannot be sent from the browser. `
         + 'Please reload the page and try again.'
