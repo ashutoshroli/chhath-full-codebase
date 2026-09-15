@@ -1186,11 +1186,14 @@ export async function resendConsent(env, consentId, user) {
   const sendCount = parseInt(rowObj.send_count) || 0;
   if (sendCount >= 5) throw ValidationError('This guarantor/loaner has already been sent the invitation 5 times. Please replace the guarantor now.');
 
-  const newToken = generateConsentToken();
-  await env.DB_LOANS_EXPENSES.prepare(
-    "UPDATE loan_consents SET token = ?, status = 'pending', otp = '', otp_verified = 0, send_count = ?, responded_at = '' WHERE id = ?"
-  ).bind(newToken, sendCount + 1, rowObj.id).run();
-
+  // ---- audit MGMT-BE-01: validate BEFORE consuming state ----
+  //
+  // This used to rotate the token, reset the status and spend one of the five
+  // allowed sends FIRST, and only then discover that there is no active template
+  // or no usable WhatsApp number — and throw. The caller saw an error, but the
+  // damage was already committed: the link the person was previously sent had
+  // been invalidated and the send budget was one lower, with nothing delivered.
+  // Every prerequisite is now checked while the row is still untouched.
   const consentLink = consentLinkBuilder(env);
   const loan = (await loanByLoanId(env, rowObj.loan_id)) || {};
   const guarantorIds = await guarantorPersonIds(env, rowObj.loan_id);
@@ -1203,15 +1206,6 @@ export async function resendConsent(env, consentId, user) {
   const tpls = await loanTemplateContext(env);
   const tpl = tpls.pick(tplType);
 
-  // Email mirror first (independent channel + its own template + address), so a
-  // resend still reaches the person by email even if the WhatsApp template/number
-  // is missing. queueLoanEmail never throws.
-  const data2 = Object.assign(notificationData(loan, loanerU, person, rowObj.role, guarantorUsers), {
-    ConsentLink: consentLink(newToken),
-    LoanerConsentLink: consentLink(newToken),
-  });
-  await queueLoanEmail(env, tplType, person, data2, { consentId });
-
   if (!tpl) throw ValidationError(`There is no active "${tplType}" template — add one in the WhatsApp templates first.`);
   if (!wa) {
     await logWarn(env, 'whatsapp-loans', 'resendConsent',
@@ -1219,6 +1213,26 @@ export async function resendConsent(env, consentId, user) {
       { consentId, personId: rowObj.person_id });
     throw ValidationError('This person does not have a valid WhatsApp/Mobile number registered — please correct the number in USERS first.');
   }
+
+  // Only now is it safe to invalidate the old link. The UPDATE is conditional on
+  // the send_count we read, so two resends racing on the same consent cannot both
+  // spend a send (which would also leave one of the two tokens dead on arrival).
+  const newToken = generateConsentToken();
+  const rotated = await env.DB_LOANS_EXPENSES.prepare(
+    "UPDATE loan_consents SET token = ?, status = 'pending', otp = '', otp_verified = 0, send_count = ?, responded_at = '' WHERE id = ? AND send_count = ?"
+  ).bind(newToken, sendCount + 1, rowObj.id, rowObj.send_count).run();
+  if (!rotated.meta.changes) {
+    throw ValidationError('This invitation was just resent from another screen. Nothing was changed here — reload the Loan Consents screen to see the latest state.');
+  }
+
+  // Email mirror first (independent channel + its own template + address), so a
+  // resend still reaches the person by email even if the WhatsApp send below
+  // fails. queueLoanEmail never throws.
+  const data2 = Object.assign(notificationData(loan, loanerU, person, rowObj.role, guarantorUsers), {
+    ConsentLink: consentLink(newToken),
+    LoanerConsentLink: consentLink(newToken),
+  });
+  await queueLoanEmail(env, tplType, person, data2, { consentId });
 
   const message = await renderLoanTemplate(env, 'resendConsent', tpl, data2, { consentId });
   await queuePersonMessageDirect(env, wa, message, tpls.sender, tpl.message_type, tpl.file_link);
@@ -1243,26 +1257,65 @@ export async function replaceGuarantor(env, loanId, oldConsentId, newPersonId, u
   const committee = (await getSheetDataAsJSON(env, 'COMMITEE MEMBERS')).map(c => c.Name);
   if (committee.includes(newPersonId)) throw ValidationError('Rule Violation: A Committee Member cannot become a guarantor.');
 
-  await env.DB_LOANS_EXPENSES.prepare("UPDATE loan_consents SET status = 'replaced' WHERE consent_id = ?").bind(oldConsentId).run();
+  // ---- audit MGMT-BE-01: the swap must be ONE transaction ----
+  //
+  // This used to be three separate awaited writes: mark the old consent
+  // 'replaced', UPDATE loan_guarantors, INSERT the new consent. A failure between
+  // any two left the loan in a state the UI cannot repair — e.g. the old consent
+  // marked replaced and no new one created, so the loan has only two active
+  // guarantors and can never satisfy the "all three accepted + verified" gate.
+  //
+  // It was also unguarded, so two Superadmins replacing the same guarantor could
+  // both succeed and leave the loan with four active guarantor consents.
+  //
+  // Now: one batch. The INSERT and the guarantor swap are conditional, so if the
+  // old row is no longer replaceable (a concurrent replace/accept won the race)
+  // NOTHING applies and we say so.
+  const REPLACEABLE = "status IN ('pending', 'sent', 'declined')";
+  const consentId = generateConsentId();
+  const token = generateConsentToken();
 
-  // Update loan_guarantors: swap old person_id -> newPersonId, matching by loan_id
-  // when available (precise), else Year+Loaner (legacy rows with no loan_id).
+  // Which loan_guarantors row to swap: by loan_id when available (precise), else
+  // Year+Loaner (legacy rows saved before loan_id existed).
   const byLoanId = await env.DB_LOANS_EXPENSES.prepare(
     'SELECT id FROM loan_guarantors WHERE loan_id = ? AND guarantor = ?'
   ).bind(loanId.toString().trim(), oldRow.person_id).first();
-  if (byLoanId) {
-    await env.DB_LOANS_EXPENSES.prepare('UPDATE loan_guarantors SET guarantor = ? WHERE id = ?').bind(newPersonId, byLoanId.id).run();
-  } else {
-    await env.DB_LOANS_EXPENSES.prepare(
-      'UPDATE loan_guarantors SET guarantor = ? WHERE year = ? AND loaner = ? AND guarantor = ?'
-    ).bind(newPersonId, parseInt(loan.Year), loan.Name, oldRow.person_id).run();
-  }
 
-  const consentId = generateConsentId();
-  const token = generateConsentToken();
-  await env.DB_LOANS_EXPENSES.prepare(
-    'INSERT INTO loan_consents (consent_id, loan_id, person_id, role, token, status, otp, otp_verified, send_count, created_at, responded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).bind(consentId, loanId, newPersonId, 'guarantor', token, 'pending', '', 0, 1, new Date().toISOString(), '').run();
+  const statements = [
+    // (1) The new consent, guarded on the old row still being replaceable. Its
+    //     presence is then the marker that THIS transaction did the swap.
+    env.DB_LOANS_EXPENSES.prepare(
+      'INSERT INTO loan_consents (consent_id, loan_id, person_id, role, token, status, otp, otp_verified, send_count, created_at, responded_at) '
+      + 'SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? '
+      + `WHERE EXISTS (SELECT 1 FROM loan_consents WHERE consent_id = ? AND ${REPLACEABLE})`
+    ).bind(consentId, loanId, newPersonId, 'guarantor', token, 'pending', '', 0, 1, new Date().toISOString(), '', oldConsentId),
+
+    // (2) Retire the old consent — same condition, so it cannot fire twice.
+    env.DB_LOANS_EXPENSES.prepare(
+      `UPDATE loan_consents SET status = 'replaced' WHERE consent_id = ? AND ${REPLACEABLE}`
+    ).bind(oldConsentId),
+
+    // (3) The guarantor row, guarded on (1) having actually inserted.
+    byLoanId
+      ? env.DB_LOANS_EXPENSES.prepare(
+        'UPDATE loan_guarantors SET guarantor = ? WHERE id = ? AND EXISTS (SELECT 1 FROM loan_consents WHERE consent_id = ?)'
+      ).bind(newPersonId, byLoanId.id, consentId)
+      : env.DB_LOANS_EXPENSES.prepare(
+        'UPDATE loan_guarantors SET guarantor = ? WHERE year = ? AND loaner = ? AND guarantor = ? '
+        + 'AND EXISTS (SELECT 1 FROM loan_consents WHERE consent_id = ?)'
+      ).bind(newPersonId, parseInt(loan.Year), loan.Name, oldRow.person_id, consentId),
+  ];
+
+  const swapResults = await env.DB_LOANS_EXPENSES.batch(statements);
+  const inserted = swapResults && swapResults[0] && swapResults[0].meta
+    ? Number(swapResults[0].meta.changes) > 0
+    : !!(await env.DB_LOANS_EXPENSES.prepare('SELECT 1 AS ok FROM loan_consents WHERE consent_id = ?').bind(consentId).first('ok'));
+  if (!inserted) {
+    throw ValidationError(
+      'This guarantor was just replaced (or has accepted) from another screen, so nothing was changed here. '
+      + 'Reload the Loan Consents screen to see the current guarantors.'
+    );
+  }
 
   const consentLink = consentLinkBuilder(env);
   const guarantorIdsAfter = await guarantorPersonIds(env, loanId);
@@ -1325,9 +1378,23 @@ export async function markLoanDisbursed(env, loanId, cashAmount, onlineAmount, u
     throw ValidationError(`The total disbursed (₹${total}) must equal the sanctioned loan amount (₹${loanAmount}). Adjust the Cash / Online split so they add up to exactly ₹${loanAmount}.`);
   }
 
-  await env.DB_LOANS_EXPENSES.prepare(
-    "UPDATE loans SET loan_status = 'Disbursed', cash_amount = ?, online_amount = ? WHERE loan_id = ?"
+  // ---- audit MGMT-BE-01: disburse exactly once ----
+  //
+  // The status was read above and then written unconditionally, so two admins
+  // pressing Disburse at the same time both passed the 'Approved' check and both
+  // wrote — last writer's cash/online split won, and the loaner received two
+  // disbursement confirmations for money that went out once. The UPDATE now
+  // carries the state it depends on, so exactly one caller can perform the
+  // transition.
+  const disbursed = await env.DB_LOANS_EXPENSES.prepare(
+    "UPDATE loans SET loan_status = 'Disbursed', cash_amount = ?, online_amount = ? WHERE loan_id = ? AND loan_status = 'Approved'"
   ).bind(cash, online, loanId).run();
+  if (!disbursed.meta.changes) {
+    throw ValidationError(
+      'This loan was just disbursed from another screen, so nothing was changed here. '
+      + 'Reload the Loans screen to see the recorded Cash / Online split.'
+    );
+  }
 
   const notify = await trySend(env, 'markLoanDisbursed', async () => {
     const guarantorIds = await guarantorPersonIds(env, loanId);
