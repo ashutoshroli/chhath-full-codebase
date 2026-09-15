@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, Suspense, lazy } from 'react';
 import { api, getSession, clearSession } from './api.js';
 import { useViewData } from './useViewData.js';
-import { setDataVersion } from './cache.js';
+import { setDataVersion, setCacheIdentity } from './cache.js';
 import { isSuperadmin } from './permissions.js';
 import Login from './components/Login.jsx';
 import AppFooter from './components/AppFooter.jsx';
@@ -146,7 +146,12 @@ export default function App() {
 
   useEffect(() => {
     const session = getSession();
-    if (session) setUser(session.user);
+    if (session) {
+      // audit P0-08: bind the view cache to this account before any view reads
+      // it, so a mirror left by a different account is purged, not served.
+      setCacheIdentity(`${session.user?.name}|${session.user?.role}`);
+      setUser(session.user);
+    }
     setCheckedSession(true);
   }, []);
 
@@ -202,7 +207,7 @@ export default function App() {
   if (!checkedSession) return null;
 
   if (!user) {
-    return <Login onLogin={(u) => { setUser(u); setFreshLogin(true); }} />;
+    return <Login onLogin={(u) => { setCacheIdentity(`${u?.name}|${u?.role}`); setUser(u); setFreshLogin(true); }} />;
   }
 
   const toolTabGroups = TAB_GROUPS_BY_ROLE[user.role] || [];

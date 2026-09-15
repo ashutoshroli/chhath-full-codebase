@@ -3,6 +3,7 @@
 // job polling, and the full `api` action map. Behaviour is preserved 1:1 so the
 // UNCHANGED backend sees identical requests. Only TS types were added.
 import { getDeviceId, getDeviceInfo } from './device';
+import { purgeCache } from './cache';
 
 const API_URL: string = import.meta.env.VITE_API_URL;
 
@@ -63,6 +64,12 @@ export function clearSession(): void {
     s.removeItem(USER_KEY);
   });
   localStorage.removeItem(REMEMBER_KEY);
+  // audit P0-08: the view cache holds the rows this account was allowed to see
+  // (Users, Login Management, finance, committee…). Removing the token while
+  // leaving those behind is what let the NEXT account on this browser read them.
+  // This is the single choke point for sign-out, session expiry and the
+  // "this device was signed out remotely" path, so the purge belongs here.
+  purgeCache();
 }
 
 const NO_AUTOLOG_ACTIONS = ['logError', 'reportErrorPublic', 'reportErrorToWhatsApp', 'login', 'verifyGoogleLogin'];

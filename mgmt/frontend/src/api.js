@@ -1,5 +1,6 @@
 const API_URL = import.meta.env.VITE_API_URL;
 import { getDeviceId, getDeviceInfo } from './device.js';
+import { purgeCache } from './cache.js';
 
 const TOKEN_KEY = 'cpm_token';
 const EXPIRY_KEY = 'cpm_token_expiry';
@@ -44,6 +45,9 @@ export function clearSession() {
     s.removeItem(USER_KEY);
   });
   localStorage.removeItem(REMEMBER_KEY);
+  // audit P0-08: the cached view rows (Users, Login Management, finance…) must go
+  // with the token, or the next account on this browser can read them.
+  purgeCache();
 }
 
 const NO_AUTOLOG_ACTIONS = ['logError', 'reportErrorPublic', 'reportErrorToWhatsApp', 'login', 'verifyGoogleLogin'];

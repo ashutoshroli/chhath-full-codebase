@@ -1,4 +1,15 @@
 
+// audit P0-08: see mgmt/frontend-svelte/src/lib/cache.ts for the full note. This
+// retained (rollback) app carried the same defect: the localStorage mirror was
+// hydrated at module load, its keys were generic, and clearSession() removed only
+// the token — so the next account on the browser could be served the previous
+// account's Users / Login Management / finance rows.
+//
+// The minimum applied here, so the rollback target is not a weaker deployment:
+//   * the persisted mirror is bound to an account identity (name|role);
+//   * hydration waits for setCacheIdentity() to confirm that identity;
+//   * purgeCache() wipes both layers and is called from clearSession();
+//   * the sensitive views are never written to disk at all.
 const store = new Map();
 const TTL_MS = 5 * 60 * 1000;
 const MAX_ENTRIES = 120;
@@ -8,22 +19,54 @@ const LS_VERSION_KEY = 'cpm_mgmt_viewcache_version';
 const LS_MAX_ENTRY_CHARS = 1500000;
 const LS_MAX_TOTAL_CHARS = 3500000;
 
-let currentVersion = null;
+const MEMORY_ONLY_PREFIXES = [
+  'users', 'loginusers', 'committee', 'consent', 'email', 'official',
+  'audit', 'loginattempts', 'sessions', 'errorlog', 'aiproviders', 'whatsapp',
+];
+function isMemoryOnly(key) {
+  const k = (key || '').toString().toLowerCase();
+  return MEMORY_ONLY_PREFIXES.some(p => k.startsWith(p));
+}
 
-(function hydrateOnLoad() {
+let currentVersion = null;
+let currentIdentity = null;
+
+export function purgeCache() {
+  store.clear();
+  currentVersion = null;
+  currentIdentity = null;
   try {
-    const mirror = lsGetMirror();
-    if (!mirror || !mirror.entries) return;
-    currentVersion = mirror.version != null ? mirror.version.toString() : null;
-    const now = Date.now();
-    for (const key of Object.keys(mirror.entries)) {
-      const e = mirror.entries[key];
-      if (e && now - (e.time || 0) <= TTL_MS) {
-        store.set(key, { value: e.value, time: e.time || now });
-      }
-    }
+    localStorage.removeItem(LS_KEY);
+    localStorage.removeItem(LS_VERSION_KEY);
   } catch (e) {  }
-})();
+}
+
+export function setCacheIdentity(identity) {
+  const next = identity == null || identity === '' ? null : identity.toString();
+  if (next == null) { purgeCache(); return false; }
+  if (currentIdentity === next && store.size > 0) return true;
+
+  const mirror = lsGetMirror();
+  if (!mirror || mirror.identity !== next) {
+    purgeCache();
+    currentIdentity = next;
+    return false;
+  }
+
+  currentIdentity = next;
+  currentVersion = mirror.version != null ? mirror.version.toString() : null;
+  const now = Date.now();
+  store.clear();
+  for (const key of Object.keys(mirror.entries || {})) {
+    const e = mirror.entries[key];
+    if (e && !isMemoryOnly(key) && now - (e.time || 0) <= TTL_MS) {
+      store.set(key, { value: e.value, time: e.time || now });
+    }
+  }
+  return true;
+}
+
+export function _cacheIdentity() { return currentIdentity; }
 
 function lsGetMirror() {
   try {
@@ -97,11 +140,16 @@ export function setCached(key, value) {
 
 function mirrorPut(key, value, time) {
   if (currentVersion == null) return;
+  if (currentIdentity == null || isMemoryOnly(key)) return; // audit P0-08
   try {
     const serialized = JSON.stringify(value);
     if (serialized.length > LS_MAX_ENTRY_CHARS) return;
-    const mirror = lsGetMirror() || { version: currentVersion, entries: {} };
-    if (mirror.version !== currentVersion) { mirror.version = currentVersion; mirror.entries = {}; }
+    const mirror = lsGetMirror() || { version: currentVersion, identity: currentIdentity, entries: {} };
+    if (mirror.version !== currentVersion || mirror.identity !== currentIdentity) {
+      mirror.version = currentVersion;
+      mirror.identity = currentIdentity;
+      mirror.entries = {};
+    }
     mirror.entries[key] = { value, time };
     lsWriteMirror(mirror);
     localStorage.setItem(LS_VERSION_KEY, currentVersion);
