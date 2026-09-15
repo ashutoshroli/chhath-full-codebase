@@ -9,6 +9,18 @@ compatibility_date = "2025-01-01"
 # wildcard is an acceptable default.
 # ALLOWED_ORIGINS = "https://YOUR-PUBLIC-PORTAL-DOMAIN.example.com"
 
+# HEALTH_TOKEN is a SECRET, so it is deliberately NOT set here — run
+#     wrangler secret put HEALTH_TOKEN
+# It gates the per-dependency detail of the readiness probe
+# (`GET /?health=1&deep=1`, header `X-Health-Token`). Without it, readiness still
+# answers ready/degraded and the dependency STATES, but the underlying error
+# messages are withheld from the response and written to error_log instead — a D1
+# error string can echo table names and database identifiers, which an anonymous
+# caller has no business reading.
+#
+# Point uptime monitors at plain `GET /?health=1` (liveness): it performs NO I/O,
+# so polling it costs no database round-trips.
+
 # READ-ONLY scope by convention (see MIGRATION_NOTES.md) — this Worker's code
 # issues no INSERT/UPDATE/DELETE except the two narrow, documented exceptions
 # below, but D1 bindings themselves don't have a separate read-only permission

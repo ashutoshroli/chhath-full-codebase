@@ -1011,6 +1011,180 @@ function clientHasCurrent(request, etag) {
   return inm.split(',').some(t => t.trim() === etag);
 }
 
+// ============ HEALTH: LIVENESS vs READINESS (audit PUB-BE-03) ============
+//
+// `GET ?health=1` did SIX D1 round-trips (`SELECT 1` per binding) plus a KV read,
+// on EVERY call, and it sits deliberately before the rate limiter so a monitor
+// cannot throttle itself. That combination is the problem:
+//
+//   * A monitor polling every 30s spends ~17,000 D1 round-trips a day on a
+//     question — "is the Worker running?" — that needs none, and anyone can
+//     multiply that at will because the endpoint is anonymous and unthrottled. The
+//     D1 quota is shared with the management API, so the health check could help
+//     cause the outage it exists to detect.
+//   * It answered an anonymous caller with RAW D1 error text
+//     (`'error: ' + e.message`), which is exactly where SQLite echoes table names,
+//     column names and database identifiers.
+//   * One boolean covered two different questions. A monitor needs liveness ("is
+//     this process up?"); an operator needs readiness ("can it reach its
+//     dependencies?"). Fusing them means a slow database makes the Worker itself
+//     look dead, and the cheap question cannot be asked cheaply.
+//
+// So they are split:
+//
+//   `?health=1`               liveness. NO I/O whatsoever — binding presence is a
+//                             synchronous property of `env`. This is what a monitor
+//                             should poll.
+//   `?health=1&deep=1`        readiness. Probes the dependencies, but the result is
+//   (or `?health=ready`)      cached at the edge for READINESS_TTL_SECONDS and the
+//                             per-IP limiter applies, so a flood cannot multiply
+//                             the probes. Full per-binding detail (including error
+//                             text) ONLY for a caller holding HEALTH_TOKEN;
+//                             everyone else gets states without messages. The
+//                             messages always go to the error log, where they are
+//                             useful and not public.
+const WORKER_NAME = 'chhath-public-api';
+
+// Without these the portal cannot serve its core payload at all.
+const REQUIRED_BINDINGS = ['DB_CORE', 'DB_COLLECTIONS', 'DB_LOANS_EXPENSES', 'DB_FILE_INDEX'];
+
+// Degraded, not fatal: the portal still renders, but a feature is silently off.
+// (A missing DB_MISC makes every popup disappear — getActivePublicPopups returns []
+// by design — and a missing KV disables the rate limiter and the D1 budget guard,
+// both of which fail open. All invisible in normal responses, which is why they
+// belong in a health check rather than a log line nobody reads.)
+const OPTIONAL_BINDINGS = [
+  ['DB_MISC', 'popups will not appear'],
+  ['DB_LOGS', 'public errors are not recorded'],
+];
+
+const READINESS_TTL_SECONDS = 60;
+
+// Liveness: is this Worker running and completely configured? Pure function of
+// `env` — no database, no KV, no cache, no awaits.
+function livenessReport(env) {
+  const missingRequired = REQUIRED_BINDINGS.filter((b) => !env || !env[b]);
+  const live = missingRequired.length === 0;
+  return {
+    // `status` is kept for the monitors already watching this endpoint.
+    status: live,
+    healthy: live,
+    check: 'liveness',
+    worker: WORKER_NAME,
+    // Binding NAMES are in the committed wrangler.toml, so listing the missing
+    // ones tells an attacker nothing new — unlike a D1 error message.
+    missingRequired,
+  };
+}
+
+// One dependency probe. Returns a state plus the raw message, which the caller
+// decides whether to expose.
+async function probeBinding(db, label) {
+  if (!db) return { state: 'missing', message: '' };
+  try {
+    await db.prepare('SELECT 1 AS ok').first();
+    return { state: 'ok', message: '' };
+  } catch (e) {
+    return { state: 'error', message: `${label}: ${((e && e.message) || 'unknown').toString().slice(0, 200)}` };
+  }
+}
+
+// Readiness: can the Worker reach its dependencies? Probes run in PARALLEL (they
+// were sequential, so the endpoint's latency was the sum of six round-trips).
+async function readinessReport(env) {
+  const required = await Promise.all(REQUIRED_BINDINGS.map((b) => probeBinding(env && env[b], b)));
+  const optional = await Promise.all(OPTIONAL_BINDINGS.map(([b]) => probeBinding(env && env[b], b)));
+
+  const kv = pubKv(env);
+  let kvProbe = { state: 'missing', message: '' };
+  if (kv) {
+    try {
+      await kv.get('pub:healthcheck:probe'); // a missing key is still a healthy KV
+      kvProbe = { state: 'ok', message: '' };
+    } catch (e) {
+      kvProbe = { state: 'error', message: `KV: ${((e && e.message) || 'unknown').toString().slice(0, 200)}` };
+    }
+  }
+
+  const checks = {};
+  const messages = [];
+  REQUIRED_BINDINGS.forEach((b, i) => {
+    checks[b] = { state: required[i].state, required: true };
+    if (required[i].message) messages.push(required[i].message);
+  });
+  OPTIONAL_BINDINGS.forEach(([b, consequence], i) => {
+    checks[b] = { state: optional[i].state, required: false, consequence };
+    if (optional[i].message) messages.push(optional[i].message);
+  });
+  checks.KV_PUBLIC = {
+    state: kvProbe.state,
+    required: false,
+    consequence: 'rate limiting and the D1 budget guard are DISABLED (both fail open)',
+    ...(kvProbe.state === 'ok' && env && !env.KV_PUBLIC ? { note: 'via the legacy KV_SESSIONS fallback — see wrangler.toml' } : {}),
+  };
+  if (kvProbe.message) messages.push(kvProbe.message);
+
+  // Only a REQUIRED dependency failing makes this not ready. A degraded feature
+  // must not page someone at 2am, but it must be visible.
+  const ready = REQUIRED_BINDINGS.every((b) => checks[b].state === 'ok');
+  const degraded = Object.values(checks).some((c) => !c.required && c.state !== 'ok');
+
+  return { ready, degraded, checks, messages, checkedAt: new Date().toISOString() };
+}
+
+// Readiness is cached in the EDGE cache (free, unlimited writes) rather than KV:
+// a 60s KV-backed throttle would cost up to 1440 writes a day against a ~1000/day
+// budget this file already treats as a scarce resource. The key is a time bucket,
+// so it expires by construction.
+function readinessCacheKey() {
+  const bucket = Math.floor(Date.now() / (READINESS_TTL_SECONDS * 1000));
+  return new Request(`${CACHE_ORIGIN}/readiness?t=${bucket}`);
+}
+
+async function cachedReadinessReport(env, ctx) {
+  const cache = edgeCache();
+  if (cache) {
+    const key = readinessCacheKey();
+    const hit = await cache.match(key).catch(() => null);
+    if (hit) {
+      try { return { ...JSON.parse(await hit.text()), cached: true }; } catch (e) { /* fall through and re-probe */ }
+    }
+    const report = await readinessReport(env);
+    try {
+      const stored = new Response(JSON.stringify(report), {
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': `public, max-age=${READINESS_TTL_SECONDS}` },
+      });
+      const put = cache.put(key, stored);
+      if (ctx && ctx.waitUntil) ctx.waitUntil(put); else await put;
+    } catch (e) { /* best effort */ }
+    return { ...report, cached: false };
+  }
+  return { ...(await readinessReport(env)), cached: false };
+}
+
+// Constant-time over the token's characters, so the response time cannot be used
+// to learn how much of a guess was correct. A length mismatch is rejected up front,
+// which reveals the length only — not the content.
+function secretsMatch(a, b) {
+  const x = (a || '').toString();
+  const y = (b || '').toString();
+  if (!x || !y || x.length !== y.length) return false;
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x.charCodeAt(i) ^ y.charCodeAt(i);
+  return diff === 0;
+}
+
+// Full readiness detail requires HEALTH_TOKEN (`wrangler secret put HEALTH_TOKEN`),
+// sent as the `X-Health-Token` header — or `?token=` for monitors that cannot set
+// headers, at the usual cost of appearing in access logs. With no token configured
+// nobody gets the detail: an unset secret must not mean "open to everyone".
+function readinessAuthorized(request, url, env) {
+  const expected = (env && env.HEALTH_TOKEN ? env.HEALTH_TOKEN.toString() : '').trim();
+  if (!expected) return false;
+  const provided = (request.headers.get('X-Health-Token') || url.searchParams.get('token') || '').trim();
+  return secretsMatch(provided, expected);
+}
+
 // ============ ONE METHOD PER ACTION (audit PUB-BE-02) ============
 //
 // Routing was `if (action === 'x' && request.method === 'POST')` for the two write
@@ -1130,72 +1304,80 @@ export default {
       );
     }
 
-    // audit M-36 / M-37 — this Worker had no health endpoint and no config check.
+    // ---- Health (audit M-36 / M-37, reworked by PUB-BE-03; see the helpers) ----
     //
     // M-36: an uptime monitor pointed at `/` got `{"status":false,"message":"Invalid
     // Request"}` with HTTP 400, which most monitors read as DOWN — so the only way
     // to watch the public portal was to watch something that always looked broken.
     // mgmt has had `GET ?health=1` since config.js; this is the same contract.
     //
-    // M-37: nothing validated the bindings. A partially-bound deployment serves
-    // happily and silently WRONG — a missing DB_MISC makes every popup disappear
-    // (getActivePublicPopups returns [] by design), a missing KV_PUBLIC disables the
-    // rate limiter and the D1 budget guard, both of which fail open. Every one of
-    // those is invisible in normal responses, which is exactly why it belongs in a
-    // health check rather than in a log line nobody reads.
+    // M-37: nothing validated the bindings, and a partially-bound deployment serves
+    // happily and silently WRONG.
     //
-    // Deliberately BEFORE the rate limiter: a monitor polling every minute must not
-    // be able to rate-limit itself into a false alarm.
-    if (request.method === 'GET' && url.searchParams.get('health') === '1') {
-      const checks = {};
+    // LIVENESS stays deliberately BEFORE the rate limiter — a monitor polling every
+    // minute must not be able to rate-limit itself into a false alarm — which is
+    // safe precisely because it performs no I/O at all.
+    // Only a ROOT probe (no ?action=) is a health probe — `?action=x&health=1`
+    // stays a request for x.
+    const healthParam = action ? '' : (url.searchParams.get('health') || '').trim();
+    if (healthParam) {
+      const wantsReadiness = healthParam === 'ready' || url.searchParams.get('deep') === '1';
 
-      // Required: without these the portal cannot serve its core payload at all.
-      for (const binding of ['DB_CORE', 'DB_COLLECTIONS', 'DB_LOANS_EXPENSES', 'DB_FILE_INDEX']) {
-        if (!env[binding]) { checks[binding] = 'missing-binding'; continue; }
-        try {
-          await env[binding].prepare('SELECT 1 AS ok').first();
-          checks[binding] = 'ok';
-        } catch (e) {
-          checks[binding] = 'error: ' + ((e && e.message) || 'unknown').toString().slice(0, 120);
-        }
+      if (!wantsReadiness) {
+        const report = livenessReport(env);
+        return new Response(JSON.stringify(report), {
+          status: report.healthy ? 200 : 503,
+          headers: { ...cors, 'Cache-Control': 'no-store' },
+        });
       }
 
-      // Degraded, not fatal: the portal still renders, but a feature is silently off.
-      for (const [binding, consequence] of [
-        ['DB_MISC', 'popups will not appear'],
-        ['DB_LOGS', 'public errors are not recorded'],
-      ]) {
-        if (!env[binding]) { checks[binding] = `degraded: missing-binding — ${consequence}`; continue; }
-        try {
-          await env[binding].prepare('SELECT 1 AS ok').first();
-          checks[binding] = 'ok';
-        } catch (e) {
-          checks[binding] = 'error: ' + ((e && e.message) || 'unknown').toString().slice(0, 120);
-        }
+      // READINESS does I/O, so unlike liveness it is rate-limited (its own bucket,
+      // so it cannot starve the portal's) on top of the 60s edge-cached result.
+      const probeIp = request.headers.get('CF-Connecting-IP') || '';
+      if (probeIp && await pubRateLimited(env, probeIp, 'health:ready')) {
+        return new Response(
+          JSON.stringify({ status: false, check: 'readiness', message: 'Too many readiness probes. Please try again in a little while.' }),
+          { status: 429, headers: { ...cors, 'Cache-Control': 'no-store' } }
+        );
       }
 
-      const kv = pubKv(env);
-      if (!kv) {
-        checks.KV_PUBLIC = 'degraded: missing-binding — rate limiting and the D1 budget guard are DISABLED (both fail open)';
-      } else {
-        try {
-          await kv.get('pub:healthcheck:probe'); // a missing key is still a healthy KV
-          checks.KV_PUBLIC = env.KV_PUBLIC ? 'ok' : 'ok (via the legacy KV_SESSIONS fallback — see wrangler.toml)';
-        } catch (e) {
-          checks.KV_PUBLIC = 'error: ' + ((e && e.message) || 'unknown').toString().slice(0, 120);
-        }
+      const report = await cachedReadinessReport(env, ctx);
+
+      // The probe messages are the operator's real diagnostic, so they are recorded
+      // where an operator can read them instead of being handed to the internet.
+      // Only on a fresh probe — a cached report was already logged.
+      if (report.messages.length && !report.cached) {
+        const logging = logPublicError(
+          env, 'public-backend', 'health:readiness',
+          `readiness probe failed: ${report.messages.length} dependency error(s)`,
+          '', JSON.stringify({ errors: report.messages.slice(0, 6) }), ''
+        );
+        if (ctx && ctx.waitUntil) ctx.waitUntil(logging);
       }
 
-      // Only a REQUIRED binding failing makes this unhealthy. A degraded feature
-      // must not page someone at 2am, but it must be visible.
-      const REQUIRED = ['DB_CORE', 'DB_COLLECTIONS', 'DB_LOANS_EXPENSES', 'DB_FILE_INDEX'];
-      const healthy = REQUIRED.every(b => checks[b] === 'ok');
-      const degraded = Object.values(checks).some(v => v.startsWith('degraded'));
+      const authorized = readinessAuthorized(request, url, env);
+      const body = {
+        status: report.ready,
+        healthy: report.ready,
+        ready: report.ready,
+        degraded: report.degraded,
+        check: 'readiness',
+        worker: WORKER_NAME,
+        checkedAt: report.checkedAt,
+        cached: report.cached,
+        checks: report.checks,
+      };
+      if (authorized) {
+        body.errors = report.messages;
+      } else if (report.messages.length) {
+        // States yes, database internals no.
+        body.detail = 'redacted — send the HEALTH_TOKEN in an X-Health-Token header for error detail; the messages are in error_log';
+      }
 
-      return new Response(
-        JSON.stringify({ status: healthy, healthy, degraded, checks, worker: 'chhath-public-api' }),
-        { status: healthy ? 200 : 503, headers: { ...cors, 'Cache-Control': 'no-store' } }
-      );
+      return new Response(JSON.stringify(body), {
+        status: report.ready ? 200 : 503,
+        headers: { ...cors, 'Cache-Control': 'no-store' },
+      });
     }
 
     // Hardening A: per-IP rate limit (public, unauthenticated). A real viewer

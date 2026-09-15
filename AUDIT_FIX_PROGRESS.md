@@ -6,9 +6,9 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status: 18 of 48 PRs merged · 1 open (this one) · 29 pending**
+**Status: 19 of 48 PRs merged · 1 open (this one) · 28 pending**
 
-Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 1/8 in progress** · W3–W7 not started
+Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 2/8 in progress** · W3–W7 not started
 
 ---
 
@@ -33,46 +33,50 @@ Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is c
 | [#326](https://github.com/ashutoshroli/chhath-full-codebase/pull/326) | back up every table and restore an empty table faithfully | P0-07 | All 9 bindings + every schema table (12 were missing, incl. all of `DB_AUDIT`); a schema-vs-map test fails on drift either way; manifest v2 records `{rows, present}`; a present-and-empty table is now cleared on restore while v1 files keep the lenient skip | R2/Drive object backup stays an operational step (the file stores links); `collection_jobs.filled_base64` excluded on purpose |
 | [#327](https://github.com/ashutoshroli/chhath-full-codebase/pull/327) | never report a genuine record as not found | P0-10 | Verify screen's two-way verdict → seven explicit states in a pure `verifyVerdict.ts`; the red "not found" is asserted only against **live** data (otherwise "Verification Unavailable" / "Could Not Confirm" + Retry); `idle` counts as checking | Freshness provenance behind the stale flag = #328 |
 | [#328](https://github.com/ashutoshroli/chhath-full-codebase/pull/328) | distinguish live data from a saved copy, and bound every request | PUB-FE-01 | `source: network\|snapshot\|empty`; `savedAt` only from a real network response; SW API rule `NetworkFirst` → `NetworkOnly`; 12 s request / 30 s chat deadlines; concurrent loads share one request | Showing the age prominently in the UI is a design change → W5/W6 |
+| [#329](https://github.com/ashutoshroli/chhath-full-codebase/pull/329) | one canonical cache key and one method per action | PUB-BE-01, PUB-BE-02 | Cache key = (action, live version) only, so junk params can no longer force a rebuild; body-only caching (CORS never shared); `ACTION_METHODS` → `405` + `Allow`, enforced before any I/O. **First tests for this Worker** (19) + a CI step | Popup time-awareness → PR-20; single-flight → PR-24; lockfile/Miniflare → PR-25 |
 
 <sub>#322 was closed as superseded by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — the public Worker's cache key and method contract
+## 2. This PR — the health probe stops paying for itself in database calls
 
-**Audit ID:** PUB-BE-01 (cache key) and PUB-BE-02 (methods). First W2 PR.
+**Audit ID:** PUB-BE-03. Second W2 PR.
 
-Both findings are about the same thing: an anonymous caller could make this Worker rebuild the entire portal payload — nine table scans across four databases — at will, and so spend the **D1 daily row quota that this Worker shares with the management API**. That is the outage this file's own budget guard exists to prevent.
+`GET ?health=1` ran **six D1 round-trips and a KV read on every call**, and it sits before the rate limiter on purpose (a monitor must not be able to throttle itself into a false alarm). A monitor polling every 30 s therefore spent ~17,000 D1 round-trips a day answering *"is the Worker running?"* — which needs none — and any anonymous caller could multiply that at will against a quota shared with the management API. The health check could help cause the outage it exists to detect. The same response also handed out raw D1 error text, which is where SQLite echoes table, column and database names.
 
 Done:
 
-- **One canonical cache key per (action, data version).** The edge cache used to be keyed on the *client's full request URL*, so `&utm_source=1`, `&utm_source=2`, `&nonce=…` were all distinct keys for one payload — every one a miss, every miss a full build. It is now `https://public-cache.internal/<action>?v=<live version>`, derived from nothing the caller controls. Unknown parameters are **ignored, not rejected**: once they cannot influence the key they carry no cost, and a 400 would break any caller that appends one (a monitor, a shared link, the older frontend we cannot redeploy in lockstep).
-- **The fast path and the fallback path now share one build.** They were two caches with two key schemes, so identical data was built twice. `edgeCached` / `versionCached` / `serveVersionCacheOnly` collapse into `cachedPayload()` + `readCachedPayload()`.
-- **Only the body is cached; headers are per request.** A whole `Response` used to be stored, so the `Access-Control-Allow-Origin` of whoever caused the miss was replayed to callers from *other* origins (`caches.default` Vary support is too limited to rely on). The client-facing `Cache-Control` values are unchanged — and `immutable` is still attached **only** to a URL carrying the current `?v=`.
-- **One HTTP method per action,** from a single `ACTION_METHODS` table that drives both the rejection and the preflight. Reads are `GET`, the two blessed writes are `POST`; anything else is `405` with a correct `Allow` header. This matters beyond tidiness: the Cache API refuses a non-GET key, so every `POST ?action=portalData` was an **uncached** full build. Enforcement runs before the rate limiter and the health probe, so a wrong verb now costs zero KV reads and zero D1 queries.
-- The preflight advertises the action's real methods (it promised `GET, POST` for everything) and is reusable for a day (`Access-Control-Max-Age`).
+- **`?health=1` is liveness and does no I/O at all.** Binding presence is a synchronous property of `env`, so the answer needs no database: a hundred polls now perform zero queries. 503 with `missingRequired: [...]` when a required binding is absent (binding names are already in the committed `wrangler.toml`; error messages are the sensitive part).
+- **`?health=1&deep=1` (or `?health=ready`) is readiness.** It probes every D1 binding and KV — now **in parallel**, so the latency is one round-trip instead of the sum of six — and the result is **cached at the edge for 60 s**, with the per-IP limiter applied on its own bucket. Ten probes in a row cost one set of round-trips. The cache is the edge, not KV, deliberately: a 60 s KV throttle would cost up to 1,440 writes/day against the ~1,000/day budget this file already treats as scarce.
+- **Dependency states are public; database internals are not.** An anonymous caller sees `state: ok | missing | error` plus what a degraded feature costs; the actual messages are withheld and written to `error_log`. Full detail is released only to a caller presenting `HEALTH_TOKEN` (`X-Health-Token`, or `?token=` for monitors that cannot set headers), compared in constant time. **An unset `HEALTH_TOKEN` does not mean "open to everyone"** — nobody gets the detail.
+- A failing *optional* dependency stays `200` + `degraded: true` (it must not page anyone at 2 a.m.); only a required one is `503`.
+- `?action=x&health=1` is a request for `x` again, not a health probe.
+- Operator docs: `docs/POST_AUDIT_MANUAL_STEPS.md` B3 now says which URL to monitor and how to get detail; `wrangler.toml` documents `HEALTH_TOKEN` as a secret to set (no value committed).
 
-New `Public/backend/test/cache-key-and-methods.test.mjs` — **the first tests this Worker has ever had** (19 tests, `node --test`). They import `src/index.js` and stub D1, KV and the Cache API, so there is nothing to install and no lockfile is needed yet; a new CI step runs them in the existing Worker job. **12 of the 19 fail on `main`**, including "junk query parameters cannot force a rebuild" (six requests → six rebuilds before, zero after) and "`POST ?action=portalData` is refused before any database work" (14 D1 queries before, zero after).
+New `Public/backend/test/health-liveness-and-readiness.test.mjs` (15 tests) — **14 of them fail on `main`**, including "a hundred liveness polls do no I/O" (600+ D1 queries before, 0 now), "repeated deep probes reuse one 60 s result", and "an anonymous caller never sees the D1 error text" (the test seeds `no such column: users.password_hash in database chhath-core` and asserts it appears in the *log* and not in the response).
 
-Verification: `Public/backend` `npm test` **19/19** · `node --check` on every Worker file · `mgmt/backend` 713 tests unaffected.
+`mgmt/backend/test/ops-and-cleanup.test.mjs` also asserts this endpoint (audit M-36 / M-37 — it imports the public Worker to prove a monitor cannot read a healthy deployment as DOWN). Those five assertions were written against the fused endpoint, so they are moved to whichever half now answers them: the "is it up" and "which required binding is missing" cases stay on `?health=1`, and the three that need a real probe — a degraded optional binding, a present-but-broken one, the legacy `KV_SESSIONS` fallback — move to `?health=1&deep=1` and read the per-binding `{state, required, consequence}` shape. The broken-binding case now additionally asserts that the D1 text is **absent** from the response body, which is the PUB-BE-03 finding restated from the mgmt side.
 
-Left for later (same wave): the popup payload is still cached `immutable` per version, so a *scheduled* popup can be served outside its window — that is PR-20, which needs the canonical key this PR introduces. The `?health=1` probe still does six D1 round-trips on every call (PR-19), and single-flight for a cache miss is PR-24.
+Verification: `Public/backend` `npm test` **34/34** · `mgmt/backend` `npm test` **714/714** · `npm run lint:errors` clean · `node --check` on all 51 Worker files · migration coverage check passes.
+
+Left for later (same wave): the popup payload is still cached `immutable` per data version, so a *scheduled* popup can be served outside its window — PR-20 next. Single-flight for a concurrent cache miss is PR-24.
 
 ---
 
 ## 3. Pending
 
-**W2 — Public backend (7 left):**
+**W2 — Public backend (6 left):**
 
 | PR | Branch | What |
 |---|---|---|
-| 19 | `fix/public-health-split` | Split liveness from dependency health (the probe does six D1 round-trips per call) |
 | 20 | `fix/public-popup-ttl` | Time-aware popup TTL — a scheduled popup is cached `immutable` per version, so it can be served outside its window |
 | 21 | `fix/public-users-allowlist` | Explicit column allowlist on the public users payload |
 | 22 | `fix/public-write-hardening` | Size/shape/rate limits on the public write paths |
 | 23 | `fix/public-snapshot-atomicity` | KV last-known-good snapshot written atomically |
 | 24 | `perf/public-assembly` | Parallel section reads + single-flight cache fill + post-assembly version re-check |
-| 25 | `test/public-backend-harness` | Lockfile + a Miniflare/workerd harness covering every action (extends the tests added in PR-18) |
+| 25 | `test/public-backend-harness` | Lockfile + a Miniflare/workerd harness covering every action (extends the tests added in PR-18/19) |
+
 **W3 — Render / AI / chat (7):** payload size contract · durable idempotent jobs · callback outbox + version bump · provider SSRF policy · AI write allowlist · chat abuse controls · chat privacy + Neon
 **W4 — Database (3):** duplicate/orphan detection · enforce keys & relations · migration ledger
 **W5 — Accessibility (6):** dialog primitives (public + mgmt) · combobox/buttons · contrast/focus/zoom · live regions + labels · structure/motion

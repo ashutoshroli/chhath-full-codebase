@@ -71,7 +71,25 @@ Redeploy, re-check `/?health=1` until the warning is gone. **This only sets a va
 So nobody has to wonder whether the committed container id is real (audit #88). Set it in the Vercel project env vars for the mgmt frontend; redeploy.
 
 ### B3. Point an uptime monitor at the health endpoints 🟢
-`GET /?health=1` on **both** Workers returns HTTP 503 when a dependency (D1/KV) is down. Add both URLs to your uptime monitor (UptimeRobot/BetterStack/etc.).
+`GET /?health=1` on **both** Workers returns HTTP 503 when the Worker cannot serve. Add both URLs to your uptime monitor (UptimeRobot/BetterStack/etc.).
+
+On the **public** Worker this is now split in two (audit PUB-BE-03), because a probe that hits the database on every poll spends a quota shared with the mgmt API:
+
+| what to call | what it does | poll it? |
+|---|---|---|
+| `GET /?health=1` | **Liveness.** No database or KV access at all — it only answers "is this Worker up and fully configured?" (503 when a required binding is missing). | **Yes** — this is the monitor URL. |
+| `GET /?health=1&deep=1` | **Readiness.** Actually probes every D1 binding and KV. The result is cached for 60s and the per-IP limit applies, so it cannot be used to hammer the databases. | Only when investigating. |
+
+Readiness returns each dependency's **state** to anyone, but the underlying D1 error
+messages only to a caller holding the shared secret — they go to `error_log`
+otherwise, because a D1 error string can echo table and database names:
+
+```bash
+wrangler secret put HEALTH_TOKEN          # in Public/backend
+curl -H "X-Health-Token: <secret>" "https://<public-worker>/?health=1&deep=1"
+```
+
+Without `HEALTH_TOKEN` set, nobody gets the messages (an unset secret does not mean "open").
 
 ---
 

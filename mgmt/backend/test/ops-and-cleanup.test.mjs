@@ -73,8 +73,26 @@ test('L-12 regression guard: ordinary date strings are unchanged, and junk is st
 });
 
 // ============================ M-36 / M-37: the Public Worker health endpoint
+//
+// CONTRACT CHANGE (audit PUB-BE-03): `?health=1` used to be a single endpoint
+// answering two different questions, and it paid six D1 round-trips plus a KV read
+// to answer either of them. It is now split, so these assertions moved with it:
+//
+//   ?health=1            LIVENESS — "is the process up?". ZERO I/O: binding
+//                        presence is a synchronous property of `env`. 503 +
+//                        `missingRequired: [...]` when a required binding is absent.
+//   ?health=1&deep=1     READINESS — "can it reach its dependencies?". Probes each
+//   (or ?health=ready)   binding and reports `{state, required, consequence}`. A
+//                        REQUIRED failure is 503; an OPTIONAL one is 200 +
+//                        `degraded: true`. D1 error TEXT is redacted (it echoes
+//                        table and column names) and written to error_log instead.
+//
+// The M-36 / M-37 intent is unchanged and still asserted below: a monitor must not
+// read a healthy deployment as DOWN, and a partially bound deployment must not
+// serve silently wrong data invisibly. Only which endpoint answers has changed.
 
 const healthReq = () => new Request('https://public.test/?health=1', { method: 'GET' });
+const readyReq = () => new Request('https://public.test/?health=1&deep=1', { method: 'GET' });
 const noopCtx = { waitUntil: () => {} };
 
 function publicEnv() {
@@ -96,12 +114,31 @@ test('M-36: a fully bound deployment answers 200, not the 400 a monitor reads as
   // Before: `/` and any unknown action returned {"status":false,...} with HTTP 400,
   // so the only thing an uptime monitor could poll always looked broken.
   assert.equal(res.status, 200);
+  assert.equal(body.status, true, 'kept so monitors already watching this URL keep working');
   assert.equal(body.healthy, true);
-  assert.equal(body.degraded, false);
+  assert.equal(body.check, 'liveness');
   assert.equal(body.worker, 'chhath-public-api');
+  assert.deepEqual(body.missingRequired, [], 'nothing required is absent');
   assert.equal(res.headers.get('Cache-Control'), 'no-store', 'a monitor must never get a cached answer');
+});
+
+test('M-36: the deep probe is what reports every dependency, required and optional', async () => {
+  const res = await publicWorker.fetch(readyReq(), publicEnv(), noopCtx);
+  const body = await res.json();
+
+  assert.equal(res.status, 200);
+  assert.equal(body.check, 'readiness');
+  assert.equal(body.ready, true);
+  assert.equal(body.degraded, false);
   for (const b of ['DB_CORE', 'DB_COLLECTIONS', 'DB_LOANS_EXPENSES', 'DB_FILE_INDEX', 'DB_MISC', 'DB_LOGS', 'KV_PUBLIC']) {
-    assert.equal(body.checks[b], 'ok', `${b} probed`);
+    assert.equal(body.checks[b].state, 'ok', `${b} probed`);
+  }
+  // Which failures may page someone is part of the contract, not a detail.
+  for (const b of ['DB_CORE', 'DB_COLLECTIONS', 'DB_LOANS_EXPENSES', 'DB_FILE_INDEX']) {
+    assert.equal(body.checks[b].required, true, `${b} is required`);
+  }
+  for (const b of ['DB_MISC', 'DB_LOGS', 'KV_PUBLIC']) {
+    assert.equal(body.checks[b].required, false, `${b} is optional`);
   }
 });
 
@@ -113,41 +150,56 @@ test('M-37: a missing REQUIRED binding is 503 and names the binding', async () =
 
   assert.equal(res.status, 503, 'a monitor must be able to page on this');
   assert.equal(body.healthy, false);
-  assert.equal(body.checks.DB_COLLECTIONS, 'missing-binding');
+  // Binding NAMES are in the committed wrangler.toml, so naming the missing one
+  // leaks nothing — and liveness reaches this verdict with no I/O at all.
+  assert.deepEqual(body.missingRequired, ['DB_COLLECTIONS']);
 });
 
 test('M-37: a silently-degrading binding is reported WITHOUT paging anyone', async () => {
   const env = publicEnv();
   delete env.DB_MISC;   // popups vanish — getActivePublicPopups returns [] by design
   delete env.KV_PUBLIC; // the rate limiter and D1 budget guard both fail OPEN
-  const res = await publicWorker.fetch(healthReq(), env, noopCtx);
+  const res = await publicWorker.fetch(readyReq(), env, noopCtx);
   const body = await res.json();
 
   // This is the M-37 case: a partially bound deployment serves happily and silently
   // WRONG, and none of it shows up in a normal response.
   assert.equal(res.status, 200, 'the portal still renders, so this must not be a hard failure');
-  assert.equal(body.healthy, true);
+  assert.equal(body.ready, true);
   assert.equal(body.degraded, true, 'but it must be visible');
-  assert.match(body.checks.DB_MISC, /^degraded:.*popups will not appear/);
-  assert.match(body.checks.KV_PUBLIC, /^degraded:.*fail open/);
+  assert.equal(body.checks.DB_MISC.state, 'missing');
+  assert.equal(body.checks.DB_MISC.required, false);
+  assert.match(body.checks.DB_MISC.consequence, /popups will not appear/,
+    'a degraded feature must say what it actually costs');
+  assert.equal(body.checks.KV_PUBLIC.state, 'missing');
+  assert.match(body.checks.KV_PUBLIC.consequence, /fail open/);
 });
 
 test('M-37: a binding that is present but broken is an error, not "ok"', async () => {
   const env = publicEnv();
   env.DB_CORE = { prepare: () => { throw new Error('D1_ERROR: connection reset by peer'); } };
-  const res = await publicWorker.fetch(healthReq(), env, noopCtx);
-  const body = await res.json();
-  assert.equal(res.status, 503);
-  assert.match(body.checks.DB_CORE, /^error: D1_ERROR: connection reset/);
+  const res = await publicWorker.fetch(readyReq(), env, noopCtx);
+  const raw = await res.text();
+  const body = JSON.parse(raw);
+
+  assert.equal(res.status, 503, 'a REQUIRED dependency failing is a hard failure');
+  assert.equal(body.ready, false);
+  assert.equal(body.checks.DB_CORE.state, 'error');
+  // PUB-BE-03: the STATE is public, the D1 message is not — SQLite echoes table,
+  // column and database names. The text goes to error_log instead.
+  assert.ok(!raw.includes('connection reset'),
+    'an anonymous caller must never be handed raw D1 error text');
+  assert.match(body.detail, /redacted/);
 });
 
 test('M-37: the legacy KV_SESSIONS fallback is reported as such, not as fully configured', async () => {
   const env = publicEnv();
   delete env.KV_PUBLIC;
   env.KV_SESSIONS = makeKV(); // an older deployment, before the H-4 namespace split
-  const res = await publicWorker.fetch(healthReq(), env, noopCtx);
+  const res = await publicWorker.fetch(readyReq(), env, noopCtx);
   const body = await res.json();
-  assert.match(body.checks.KV_PUBLIC, /legacy KV_SESSIONS fallback/,
+  assert.equal(body.checks.KV_PUBLIC.state, 'ok', 'it does work');
+  assert.match(body.checks.KV_PUBLIC.note, /legacy KV_SESSIONS fallback/,
     'working-but-on-the-old-shared-namespace must not look identical to done');
 });
 
