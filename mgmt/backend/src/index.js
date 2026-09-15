@@ -1,4 +1,4 @@
-import { login, loginWithGoogle, doLogout, withAuth, withApiKey, verifyToken, requireSuperadmin, requireAdminOrAbove, requireStaffRole, getLockedYearsSet, lockYear, unlockYear, getMySessions, revokeSession, revokeAllOtherSessions, getUserSessions, revokeUserSession, getLoginAttempts, getLockedAccounts, revokeLock, revokeAllLocks, issueSession } from './auth.js';
+import { login, loginWithGoogle, doLogout, withAuth, withApiKey, verifyToken, effectiveSessionToken, requireSuperadmin, requireAdminOrAbove, requireStaffRole, getLockedYearsSet, lockYear, unlockYear, getMySessions, revokeSession, revokeAllOtherSessions, getUserSessions, revokeUserSession, getLoginAttempts, getLockedAccounts, revokeLock, revokeAllLocks, issueSession } from './auth.js';
 import * as twoFactor from './twoFactor.js';
 import * as passwordReset from './passwordReset.js';
 import * as renderJobs from './renderJobs.js';
@@ -774,7 +774,14 @@ export default {
       requestPasswordReset: () => passwordReset.requestPasswordReset(env, req.name, req.serverIp),
       resetPassword: () => passwordReset.resetPassword(env, req.name, req.code, req.newPassword, req.serverIp),
 
-      logout: () => withAuth(env, req, (user) => doLogout(env, req.token)),
+      // audit P0-05: this passed `req.token`, which is EMPTY for a cookie-only
+      // client — so the response cleared the browser cookies while the session
+      // itself stayed valid in KV for its full TTL. A replayed/stolen cookie kept
+      // working after "Sign out". Revoke whatever the request authenticated with.
+      // (the `user` parameter is what M-1 looks for: logout needs no ROLE gate —
+      // withAuth has already proved a valid session — but it must stay an
+      // authenticated, per-user action.)
+      logout: () => withAuth(env, req, (user) => doLogout(env, effectiveSessionToken(req), user)),
 
       // ---- Active sessions / devices (every role: own devices) ----
       getMySessions: () => withAuth(env, req, (user) => getMySessions(env, user, user.th)),
@@ -1361,7 +1368,9 @@ export default {
       const cacheParamFn = CACHEABLE_ACTIONS[action];
       let servedFromCacheable = false;
       if (cacheParamFn) {
-        const authedUser = await verifyToken(env, req.token).catch(() => null);
+        // Cookie-only clients carry no body token, so this must use the effective
+        // one or the fast path silently never applies to them (audit P0-05).
+        const authedUser = await verifyToken(env, effectiveSessionToken(req)).catch(() => null);
         if (authedUser) {
           // SECURITY (audit H-1): a cache HIT returns WITHOUT invoking the handler,
           // so any role check that lives inside the handler is bypassed on a hit.

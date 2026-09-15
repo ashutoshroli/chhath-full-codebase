@@ -544,7 +544,18 @@ export async function loginWithGoogle(env, idToken, rememberMe, clientIp, device
   return issueSession(env, row, rememberMe, ip, deviceInfo, { identifier: email, reason: 'google' });
 }
 
-export async function doLogout(env, token) {
+// `user` is optional and used only for the log line when a logout arrives without
+// a resolvable session token — it makes the (previously silent) case diagnosable.
+export async function doLogout(env, token, user) {
+  // audit P0-05: an empty token used to delete the KV key for sha256('') — a key
+  // that never exists — and report success. That is exactly what a cookie-only
+  // logout did, so the session stayed valid for its full TTL (up to 30 days) even
+  // though the browser cookies were cleared. Callers must pass the EFFECTIVE token
+  // (see effectiveSessionToken); a missing one is now reported, not faked.
+  if (!token) {
+    console.error('[auth] logout received no session token', user && user.name ? `for ${user.name}` : '');
+    return { success: false, revoked: false, reason: 'no-session-token' };
+  }
   // Delete BOTH the hashed key and the legacy raw-token key, so a session created
   // before this change still logs out properly (see LEGACY_SESSION_KEY_SUNSET).
   const logoutHash = await sha256Hex(token || '');
@@ -558,7 +569,7 @@ export async function doLogout(env, token) {
         .bind(new Date().toISOString(), th).run();
     }
   } catch (e) { /* non-fatal */ }
-  return { success: true };
+  return { success: true, revoked: true };
 }
 
 export async function verifyToken(env, token) {
@@ -863,14 +874,29 @@ export async function revokeUserSession(env, targetName, sessionId, user) {
   return { success: true };
 }
 
+// The token a request actually authenticated with: the body token when present
+// (the old localStorage clients), otherwise the HttpOnly session cookie the router
+// extracted (cookie-only clients).
+//
+// audit P0-05: this used to be inlined in withAuth only, so every OTHER caller
+// that needed "the current session token" reached for `req.token` — which is
+// EMPTY for a cookie-only client. Logout did exactly that and therefore revoked
+// nothing. Anything that needs the session token must go through here.
+export function effectiveSessionToken(req) {
+  return (req && (req.token || req.__cookieSessionToken)) || '';
+}
+
 export async function withAuth(env, req, fn) {
   // audit H-12: prefer the body token (the existing, CSRF-immune path — unchanged),
   // and fall back to the HttpOnly session cookie the router extracted into
   // req.__cookieSessionToken. So both the old localStorage clients and new
   // cookie-only clients authenticate. The router enforces CSRF for the cookie path.
-  const token = req.token || req.__cookieSessionToken;
+  const token = effectiveSessionToken(req);
   const user = await verifyToken(env, token);
   if (!user) throw AuthError('Session expired, please login again');
+  // Record what this request authenticated with, so handlers (logout) act on the
+  // real session rather than guessing.
+  if (req) req.__effectiveToken = token;
   return fn(user);
 }
 
