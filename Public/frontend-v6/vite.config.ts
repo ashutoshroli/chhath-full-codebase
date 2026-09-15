@@ -88,24 +88,28 @@ export default defineConfig({
         importScripts: ['/push-sw.js'],
         runtimeCaching: [
           {
-            // Portal API: prefer network, fall back to cache when offline.
-            // Scoped to the API WORKER host only. It used to match /shaharpura\.com/,
-            // which also matched files-chhath.shaharpura.com (the R2 file domain) —
-            // so every profile photo / donation QR was pushed through this
-            // NetworkFirst "api" cache. Those are cross-origin images with no CORS
-            // headers, so the SW sees an opaque (status 0) response that workbox
-            // will not cache; combined with networkTimeoutSeconds the request fell
-            // back to an empty cache and the image failed to load. R2 files are
-            // handled by their own image rule below.
+            // ---- Portal API: NETWORK ONLY (audit PUB-FE-01) ----
+            //
+            // This was NetworkFirst with a 6s timeout and a 24h cache. When the
+            // network missed that deadline, workbox replayed a cached 200 — and the
+            // client cannot tell such a response apart from a live one, so
+            // `loadPortalData` stamped it `savedAt: now()`, marked it fresh and
+            // cleared the stale badge. A finance/transparency portal would then
+            // show yesterday's contributions under a brand-new "last updated"
+            // time, which is worse than showing nothing.
+            //
+            // Offline still works, and now says so: the client keeps its own
+            // localStorage snapshot with the timestamp of the fetch that produced
+            // it, and surfaces it as explicitly stale. One cache, one owner, and
+            // provenance the UI can be honest about.
+            //
+            // Scoped to the API WORKER host only — it used to match
+            // /shaharpura\.com/, which also swallowed files-chhath.shaharpura.com
+            // (the R2 file domain) and broke uploaded images.
             urlPattern: ({ url }) =>
               /(^|\.)workers\.dev$/.test(url.host) ||
               url.host === 'chhath-public-worker.shaharpura.com',
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'chhath-api',
-              networkTimeoutSeconds: 6,
-              expiration: { maxEntries: 32, maxAgeSeconds: 60 * 60 * 24 }
-            }
+            handler: 'NetworkOnly'
           },
           // NOTE — deliberately NO runtimeCaching rule for the uploaded images
           // (R2 profile photos / donation QR on files-chhath.shaharpura.com, and
