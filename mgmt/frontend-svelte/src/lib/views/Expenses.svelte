@@ -9,6 +9,7 @@
   import RowActions from '$lib/components/RowActions.svelte';
   import TransliterateInput from '$lib/components/TransliterateInput.svelte';
   import { canAddView } from '$lib/permissions';
+  import { checkMoney } from '$lib/money';
 
   interface Props { year: string; role: string; editable: boolean; }
   let { year, role, editable }: Props = $props();
@@ -54,7 +55,11 @@
 
   async function submit(e: Event) {
     e.preventDefault();
-    if (!form.Discription || !form.Amount) { alert('Fill all fields'); return; }
+    if (!form.Discription) { alert('Fill all fields'); return; }
+    // audit P0-09: a NEGATIVE expense inflates the yearly surplus, and the surplus
+    // is what the lending budget is derived from. Same rules as the backend.
+    const amount = checkMoney(form.Amount, 'Amount');
+    if (!amount.ok) { alert(amount.message); return; }
     saving = true;
     try {
       if (editing) {
@@ -131,7 +136,7 @@
       />
       <div class="form-group">
         <label>Amount</label>
-        <input type="number" bind:value={form.Amount} />
+        <input type="number" min="0.01" step="0.01" bind:value={form.Amount} />
       </div>
       <div class="form-group">
         <label>Category</label>

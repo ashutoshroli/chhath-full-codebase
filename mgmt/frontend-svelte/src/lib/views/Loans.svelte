@@ -10,6 +10,7 @@
   import RowActions from '$lib/components/RowActions.svelte';
   import { canAddView } from '$lib/permissions';
   import { createDropdownList } from '$lib/dropdownList';
+  import { checkMoney } from '$lib/money';
   import LoanConsentModal from '$lib/components/LoanConsentModal.svelte';
 
   interface Props {
@@ -72,14 +73,35 @@
   let committeeIds = $derived(new Set((committee || []).map((c) => c.Name)));
 
   // Contributor id set for the year (matches deps [year]).
+  //
+  // audit: this used to keep the PREVIOUS year's ids on screen while the new
+  // year's request was in flight, and it had no `.catch` — so a failed load left
+  // year A's contributors selectable for a year B loan (and produced an unhandled
+  // rejection). The list is cleared first, the response is applied only if it is
+  // still the year we asked for, and a failure is surfaced and blocks issuing.
   let contribYear = '';
+  let contribLoadError = $state('');
   $effect(() => {
     if (year === contribYear) return;
     contribYear = year;
+    const requestedYear = year;
+    contributorIds = null;
+    form = { ...form, receiver: '', g1: '', g2: '', g3: '' };
+    contribLoadError = '';
     contribLoading = true;
-    api.getYearContributors(year)
-      .then((ids: string[]) => (contributorIds = new Set(ids)))
-      .finally(() => (contribLoading = false));
+    api.getYearContributors(requestedYear)
+      .then((ids: string[]) => {
+        if (contribYear !== requestedYear) return; // a newer year won
+        contributorIds = new Set(ids);
+      })
+      .catch((err: Error) => {
+        if (contribYear !== requestedYear) return;
+        contribLoadError = err.message || 'the list could not be loaded';
+        contributorIds = new Set();
+      })
+      .finally(() => {
+        if (contribYear === requestedYear) contribLoading = false;
+      });
   });
 
   let contributorOptions = $derived.by(() => {
@@ -109,7 +131,13 @@
   async function submit(e: Event) {
     e.preventDefault();
     if (editing) {
-      if (!form.Amount) { alert('Amount is required'); return; }
+      // audit P0-09: same money rules as the backend, on the edit path too.
+      const amount = checkMoney(form.Amount, 'Amount');
+      if (!amount.ok) { alert(amount.message); return; }
+      const rate = checkMoney(form.Rate, 'Interest rate', { required: false, min: 0 });
+      if (!rate.ok) { alert(rate.message); return; }
+      const tenure = checkMoney(form.Tenure, 'Tenure', { required: false, min: 0 });
+      if (!tenure.ok) { alert(tenure.message); return; }
       saving = true;
       try {
         await api.updateRecord('LOANS', editing.__rowIndex, {
@@ -133,8 +161,20 @@
     if (!receiver || !g1 || !g2 || !g3) { alert('Select Receiver and all 3 Guarantors'); return; }
     if (new Set([receiver, g1, g2, g3]).size !== 4) { alert('Receiver and Guarantors must all be different'); return; }
     if ([g1, g2, g3].some((g) => committeeIds.has(g))) { alert('Rule Violation: A Committee Member cannot be a Guarantor'); return; }
-    if (!Amount) { alert('Amount is required'); return; }
+    const newAmount = checkMoney(Amount, 'Amount');
+    if (!newAmount.ok) { alert(newAmount.message); return; }
+    const newRate = checkMoney(form.Rate, 'Interest rate', { required: false, min: 0 });
+    if (!newRate.ok) { alert(newRate.message); return; }
+    const newTenure = checkMoney(form.Tenure, 'Tenure', { required: false, min: 0 });
+    if (!newTenure.ok) { alert(newTenure.message); return; }
     if (!FinalRepaymentDate) { alert('Final Repayment Date is required'); return; }
+    // audit: the contributor list belongs to a specific year. If that load failed
+    // we must not issue against a stale/empty list — the participants would be
+    // whatever the previous year left behind.
+    if (contribLoadError) {
+      alert(`The contributor list for ${year} could not be loaded (${contribLoadError}). Please retry before issuing a loan.`);
+      return;
+    }
     if (available !== null && (parseFloat(Amount) || 0) > available + 0.01) {
       alert(`This loan (₹${parseFloat(Amount) || 0}) exceeds what is still available to lend this year: ₹${Math.max(0, Math.round(available * 100) / 100)}.`);
       return;
@@ -260,7 +300,7 @@
         {/if}
         <div class="form-group">
           <label>Amount</label>
-          <input type="number" value={form.Amount} oninput={(e) => (form = { ...form, Amount: (e.currentTarget as HTMLInputElement).value })} />
+          <input type="number" min="0.01" step="0.01" value={form.Amount} oninput={(e) => (form = { ...form, Amount: (e.currentTarget as HTMLInputElement).value })} />
           {#if !editing && available !== null}
             <div style="font-size:0.78rem; margin-top:4px; color:{((parseFloat(form.Amount) || 0) > available + 0.01) ? 'var(--danger)' : 'var(--text-muted)'};">
               Available to lend this year: ₹{Math.max(0, Math.round(available * 100) / 100)}{(parseFloat(form.Amount) || 0) > available + 0.01 ? ' — this loan exceeds it' : ''}
@@ -269,11 +309,11 @@
         </div>
         <div class="form-group">
           <label>Interest Rate (%)</label>
-          <input type="number" step="0.1" value={form.Rate} oninput={(e) => (form = { ...form, Rate: (e.currentTarget as HTMLInputElement).value })} />
+          <input type="number" min="0" step="0.1" value={form.Rate} oninput={(e) => (form = { ...form, Rate: (e.currentTarget as HTMLInputElement).value })} />
         </div>
         <div class="form-group">
           <label>Tenure (Months)</label>
-          <input type="number" value={form.Tenure} oninput={(e) => (form = { ...form, Tenure: (e.currentTarget as HTMLInputElement).value })} />
+          <input type="number" min="0" step="1" value={form.Tenure} oninput={(e) => (form = { ...form, Tenure: (e.currentTarget as HTMLInputElement).value })} />
         </div>
         <div class="form-group">
           <label>Final Repayment Date</label>

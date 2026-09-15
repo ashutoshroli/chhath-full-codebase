@@ -14,6 +14,7 @@
   import { canAddView } from '$lib/permissions';
   import { createDropdownList } from '$lib/dropdownList';
   import { isTruthyFlag } from '$lib/flags';
+  import { checkMoney } from '$lib/money';
 
   interface Props {
     year: string;
@@ -166,11 +167,15 @@
     const isUtrMode = isMoney && !isResell && (form['Payment Mode'] === 'UPI' || form['Payment Mode'] === 'Online');
     if (isResell) {
       if (!form.Detail.trim()) { alert("Resold item's name is required"); return; }
-      if (!form.Amount) { alert('Amount is required'); return; }
     } else {
       if (!form.Name) { alert('Please select a contributor'); return; }
-      if (isMoney && !form.Amount) { alert('Amount is required'); return; }
       if (!isMoney && !form.Detail.trim()) { alert('Detail is required (what was given / what work was done)'); return; }
+    }
+    // audit P0-09: this used to be `if (!form.Amount)` only, so -500 / 1e21 /
+    // '12.3456' were sent to the API. Same rules as the backend (lib/money.ts).
+    if (isMoney || isResell) {
+      const amount = checkMoney(form.Amount, 'Amount');
+      if (!amount.ok) { alert(amount.message); return; }
     }
     saving = true;
     try {
@@ -463,7 +468,7 @@
       {#if form['Contribution Type'] === '1'}
         <div class="form-group">
           <label>Amount</label>
-          <input type="number" value={form.Amount} oninput={(e) => (form = { ...form, Amount: (e.currentTarget as HTMLInputElement).value })} />
+          <input type="number" min="0.01" step="0.01" value={form.Amount} oninput={(e) => (form = { ...form, Amount: (e.currentTarget as HTMLInputElement).value })} />
         </div>
       {:else}
         <div class="form-group">

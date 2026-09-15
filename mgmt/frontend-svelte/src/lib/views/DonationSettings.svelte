@@ -6,6 +6,7 @@
   // the live committee (Committee tab) — not entered here.
   import { api, reportClientError } from '$lib/api';
   import { prepareImageForUpload } from '$lib/imagePrep';
+  import { checkDonationDetails } from '$lib/money';
 
   const str = (v: unknown) => (v === undefined || v === null ? '' : v.toString());
 
@@ -82,18 +83,47 @@
   }
 
   async function save() {
+    // audit: these seven values are published one setting at a time, and NOTHING
+    // was validated first. So a typo'd UPI id or account number went live on the
+    // public Donate page, and a failure halfway through left the page showing a
+    // MIX of old and new payment details — the worst possible state for a page
+    // whose whole purpose is telling people where to send money.
+    //
+    // Validation now happens before any write, so an invalid set is never
+    // partially published. The remaining risk (one call failing mid-loop) cannot
+    // be removed from the client — it needs a single atomic settings action on the
+    // backend — so the operator is told exactly which fields did go live.
+    const problem = checkDonationDetails({
+      upiId: form.upiId,
+      accountNumber: form.accountNumber,
+      ifsc: form.ifsc,
+      whatsapp: form.whatsapp
+    });
+    if (problem) {
+      error = problem;
+      notice = '';
+      return;
+    }
+
     saving = true;
     error = '';
     notice = '';
+    const saved: string[] = [];
     try {
       for (const [key, field] of Object.entries(FIELDS)) {
         await api.setPortalSetting(key, str(form[field]).trim());
+        saved.push(field);
       }
       notice = 'Donation settings saved. The public Donate Now page updates within a minute.';
       await load();
     } catch (err) {
-      error = (err as Error).message || 'Failed to save donation settings.';
-      reportClientError('DonationSettings', 'Failed to save donation settings', err as Error);
+      const message = (err as Error).message || 'Failed to save donation settings.';
+      error = saved.length
+        ? `${message} — ${saved.length} of ${Object.keys(FIELDS).length} fields were already published (${saved.join(', ')}). `
+          + 'The Donate page may now show a mix of old and new details: fix the error and press Save again.'
+        : `${message} — nothing was changed.`;
+      reportClientError('DonationSettings', 'Failed to save donation settings', err as Error, { savedFields: saved });
+      await load();
     } finally {
       saving = false;
     }
