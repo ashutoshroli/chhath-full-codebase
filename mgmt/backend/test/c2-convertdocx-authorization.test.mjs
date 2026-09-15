@@ -25,13 +25,22 @@ const DOCX_B64 = 'UEsDBBQAAAAIAA' + 'A'.repeat(18);
 function makeEnv() {
   const core = makeD1(schemaFor('core.sql'));
   const misc = makeD1(schemaFor('misc.sql'));
+  const collections = makeD1(schemaFor('collections.sql'));
   for (const name of ['USER0002', 'USER0003']) {
     core.prepare('INSERT INTO committee_members (year, name, view_role) VALUES (?,?,?)')
       .bind(2026, name, 'Member').run();
   }
+  // audit P0-03: a queued job must reference a COMMITTED collection row, so the
+  // rows the queue tests enqueue against have to exist. Ids 1, 7 and 8 are the
+  // ones used below.
+  for (const id of [1, 7, 8]) {
+    collections.prepare('INSERT INTO collections (id, year, sl_no, name, amount, contribution_type) VALUES (?,?,?,?,?,?)')
+      .bind(id, 2026, id, 'USER0009', 100, 1).run();
+  }
   return {
     DB_CORE: core,
     DB_MISC: misc,
+    DB_COLLECTIONS: collections,
     DB_TEMPLATES: makeD1(schemaFor('templates.sql')),
     DB_FILE_INDEX: makeD1(schemaFor('file_index.sql')),
     DB_LOANS_EXPENSES: makeD1(schemaFor('loans_expenses.sql')),
@@ -195,7 +204,9 @@ test('C-2: the queue refuses a recordId that does not match its docType', async 
       docType: 'receipt', year: 2026, rowIndex: 1, recordId: 'consent_loaner-2026-CN1',
       payload: { Year: 2026 }, filledBase64: DOCX_B64,
     }, SUBADMIN),
-    /does not match its document type/
+    // audit P0-03: the record id is now derived from the stored row, so a
+    // mismatching one is refused as "does not match the saved entry".
+    /does not match the saved entry/
   );
   // …and a recordId with no docType at all.
   await assert.rejects(
