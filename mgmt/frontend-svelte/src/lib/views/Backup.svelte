@@ -168,10 +168,21 @@
   <div class="glass-card" style="padding:18px; margin-bottom:18px;">
     <h3 style="margin-top:0;">1. Full Backup Download</h3>
     <p style="color:var(--text-muted); font-size:0.9rem;">
-      Download a backup of the entire database (all 8 D1 databases, every table) as a single zip file.
+      Download a backup of the portal database as a single zip file.
       Uploaded images/PDFs are not included in the backup (they stay safely on R2/Drive) — the backup
       only contains links to them.
     </p>
+    <div style="background:#fff7ed; border:1px solid #fdba74; border-radius:8px; padding:12px; margin-bottom:14px; font-size:0.85rem; color:#7c2d12;">
+      <strong>⚠️ Not a complete disaster-recovery copy yet.</strong>
+      This download currently covers 8 of the 9 databases and not every table. Still missing:
+      sessions and login attempts (audit database), <code>journey_entries</code>,
+      <code>push_subscriptions</code>, <code>loan_email_templates</code>,
+      <code>email_message_templates</code>, <code>email_messages</code>, <code>official_emails</code>,
+      <code>ai_fixes</code>, <code>ai_providers</code>, <code>collection_jobs</code> and
+      <code>render_jobs</code>. Restore can only bring back what the file contains.
+      For a full copy, export every database with the Wrangler CLI (see the reset runbook) and back up
+      R2/Drive separately.
+    </div>
     <button class="btn-submit" onclick={doDownload} disabled={busy}>
       <span class="material-icons-round" style="vertical-align:middle; margin-right:6px;">download</span>
       {busy ? 'Please wait...' : 'Download Full Backup (.zip)'}
