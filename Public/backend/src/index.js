@@ -11,13 +11,24 @@
 // (keep ONLY these source columns, drop everything else) — used for tables that
 // hold sensitive PII where the safe default is to expose nothing unless it's on
 // the list. If `pickColumns` is provided it takes precedence over `dropColumns`.
-async function tableRows(db, table, columnMap, dropColumns, pickColumns) {
+// `includeRowIndex` (audit PUB-BE-05, related observation): `id` -> `__rowIndex` used
+// to be emitted for EVERY section, so the internal autoincrement row id of every
+// table this Worker reads was published to anonymous visitors. Exactly ONE resource
+// needs it — a collections row's QR record id is `<docType>-<year>-<__rowIndex>`,
+// which is how the Verify screen matches a paper document to its row (see
+// `derive.ts` COLLECTION_DOC_TYPES). Nothing reads it from any other section, in any
+// of the frontends. It is now opt-in per section, so an internal id is disclosed only
+// where it is load-bearing.
+async function tableRows(db, table, columnMap, dropColumns, pickColumns, includeRowIndex = false) {
   const { results } = await db.prepare(`SELECT * FROM ${table} ORDER BY id ASC`).all();
   const allow = pickColumns ? new Set(pickColumns) : null;
   return results.map(r => {
     const out = {};
     for (const [col, val] of Object.entries(r)) {
-      if (col === 'id') { out['__rowIndex'] = val; continue; }
+      if (col === 'id') {
+        if (includeRowIndex) out['__rowIndex'] = val;
+        continue;
+      }
       if (allow) {
         if (!allow.has(col)) continue;                         // allowlist: drop anything not explicitly public
       } else if (dropColumns && dropColumns.includes(col)) {
@@ -60,9 +71,10 @@ const LOAN_CONSENTS_PUBLIC_COLS = ['loan_id', 'role', 'status', 'person_id', 'co
 // verified field-by-field. Everything else (created_by, utr, status, dates,
 // announced flags, category, loan_status, file_name, drive_path, ...) never
 // reaches an anonymous visitor. Same allowlist pattern as guarantors/consents:
-// fails CLOSED, so a future column can't leak. `id` -> `__rowIndex` is emitted by
-// tableRows() before the allowlist runs, so it is always kept (the collections QR
-// record-id needs it) and does NOT need listing here.
+// fails CLOSED, so a future column can't leak. `id` -> `__rowIndex` is handled by
+// tableRows() before the allowlist runs and so does NOT need listing here — but it is
+// emitted only for the one section that asks for it (collections, whose QR record id
+// is built from it). See the `includeRowIndex` note on tableRows.
 const COMMITTEE_PUBLIC_COLS   = ['year', 'name', 'view_role', 'view_role_hindi'];
 const COLLECTIONS_PUBLIC_COLS = ['year', 'name', 'amount', 'detail', 'contribution_type', 'certificate_or_receipt', 'is_resell'];
 const EXPENSES_PUBLIC_COLS    = ['year', 'amount', 'discription', 'discription_hindi'];
@@ -81,10 +93,53 @@ const GENERATED_FILES_PUBLIC_COLS = ['doc_type', 'year', 'record_id', 'public_li
 // unless it is added here deliberately. No rendered field changes.
 const LOAN_GUARANTORS_PUBLIC_COLS = ['year', 'loaner', 'guarantor', 'loan_id'];
 
-// Returns the public `users` rows with `email`/`whatsapp` always dropped, and
-// `mobile` kept ONLY for people who are committee members in some year (the only
-// place the public site shows a mobile). Everyone else has their mobile stripped
-// before it ever leaves the Worker (audit 1.2 — data minimization).
+// ============ THE PUBLIC `users` PROJECTION IS AN ALLOWLIST ============
+//
+// audit PUB-BE-05. This was the last section still built as a DENYLIST: `SELECT *`
+// followed by "drop email, drop whatsapp, drop mobile unless committee". Every other
+// section was converted to an allowlist in H-5 precisely because a denylist is the
+// wrong default for the most sensitive table in the deployment:
+//
+//   * it already leaked `created_by` — the internal login name of the staff member
+//     who entered the row — to every anonymous visitor, unread by any frontend, and
+//   * it fails OPEN. Any column added to `users` later ships to the whole internet
+//     the moment it is created, with no code change here and nothing to review. The
+//     table has grown twice already (`photo` by migration 27, the Hindi name/village
+//     /designation set before it); the next addition might be an Aadhaar reference,
+//     a date of birth or an address.
+//
+// The exact columns below are the ones the public frontend reads — they match
+// `userRow` in `Public/frontend-v6/src/lib/api/schema.ts` field for field. Anything
+// not on this list now fails CLOSED, which is the whole point.
+//
+// `mobile` is on the list but is NOT unconditional: it is emitted only for committee
+// members, which is the only place the public site renders a number (audit 1.2).
+// `created_by`, `email` and `whatsapp` are simply absent, so they cannot be
+// reinstated by forgetting a `continue`.
+const USERS_PUBLIC_COLS = [
+  'id_code', 'name', 'name_hindi',
+  'village', 'village_hindi',
+  'designation', 'designation_hindi',
+  'fathers_name', 'fathers_name_hindi',
+  'photo',
+  'mobile', // committee members only — see isCommittee below
+];
+
+// Named in the SQL as well, so the row never contains a value we intend to drop.
+// (Defence in depth: the response allowlist above is the control that matters, but a
+// column that is never read cannot be leaked by a later refactor, and D1 bills by
+// rows read — a narrower row is cheaper on a table this Worker reads in full.)
+//
+// `id` is deliberately absent from the projection while still driving ORDER BY:
+// SQLite can order by a column it does not return, so the internal row id cannot
+// reach the payload even by accident. See the `__rowIndex` note on tableRows.
+const USERS_PUBLIC_SELECT =
+  `SELECT ${USERS_PUBLIC_COLS.join(', ')} FROM users ORDER BY id ASC`;
+
+// Returns the public `users` rows built from USERS_PUBLIC_COLS, with `mobile` kept
+// ONLY for people who are committee members in some year (the only place the public
+// site shows a mobile). Everyone else has their mobile stripped before it ever
+// leaves the Worker (audit 1.2 — data minimization).
 async function usersPublicSafe(env) {
   // committee_members references its member by the same value the users row is
   // keyed on (id_code, e.g. "USER0007") — mirror the frontend's
@@ -97,17 +152,31 @@ async function usersPublicSafe(env) {
     (committeeRows || []).map(r => (r.name == null ? '' : r.name.toString().trim())).filter(Boolean)
   );
 
-  const { results } = await env.DB_CORE.prepare('SELECT * FROM users ORDER BY id ASC').all();
+  // An older deployment that has not applied the `photo` ADD-COLUMN migration would
+  // fail the explicit projection outright ("no such column"), taking the entire
+  // portal payload down with it — a worse outcome than the leak this fixes. So the
+  // narrow query is attempted first and a wide read is the fallback. The RESPONSE is
+  // built from the allowlist either way, so the fallback changes what is read, never
+  // what is sent: the leak is closed on both paths.
+  let results;
+  try {
+    ({ results } = await env.DB_CORE.prepare(USERS_PUBLIC_SELECT).all());
+  } catch (e) {
+    ({ results } = await env.DB_CORE.prepare('SELECT * FROM users ORDER BY id ASC').all());
+  }
+
   const map = REVERSE_MAPS.users;
-  return results.map(r => {
+  return (results || []).map(r => {
     const isCommittee = committeeIds.has((r.id_code == null ? '' : r.id_code.toString().trim()));
     const out = {};
-    for (const [col, val] of Object.entries(r)) {
-      if (col === 'id') { out['__rowIndex'] = val; continue; }
-      if (col === 'email' || col === 'whatsapp') continue;      // never public
-      if (col === 'mobile' && !isCommittee) continue;           // only committee mobiles are public
-      const header = map[col] || col;
-      out[header] = val === null ? '' : val;
+    // Iterating the ALLOWLIST rather than the row is what makes this fail closed: a
+    // column the database grows tomorrow is not part of this loop, so it cannot be
+    // emitted even if the SQL fallback above happened to read it.
+    for (const col of USERS_PUBLIC_COLS) {
+      if (col === 'mobile' && !isCommittee) continue;  // only committee mobiles are public
+      if (!(col in r)) continue;                       // absent on an older deployment
+      const val = r[col];
+      out[map[col] || col] = val === null ? '' : val;
     }
     return out;
   });
@@ -382,12 +451,17 @@ async function getAllPortalData(env) {
     // committee member (in any year), so a plain contributor's number never
     // leaves the server while committee mobiles still render as before.
     users: await usersPublicSafe(env),
-    // audit H-5: all sections below now use an ALLOWLIST of exactly the columns the
-    // public frontend reads (verified field-by-field), so nothing extra leaves the
-    // server and any future column fails closed. `id`->`__rowIndex` is preserved by
-    // tableRows regardless (needed for the collections QR record-id).
+    // audit H-5: all sections below use an ALLOWLIST of exactly the columns the public
+    // frontend reads (verified field-by-field), so nothing extra leaves the server and
+    // any future column fails closed.
+    //
+    // PUB-BE-05: `id` -> `__rowIndex` is now requested by exactly ONE section. The
+    // collections row id is load-bearing — it is the `<docType>-<year>-<id>` record id
+    // the Verify screen matches a paper document against — and no frontend reads it
+    // from anywhere else, so publishing the internal row ids of the other seven
+    // tables bought nothing.
     committee: await tableRows(env.DB_CORE, 'committee_members', REVERSE_MAPS.committee_members, null, COMMITTEE_PUBLIC_COLS),
-    collections: await tableRows(env.DB_COLLECTIONS, 'collections', REVERSE_MAPS.collections, null, COLLECTIONS_PUBLIC_COLS),
+    collections: await tableRows(env.DB_COLLECTIONS, 'collections', REVERSE_MAPS.collections, null, COLLECTIONS_PUBLIC_COLS, true),
     expenses: await tableRows(env.DB_LOANS_EXPENSES, 'expenses', REVERSE_MAPS.expenses, null, EXPENSES_PUBLIC_COLS),
     loans: await tableRows(env.DB_LOANS_EXPENSES, 'loans', REVERSE_MAPS.loans, null, LOANS_PUBLIC_COLS),
     guarantors: await tableRows(env.DB_LOANS_EXPENSES, 'loan_guarantors', REVERSE_MAPS.loan_guarantors, null, LOAN_GUARANTORS_PUBLIC_COLS),
