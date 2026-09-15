@@ -1,8 +1,8 @@
-import { resolveSheet, toColumnPayload, fromColumnRow } from './tableRegistry.js';
+import { resolveSheet, toColumnPayload, fromColumnRow, COLUMN_ALIASES } from './tableRegistry.js';
 import { requireRole, requireYearUnlocked, requireYearAccess, PermissionError, ValidationError, InternalError } from './auth.js';
 import { logErrorAt } from './logger.js';
 import { isTruthyFlag } from './flags.js';
-import { assertTenDigits } from './validate.js'; // audit Q-1: shared field validator
+import { assertTenDigits, assertMoney, assertYear, assertNoServerOwnedFields } from './validate.js'; // audit Q-1 / P0-09: shared field validators
 
 const DB_BINDINGS = {
   core: 'DB_CORE',
@@ -154,8 +154,34 @@ function validatePayload(sheetName, payload) {
   if (normalized === 'COLLECTIONS' && !isResell && (payload['Contribution Type'] || '1').toString() !== '1' && !(payload.Detail || '').toString().trim()) {
     throw ValidationError('Detail is required for this Contribution Type');
   }
-  if (payload.Amount !== undefined && payload.Amount !== '' && isNaN(parseFloat(payload.Amount))) {
-    throw ValidationError('Amount must be a number');
+  // ---- audit P0-09: money and year are the numbers everything else is derived from ----
+  //
+  // This used to be `isNaN(parseFloat(Amount))` only, so -500, 1e21 and '12.3456'
+  // all saved. A negative EXPENSE inflates the yearly surplus, which is exactly the
+  // figure the lending budget is computed from; a negative COLLECTION corrupts
+  // every total the public portal publishes.
+  //
+  // The year was not required at all on financial rows, and `saveRecord` only runs
+  // the lock/access checks `if (payload.Year)` — so a row with no year skipped both.
+  const AMOUNT_REQUIRED_SHEETS = new Set(['COLLECTIONS', 'EXPENSES', 'LOANS']);
+  if (AMOUNT_REQUIRED_SHEETS.has(normalized)) {
+    // Non-cash contributions (Contribution Type 2/3) legitimately have no amount;
+    // REQUIRED_FIELDS above already decides when Amount must be present.
+    const amountRequired = !(normalized === 'COLLECTIONS'
+      && (payload['Contribution Type'] || '1').toString() !== '1');
+    assertMoney(payload.Amount, 'Amount', { required: amountRequired });
+    assertYear(payload.Year, 'Year', { required: true });
+  } else if (payload.Amount !== undefined && payload.Amount !== '') {
+    assertMoney(payload.Amount, 'Amount', { required: false });
+  }
+  if (normalized === 'LOANS') {
+    // A rate or tenure may be zero (an interest-free loan), but never negative.
+    if (payload['Intrest Rate'] !== undefined && payload['Intrest Rate'] !== '') {
+      assertMoney(payload['Intrest Rate'], 'Interest Rate', { required: false, min: 0 });
+    }
+    if (payload.Tenure !== undefined && payload.Tenure !== '') {
+      assertMoney(payload.Tenure, 'Tenure', { required: false, min: 0 });
+    }
   }
   // audit Q-1: shared 10-digit validator (validate.js). Optional here — a blank
   // Mobile/WhatsApp is allowed; only a NON-blank value must be 10 digits. Message
@@ -167,6 +193,19 @@ function validatePayload(sheetName, payload) {
 export async function saveRecord(env, sheetName, payload, user) {
   assertGenericSheetAllowed(sheetName); // audit C-1 — must be the FIRST check
   requireRole(user, 'add', sheetName);
+  // audit P0-09: reject server-owned columns BEFORE anything else looks at the
+  // payload, so a crafted `sl_no` / `created_by` / `loan_status` can never reach
+  // toColumnPayload (which accepts any snake_case key).
+  {
+    const { table: t } = resolveSheet(sheetName);
+    // `id_code` / `sl_no` stay allowed here: this function deletes them and
+    // allocates the value inside the INSERT (audit H-9), so a client-supplied one
+    // is already discarded rather than trusted.
+    assertNoServerOwnedFields(t, payload, {
+      aliases: COLUMN_ALIASES[t] || {},
+      allow: ['id_code', 'sl_no'],
+    });
+  }
   if (payload.Year) await requireYearUnlocked(env, payload.Year);
   if (payload.Year) await requireYearAccess(env, user, payload.Year);
   validatePayload(sheetName, payload);
@@ -275,6 +314,10 @@ export async function updateRecordByIdx(env, sheetName, rowIndex, payload, user)
 
   const { db, table } = resolveSheet(sheetName);
   const d1 = dbFor(env, db);
+
+  // audit P0-09: same guard as saveRecord — an EDIT must not be able to rewrite a
+  // receipt number, re-attribute the row, or move a loan's status.
+  assertNoServerOwnedFields(table, payload, { aliases: COLUMN_ALIASES[table] || {} });
 
   // SECURITY (audit 2.1 — IDOR / year-lock bypass on edit): the lock + access
   // checks used to run ONLY against payload.Year, which is CLIENT-supplied. A
