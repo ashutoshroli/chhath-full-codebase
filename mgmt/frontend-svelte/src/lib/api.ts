@@ -57,6 +57,39 @@ export function getSession(): Session | null {
   return { token, user };
 }
 
+// ---- audit P0-11: session-expiry notification ----
+//
+// A plain callback registry rather than a store import, because stores/session.ts
+// imports THIS module — the dependency must stay one-way.
+type AuthExpiredHandler = (message: string) => void;
+const authExpiredHandlers = new Set<AuthExpiredHandler>();
+let authExpiredNotified = false;
+
+/** Subscribe to "the server rejected our session". Returns an unsubscribe fn. */
+export function onAuthExpired(handler: AuthExpiredHandler): () => void {
+  authExpiredHandlers.add(handler);
+  return () => authExpiredHandlers.delete(handler);
+}
+
+// Fires at most once per expiry: a screen with several parallel requests would
+// otherwise announce the same expiry many times.
+function notifyAuthExpired(message: string): void {
+  if (authExpiredNotified) return;
+  authExpiredNotified = true;
+  for (const handler of authExpiredHandlers) {
+    try {
+      handler(message);
+    } catch {
+      /* a listener must never break the request path */
+    }
+  }
+}
+
+/** Called after a successful login so the next expiry is announced again. */
+export function resetAuthExpiredNotice(): void {
+  authExpiredNotified = false;
+}
+
 export function clearSession(): void {
   [localStorage, sessionStorage].forEach((s) => {
     s.removeItem(TOKEN_KEY);
@@ -190,6 +223,11 @@ async function call<T = any>(action: string, params: Record<string, unknown> = {
   if (requireAuth) {
     const session = getSession();
     if (!session) {
+      // audit P0-11: the LOCAL expiry path needs the same announcement as the
+      // server's authError — getSession() has already called clearSession() (which
+      // purges the cache), and without this the shell would keep rendering for a
+      // user whose token has quietly run out.
+      notifyAuthExpired('Session expired, please login again');
       const err = new Error('Session expired, please login again') as ApiError;
       err.authError = true;
       throw err;
@@ -222,6 +260,12 @@ async function call<T = any>(action: string, params: Record<string, unknown> = {
 
     if (data.authError) {
       clearSession();
+      // audit P0-11: clearing storage is not enough. The Svelte session store
+      // still held the user, so the app stayed on the authenticated shell and
+      // every subsequent action failed with the same error — the user had to
+      // reload or press Log out to escape. Tell the app, once, that the session
+      // is gone so it can return to Login.
+      notifyAuthExpired(data.message || 'Session expired, please login again');
       const err = new Error(data.message || 'Session expired') as ApiError;
       err.authError = true;
       if (!NO_AUTOLOG_ACTIONS.includes(action)) {
