@@ -6,9 +6,9 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status: 21 of 48 PRs merged · 1 open (this one) · 26 pending**
+**Status: 22 of 48 PRs merged · 1 open (this one) · 25 pending**
 
-Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 4/8 in progress** · W3–W7 not started
+Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 5/8 in progress** · W3–W7 not started
 
 ---
 
@@ -37,54 +37,68 @@ Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is c
 | [#330](https://github.com/ashutoshroli/chhath-full-codebase/pull/330) | cheap liveness, throttled readiness, no D1 errors in public replies | PUB-BE-03 | `?health=1` is liveness with **zero I/O** (was 6 D1 round-trips + a KV read per call, before the rate limiter); `?health=1&deep=1` is readiness, probed in parallel and edge-cached 60 s; dependency *states* are public, D1 error text goes to `error_log` and is released only to a `HEALTH_TOKEN` holder; 15 tests + the mgmt-side M-36/M-37 assertions moved onto the split contract | — |
 
 | [#331](https://github.com/ashutoshroli/chhath-full-codebase/pull/331) | let a scheduled popup expire on time | PUB-BE-04 | Cache identity for `activePopups` is (data version, 60 s time bucket) instead of `immutable` per version, so a scheduled popup is no longer cached for a year outside its window and a stale ETag cannot answer `304`; a malformed schedule stamp fails closed; the `popups` scan is pre-filtered in SQL and slides are read only for eligible popups | Single-flight for a concurrent miss → PR-24 |
-<sub>#322 was closed as superseded by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
+| [#334](https://github.com/ashutoshroli/chhath-full-codebase/pull/334) | make the public users projection an allowlist | PUB-BE-05 | `USERS_PUBLIC_COLS` drives both the `SELECT` and the emitted row, iterating the allowlist rather than the DB row, so `created_by` stops leaking and a future column fails closed; `id` is ordered by without being returned; `__rowIndex` is opt-in and only `collections` (whose QR record id is built from it) asks | Explicit SQL for the other seven sections → PR-24 |
+<sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — the public `users` payload stops being a denylist
+## 2. This PR — the two write paths get an authenticity check
 
-**Audit ID:** PUB-BE-05, plus the same finding's observation that internal row ids are exposed beyond the one resource that needs them. Fourth W2 PR.
+**Audit ID:** PUB-BE-06. Fifth W2 PR.
 
-Every section of the portal payload was converted to a column **allowlist** in H-5 except the one built from the most sensitive table in the deployment. `users` was still `SELECT *` followed by a hand-written list of drops — "not email, not whatsapp, not mobile unless committee" — which is the wrong default twice over:
+`logError` and `savePushSubscription` are the only writes on this Worker, they are anonymous by necessity, and they had no authenticity control of any kind. The assumption worth naming is that CORS was one:
 
-- it already published **`created_by`**, the internal login name of the staff member who entered each member row, to every anonymous visitor. No frontend reads it.
-- it **fails open**. Any column added to `users` later ships to the whole internet the moment it exists, with no code change here and nothing to review. That table has already grown twice (`photo` by ADD-COLUMN migration 27, the Hindi name/village/designation set before it); the next addition could as easily be an Aadhaar reference, a date of birth or an address.
+> **CORS does not stop a request. It stops the caller reading the response.**
 
-Done:
+A cross-origin `POST` still arrives and is still executed — the browser only refuses to hand the *reply* to the calling script. For a write the reply is not the point, the row is. And a `POST` with `Content-Type: text/plain` is a CORS **simple request**, so it never even gets a preflight for an origin allow-list to reject. Which meant:
 
-- **An explicit projection, in the SQL and in the response.** `USERS_PUBLIC_COLS` is the eleven columns the public frontend actually reads — it matches `userRow` in `Public/frontend-v6/src/lib/api/schema.ts` field for field — and it drives both the `SELECT` and the row it builds. The row is assembled by iterating the **allowlist**, not the database row, which is what makes it fail closed: a column that appears in the table tomorrow is not part of the loop and cannot be emitted. `created_by` / `email` / `whatsapp` are now simply absent rather than removed, so they cannot come back by someone forgetting a `continue`.
-- **`id` is ordered by without being selected.** SQLite can `ORDER BY` a column it does not return, so the internal row id never enters a users row even by accident, and the ordering is byte-for-byte what it was.
-- **`mobile` is on the allowlist but stays conditional** — emitted only for committee members, which is the only place the public site renders a number (audit 1.2). Unchanged behaviour, now expressed inside the allowlist instead of as an exception to a wide read.
-- **An older deployment still serves a payload.** A deployment that has not applied the `photo` migration would fail the narrow projection outright ("no such column") and take the *entire* portal payload down — worse than the leak being fixed. The narrow read is attempted first and a wide read is the fallback, but the response is built from the allowlist on **both** paths: the fallback changes what is read, never what is sent.
-- **Internal row ids are published only where they are load-bearing.** `id` → `__rowIndex` was emitted for all eight sections. Exactly one resource needs it: a collections row's QR record id is `<docType>-<year>-<__rowIndex>`, which is how the Verify screen matches a paper document to its row. Every frontend in the repo — v2, v3, v4, v5, v6 and the retained `Public/frontend` — reads `__rowIndex` from `collections` and from nothing else, so `tableRows` now takes it as an opt-in and only `collections` asks.
+- any page on the internet, or any script anywhere, could insert rows into **`error_log`** — the table the committee reads to find out whether the public site is broken. Polluting it is enough to hide a real fault, and every insert spends the D1 write quota shared with the management API.
+- any caller could insert or **reactivate** a `push_subscriptions` row (`ON CONFLICT … active = 1`), so a subscription a visitor had switched off could be turned back on by a third party.
+- the stored push `endpoint` was validated by `/^https:\/\//i`, which accepts `https://` alone, `https://localhost/x`, `https://10.0.0.1/x`, `https://user:pw@host/x`. That column is a delivery target the mgmt Worker later POSTs to, so what is written here decides where a future request is sent.
+- `logError` answered `200` even when the write failed, so a logger that had stopped working looked exactly like one that was fine.
 
-New `Public/backend/test/users-projection-and-row-ids.test.mjs` — 18 tests, **12 of which fail on `main`**. The users row in the fixture is the table as it really is, plus a `secret_future_column` standing in for whatever it grows next:
+Done — four controls, cheapest first, all applied **before the body is read** and before any D1 work:
+
+1. **Content-Type must be `application/json`.** This is not decoration: it makes the request non-simple, which *forces* a preflight, which is what gives the origin allow-list any power over a browser caller. `; charset=utf-8` is fine; `text/plain` and `application/x-www-form-urlencoded` — precisely the simple-request types — are `415`.
+2. **Origin.** When `ALLOWED_ORIGINS` is configured, a write's `Origin` must be on it. When it is **not** configured, a write must still carry *some* `Origin`: every browser sends one on a cross-origin POST, so a real visitor is unaffected, while the trivial scripted flood that sets none is refused. That is a floor, not a substitute, and `wrangler.toml` now says so where an operator will read it.
+3. **A hard body cap** (8 KB for a report, 4 KB for a subscription), checked against `Content-Length` first and then against the bytes actually read — so a lying or absent header cannot get past it.
+4. **A shape check per action.** A report needs a non-empty `message`; `page`/`stack`/`context` must be the right type when present. An unparseable body used to be swallowed into `{}` and written as a row with no message, indistinguishable from a real error that had none.
+
+Also:
+
+- **The push endpoint is parsed, not pattern-matched.** `new URL`, then: `https:` only, no embedded credentials, no IP literal (v4 or bracketed v6), no `localhost` / `.local`, and a host with a dot in it. Deliberately a shape check rather than a host allow-list — pinning today's four push services would break a visitor on a browser that adds a fifth, and the endpoint is not a secret. What must be impossible is storing a delivery target that points somewhere internal. An over-long endpoint is now **refused** rather than truncated: trimming a URL to the 500-character cap invents a different URL and stores it as if the visitor had sent it.
+- **The status codes tell the truth:** `415` wrong media type, `403` unapproved origin, `413` too large, `400` bad shape (the caller's fault), `429` rate limited, `503` the write failed (ours). A write is `no-store`.
+- **The frontends declare JSON.** `Public/frontend-v6` (and v4, v5, and the retained `Public/frontend` and `frontend-v3`) POSTed `logError` with **no** `Content-Type`, which `fetch` sends as `text/plain` — the simple-request case this finding is about. They now send `application/json`. The cost is one preflight per browsing session, amortised by the `Access-Control-Max-Age: 86400` this Worker already sends; a report lost at unload is a report lost, but a writable log is a broken log. The push POSTs already declared JSON.
+
+New `Public/backend/test/write-hardening.test.mjs` — 47 tests. Highlights of what fails on `main`:
 
 | | on `main` | on this branch |
 |---|---|---|
-| keys on a public user row | the 11 public headers **+ `Created By` + the unreviewed column** | exactly the 11 |
-| a column added to `users` later | published the moment it exists | never emitted |
-| the users query | `SELECT * FROM users` | the 11 columns, `ORDER BY id` without returning `id` |
-| `__rowIndex` on users / committee / expenses / loans / guarantors / generatedFiles / loanConsents | present on all seven | present on `collections` only |
+| `POST logError` with `Content-Type: text/plain` | row written | `415`, no D1 work |
+| the same from `https://evil.example`, with the allow-list set | row written | `403`, no D1 work |
+| a 9 KB body, or one with `Content-Length: 10` | row written | `413` |
+| `{}` / `not json` / `[1,2,3]` / `null` | written as a blank row | `400` |
+| a failed `error_log` write | `200` | `503` |
+| endpoint `https://10.0.0.1/push`, `https://user:pw@…`, `https://localhost/push` | stored | `400` |
+| a 600-character endpoint | silently truncated to 500 and stored | `400` |
 
-Also pinned: a committee member's mobile is still published and a plain contributor's is not (including when `id_code` has stray whitespace); a deployment missing `photo` falls back to the wide read and *still* withholds `created_by` and the unreviewed column; and the previously-agreed exclusions (`guarantor_signature`, consent `otp`, collections `UTR`) are still excluded.
+Also pinned: `application/json; charset=utf-8` is accepted, an explicit `ALLOWED_ORIGINS = "*"` keeps the wildcard posture for writes too, the four real push services are accepted and stored byte-for-byte, both the flattened and nested subscription shapes still work, and the **read** paths still need neither an `Origin` nor a `Content-Type`.
 
-Verification: `Public/backend` `npm test` **69/69** (51 + 18) · `mgmt/backend` `npm test` **714/714** · `npm run lint:errors` clean · `node --check` on all 51 Worker files.
+Verification: `Public/backend` `npm test` **116/116** (69 + 47) · `mgmt/backend` **714/714** · `frontend-v6` `svelte-check` 0 errors, `npm test` **70/70** · `node --check` on all 51 Worker files and both legacy scripts.
 
-Left for later (same wave): the other seven sections still read `SELECT *` and filter in JS. Their allowlists already fail closed, so this is a row-size and clarity improvement rather than a leak, and it belongs with PR-24, which rewrites the same assembly for parallel reads.
+Deliberately **not** added: a challenge/nonce endpoint, which the report suggests. It costs a second round-trip and a KV write per opt-in against the ~1,000/day budget this file already treats as scarce, and it cannot authenticate an anonymous visitor anyway — anything the page can fetch, a script can fetch. The controls above raise the cost of abuse without pretending to solve attribution.
 
 ---
 
 ## 3. Pending
 
-**W2 — Public backend (4 left):**
+**W2 — Public backend (3 left):**
 
 | PR | Branch | What |
 |---|---|---|
-| 22 | `fix/public-write-hardening` | Size/shape/rate limits on the public write paths |
 | 23 | `fix/public-snapshot-atomicity` | KV last-known-good snapshot written atomically |
 | 24 | `perf/public-assembly` | Parallel section reads + single-flight cache fill + post-assembly version re-check |
-| 25 | `test/public-backend-harness` | Lockfile + a Miniflare/workerd harness covering every action (extends the tests added in PR-18/19/20/21) |
+| 25 | `test/public-backend-harness` | Lockfile + a Miniflare/workerd harness covering every action (extends the tests added in PR-18/19/20/21/22) |
 
 **W3 — Render / AI / chat (7):** payload size contract · durable idempotent jobs · callback outbox + version bump · provider SSRF policy · AI write allowlist · chat abuse controls · chat privacy + Neon
 **W4 — Database (3):** duplicate/orphan detection · enforce keys & relations · migration ledger
@@ -109,3 +123,4 @@ Left for later (same wave): the other seven sections still read `SELECT *` and f
 | C9 | `verifyToken` revocation check still fails open on an audit-DB error | Availability trade-off; KV deletion (#319) is now the authoritative revocation | Revisit with W4 observability |
 | C10 | React mgmt main chunk at 218.3 kB vs 230 kB CI budget | Little headroom left; not a regression | PR-46 bundle budgets |
 | C11 | Consent photos/signatures already archived to Drive by earlier runs are still anonymously readable | Code no longer publishes them (#325), but existing files need a one-off ACL remediation | Operational step: dry-run report → apply, before the next archive |
+| C12 | Public visitor IPs are stored raw in `error_log.client_ip` (and in `context.edgeIp`) | Hashing them needs a salt SECRET to be worth anything — an unsalted hash of an IPv4 is 2^32 to reverse — so it is a deployment step (`wrangler secret put`) plus a fallback path, not a code-only change. Split out of PR-22 to keep the authenticity fix reviewable | Own PR, with the retention window, before W3 |

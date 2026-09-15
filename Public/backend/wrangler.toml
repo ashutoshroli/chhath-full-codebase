@@ -3,10 +3,24 @@ main = "src/index.js"
 compatibility_date = "2025-01-01"
 
 [vars]
-# Optional CORS allow-list (comma-separated EXACT origins). When set, only these
-# origins get an Access-Control-Allow-Origin reflection; leave unset (or "*") to
-# keep the previous wildcard behaviour. This is a read-only public portal, so a
-# wildcard is an acceptable default.
+# CORS allow-list (comma-separated EXACT origins). When set, only these origins get an
+# Access-Control-Allow-Origin reflection; leave unset (or "*") for the wildcard. For
+# the READ actions a wildcard is fine — this is a public, read-only portal.
+#
+# SET THIS ANYWAY. Since audit PUB-BE-06 this variable is also the authenticity check
+# on the two WRITE actions (`logError`, `savePushSubscription`), which are anonymous by
+# necessity:
+#
+#   configured -> a write must carry an Origin ON THIS LIST. This is the real control.
+#   unset      -> a write must still carry SOME Origin (every browser sends one on a
+#                 cross-origin POST, so a real visitor is unaffected) and must declare
+#                 `Content-Type: application/json`, which forces a preflight. That is a
+#                 floor that stops the trivial scripted flood; it is NOT equivalent to
+#                 naming your portal's origin here.
+#
+# Without it, anyone can keep inserting rows into `error_log` — the table the committee
+# reads to find out whether the public site is broken — and can reactivate a push
+# subscription a visitor had switched off.
 # ALLOWED_ORIGINS = "https://YOUR-PUBLIC-PORTAL-DOMAIN.example.com"
 
 # HEALTH_TOKEN is a SECRET, so it is deliberately NOT set here — run

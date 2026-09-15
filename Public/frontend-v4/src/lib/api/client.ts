@@ -154,7 +154,15 @@ export function reportError(message: string, err?: unknown, extra?: Record<strin
       }).slice(0, 500)
     });
     // Keep the request alive across navigations; ignore all failures.
-    void fetch(apiUrl('logError'), { method: 'POST', body, keepalive: true }).catch(() => {});
+    // Content-Type: application/json is required by the Worker (audit PUB-BE-06):
+    // without it this is a CORS simple request, which skips the preflight the origin
+    // allow-list is enforced in.
+    void fetch(apiUrl('logError'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      keepalive: true
+    }).catch(() => {});
   } catch {
     /* never let error reporting throw */
   }

@@ -226,8 +226,20 @@ export function reportError(message: string, err?: unknown, extra?: Record<strin
         ...(extra || {})
       }).slice(0, 500)
     });
-    // Keep the request alive across navigations; ignore all failures.
-    void fetch(apiUrl('logError'), { method: 'POST', body, keepalive: true }).catch(() => {});
+    // `Content-Type: application/json` is required by the Worker (audit PUB-BE-06) and
+    // is not cosmetic: without it this is a CORS *simple request*, which skips the
+    // preflight, which is what let any page on the internet write to `error_log`.
+    // Declaring JSON forces the preflight the origin allow-list is enforced in.
+    //
+    // The cost is one extra round-trip before an unload-time report, which the
+    // Worker's `Access-Control-Max-Age: 86400` amortises across a browsing session.
+    // A report lost at unload is a report lost; a writable log is a broken log.
+    void fetch(apiUrl('logError'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      keepalive: true
+    }).catch(() => {});
   } catch {
     /* never let error reporting throw */
   }
