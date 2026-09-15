@@ -6,9 +6,9 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status: 20 of 48 PRs merged · 1 open (this one) · 27 pending**
+**Status: 21 of 48 PRs merged · 1 open (this one) · 26 pending**
 
-Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 3/8 in progress** · W3–W7 not started
+Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 4/8 in progress** · W3–W7 not started
 
 ---
 
@@ -36,57 +36,55 @@ Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is c
 | [#329](https://github.com/ashutoshroli/chhath-full-codebase/pull/329) | one canonical cache key and one method per action | PUB-BE-01, PUB-BE-02 | Cache key = (action, live version) only, so junk params can no longer force a rebuild; body-only caching (CORS never shared); `ACTION_METHODS` → `405` + `Allow`, enforced before any I/O. **First tests for this Worker** (19) + a CI step | Popup time-awareness → PR-20; single-flight → PR-24; lockfile/Miniflare → PR-25 |
 | [#330](https://github.com/ashutoshroli/chhath-full-codebase/pull/330) | cheap liveness, throttled readiness, no D1 errors in public replies | PUB-BE-03 | `?health=1` is liveness with **zero I/O** (was 6 D1 round-trips + a KV read per call, before the rate limiter); `?health=1&deep=1` is readiness, probed in parallel and edge-cached 60 s; dependency *states* are public, D1 error text goes to `error_log` and is released only to a `HEALTH_TOKEN` holder; 15 tests + the mgmt-side M-36/M-37 assertions moved onto the split contract | — |
 
+| [#331](https://github.com/ashutoshroli/chhath-full-codebase/pull/331) | let a scheduled popup expire on time | PUB-BE-04 | Cache identity for `activePopups` is (data version, 60 s time bucket) instead of `immutable` per version, so a scheduled popup is no longer cached for a year outside its window and a stale ETag cannot answer `304`; a malformed schedule stamp fails closed; the `popups` scan is pre-filtered in SQL and slides are read only for eligible popups | Single-flight for a concurrent miss → PR-24 |
 <sub>#322 was closed as superseded by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — a scheduled popup is no longer cached past its own schedule
+## 2. This PR — the public `users` payload stops being a denylist
 
-**Audit ID:** PUB-BE-04 (plus the report's related observations on popup dates and popup row reads). Third W2 PR.
+**Audit ID:** PUB-BE-05, plus the same finding's observation that internal row ids are exposed beyond the one resource that needs them. Fourth W2 PR.
 
-Every other payload this Worker serves is a pure function of the data version: nothing but an admin edit can change the right answer, an edit bumps the version, and a new version is a new URL — which is exactly what makes `immutable` correct for them.
+Every section of the portal payload was converted to a column **allowlist** in H-5 except the one built from the most sensitive table in the deployment. `users` was still `SELECT *` followed by a hand-written list of drops — "not email, not whatsapp, not mobile unless committee" — which is the wrong default twice over:
 
-`activePopups` is not like that. Its answer depends on `start_at` / `end_at` versus **now**, so it changes on a schedule with no write anywhere to bump anything. It was nevertheless served `public, max-age=31536000, immutable` to any caller passing the current `?v=`, under an ETag of `activePopups-v<version>` that does not change with time either. So a popup scheduled to open tomorrow was answered *"no popups"* today and that answer was cached **in the visitor's browser for a year** — the popup simply never appeared for anyone who visited before it opened. In the other direction a popup that ended last night stayed cached as visible, and revalidating could not dislodge it, because the unchanged ETag returned `304`. Scheduling a popup is the entire point of the feature, so this was the feature being broken by its own cache.
+- it already published **`created_by`**, the internal login name of the staff member who entered each member row, to every anonymous visitor. No frontend reads it.
+- it **fails open**. Any column added to `users` later ships to the whole internet the moment it exists, with no code change here and nothing to review. That table has already grown twice (`photo` by ADD-COLUMN migration 27, the Hindi name/village/designation set before it); the next addition could as easily be an Aadhaar reference, a date of birth or an address.
 
 Done:
 
-- **The cache identity is now (data version, time bucket).** The edge key, the ETag and the client `max-age` are all derived from `floor(now / 60s)`, so one bucket is built once per version per colo and everything inside it is a cache hit; when the bucket rolls over the key *and* the validator both change, so the edge misses and a revalidation cannot answer `304` with yesterday's popup set. The key is still derived from nothing the caller controls, so PUB-BE-01 holds: `?v=` is still accepted and still cannot influence it — it just no longer buys a year.
-- **`immutable` and `stale-while-revalidate` are both gone from this action.** Both mean "you may keep showing this after it expires", which is the defect. `max-age` is the time remaining in the current bucket, so every client converges on the same boundary instead of each holding its own offset window.
-- **Why a bucket and not a TTL computed to the next `start_at`/`end_at`:** the next boundary is only known *after* building the payload, so a cache **hit** — the case that has to stay cheap — would have no idea when its own answer expires. The bucket comes from the clock alone, so hit and miss agree without reading anything. The trade is stated plainly in the code: a popup can be up to 60 s late to appear or disappear. Against a payload that could previously be a *year* wrong, that is a rounding error, and it costs one rebuild per minute per colo (two small queries) instead of one per year.
-- **A schedule that cannot be read now fails CLOSED.** A stored stamp is one of three things — empty (that end is unbounded), parseable, or non-empty junk — and `parseStoredDate` returned `null` for the first *and* the third alike. So `if (start && start > now)` skipped the check entirely for a typo'd value: a popup with `start_at = '22/08/2026'` went live immediately and, having no readable end either, never stopped. Unreadable now means not served. The legacy space-separated format (`'2026-08-22 14:31:00'`, read as UTC) is *not* malformed and keeps working. The same rule is applied to `popupIsLiveNow` in `mgmt/backend/src/popups.js`, whose comment already promised the two could never drift — otherwise the admin's "Active" badge and the public portal would now disagree.
-- **Only eligible popups are read.** The `popups` scan is pre-filtered in SQL (deliberately *more* permissive than the JS predicate, which stays the real decision, so a wrong clause can only let too many rows through — never hide a popup), and slides are fetched with `popup_id IN (...)` instead of an unconditional `SELECT … FROM popup_slides`. Previously every slide of every popup was read on every rebuild, including popups that had just been filtered out — D1 bills rows read, against the quota shared with the management API.
-- `getActivePublicPopups` reads the clock as `new Date(Date.now())`, so eligibility and the cache bucket cannot disagree about what "now" is.
+- **An explicit projection, in the SQL and in the response.** `USERS_PUBLIC_COLS` is the eleven columns the public frontend actually reads — it matches `userRow` in `Public/frontend-v6/src/lib/api/schema.ts` field for field — and it drives both the `SELECT` and the row it builds. The row is assembled by iterating the **allowlist**, not the database row, which is what makes it fail closed: a column that appears in the table tomorrow is not part of the loop and cannot be emitted. `created_by` / `email` / `whatsapp` are now simply absent rather than removed, so they cannot come back by someone forgetting a `continue`.
+- **`id` is ordered by without being selected.** SQLite can `ORDER BY` a column it does not return, so the internal row id never enters a users row even by accident, and the ordering is byte-for-byte what it was.
+- **`mobile` is on the allowlist but stays conditional** — emitted only for committee members, which is the only place the public site renders a number (audit 1.2). Unchanged behaviour, now expressed inside the allowlist instead of as an exception to a wide read.
+- **An older deployment still serves a payload.** A deployment that has not applied the `photo` migration would fail the narrow projection outright ("no such column") and take the *entire* portal payload down — worse than the leak being fixed. The narrow read is attempted first and a wide read is the fallback, but the response is built from the allowlist on **both** paths: the fallback changes what is read, never what is sent.
+- **Internal row ids are published only where they are load-bearing.** `id` → `__rowIndex` was emitted for all eight sections. Exactly one resource needs it: a collections row's QR record id is `<docType>-<year>-<__rowIndex>`, which is how the Verify screen matches a paper document to its row. Every frontend in the repo — v2, v3, v4, v5, v6 and the retained `Public/frontend` — reads `__rowIndex` from `collections` and from nothing else, so `tableRows` now takes it as an opt-in and only `collections` asks.
 
-New `Public/backend/test/popup-schedule-and-ttl.test.mjs` — 17 tests, **10 of which fail on `main`**:
+New `Public/backend/test/users-projection-and-row-ids.test.mjs` — 18 tests, **12 of which fail on `main`**. The users row in the fixture is the table as it really is, plus a `secret_future_column` standing in for whatever it grows next:
 
 | | on `main` | on this branch |
 |---|---|---|
-| a popup opening in 10 minutes, requested with `?v=` | `max-age=31536000, immutable` | `max-age` = rest of the bucket, no `immutable` |
-| revalidating with a live popup's ETag after it expired | `304` — the expired popup stays on screen | `200` + an empty list, new ETag |
-| `start_at = '22/08/2026'` (and three more malformed forms) | live immediately, never expires | not served |
-| one live popup out of four rows | every slide of all four read | one query bound to `['LIVE']` |
+| keys on a public user row | the 11 public headers **+ `Created By` + the unreviewed column** | exactly the 11 |
+| a column added to `users` later | published the moment it exists | never emitted |
+| the users query | `SELECT * FROM users` | the 11 columns, `ORDER BY id` without returning `id` |
+| `__rowIndex` on users / committee / expenses / loans / guarantors / generatedFiles / loanConsents | present on all seven | present on `collections` only |
 
-Also pinned: eleven requests inside one bucket issue exactly one popup query and the next bucket rebuilds exactly once; `max-age` is `60 - offset` across a bucket; a version bump still invalidates instantly; an empty stamp still means unbounded; slide order and `duration_ms` normalisation are unchanged.
+Also pinned: a committee member's mobile is still published and a plain contributor's is not (including when `id_code` has stray whitespace); a deployment missing `photo` falls back to the wide read and *still* withholds `created_by` and the unreviewed column; and the previously-agreed exclusions (`guarantor_signature`, consent `otp`, collections `UTR`) are still excluded.
 
-The PUB-BE-01 key test in `cache-key-and-methods.test.mjs` is updated in the same commit: it asserted the exact key `activePopups?v=<version>`, which now carries the bucket. It still asserts one key per action and that the version is in every key.
+Verification: `Public/backend` `npm test` **69/69** (51 + 18) · `mgmt/backend` `npm test` **714/714** · `npm run lint:errors` clean · `node --check` on all 51 Worker files.
 
-Verification: `Public/backend` `npm test` **51/51** (34 + 17) · `mgmt/backend` `npm test` **714/714** · `npm run lint:errors` clean · `node --check` on all 51 Worker files.
-
-Left for later (same wave): single-flight for a concurrent cache miss is PR-24 — two simultaneous misses in a fresh bucket can still both build. The public `users` projection is PR-21.
+Left for later (same wave): the other seven sections still read `SELECT *` and filter in JS. Their allowlists already fail closed, so this is a row-size and clarity improvement rather than a leak, and it belongs with PR-24, which rewrites the same assembly for parallel reads.
 
 ---
 
 ## 3. Pending
 
-**W2 — Public backend (5 left):**
+**W2 — Public backend (4 left):**
 
 | PR | Branch | What |
 |---|---|---|
-| 21 | `fix/public-users-allowlist` | Explicit column allowlist on the public users payload |
 | 22 | `fix/public-write-hardening` | Size/shape/rate limits on the public write paths |
 | 23 | `fix/public-snapshot-atomicity` | KV last-known-good snapshot written atomically |
 | 24 | `perf/public-assembly` | Parallel section reads + single-flight cache fill + post-assembly version re-check |
-| 25 | `test/public-backend-harness` | Lockfile + a Miniflare/workerd harness covering every action (extends the tests added in PR-18/19/20) |
+| 25 | `test/public-backend-harness` | Lockfile + a Miniflare/workerd harness covering every action (extends the tests added in PR-18/19/20/21) |
 
 **W3 — Render / AI / chat (7):** payload size contract · durable idempotent jobs · callback outbox + version bump · provider SSRF policy · AI write allowlist · chat abuse controls · chat privacy + Neon
 **W4 — Database (3):** duplicate/orphan detection · enforce keys & relations · migration ledger
