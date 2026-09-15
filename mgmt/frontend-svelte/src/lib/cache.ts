@@ -1,7 +1,21 @@
-// Ported verbatim from mgmt/frontend/src/cache.js — in-memory view cache with a
-// TTL, size cap, and a version-keyed localStorage mirror. Behaviour is
-// unchanged; only light TS types added. This must stay identical so the
-// data-version invalidation logic matches the backend's getDataVersion.
+// In-memory view cache with a TTL, size cap, and a version-keyed localStorage
+// mirror, keyed to the ACCOUNT it was filled for.
+//
+// audit P0-08 (the reason this file is no longer a verbatim port of
+// mgmt/frontend/src/cache.js):
+//
+//   * The mirror was hydrated into memory at MODULE LOAD, before anything knew
+//     who was signed in, and its keys were generic ('users', 'loginusers',
+//     'home:2026', …). clearSession() removed only the token/user keys, so the
+//     cached rows survived a sign-out. The next account on that browser could be
+//     served the previous account's Users / Login Management / finance data — for
+//     up to the 5-minute TTL, and for as long as the backend data version still
+//     matched.
+//   * Hydration is now deferred until setCacheIdentity() confirms the stored
+//     mirror belongs to the account that is signing in. A different account (or a
+//     changed role) purges instead of hydrating.
+//   * The most sensitive views are never written to localStorage at all — see
+//     MEMORY_ONLY_PREFIXES. They stay in memory, which dies with the tab.
 
 interface Entry {
   value: unknown;
@@ -9,6 +23,7 @@ interface Entry {
 }
 interface Mirror {
   version: string | null;
+  identity: string | null;
   entries: Record<string, Entry>;
 }
 
@@ -21,7 +36,30 @@ const LS_VERSION_KEY = 'cpm_mgmt_viewcache_version';
 const LS_MAX_ENTRY_CHARS = 1500000;
 const LS_MAX_TOTAL_CHARS = 3500000;
 
+// Views whose rows are personal data or security metadata. These are cached in
+// memory (so tab-local navigation stays fast) but NEVER persisted to disk.
+const MEMORY_ONLY_PREFIXES = [
+  'users',
+  'loginusers',
+  'committee',
+  'consent',
+  'email',
+  'official',
+  'audit',
+  'loginAttempts',
+  'sessions',
+  'errorLog',
+  'aiProviders',
+  'whatsapp'
+];
+
+function isMemoryOnly(key: string): boolean {
+  const k = key.toLowerCase();
+  return MEMORY_ONLY_PREFIXES.some((p) => k.startsWith(p.toLowerCase()));
+}
+
 let currentVersion: string | null = null;
+let currentIdentity: string | null = null;
 
 function lsGetMirror(): Mirror | null {
   try {
@@ -54,24 +92,68 @@ function lsWriteMirror(mirror: Mirror): void {
   }
 }
 
-// hydrate on load
-(function hydrateOnLoad() {
-  if (typeof localStorage === 'undefined') return;
+/**
+ * Drop everything: memory and the persisted mirror.
+ *
+ * Called on sign-out, on an authentication failure, and whenever the account or
+ * role behind the cache changes. It is deliberately synchronous so no render can
+ * observe another account's rows.
+ */
+export function purgeCache(): void {
+  store.clear();
+  currentVersion = null;
+  currentIdentity = null;
   try {
-    const mirror = lsGetMirror();
-    if (!mirror || !mirror.entries) return;
-    currentVersion = mirror.version != null ? mirror.version.toString() : null;
-    const now = Date.now();
-    for (const key of Object.keys(mirror.entries)) {
-      const e = mirror.entries[key];
-      if (e && now - (e.time || 0) <= TTL_MS) {
-        store.set(key, { value: e.value, time: e.time || now });
-      }
-    }
+    localStorage.removeItem(LS_KEY);
+    localStorage.removeItem(LS_VERSION_KEY);
   } catch {
     /* ignore */
   }
-})();
+}
+
+/**
+ * Bind the cache to an account. Pass a stable identity (name + role); pass null
+ * to leave the cache empty (nobody signed in).
+ *
+ * Returns true when the persisted mirror belonged to this identity and was
+ * hydrated, false when it was purged. Nothing is readable before this is called
+ * for the first time — that is the point (audit P0-08).
+ */
+export function setCacheIdentity(identity: string | null): boolean {
+  const next = identity == null || identity === '' ? null : identity.toString();
+  if (next == null) {
+    purgeCache();
+    return false;
+  }
+  if (currentIdentity === next && store.size > 0) return true;
+
+  const mirror = lsGetMirror();
+  const sameAccount = !!mirror && mirror.identity === next;
+  if (!sameAccount) {
+    purgeCache();
+    currentIdentity = next;
+    return false;
+  }
+
+  // Same account: adopt the mirror's version and hydrate the entries still inside
+  // the TTL. Anything sensitive was never written, so nothing sensitive is here.
+  currentIdentity = next;
+  currentVersion = mirror!.version != null ? mirror!.version.toString() : null;
+  const now = Date.now();
+  store.clear();
+  for (const key of Object.keys(mirror!.entries || {})) {
+    const e = mirror!.entries[key];
+    if (e && !isMemoryOnly(key) && now - (e.time || 0) <= TTL_MS) {
+      store.set(key, { value: e.value, time: e.time || now });
+    }
+  }
+  return true;
+}
+
+/** Test/diagnostic helper: which account the cache is currently bound to. */
+export function _cacheIdentity(): string | null {
+  return currentIdentity;
+}
 
 export function setDataVersion(version: string | number | null): boolean {
   const v = version == null ? null : version.toString();
@@ -128,12 +210,16 @@ export function setCached(key: string, value: unknown): void {
 
 function mirrorPut(key: string, value: unknown, time: number): void {
   if (currentVersion == null) return;
+  // audit P0-08: no identity means nobody has been authenticated yet, and the
+  // sensitive views never reach the disk at all.
+  if (currentIdentity == null || isMemoryOnly(key)) return;
   try {
     const serialized = JSON.stringify(value);
     if (serialized.length > LS_MAX_ENTRY_CHARS) return;
-    const mirror: Mirror = lsGetMirror() || { version: currentVersion, entries: {} };
-    if (mirror.version !== currentVersion) {
+    const mirror: Mirror = lsGetMirror() || { version: currentVersion, identity: currentIdentity, entries: {} };
+    if (mirror.version !== currentVersion || mirror.identity !== currentIdentity) {
       mirror.version = currentVersion;
+      mirror.identity = currentIdentity;
       mirror.entries = {};
     }
     mirror.entries[key] = { value, time };

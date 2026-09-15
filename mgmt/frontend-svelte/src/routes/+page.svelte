@@ -7,7 +7,7 @@
   import { onMount } from 'svelte';
   import { api, getSession, clearSession } from '$lib/api';
   import { session } from '$lib/stores/session';
-  import { setDataVersion } from '$lib/cache';
+  import { setDataVersion, setCacheIdentity } from '$lib/cache';
   import { isSuperadmin } from '$lib/permissions';
   import { createViewData } from '$lib/viewData';
   import { isTruthyFlag } from '$lib/flags';
@@ -163,6 +163,14 @@
     const user = $session;
     if (!user || started) return;
     started = true;
+
+    // audit P0-08: bind the view cache to THIS account before any view can read
+    // from it. A different account (or the same account with a changed role)
+    // purges the persisted rows instead of hydrating them, so one operator can
+    // never be served the previous operator's Users / finance data on a shared
+    // browser. Role is part of the identity because it decides what the cached
+    // responses contained.
+    setCacheIdentity(`${user.name}|${user.role}`);
 
     const yearsView = createViewData<string[]>('years', () => api.getYears());
     const lockedView = createViewData<any[]>('lockedYears', () => api.getLockedYears());
