@@ -168,16 +168,15 @@ export default function Backup() {
           Uploaded images/PDFs are not included in the backup (they stay safely on R2/Drive) — the backup
           only contains links to them.
         </p>
-        <div style={{ background: '#fff7ed', border: '1px solid #fdba74', borderRadius: 8, padding: 12, marginBottom: 14, fontSize: '0.85rem', color: '#7c2d12' }}>
-          <strong>⚠️ Not a complete disaster-recovery copy yet.</strong>{' '}
-          This download currently covers 8 of the 9 databases and not every table. Still missing:
-          sessions and login attempts (audit database), <code>journey_entries</code>,{' '}
-          <code>push_subscriptions</code>, <code>loan_email_templates</code>,{' '}
-          <code>email_message_templates</code>, <code>email_messages</code>, <code>official_emails</code>,{' '}
-          <code>ai_fixes</code>, <code>ai_providers</code>, <code>collection_jobs</code> and{' '}
-          <code>render_jobs</code>. Restore can only bring back what the file contains.
-          For a full copy, export every database with the Wrangler CLI (see the reset runbook) and back up
-          R2/Drive separately.
+        <div style={{ background: '#f0f9ff', border: '1px solid #7dd3fc', borderRadius: 8, padding: 12, marginBottom: 14, fontSize: '0.85rem', color: '#075985' }}>
+          <strong>What this covers:</strong>{' '}
+          all 9 databases and every table in them, including sessions and login attempts. The
+          queued-document bytes (<code>collection_jobs.filled_base64</code>) are left out on purpose —
+          they are temporary and re-generated on demand; the job rows themselves are included.
+          <br />
+          <strong>Files are separate:</strong>{' '}
+          uploaded images and PDFs live on R2 / Google Drive and are not inside this file (it stores
+          their links), so keep the bucket and the Drive folder backed up too.
         </div>
         <button className="btn-submit" onClick={doDownload} disabled={busy}>
           <span className="material-icons-round" style={{ verticalAlign: 'middle', marginRight: 6 }}>download</span>
