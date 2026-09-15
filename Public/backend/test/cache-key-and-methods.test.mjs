@@ -138,16 +138,22 @@ describe('a read action answers GET and nothing else (PUB-BE-02)', () => {
   });
 
   test('the two write actions still work on POST', async () => {
+    // An `Origin` is part of a write's contract since audit PUB-BE-06 — a browser always
+    // sends one on a cross-origin POST, and a write that carries none is refused. The
+    // full write contract is covered in write-hardening.test.mjs; here it only has to
+    // be well-formed enough to reach the handler, which is what this suite is about.
+    const browser = { 'Content-Type': 'application/json', Origin: 'https://portal.example' };
+
     const logged = await call('?action=logError', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: browser,
       body: JSON.stringify({ page: '/', message: 'boom' }),
     });
     assert.equal(logged.status, 200);
 
     const sub = await call('?action=savePushSubscription', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: browser,
       body: JSON.stringify({ endpoint: 'https://push.example/x', keys: { p256dh: 'a', auth: 'b' } }),
     });
     assert.equal(sub.status, 200);

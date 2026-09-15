@@ -844,6 +844,35 @@ const PUSH_ENDPOINT_MAX = 500;
 const PUSH_KEY_MAX = 200;
 const PUSH_UA_MAX = 200;
 
+// An IPv4 literal, or anything bracketed (an IPv6 literal as a URL host).
+const IP_LITERAL_HOST = /^(\d{1,3}(\.\d{1,3}){3}|\[.*\])$/;
+
+// Is this a URL a real push service could plausibly have issued? A push endpoint is
+// always an absolute https URL on a public DNS name, so everything rejected below is
+// something no browser would ever produce (audit PUB-BE-06).
+//
+// This is deliberately a shape check and not a host allow-list. Pinning the four push
+// services in use today (`fcm.googleapis.com`, Mozilla, Windows, Apple) would break
+// every visitor on a browser that later adds a fifth — and the endpoint is not a
+// secret, so the value of pinning is bounded. What must be impossible is storing a
+// delivery target that points somewhere INTERNAL, which is what this rules out.
+function isPlausiblePushEndpoint(endpoint) {
+  if (!endpoint) return false;
+  let u;
+  try {
+    u = new URL(endpoint);
+  } catch (e) {
+    return false; // not a URL at all — previously stored as long as it began "https://"
+  }
+  if (u.protocol !== 'https:') return false;
+  if (u.username || u.password) return false;      // credentials in a stored URL
+  const host = u.hostname.toLowerCase();
+  if (!host || IP_LITERAL_HOST.test(host)) return false;
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return false;
+  if (!host.includes('.')) return false;           // no public DNS name
+  return true;
+}
+
 async function savePushSubscription(env, body, userAgent) {
   try {
     if (!env.DB_CORE) return { success: false, message: 'Not available' };
@@ -852,13 +881,25 @@ async function savePushSubscription(env, body, userAgent) {
     // Accept either the raw PushSubscription JSON shape or a flattened one.
     const sub = body && typeof body.subscription === 'object' && body.subscription ? body.subscription : body || {};
     const keys = (sub && typeof sub.keys === 'object' && sub.keys) || {};
-    const endpoint = clamp(sub.endpoint, PUSH_ENDPOINT_MAX);
+    // Rejected BEFORE clamping: truncating an over-long endpoint to 500 characters
+    // silently invents a different URL and stores it as if the visitor had sent it.
+    // An endpoint past the cap is a bad request, not something to trim.
+    const rawEndpoint = (sub.endpoint === undefined || sub.endpoint === null ? '' : sub.endpoint.toString().trim());
+    if (rawEndpoint.length > PUSH_ENDPOINT_MAX) {
+      return { success: false, invalid: true, message: 'Invalid subscription' };
+    }
+    const endpoint = rawEndpoint;
     const p256dh = clamp(keys.p256dh ?? sub.p256dh, PUSH_KEY_MAX);
     const auth = clamp(keys.auth ?? sub.auth, PUSH_KEY_MAX);
 
-    // Only accept a real push-service endpoint; never store arbitrary strings.
-    if (!endpoint || !/^https:\/\//i.test(endpoint) || !p256dh || !auth) {
-      return { success: false, message: 'Invalid subscription' };
+    // audit PUB-BE-06. This was `/^https:\/\//i.test(endpoint)`, which accepts any
+    // string that merely STARTS with https:// — `https://` alone, `https://localhost`,
+    // `https://10.0.0.1/x`, `https://user:pw@host/x`. The row is a delivery target the
+    // mgmt Worker later POSTs to, so what is stored here decides where a future
+    // request is sent: garbage in this column is a stored-request-forgery target, and
+    // arbitrary strings turn the table into free storage. Parse it properly instead.
+    if (!isPlausiblePushEndpoint(endpoint) || !p256dh || !auth) {
+      return { success: false, invalid: true, message: 'Invalid subscription' };
     }
 
     const now = new Date().toISOString();
@@ -1449,6 +1490,132 @@ function corsOriginFor(request, env) {
   return origin && list.includes(origin) ? origin : null;
 }
 
+// ============ THE TWO WRITE PATHS GET AN AUTHENTICITY CHECK ============
+//
+// audit PUB-BE-06. `logError` and `savePushSubscription` are the only writes on this
+// Worker, they are anonymous by necessity, and they had no authenticity control of any
+// kind. The mistake worth naming is the assumption that CORS was one:
+//
+//   **CORS does not stop a request. It stops the caller READING the response.**
+//
+// A cross-origin `POST` still arrives and is still executed; the browser only refuses
+// to hand the *reply* to the calling script. For a write, the reply is not the point —
+// the row is. And a `POST` with `Content-Type: text/plain` is a CORS *simple request*,
+// so it does not even get a preflight for the origin allow-list to reject. So:
+//
+//   * any page on the internet, or any script anywhere, could insert rows into
+//     `error_log` — the table the committee reads to find out whether the public site
+//     is broken. Polluting it is enough to hide a real fault, and each insert spends
+//     the D1 write quota shared with the management API.
+//   * any caller could insert or REACTIVATE a `push_subscriptions` row
+//     (`ON CONFLICT … active = 1`), so a subscription a visitor had turned off could
+//     be switched back on by a third party, and the table could be filled with
+//     endpoints nobody consented to.
+//   * `logError` answered `200` even when the write failed, so a broken logger looked
+//     exactly like a working one.
+//
+// Four controls, cheapest first, all applied BEFORE the body is read:
+//
+//   1. Content-Type MUST be application/json. This is not decoration: it makes the
+//      request non-simple, which FORCES a preflight, which is what gives the origin
+//      allow-list below any power at all over a browser caller.
+//   2. Origin. When ALLOWED_ORIGINS is configured the Origin must be on it — the
+//      strong control. When it is NOT configured, a write must still carry SOME
+//      Origin: every browser sets it on a cross-origin POST, so this costs a real
+//      visitor nothing while rejecting the trivial scripted flood that sets none.
+//      This is a floor, not a substitute — see the note in wrangler.toml.
+//   3. A hard body-size cap, checked against Content-Length first and then against
+//      the bytes actually read, so a lying or absent header cannot get past it.
+//   4. A shape check per action, so an empty or junk body is rejected instead of
+//      being written as a row that means nothing.
+//
+// Deliberately NOT added: a challenge/nonce endpoint. It would mean a second
+// round-trip and a KV write per opt-in, against the ~1,000/day budget this file
+// already treats as scarce, and it cannot authenticate an anonymous visitor either —
+// anything the page can fetch, a script can fetch. The controls above raise the cost
+// of abuse without pretending to solve attribution.
+const WRITE_MAX_BYTES = { logError: 8 * 1024, savePushSubscription: 4 * 1024 };
+
+const JSON_CONTENT_TYPE = /^application\/json\s*(;.*)?$/i;
+
+// A rejection carries the reason in `code` so the handler can pick the right status.
+// The messages are deliberately generic — a caller does not need to be taught which
+// control it tripped.
+function checkWriteRequest(request, env, action) {
+  const contentType = (request.headers.get('Content-Type') || '').trim();
+  if (!JSON_CONTENT_TYPE.test(contentType)) {
+    return { ok: false, status: 415, message: 'Send application/json.' };
+  }
+
+  const origin = (request.headers.get('Origin') || '').trim();
+  const configured = (env && env.ALLOWED_ORIGINS ? env.ALLOWED_ORIGINS.toString() : '').trim();
+  const list = configured.split(',').map(s => s.trim()).filter(Boolean);
+  if (list.length && !list.includes('*')) {
+    if (!origin || !list.includes(origin)) {
+      return { ok: false, status: 403, message: 'This origin may not write here.' };
+    }
+  } else if (!origin) {
+    // Unconfigured deployment: the floor described above.
+    return { ok: false, status: 403, message: 'This origin may not write here.' };
+  }
+
+  const max = WRITE_MAX_BYTES[action] || 4 * 1024;
+  const declared = parseInt(request.headers.get('Content-Length') || '', 10);
+  if (Number.isFinite(declared) && declared > max) {
+    return { ok: false, status: 413, message: 'Request body is too large.' };
+  }
+  return { ok: true, maxBytes: max };
+}
+
+// Reads the body with the cap enforced on the BYTES, not on a header a caller
+// controls. Returns `{ ok, value }` or `{ ok: false, status }`.
+async function readJsonBody(request, maxBytes) {
+  let text;
+  try {
+    text = await request.text();
+  } catch (e) {
+    return { ok: false, status: 400, message: 'Could not read the request body.' };
+  }
+  // A JS string is UTF-16; the cap is about transferred bytes, so measure them.
+  if (new TextEncoder().encode(text).length > maxBytes) {
+    return { ok: false, status: 413, message: 'Request body is too large.' };
+  }
+  if (!text.trim()) return { ok: false, status: 400, message: 'Request body is empty.' };
+  let value;
+  try {
+    value = JSON.parse(text);
+  } catch (e) {
+    // Previously swallowed: an unparseable body became `{}` and was written as a row
+    // with no message, indistinguishable from a real error with no message.
+    return { ok: false, status: 400, message: 'Request body is not valid JSON.' };
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { ok: false, status: 400, message: 'Request body must be a JSON object.' };
+  }
+  return { ok: true, value };
+}
+
+const writeRejection = (cors, status, message) => new Response(
+  JSON.stringify({ success: false, status: false, message }),
+  { status, headers: { ...cors, 'Cache-Control': 'no-store' } }
+);
+
+// A report with no message is not a report. Everything else is optional, and a
+// non-string where a string belongs is a junk body rather than something to coerce.
+function validateErrorReport(body) {
+  const isStr = (v) => v === undefined || v === null || typeof v === 'string';
+  const message = typeof body.message === 'string' ? body.message.trim() : '';
+  if (!message) return { ok: false, message: 'An error report needs a message.' };
+  if (!isStr(body.page) || !isStr(body.stack)) {
+    return { ok: false, message: 'page and stack must be strings.' };
+  }
+  if (body.context !== undefined && body.context !== null
+      && typeof body.context !== 'string' && typeof body.context !== 'object') {
+    return { ok: false, message: 'context must be a string or an object.' };
+  }
+  return { ok: true };
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -1599,27 +1766,46 @@ export default {
     // The method is guaranteed by ACTION_METHODS above — checking it again here
     // would be a second source of truth that can drift from the table.
     if (action === 'logError') {
-      let body = {};
-      try { body = await request.json(); } catch (e) { /* keep the empty object */ }
+      // audit PUB-BE-06 — see the WRITE PATHS note above. Every check here runs
+      // before the body is read, and before any D1 work.
+      const guard = checkWriteRequest(request, env, 'logError');
+      if (!guard.ok) return writeRejection(cors, guard.status, guard.message);
+      const parsed = await readJsonBody(request, guard.maxBytes);
+      if (!parsed.ok) return writeRejection(cors, parsed.status, parsed.message);
+      const body = parsed.value;
+
+      const shape = validateErrorReport(body);
+      if (!shape.ok) return writeRejection(cors, 400, shape.message);
+
       // Server-observed edge IP drives the per-IP rate limit (audit 1.3) — the
       // client cannot forge it.
       const edgeIp = request.headers.get('CF-Connecting-IP') || '';
       const res = await logPublicError(
         env, 'public-frontend', body.page, body.message, body.stack, body.context, edgeIp
       );
-      return new Response(JSON.stringify(res), { headers: cors, status: res && res.rateLimited ? 429 : 200 });
+      // The status now tells the truth. This used to answer 200 whether the row was
+      // written, rate-limited or lost, so a logger that had stopped working looked
+      // exactly like one that was fine.
+      const status = res && res.rateLimited ? 429 : (res && res.success ? 200 : 503);
+      return new Response(JSON.stringify(res), { headers: { ...cors, 'Cache-Control': 'no-store' }, status });
     }
 
     // A visitor opting in to notifications on the portal. Upserts one row into
     // push_subscriptions — see the "WRITE EXCEPTION #2" note above. Already
     // covered by the per-IP rate limit a few lines up.
     if (action === 'savePushSubscription') {
-      let body = {};
-      try { body = await request.json(); } catch (e) { /* keep the empty object */ }
-      const res = await savePushSubscription(env, body, request.headers.get('User-Agent') || '');
+      const guard = checkWriteRequest(request, env, 'savePushSubscription');
+      if (!guard.ok) return writeRejection(cors, guard.status, guard.message);
+      const parsed = await readJsonBody(request, guard.maxBytes);
+      if (!parsed.ok) return writeRejection(cors, parsed.status, parsed.message);
+
+      const res = await savePushSubscription(env, parsed.value, request.headers.get('User-Agent') || '');
+      // A rejected subscription is the caller's fault (400); a write that failed is
+      // ours (503). They were both 400, which told an operator nothing.
+      const status = res && res.success ? 200 : (res && res.invalid ? 400 : 503);
       return new Response(JSON.stringify(res), {
         headers: { ...cors, 'Cache-Control': 'no-store' },
-        status: res && res.success ? 200 : 400
+        status
       });
     }
 

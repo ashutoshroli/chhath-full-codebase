@@ -55,6 +55,9 @@ function reportPublicError(message, err, extra) {
     if (!ERROR_LOG_URL) return;
     fetch(ERROR_LOG_URL, {
       method: 'POST',
+      // Required by the Worker (audit PUB-BE-06): without it this is a CORS simple
+      // request, which skips the preflight the origin allow-list is enforced in.
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         page: location.pathname + location.search,
         message: msg,
