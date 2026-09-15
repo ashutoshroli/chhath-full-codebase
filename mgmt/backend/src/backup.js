@@ -3,19 +3,11 @@
 // Purpose: give the Superadmin a one-click backup of the portal's DATABASE data
 // and a guarded "restore from that backup" path.
 //
-// KNOWN COVERAGE GAP (audit finding, tracked for the manifest-v2 PR):
-//   BACKUP_MAP below is an OLD 8-database list. The deployment now binds NINE D1
-//   databases and several tables added since then are NOT exported and therefore
-//   NOT restorable from a UI backup:
-//     DB_AUDIT (entire binding)  user_sessions, login_attempts
-//     DB_CORE                    journey_entries, push_subscriptions
-//     DB_LOANS_EXPENSES          loan_email_templates
-//     DB_WHATSAPP_INDEX          email_message_templates, email_messages, official_emails
-//     DB_LOGS                    ai_fixes, ai_providers
-//     DB_MISC                    collection_jobs, render_jobs
-//   Until BACKUP_MAP is generated from the authoritative schema, treat the UI
-//   download as PARTIAL and use `wrangler d1 export` per database for a true
-//   disaster-recovery copy. The Backup screens say the same thing to the operator.
+// COVERAGE (audit P0-07, fixed): BACKUP_MAP below covers all NINE D1 bindings and
+// every table in the committed schemas. It cannot drift silently any more —
+// test/p0-backup-coverage.test.mjs parses mgmt/db/schema/*.sql and fails if a
+// table exists there but not here (or the reverse). One column is deliberately
+// excluded, and the manifest records it: see EXCLUDED_COLUMNS.
 //
 // SCOPE / DESIGN NOTES (read before changing):
 //   * This backs up the D1 *data* only. Uploaded FILES (consent photos/
@@ -40,21 +32,38 @@
 import { requireSuperadmin, ValidationError, InternalError } from './auth.js';
 import { randomHex } from './random.js';
 
-const BACKUP_FORMAT_VERSION = 1;
+// v2 (audit P0-07) adds a per-table manifest that records whether each table was
+// PRESENT on the deployment, so restore can tell "this table is genuinely empty"
+// from "this deployment does not have that table" — and no longer has to treat
+// every empty table as suspicious. v1 files still restore, with the old lenient
+// behaviour (see restoreBindingTables).
+const BACKUP_FORMAT_VERSION = 2;
 
 // Every (dbBinding -> [tables]) the portal owns. This is the authoritative list
-// of what a full backup contains. It mirrors tableRegistry.js's TABLE_REGISTRY
-// but is expressed per-D1-binding because that is how we actually read/write.
-// If a NEW table is ever added to the schema, add it here too so it is included
-// in backups.
+// of what a full backup contains, expressed per-D1-binding because that is how we
+// actually read/write.
+//
+// audit P0-07: this list had drifted badly. It covered 8 bindings while the
+// deployment binds NINE, and it omitted 12 tables added since — DB_AUDIT entirely
+// (`user_sessions`, `login_attempts`), plus `journey_entries`, `push_subscriptions`,
+// `loan_email_templates`, `email_message_templates`, `email_messages`,
+// `official_emails`, `ai_fixes`, `ai_providers`, `collection_jobs` and
+// `render_jobs`. Anything missing here is not exported and therefore CANNOT be
+// restored, while the UI called the download a "Full Backup".
+//
+// It no longer drifts silently: `SCHEMA_FILE_FOR_BINDING` below maps each binding
+// to its committed schema file, and test/p0-backup-coverage.test.mjs parses those
+// files and fails if a table exists in the schema but not here (or vice versa).
 const BACKUP_MAP = {
   DB_CORE: [
     'users', 'committee_members', 'login_users', 'manual_years', 'locked_years',
-    'festival_dates', 'portal_settings', 'dropdown_lists',
+    'festival_dates', 'portal_settings', 'dropdown_lists', 'journey_entries',
+    'push_subscriptions',
   ],
   DB_COLLECTIONS: ['collections'],
   DB_LOANS_EXPENSES: [
     'loans', 'expenses', 'loan_guarantors', 'loan_consents', 'loan_message_templates',
+    'loan_email_templates',
   ],
   DB_TEMPLATES: [
     'receipt_templates', 'certificate_templates', 'samaan_templates',
@@ -63,11 +72,44 @@ const BACKUP_MAP = {
   DB_FILE_INDEX: ['generated_files'],
   DB_WHATSAPP_INDEX: [
     'whatsapp_groups', 'group_message_templates', 'person_message_templates',
-    'group_messages', 'person_messages',
+    'group_messages', 'person_messages', 'email_message_templates', 'email_messages',
+    'official_emails',
   ],
-  DB_LOGS: ['error_log', 'activity_log'],
-  DB_MISC: ['popups', 'popup_slides', 'custom_announcements', 'announcement_links'],
+  DB_LOGS: ['error_log', 'activity_log', 'ai_fixes', 'ai_providers'],
+  DB_MISC: [
+    'popups', 'popup_slides', 'custom_announcements', 'announcement_links',
+    'collection_jobs', 'render_jobs',
+  ],
+  DB_AUDIT: ['user_sessions', 'login_attempts'],
 };
+
+// Which committed schema file defines each binding. Used ONLY by the coverage test
+// (a Worker cannot read files at runtime) — it is what keeps BACKUP_MAP honest.
+export const SCHEMA_FILE_FOR_BINDING = {
+  DB_CORE: 'core.sql',
+  DB_COLLECTIONS: 'collections.sql',
+  DB_LOANS_EXPENSES: 'loans_expenses.sql',
+  DB_TEMPLATES: 'templates.sql',
+  DB_FILE_INDEX: 'file_index.sql',
+  DB_WHATSAPP_INDEX: 'whatsapp_index.sql',
+  DB_LOGS: 'logs.sql',
+  DB_MISC: 'misc.sql',
+  DB_AUDIT: 'audit.sql',
+};
+
+// Columns deliberately left OUT of the export, per table.
+//
+// `collection_jobs.filled_base64` holds the ~700 KB filled .docx for one queued
+// job. It is transient (retention blanks it once the job is done) and including it
+// would add hundreds of megabytes to a backup for work that is re-queueable. The
+// job's state and metadata ARE exported, and the manifest records the omission.
+const EXCLUDED_COLUMNS = {
+  collection_jobs: ['filled_base64'],
+};
+
+export function _backupCoverage() {
+  return { map: BACKUP_MAP, excludedColumns: EXCLUDED_COLUMNS, schemaFiles: SCHEMA_FILE_FOR_BINDING };
+}
 
 // A table name only ever comes from BACKUP_MAP above (never from client input),
 // so it is safe to interpolate into SQL. This guard is belt-and-braces: it
@@ -110,15 +152,27 @@ function dbHandle(env, binding) {
 // Now: a genuinely ABSENT table (older schema — "no such table") is still treated
 // as `[]` (nothing to back up). ANY OTHER error is re-thrown so the whole backup
 // fails loudly instead of quietly producing an incomplete/poisoned file.
+// Returns { rows, present }. `present: false` means the table is genuinely absent
+// from this deployment (an older schema), which restore must treat differently
+// from a table that exists and happens to be empty (audit P0-07).
 async function dumpTable(db, table) {
   assertSafeTable(table);
+  const excluded = EXCLUDED_COLUMNS[table] || [];
   try {
     const { results } = await db.prepare(`SELECT * FROM ${quoteIdent(table)}`).all();
-    return results || [];
+    let rows = results || [];
+    if (excluded.length && rows.length) {
+      rows = rows.map((row) => {
+        const copy = { ...row };
+        for (const col of excluded) delete copy[col];
+        return copy;
+      });
+    }
+    return { rows, present: true };
   } catch (e) {
     const msg = (e && e.message ? e.message : String(e)).toLowerCase();
     if (msg.includes('no such table') || msg.includes('no such column')) {
-      return []; // table genuinely not on this deployment — safe to treat as empty
+      return { rows: [], present: false }; // not on this deployment
     }
     throw InternalError(
       `Backup aborted: could not read table "${table}": ${e && e.message || e}`,
@@ -137,13 +191,29 @@ export async function exportBackup(env, user) {
 
   const data = {};
   const counts = {};
+  // audit P0-07: the per-table manifest. `present` distinguishes "empty because
+  // there is nothing to back up" from "absent on this deployment" and from
+  // "binding not configured", which restore then honours instead of guessing.
+  const manifest = {};
+  const missingBindings = [];
   for (const [binding, tables] of Object.entries(BACKUP_MAP)) {
     const db = env[binding];
+    if (!db) missingBindings.push(binding);
     data[binding] = {};
     for (const table of tables) {
-      const rows = db ? await dumpTable(db, table) : [];
+      const key = `${binding}.${table}`;
+      if (!db) {
+        data[binding][table] = [];
+        counts[key] = 0;
+        manifest[key] = { rows: 0, present: false, reason: 'binding not configured on server' };
+        continue;
+      }
+      const { rows, present } = await dumpTable(db, table);
       data[binding][table] = rows;
-      counts[`${binding}.${table}`] = rows.length;
+      counts[key] = rows.length;
+      manifest[key] = present
+        ? { rows: rows.length, present: true }
+        : { rows: 0, present: false, reason: 'table not on this deployment' };
     }
   }
 
@@ -165,6 +235,15 @@ export async function exportBackup(env, user) {
     );
   }
 
+  // A binding the server does not have is a REAL gap in the backup — say so
+  // rather than shipping a file that silently lacks a whole database.
+  if (missingBindings.length) {
+    warnings.push(
+      `These databases are not configured on this deployment and are NOT in the backup: ${missingBindings.join(', ')}. `
+      + 'Ask the Superadmin to check the Worker bindings before relying on this file for recovery.'
+    );
+  }
+
   return {
     success: true,
     backup: {
@@ -173,6 +252,14 @@ export async function exportBackup(env, user) {
       createdBy: user.name,
       totalRows,
       counts,
+      // v2 manifest
+      manifest,
+      coverage: {
+        bindings: Object.keys(BACKUP_MAP).length,
+        tables: Object.values(BACKUP_MAP).reduce((n, t) => n + t.length, 0),
+        missingBindings,
+      },
+      excludedColumns: EXCLUDED_COLUMNS,
       data,
     },
     warnings,
@@ -259,7 +346,7 @@ export async function restoreBackup(env, user, backup, confirm, opts = {}) {
     }
     const report = { restoredTables: {}, partialTables: {}, emptyTables: {}, skippedTables: {}, errors: [] };
     const tables = backup.data[onlyBinding] || {};
-    await restoreBindingTables(env, onlyBinding, tables, report);
+    await restoreBindingTables(env, onlyBinding, tables, report, backup.manifest || null);
     const errCount = report.errors.length;
     return {
       success: errCount === 0,
@@ -299,7 +386,7 @@ export async function restoreBackup(env, user, backup, confirm, opts = {}) {
   const report = { restoredTables: {}, partialTables: {}, emptyTables: {}, skippedTables: {}, errors: [] };
 
   for (const [binding, tables] of Object.entries(backup.data)) {
-    await restoreBindingTables(env, binding, tables, report);
+    await restoreBindingTables(env, binding, tables, report, backup.manifest || null);
   }
 
   const partialCount = Object.keys(report.partialTables).length;
@@ -328,7 +415,7 @@ export async function restoreBackup(env, user, backup, confirm, opts = {}) {
 // by the incremental per-binding path and the legacy whole-backup loop so the
 // per-table behaviour is identical in both. Never throws — a whole-table failure
 // is recorded in report.errors, matching the original inline loop exactly.
-async function restoreBindingTables(env, binding, tables, report) {
+async function restoreBindingTables(env, binding, tables, report, manifest = null) {
   if (!BACKUP_MAP[binding]) { report.skippedTables[binding] = 'unknown db binding'; return; }
   const db = env[binding];
   if (!db) { report.skippedTables[binding] = 'binding not configured on server'; return; }
@@ -339,11 +426,30 @@ async function restoreBindingTables(env, binding, tables, report) {
     if (!SAFE_IDENT.test(table)) { report.skippedTables[`${binding}.${table}`] = 'unsafe identifier'; continue; }
 
     const rowArr = Array.isArray(rows) ? rows : [];
+    // ---- audit P0-07: an intentionally empty table must actually be restored ----
+    //
+    // BUG 3 made every empty table a no-op, because a v1 backup could not say
+    // whether 0 rows meant "there was nothing" or "the read glitched". That is the
+    // right call for a v1 file, but it means restoring a legitimate backup does
+    // NOT reproduce the state it captured: rows added after the backup survive.
+    //
+    // A v2 manifest records `present: true` per table, which is exactly the
+    // missing information — so for those we clear the live table.
+    const entry = manifest ? manifest[`${binding}.${table}`] : null;
+    const emptyIsAuthoritative = !!(entry && entry.present === true && entry.rows === 0);
     try {
-      const res = await restoreOneTable(db, table, rowArr);
+      const res = await restoreOneTable(db, table, rowArr, { clearWhenEmpty: emptyIsAuthoritative });
+      if (res.clearedEmpty) {
+        report.restoredTables[`${binding}.${table}`] = 0;
+        report.emptyTables[`${binding}.${table}`] =
+          'backup recorded this table as present and empty — live rows were cleared to match';
+        continue;
+      }
       if (res.skippedEmpty) {
         // Backup carried no rows for this table — live data was left as-is.
-        report.emptyTables[`${binding}.${table}`] = 'backup had 0 rows — live table left unchanged';
+        report.emptyTables[`${binding}.${table}`] = manifest
+          ? 'backup had 0 rows and did not record this table as present — live table left unchanged'
+          : 'backup had 0 rows — live table left unchanged (older backup format)';
         continue;
       }
       if (res.allRowsFailed) {
@@ -392,7 +498,7 @@ async function restoreBindingTables(env, binding, tables, report) {
 //   - skippedEmpty=true means the backup had 0 rows for this table; the live table
 //     was left UNTOUCHED on purpose (see BUG 3). The caller decides how to report.
 //   - throws only on a genuine whole-table failure (e.g. the table doesn't exist).
-async function restoreOneTable(db, table, rows) {
+async function restoreOneTable(db, table, rows, { clearWhenEmpty = false } = {}) {
   assertSafeTable(table);
   const qTable = quoteIdent(table);
 
@@ -400,7 +506,15 @@ async function restoreOneTable(db, table, rows) {
   // live table is deliberately NOT wiped (guards against an export read-glitch
   // that turned a populated table into []). A legitimately empty table simply
   // stays empty if it already was; if it had data, the operator is told.
-  if (!rows.length) return { inserted: 0, skipped: 0, examples: [], skippedEmpty: true };
+  //
+  // `clearWhenEmpty` (audit P0-07) is passed only when a v2 manifest states the
+  // table was PRESENT and empty when the backup was taken — the one case where an
+  // empty array is authoritative and a faithful restore must clear the live rows.
+  if (!rows.length) {
+    if (!clearWhenEmpty) return { inserted: 0, skipped: 0, examples: [], skippedEmpty: true };
+    await db.prepare(`DELETE FROM ${qTable}`).run();
+    return { inserted: 0, skipped: 0, examples: [], clearedEmpty: true };
+  }
 
   // Union of columns across all rows, in first-seen order. All are validated by
   // SAFE_IDENT (defends the identifier) and then quoted (handles reserved words).

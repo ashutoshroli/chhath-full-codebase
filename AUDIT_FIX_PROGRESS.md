@@ -6,9 +6,9 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status: 14 of 48 PRs merged · 1 open (this one) · 33 pending**
+**Status: 15 of 48 PRs merged · 1 open (this one) · 32 pending**
 
-Wave progress: **W0 ✅ done** · **W1 14/15** · W2–W7 not started
+Wave progress: **W0 ✅ done** · **W1 15/15 ✅ (all P0 blockers closed except the two public-portal ones)** · W2–W7 not started
 
 ---
 
@@ -29,12 +29,30 @@ Wave progress: **W0 ✅ done** · **W1 14/15** · W2–W7 not started
 | [#321](https://github.com/ashutoshroli/chhath-full-codebase/pull/321) | return to Login when the session expires | P0-11 | `onAuthExpired` channel (server *and* local expiry, once per expiry); session store clears itself; `resolveAllowedTab()` for initial hash | React rollback app not covered (§4) |
 | [#323](https://github.com/ashutoshroli/chhath-full-codebase/pull/323) | validate money, year and server-owned columns on every write | P0-09 (backend half) | `assertMoney` / `assertYear` / `assertNoServerOwnedFields`; year mandatory on financial rows; edits can no longer rewrite `Sl. No.` / `created_by` | UI half = #324 |
 | [#324](https://github.com/ashutoshroli/chhath-full-codebase/pull/324) | validate money and payment details before saving | P0-09 (UI half) | `lib/money.ts` mirrors the backend limits, applied in Home/Expenses/Loans (add + edit); loan year switch no longer keeps the previous year's contributors; donation details validated before any write | Field-level inline errors (still `alert()`) → PR-40; donation publish still setting-by-setting (C3) |
+| [#325](https://github.com/ashutoshroli/chhath-full-codebase/pull/325) | keep consent evidence private and update the DB before deleting R2 | P0-06 | Archive order is upload → conditional update → verify → delete; consent photos/signatures archived private while PDFs stay public; stale archive cannot overwrite a re-generated file | Consent copies already published by earlier archive runs need a one-off ACL pass (C11) |
 
 <sub>#322 was closed as superseded by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — consent evidence privacy + archival ordering
+## 2. This PR — the backup is actually complete, and restore is faithful
+
+**Audit ID:** P0-07.
+
+Done:
+
+- **`BACKUP_MAP` now covers all 9 bindings and every table in the committed schemas** — the 12 tables the audit found missing are in (whole of `DB_AUDIT`, `journey_entries`, `push_subscriptions`, `loan_email_templates`, `email_message_templates`, `email_messages`, `official_emails`, `ai_fixes`, `ai_providers`, `collection_jobs`, `render_jobs`).
+- **It cannot drift silently again:** `SCHEMA_FILE_FOR_BINDING` + `test/p0-backup-coverage.test.mjs` parse `mgmt/db/schema/*.sql` and fail if the schema and the map disagree **in either direction**.
+- **Manifest v2:** per-table `{ rows, present }`, `coverage` (bindings/tables/missing), `excludedColumns`. A binding the server does not have is now reported as a real gap with an operator warning instead of a quietly absent database.
+- **Restore is faithful:** a table the manifest records as *present and empty* is now **cleared**, so a restore reproduces the state the backup captured. A v1 file (no manifest) keeps the old lenient skip — an empty array there is not authoritative and must not wipe live rows.
+- **One deliberate exclusion:** `collection_jobs.filled_base64` (~700 KB of transient, re-generable document bytes per job). The job rows are included and the manifest records the omission.
+- The #312 warning is replaced on both Backup screens with an accurate "what this covers / files are separate" note, and the reset runbook no longer steers operators away from the UI backup.
+
+Verification: `mgmt/backend` `npm test` 713 tests / 712 pass (the 1 failure is the pre-existing `H-6` flake, C5) · `lint:errors` pass · mgmt SPA + SvelteKit builds pass.
+
+Left for later: R2/Drive object backup is still out of scope for this file (it stores links) — that stays an operational step, and the screens now say so.
+
+## 3. Previous PR — consent evidence privacy + archival ordering
 
 **Audit ID:** P0-06.
 
@@ -53,11 +71,10 @@ Left for later: existing Drive copies of consent evidence that were made public 
 
 ## 3. Pending
 
-**W1 — remaining P0 (3 PRs)**
+**W1 — remaining P0 (2 PRs, both public portal)**
 
 | PR | Branch | Depends |
 |---|---|---|
-| 15 | `feat/backup-complete-manifest-v2` | #312 |
 | 16 | `fix/public-verify-truthful-states` | — |
 | 17 | `fix/public-data-freshness-provenance` | 16 |
 
