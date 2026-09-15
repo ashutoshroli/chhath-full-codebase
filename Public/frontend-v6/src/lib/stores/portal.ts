@@ -49,7 +49,9 @@ export async function initPortal(force = false): Promise<void> {
 
   const result: PortalResult = await loadPortalData({ force });
   const yrs = availableYears(result.data);
-  const failed = result.savedAt === 0 && !result.stale ? false : false;
+  // A cold failure: no snapshot, no rows — we have nothing to show and nothing to
+  // check a record against. (A dead `const failed = … ? false : false` used to sit
+  // here; it was always false and never used.)
   const cold = result.savedAt === 0 && (result.data.collections?.length ?? 0) === 0;
 
   portalState.set({

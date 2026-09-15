@@ -6,9 +6,9 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status: 15 of 48 PRs merged · 1 open (this one) · 32 pending**
+**Status: 16 of 48 PRs merged · 1 open (this one) · 31 pending**
 
-Wave progress: **W0 ✅ done** · **W1 15/15 ✅ (all P0 blockers closed except the two public-portal ones)** · W2–W7 not started
+Wave progress: **W0 ✅ done** · **W1 16/17** (all management P0 work closed; one public-portal PR left) · W2–W7 not started
 
 ---
 
@@ -30,42 +30,29 @@ Wave progress: **W0 ✅ done** · **W1 15/15 ✅ (all P0 blockers closed except 
 | [#323](https://github.com/ashutoshroli/chhath-full-codebase/pull/323) | validate money, year and server-owned columns on every write | P0-09 (backend half) | `assertMoney` / `assertYear` / `assertNoServerOwnedFields`; year mandatory on financial rows; edits can no longer rewrite `Sl. No.` / `created_by` | UI half = #324 |
 | [#324](https://github.com/ashutoshroli/chhath-full-codebase/pull/324) | validate money and payment details before saving | P0-09 (UI half) | `lib/money.ts` mirrors the backend limits, applied in Home/Expenses/Loans (add + edit); loan year switch no longer keeps the previous year's contributors; donation details validated before any write | Field-level inline errors (still `alert()`) → PR-40; donation publish still setting-by-setting (C3) |
 | [#325](https://github.com/ashutoshroli/chhath-full-codebase/pull/325) | keep consent evidence private and update the DB before deleting R2 | P0-06 | Archive order is upload → conditional update → verify → delete; consent photos/signatures archived private while PDFs stay public; stale archive cannot overwrite a re-generated file | Consent copies already published by earlier archive runs need a one-off ACL pass (C11) |
+| [#326](https://github.com/ashutoshroli/chhath-full-codebase/pull/326) | back up every table and restore an empty table faithfully | P0-07 | All 9 bindings + every schema table (12 were missing, incl. all of `DB_AUDIT`); a schema-vs-map test fails on drift either way; manifest v2 records `{rows, present}`; a present-and-empty table is now cleared on restore while v1 files keep the lenient skip | R2/Drive object backup stays an operational step (the file stores links); `collection_jobs.filled_base64` excluded on purpose |
 
 <sub>#322 was closed as superseded by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — the backup is actually complete, and restore is faithful
+## 2. This PR — the public portal stops calling genuine records invalid
 
-**Audit ID:** P0-07.
-
-Done:
-
-- **`BACKUP_MAP` now covers all 9 bindings and every table in the committed schemas** — the 12 tables the audit found missing are in (whole of `DB_AUDIT`, `journey_entries`, `push_subscriptions`, `loan_email_templates`, `email_message_templates`, `email_messages`, `official_emails`, `ai_fixes`, `ai_providers`, `collection_jobs`, `render_jobs`).
-- **It cannot drift silently again:** `SCHEMA_FILE_FOR_BINDING` + `test/p0-backup-coverage.test.mjs` parse `mgmt/db/schema/*.sql` and fail if the schema and the map disagree **in either direction**.
-- **Manifest v2:** per-table `{ rows, present }`, `coverage` (bindings/tables/missing), `excludedColumns`. A binding the server does not have is now reported as a real gap with an operator warning instead of a quietly absent database.
-- **Restore is faithful:** a table the manifest records as *present and empty* is now **cleared**, so a restore reproduces the state the backup captured. A v1 file (no manifest) keeps the old lenient skip — an empty array there is not authoritative and must not wipe live rows.
-- **One deliberate exclusion:** `collection_jobs.filled_base64` (~700 KB of transient, re-generable document bytes per job). The job rows are included and the manifest records the omission.
-- The #312 warning is replaced on both Backup screens with an accurate "what this covers / files are separate" note, and the reset runbook no longer steers operators away from the UI backup.
-
-Verification: `mgmt/backend` `npm test` 713 tests / 712 pass (the 1 failure is the pre-existing `H-6` flake, C5) · `lint:errors` pass · mgmt SPA + SvelteKit builds pass.
-
-Left for later: R2/Drive object backup is still out of scope for this file (it stores links) — that stays an operational step, and the screens now say so.
-
-## 2b. Previous PR (#325) — consent evidence privacy + archival ordering
-
-**Audit ID:** P0-06.
+**Audit ID:** P0-10.
 
 Done:
 
-- **The R2 object is no longer deleted before the database has moved.** `moveOneUrl()` now runs upload → **conditional** DB update (guarded on the old URL) → **verify** the row reads the new URL → only then delete the source. If any step fails, both copies are kept and the file is reported as failed, because a duplicate is recoverable and a dangling reference to a receipt — or to consent evidence — is not. The file-header comment claimed this order already; it was the reverse.
-- **Consent photos and signatures are archived PRIVATE.** `uploadBytesToDrive()` takes `publicRead`, and only generated PDFs (which the public portal serves) get `setAnyoneReader`. Archiving a year used to publish every consent photo and signature, undoing the `makePublic: false` the upload path deliberately uses for the same data.
-- A concurrent re-generation of a PDF is no longer overwritten by a stale archive attempt (the guarded update fails and the file is reported instead).
-- New `test/p0-storage-archive-order.test.mjs` (9 tests) with an R2 + Drive-API stub. **5 of the 9 fail on `main`**: the source is already deleted, the row points at a missing object, the delete/update order is inverted, three permission grants instead of one, and the stale overwrite lands.
+- The Verify screen's two-way verdict is replaced by seven explicit states, decided in a new pure module `src/lib/api/verifyVerdict.ts`: `checking` · `no-id` · `malformed` · `unavailable` · `verified` · `inconclusive` · `not-found`.
+- **`not-found` (the red verdict) is now asserted only against live records.** With no data at all the screen says **"Verification Unavailable"** and states plainly that this does not mean the document is invalid; with only a stale snapshot it says **"Could Not Confirm"**. Both offer a **Retry** that refreshes the portal data.
+- A hit inside a stale snapshot still reads **verified** — a hit is a real hit — with a note saying it was checked against the saved copy.
+- `status: 'idle'` (the prerendered shell, before the client load starts) now counts as *checking*; previously it fell through to the red verdict with an empty payload.
+- New i18n keys in **both** languages; the amber heading uses `amber-700` in light mode because the `warning` token is ~2.2:1 on white at this size.
+- Removed a dead always-false `failed` expression in `stores/portal.ts`.
+- New `src/lib/api/verifyVerdict.test.ts` (15 tests) including an exhaustive walk of all 16 `status` × `failed` × `stale` combinations asserting the authoritative negative appears only when the data is trustworthy.
 
-Verification: `mgmt/backend` `npm test` 700 tests / 699 pass (the 1 failure is the pre-existing `H-6` timing flake, C5) · `lint:errors` pass · `node --check` pass.
+Verification: `Public/frontend-v6` `npm test` 61/61 · `npm run check` **0 errors, 0 warnings** · build pass.
 
-Left for later: existing Drive copies of consent evidence that were made public by earlier archive runs still need a one-off remediation pass (dry-run report → apply) — that is an operational step, listed as **C11** below.
+Left for later: the freshness *provenance* problem behind the stale flag itself (a Workbox cache hit can look like fresh network data) is PR-17, next.
 
 ---
 

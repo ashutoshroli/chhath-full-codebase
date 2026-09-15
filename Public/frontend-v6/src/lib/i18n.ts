@@ -238,6 +238,18 @@ export const T: Record<Lang, Dict> = {
       'No record id was supplied. Scan the QR code printed on your receipt or certificate to verify it.',
     verify_help:
       "This record could not be verified against the committee's records. If you believe this is an error, please contact the committee.",
+    // --- audit P0-10: states that are NOT "not found" ---
+    verify_checking: 'Checking this record…',
+    verify_unavailable: 'Verification Unavailable',
+    verify_unavailable_help:
+      "The committee's records could not be loaded, so this document cannot be checked right now. This does NOT mean the document is invalid. Please check your connection and try again.",
+    verify_inconclusive: 'Could Not Confirm',
+    verify_inconclusive_help:
+      'This document was not found in the saved copy of the records on this device, which may be out of date. Try again to check against the live records before treating it as invalid.',
+    verify_malformed:
+      'That is not a valid record id. Scan the QR code printed on your receipt or certificate instead.',
+    verify_stale_note:
+      'Checked against the saved copy on this device — refresh to confirm against the live records.',
     year: 'Year',
     amount: 'Amount',
     detail: 'Detail',
@@ -676,6 +688,18 @@ export const T: Record<Lang, Dict> = {
       'कोई record id नहीं मिली। सत्यापित करने के लिए अपनी रसीद या प्रमाणपत्र पर छपे QR code को scan करें।',
     verify_help:
       'यह रिकॉर्ड समिति के अभिलेखों से सत्यापित नहीं हो सका। यदि आपको लगता है कि यह त्रुटि है, तो कृपया समिति से संपर्क करें।',
+    // --- audit P0-10 ---
+    verify_checking: 'यह रिकॉर्ड जाँचा जा रहा है…',
+    verify_unavailable: 'सत्यापन उपलब्ध नहीं',
+    verify_unavailable_help:
+      'समिति के अभिलेख लोड नहीं हो सके, इसलिए इस दस्तावेज़ की जाँच अभी नहीं हो सकती। इसका अर्थ यह नहीं है कि दस्तावेज़ अवैध है। कृपया अपना इंटरनेट जाँचकर पुनः प्रयास करें।',
+    verify_inconclusive: 'पुष्टि नहीं हो सकी',
+    verify_inconclusive_help:
+      'यह दस्तावेज़ इस डिवाइस पर सहेजी गई प्रति में नहीं मिला, जो पुरानी हो सकती है। अवैध मानने से पहले लाइव अभिलेखों से जाँचने के लिए पुनः प्रयास करें।',
+    verify_malformed:
+      'यह मान्य record id नहीं है। कृपया अपनी रसीद या प्रमाणपत्र पर छपा QR code scan करें।',
+    verify_stale_note:
+      'इस डिवाइस पर सहेजी गई प्रति से जाँचा गया — लाइव अभिलेखों से पुष्टि के लिए रिफ़्रेश करें।',
     year: 'वर्ष',
     amount: 'राशि',
     detail: 'विवरण',
