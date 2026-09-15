@@ -1,8 +1,21 @@
 // ============ FULL BACKUP & RESTORE (Superadmin only) ============
 //
-// Purpose: give the Superadmin a one-click "download everything" backup of the
-// portal's DATABASE data (all 8 D1 databases, every table), and a guarded
-// "restore from that backup" path.
+// Purpose: give the Superadmin a one-click backup of the portal's DATABASE data
+// and a guarded "restore from that backup" path.
+//
+// KNOWN COVERAGE GAP (audit finding, tracked for the manifest-v2 PR):
+//   BACKUP_MAP below is an OLD 8-database list. The deployment now binds NINE D1
+//   databases and several tables added since then are NOT exported and therefore
+//   NOT restorable from a UI backup:
+//     DB_AUDIT (entire binding)  user_sessions, login_attempts
+//     DB_CORE                    journey_entries, push_subscriptions
+//     DB_LOANS_EXPENSES          loan_email_templates
+//     DB_WHATSAPP_INDEX          email_message_templates, email_messages, official_emails
+//     DB_LOGS                    ai_fixes, ai_providers
+//     DB_MISC                    collection_jobs, render_jobs
+//   Until BACKUP_MAP is generated from the authoritative schema, treat the UI
+//   download as PARTIAL and use `wrangler d1 export` per database for a true
+//   disaster-recovery copy. The Backup screens say the same thing to the operator.
 //
 // SCOPE / DESIGN NOTES (read before changing):
 //   * This backs up the D1 *data* only. Uploaded FILES (consent photos/

@@ -42,7 +42,16 @@ and the next member becomes `USER0002`.
 
 ## Step 0 — back up
 
-Superadmin → **Backup & Restore**, or:
+> **Use the CLI loop below, not the Superadmin → Backup & Restore download.**
+> The UI backup is currently PARTIAL: it covers 8 of the 9 databases and skips
+> `user_sessions`, `login_attempts`, `journey_entries`, `push_subscriptions`,
+> `loan_email_templates`, `email_message_templates`, `email_messages`,
+> `official_emails`, `ai_fixes`, `ai_providers`, `collection_jobs` and
+> `render_jobs`. Anything it does not export cannot be restored from it.
+> Also copy the R2 bucket / Drive folder — deleted files are not recoverable from
+> a database backup.
+
+The complete export:
 
 ```bash
 for db in chhath-core chhath-collections chhath-loans-expenses chhath-file-index \
