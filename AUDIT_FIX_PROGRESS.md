@@ -56,7 +56,9 @@ Done:
 
 New `Public/backend/test/health-liveness-and-readiness.test.mjs` (15 tests) — **14 of them fail on `main`**, including "a hundred liveness polls do no I/O" (600+ D1 queries before, 0 now), "repeated deep probes reuse one 60 s result", and "an anonymous caller never sees the D1 error text" (the test seeds `no such column: users.password_hash in database chhath-core` and asserts it appears in the *log* and not in the response).
 
-Verification: `Public/backend` `npm test` **34/34** · `node --check` on every Worker file.
+`mgmt/backend/test/ops-and-cleanup.test.mjs` also asserts this endpoint (audit M-36 / M-37 — it imports the public Worker to prove a monitor cannot read a healthy deployment as DOWN). Those five assertions were written against the fused endpoint, so they are moved to whichever half now answers them: the "is it up" and "which required binding is missing" cases stay on `?health=1`, and the three that need a real probe — a degraded optional binding, a present-but-broken one, the legacy `KV_SESSIONS` fallback — move to `?health=1&deep=1` and read the per-binding `{state, required, consequence}` shape. The broken-binding case now additionally asserts that the D1 text is **absent** from the response body, which is the PUB-BE-03 finding restated from the mgmt side.
+
+Verification: `Public/backend` `npm test` **34/34** · `mgmt/backend` `npm test` **714/714** · `npm run lint:errors` clean · `node --check` on all 51 Worker files · migration coverage check passes.
 
 Left for later (same wave): the popup payload is still cached `immutable` per data version, so a *scheduled* popup can be served outside its window — PR-20 next. Single-flight for a concurrent cache miss is PR-24.
 
