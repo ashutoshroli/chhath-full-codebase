@@ -601,6 +601,39 @@ function parseStoredDate(v) {
   return isNaN(d.getTime()) ? null : d;
 }
 
+// A stored schedule stamp is one of THREE things, and conflating two of them is a
+// bug (audit PUB-BE-04, additional observation "malformed dates fail open"):
+//
+//   empty / absent  -> that end of the window is deliberately unbounded
+//   parseable       -> a real instant
+//   non-empty junk  -> we do NOT know when this popup is supposed to run
+//
+// `parseStoredDate` returns null for the first AND the third, so `if (start && start
+// > now)` skipped the check entirely for a typo'd stamp: a popup with
+// `start_at = '22/08/2026'` (or a half-typed value saved from the admin UI) went
+// live IMMEDIATELY and stayed live forever, which is the exact opposite of what the
+// person scheduling it asked for. A schedule we cannot read must fail CLOSED.
+//
+// Returns `{ start, end, unreadable }`. `unreadable` means "do not serve this".
+function popupWindow(p) {
+  const startRaw = p.start_at == null ? '' : p.start_at.toString().trim();
+  const endRaw = p.end_at == null ? '' : p.end_at.toString().trim();
+  const start = startRaw ? parseStoredDate(startRaw) : null;
+  const end = endRaw ? parseStoredDate(endRaw) : null;
+  return { start, end, unreadable: Boolean((startRaw && !start) || (endRaw && !end)) };
+}
+
+// Is this popup inside its scheduled window right now? Kept as one predicate so the
+// SQL pre-filter below can never quietly become the real decision.
+function popupIsLiveNow(p, now) {
+  if (!isTruthyFlag(p.active)) return false;
+  const { start, end, unreadable } = popupWindow(p);
+  if (unreadable) return false;   // fail closed — see popupWindow
+  if (start && start > now) return false;
+  if (end && end < now) return false;
+  return true;
+}
+
 // Per-slide auto-play duration in ms. NULL/0/missing -> 5000ms; clamped to
 // 1000-60000ms so a stray 0 can't cause slide flicker. MUST stay identical to
 // normalizeDurationMs in mgmt/backend/src/popups.js.
@@ -612,37 +645,63 @@ function normalizeSlideDurationMs(v) {
   return n;
 }
 
+// SQLite's variable limit is far higher than this, but a popup list is tiny and
+// chunking keeps one runaway row count from producing an enormous statement.
+const POPUP_SLIDE_ID_CHUNK = 50;
+
+// A DELIBERATELY PERMISSIVE pre-filter. It exists only to stop reading rows that
+// could never qualify — `popupIsLiveNow` and the role check below remain the real
+// decision, so if this clause is ever wrong it can only let too MANY rows through,
+// never hide a popup that should be shown.
+//
+// Both halves must therefore be at least as generous as the JS predicate:
+//   * `active` is TEXT, holding '1' from the portal and 'True' from the sheet
+//     migration, so this matches every spelling `isTruthyFlag` accepts. (`active = 1`
+//     alone was the original bug — TEXT affinity made it match '1' but never 'True'.)
+//   * `roles LIKE '%Public%'` is broader than the exact-token check in JS on purpose.
+const ELIGIBLE_POPUPS_SQL = `
+  SELECT popup_id, title, roles, active, start_at, end_at FROM popups
+   WHERE roles LIKE '%Public%'
+     AND (active = 1 OR lower(trim(active)) IN ('1', 'true', 'yes'))`;
+
 async function getActivePublicPopups(env) {
   if (!env.DB_MISC) return []; // binding not configured yet — fail closed, not open
-  const now = new Date();
-  // Was `WHERE active = 1`, which matched '1' but NEVER the 'True' written by the
-  // migration — so a popup the admin UI proudly showed as "Active" was never
-  // actually served here. Filter in JS with the permissive flag check instead.
-  const { results: allPopups } = await env.DB_MISC.prepare(
-    'SELECT popup_id, title, roles, active, start_at, end_at FROM popups'
-  ).all();
-  const popups = allPopups.filter(p => {
-    if (!isTruthyFlag(p.active)) return false;
+  // `new Date(Date.now())` rather than `new Date()`: identical instant, but the clock
+  // is read through one function, so eligibility and the cache bucket in the handler
+  // cannot disagree about what "now" is, and a test can pin both at once.
+  const now = new Date(Date.now());
+  const { results: candidates } = await env.DB_MISC.prepare(ELIGIBLE_POPUPS_SQL).all();
+  const popups = (candidates || []).filter(p => {
+    if (!popupIsLiveNow(p, now)) return false;
     const rolesList = (p.roles || '').split(',').map(r => r.trim()).filter(Boolean);
     // Only popups explicitly tagged "Public" in mgmt's Popup Management show
     // here — a popup with no roles at all is treated as mgmt-internal-only,
     // so Superadmin must opt a popup into the Public role deliberately.
-    if (!rolesList.includes('Public')) return false;
-    const start = parseStoredDate(p.start_at);
-    const end = parseStoredDate(p.end_at);
-    if (start && start > now) return false;
-    if (end && end < now) return false;
-    return true;
+    return rolesList.includes('Public');
   });
   if (!popups.length) return [];
-  const { results: allSlides } = await env.DB_MISC.prepare(
-    'SELECT slide_id, popup_id, slide_order, image_url, text, link_url, link_text, duration_ms FROM popup_slides ORDER BY slide_order ASC'
-  ).all();
+
+  // Was an unconditional `SELECT ... FROM popup_slides` — every slide of every
+  // popup, including the ones just filtered out, on every cache miss. D1 bills rows
+  // READ, and this Worker's budget is shared with the management API, so fetching
+  // the slides of popups nobody can see is quota spent on nothing.
+  const eligibleIds = popups.map(p => p.popup_id);
+  const slides = [];
+  for (let i = 0; i < eligibleIds.length; i += POPUP_SLIDE_ID_CHUNK) {
+    const group = eligibleIds.slice(i, i + POPUP_SLIDE_ID_CHUNK);
+    const placeholders = group.map(() => '?').join(', ');
+    const { results } = await env.DB_MISC.prepare(
+      `SELECT slide_id, popup_id, slide_order, image_url, text, link_url, link_text, duration_ms
+         FROM popup_slides WHERE popup_id IN (${placeholders})`
+    ).bind(...group).all();
+    for (const r of results || []) slides.push(r);
+  }
+
   return popups
     .map(p => ({
       popup_id: p.popup_id,
       title: p.title,
-      slides: allSlides
+      slides: slides
         .filter(s => s.popup_id === p.popup_id)
         // Coalesce NULLs — the migrated slide row has text/link_url/link_text NULL.
         .map(s => ({
@@ -656,7 +715,10 @@ async function getActivePublicPopups(env) {
           // 1000-60000ms. Kept identical to normalizeDurationMs in the mgmt
           // Worker's popups.js so the two never disagree.
           duration_ms: normalizeSlideDurationMs(s.duration_ms),
-        })),
+        }))
+        // Ordered here rather than in SQL: the rows now arrive in chunks, so a
+        // per-statement ORDER BY would only sort within a chunk.
+        .sort((a, b) => a.slide_order - b.slide_order),
     }))
     .filter(p => p.slides.length > 0);
 }
@@ -969,7 +1031,11 @@ async function readCachedPayload(action, version) {
 // JSON text for (action, version), building it exactly once per version on a miss.
 // `build()` returns the DATA OBJECT (and may do its own accounting/snapshot work);
 // it only runs on a miss. Degrades to a plain build when the Cache API is absent.
-async function cachedPayload(ctx, action, version, build) {
+//
+// `retentionSeconds` is how long the EDGE keeps this entry — never sent to a client.
+// It is a parameter because a payload keyed on a time bucket (popups, below) must
+// not sit in the cache for a day after its bucket can no longer be requested.
+async function cachedPayload(ctx, action, version, build, retentionSeconds = CACHE_RETENTION_SECONDS) {
   const cached = await readCachedPayload(action, version);
   if (cached !== null) return cached;
 
@@ -980,7 +1046,7 @@ async function cachedPayload(ctx, action, version, build) {
       const stored = new Response(body, {
         headers: {
           'Content-Type': 'application/json',
-          'Cache-Control': `public, max-age=${CACHE_RETENTION_SECONDS}`,
+          'Cache-Control': `public, max-age=${retentionSeconds}`,
         },
       });
       const put = cache.put(cacheKeyFor(action, version), stored);
@@ -998,6 +1064,67 @@ const IMMUTABLE_CC = 'public, max-age=31536000, immutable';
 // while it revalidates in the background. This smooths the cliff right after a
 // version bump, when every open tab's ?v= goes stale at once.
 const REVALIDATE_CC = 'public, max-age=30, stale-while-revalidate=86400';
+
+// ============ POPUPS EXPIRE BY THE CLOCK, NOT BY THE DATA VERSION ============
+//
+// audit PUB-BE-04. Every other payload here is a pure function of the data version:
+// nothing but an admin edit can change the right answer, an edit bumps the version,
+// and a new version is a new URL — which is what makes `immutable` correct for them.
+//
+// `activePopups` is not like that. Its answer depends on `start_at` / `end_at`
+// versus NOW, so it changes on a schedule with no write anywhere to bump anything.
+// It was nevertheless served with `max-age=31536000, immutable` whenever the caller
+// passed the current `?v=`, and the ETag was `activePopups-v<version>`, which does
+// not change with time either. So:
+//
+//   * a popup scheduled to open tomorrow was answered "no popups" today, and that
+//     answer was cached in the visitor's browser FOR A YEAR — the popup simply never
+//     appeared for anyone who visited before it opened, and
+//   * a popup that ended last night stayed cached as visible, and a revalidation
+//     could not dislodge it either, because the unchanged ETag returned 304.
+//
+// Scheduling a popup is the entire point of the feature, so this is the feature
+// being broken by its own cache. Correctness here means the cache must be able to
+// expire on time.
+//
+// The fix is a BOUNDED TIME BUCKET folded into the cache identity: the edge key, the
+// ETag and the client `max-age` are all derived from `floor(now / POPUP_BUCKET)`.
+// One bucket is built once (per version, per colo) and everything inside it is a
+// cache hit; when the bucket rolls over, the key and the ETag both change, so the
+// edge misses and a revalidation cannot answer 304 with yesterday's popup set.
+//
+// Why a bucket rather than a TTL computed to the next `start_at`/`end_at` boundary:
+// the boundary is only known AFTER building the payload, so a cache HIT — the case
+// that must stay cheap — would have no idea when its own answer expires. The bucket
+// is derived from the clock alone, so hit and miss agree without reading anything.
+//
+// The trade is stated plainly: a popup can be up to POPUP_BUCKET_SECONDS late to
+// appear or disappear. Against a payload that could previously be a YEAR wrong, one
+// minute is a rounding error, and the cost is one rebuild per minute per colo (two
+// small queries) instead of one per year.
+const POPUP_BUCKET_SECONDS = 60;
+
+// Kept out of the cache for good after two buckets: an old bucket's key can never
+// be requested again, so a day-long retention would only occupy the cache.
+const POPUP_CACHE_RETENTION_SECONDS = POPUP_BUCKET_SECONDS * 2;
+
+// The bucket is folded into the version component of the cache key and the ETag, so
+// no new key format and no second cache scheme is introduced (PUB-BE-01 keeps one
+// canonical key per action: still derived from nothing the caller controls).
+function popupCacheVersion(version, nowMs) {
+  return `${version}.t${Math.floor(nowMs / (POPUP_BUCKET_SECONDS * 1000))}`;
+}
+
+// Expire exactly when the bucket does, so every client converges on the same
+// boundary instead of each holding its own offset window. Ranges 1..POPUP_BUCKET
+// SECONDS, never 0 — a `max-age=0` would make each visitor revalidate constantly.
+//
+// No `immutable` and no `stale-while-revalidate`: both mean "you may keep showing
+// this after it expires", which is the defect being fixed.
+function popupCacheControl(nowMs) {
+  const remaining = POPUP_BUCKET_SECONDS - (Math.floor(nowMs / 1000) % POPUP_BUCKET_SECONDS);
+  return `public, max-age=${remaining}`;
+}
 
 function payloadResponse(body, cors, etag, cacheControl) {
   return new Response(body, { headers: { ...cors, ETag: etag, 'Cache-Control': cacheControl } });
@@ -1579,37 +1706,42 @@ export default {
 
       if (action === 'activePopups') {
         const version = await getDataVersion(env);
-        const requestedV = (url.searchParams.get('v') || '').trim();
 
-        const etag = etagFor('activePopups', version);
+        // audit PUB-BE-04 — see the POPUPS EXPIRE BY THE CLOCK note above. The cache
+        // identity is (data version, time bucket), and one policy serves every
+        // caller: there is no longer a branch that hands out `immutable` to a request
+        // carrying the current `?v=`, because for this action `?v=` cannot promise
+        // that the answer will not change. `?v=` is still accepted and still cannot
+        // influence the cache key (PUB-BE-01); it simply no longer buys a year.
+        const nowMs = Date.now();
+        const cacheVersion = popupCacheVersion(version, nowMs);
+        const etag = etagFor('activePopups', cacheVersion);
+        const cacheControl = popupCacheControl(nowMs);
 
         // Hardening C: same budget guard as portalData.
         if (await d1BudgetExceeded(env)) {
-          const cachedOnly = await readCachedPayload('activePopups', version);
-          if (cachedOnly !== null) return payloadResponse(cachedOnly, cors, etag, REVALIDATE_CC);
+          const cachedOnly = await readCachedPayload('activePopups', cacheVersion);
+          if (cachedOnly !== null) return payloadResponse(cachedOnly, cors, etag, cacheControl);
           // Popups are non-critical; an empty list is a safe, silent fallback.
           return new Response(JSON.stringify([]), { headers: { ...cors, 'Cache-Control': 'no-store' } });
         }
 
-        const buildPopups = async () => {
-          const data = await getActivePublicPopups(env);
-          await d1BudgetAdd(env, ctx);
-          return data;
-        };
-
-        if (requestedV && requestedV === version) {
-          const body = await cachedPayload(ctx, 'activePopups', version, buildPopups);
-          return payloadResponse(body, cors, etag, IMMUTABLE_CC);
-        }
-
+        // Checked before the build: a client holding this bucket's ETag needs no
+        // payload, and after a bucket rollover this can no longer match, so a
+        // revalidation cannot be answered with a stale popup set.
         if (clientHasCurrent(request, etag)) {
           return new Response(null, {
             status: 304,
-            headers: { ...cors, ETag: etag, 'Cache-Control': 'no-cache' },
+            headers: { ...cors, ETag: etag, 'Cache-Control': cacheControl },
           });
         }
-        const body = await cachedPayload(ctx, 'activePopups', version, buildPopups);
-        return payloadResponse(body, cors, etag, REVALIDATE_CC);
+
+        const body = await cachedPayload(ctx, 'activePopups', cacheVersion, async () => {
+          const data = await getActivePublicPopups(env);
+          await d1BudgetAdd(env, ctx);
+          return data;
+        }, POPUP_CACHE_RETENTION_SECONDS);
+        return payloadResponse(body, cors, etag, cacheControl);
       }
       // Reached only with no ?action= at all (an unknown action is answered by the
       // method/action check before any handler runs).
