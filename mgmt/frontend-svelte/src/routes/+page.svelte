@@ -6,7 +6,7 @@
   // working and reviewable. Tab config + role groups are ported verbatim.
   import { onMount } from 'svelte';
   import { api, getSession, clearSession } from '$lib/api';
-  import { session } from '$lib/stores/session';
+  import { session, sessionEndedMessage } from '$lib/stores/session';
   import { setDataVersion, setCacheIdentity } from '$lib/cache';
   import { isSuperadmin } from '$lib/permissions';
   import { createViewData } from '$lib/viewData';
@@ -117,24 +117,43 @@
   let showAdminMenu = $state(false);
   let tab = $state<string>('home');
 
+  // audit P0-11: one definition of "which tab may this role open", used for the
+  // INITIAL hash as well as later hash changes. The initial hash used to be
+  // assigned verbatim, so `/#docxtemplates` as an Admin (or `/#garbage`) left the
+  // shell rendering nothing at all instead of falling back to Home.
+  function resolveAllowedTab(rawHash: string, role: string | undefined): string {
+    const h = (rawHash || '').replace(/^#/, '').trim() || 'home';
+    const groups = role ? TAB_GROUPS_BY_ROLE[role] || [] : [];
+    const allowed = new Set([...BASE_TABS.map((t) => t.id), ...groups.flatMap((g) => g.tabs).map((t) => t.id)]);
+    return allowed.has(h) ? h : 'home';
+  }
+
   onMount(() => {
-    try {
-      const h = (window.location.hash || '').replace(/^#/, '').trim();
-      if (h) tab = h;
-    } catch { /* ignore */ }
     const s = getSession();
     if (s) session.login(s.user!);
+    try {
+      tab = resolveAllowedTab(window.location.hash, s?.user?.role);
+    } catch { /* ignore */ }
     checkedSession = true;
 
     const onHashChange = () => {
-      const h = (window.location.hash || '').replace(/^#/, '').trim() || 'home';
-      const groups = $session ? TAB_GROUPS_BY_ROLE[$session.role] || [] : [];
-      const allowed = new Set([...BASE_TABS.map((t) => t.id), ...groups.flatMap((g) => g.tabs).map((t) => t.id)]);
-      const next = allowed.has(h) ? h : 'home';
+      const next = resolveAllowedTab(window.location.hash, $session?.role);
       if (tab !== next) tab = next;
     };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
+  });
+
+  // If the session ends (expiry, remote sign-out, a revoked device), the store is
+  // cleared by the API layer's auth-expired event. Tear the shell state down so a
+  // later sign-in starts clean instead of reusing another account's view stores.
+  $effect(() => {
+    if ($session) return;
+    started = false;
+    yearInitialized = false;
+    showSettings = false;
+    showAdminMenu = false;
+    tab = 'home';
   });
 
   // Keep the URL hash in sync with the active tab.
@@ -263,6 +282,11 @@
 {#if !checkedSession}
   <!-- match React: render nothing until the session check completes -->
 {:else if !$session}
+  {#if $sessionEndedMessage}
+    <div class="error-banner" role="status" style="max-width:420px; margin:16px auto 0;">
+      {$sessionEndedMessage}
+    </div>
+  {/if}
   <Login onLogin={(u) => { session.login(u); freshLogin = true; }} />
 {:else}
   <header class="top-header">
