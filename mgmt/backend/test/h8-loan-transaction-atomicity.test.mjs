@@ -84,10 +84,14 @@ test('H-8: a loan and its three guarantors are written in ONE transaction', asyn
 
   await saveLoanTransaction(env, loan(), guarantors(), SUPERADMIN);
 
-  // Before: the loan was a standalone .run(), then batch([g1, g2, g3]) -> [3].
-  assert.deepEqual(batches, [4], 'one batch carrying the loan + all three guarantors');
+  // Before H-8: the loan was a standalone .run(), then batch([g1, g2, g3]) -> [3].
+  // After H-8: batch([loan, g1, g2, g3]) -> [4], but the four consent rows were
+  // still written one .run() at a time afterwards (audit P0-01).
+  // Now: one batch carries the loan, the three guarantors AND the four consents.
+  assert.deepEqual(batches, [8], 'one batch carrying the loan + guarantors + all four consents');
   assert.equal(await count(env.DB_LOANS_EXPENSES, 'SELECT COUNT(*) AS n FROM loans'), 1);
   assert.equal(await count(env.DB_LOANS_EXPENSES, 'SELECT COUNT(*) AS n FROM loan_guarantors'), 3);
+  assert.equal(await count(env.DB_LOANS_EXPENSES, 'SELECT COUNT(*) AS n FROM loan_consents'), 4);
 });
 
 test('H-8: if a guarantor insert fails, the LOAN is rolled back too', async () => {

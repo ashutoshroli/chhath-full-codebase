@@ -221,25 +221,53 @@ export async function saveLoanTransaction(env, loanPayload, guarantorPayloads, u
     ).bind(...keys.map(k => cols[k]));
   });
 
-  await env.DB_LOANS_EXPENSES.batch([loanStmt, ...guarStmts]);
+  // ---- audit P0-01: the four CONSENT rows belong in the SAME transaction ----
+  //
+  // H-8 (above) put the loan and its guarantors in one batch, but the four
+  // loan_consents rows were still written AFTERWARDS, one .run() at a time, and
+  // any failure there was swallowed into `{ success: true, consentWarning }`.
+  // So a loan could be committed with 0-3 of its 4 consent records:
+  //
+  //   * `recomputeLoanStatus` reads the consent rows, so a loan missing one can
+  //     never legitimately reach Approved — or worse, with only the rows that DID
+  //     land it can reach Approved with a participant who never consented.
+  //   * the suggested recovery ("use Resend") CANNOT create a missing row:
+  //     resendConsent() looks up an existing consent_id and fails without one.
+  //   * the loan is financially committed and legally incomplete, and the admin
+  //     was shown a success.
+  //
+  // The consent rows are now built up-front (ids/tokens are pure CSPRNG work, no
+  // I/O) and inserted in the SAME batch as the loan and the guarantors: all
+  // eight rows land, or none do.
+  //
+  // Only DELIVERY (WhatsApp/email) stays after the commit — that is genuinely
+  // best-effort and IS recoverable with Resend, because the row it needs exists.
+  const consentLink = consentLinkBuilder(env); // config check BEFORE any write
+  const consentRows = buildLoanConsentRows(loanId, loanPayload, guarantorPayloads);
 
-  // The loan rows are committed at this point, so we must not throw — but the
-  // old code did `console.error(...)` and then returned a flat {success:true},
-  // meaning a loan could be saved with NO consent records and NO WhatsApp
-  // invitations while the admin was told everything worked.
+  await env.DB_LOANS_EXPENSES.batch([
+    loanStmt,
+    ...guarStmts,
+    ...consentInsertStatements(env, consentRows),
+  ]);
+
+  // Everything that DEFINES the loan is committed now. From here we must not
+  // throw: the remaining work is sending the invitations.
   let consentResult;
   try {
-    consentResult = await createLoanConsents(env, loanId, loanPayload, guarantorPayloads, user);
+    consentResult = await sendLoanConsentInvites(
+      env, loanId, loanPayload, guarantorPayloads, consentRows, consentLink
+    );
   } catch (err) {
-    console.error('LoanConsentCreateError', err);
-    await logErrorAt(env, 'backend-loans', 'saveLoanTransaction:createLoanConsents', err, {
+    console.error('LoanConsentSendError', err);
+    await logErrorAt(env, 'backend-loans', 'saveLoanTransaction:sendLoanConsentInvites', err, {
       loanId, loanerId: loanPayload.Name, year: loanPayload.Year,
     });
     return {
       success: true,
       loanId,
       consentWarning:
-        'The loan was saved, but there was a problem creating the consent records / WhatsApp invitations: ' +
+        'The loan and all four consent records were saved, but the invitations could not be sent: ' +
         err.message + ' — use "Resend" on the Loan Consents screen.',
     };
   }
@@ -350,31 +378,49 @@ export async function deleteLoanTransaction(env, rowIndex, year, loanerId, user,
   };
 }
 
-// ---- Consent creation (called right after saveLoanTransaction) ----
+// ---- Consent records (built and inserted INSIDE the loan transaction) ----
 
-async function createLoanConsents(env, loanId, loanPayload, guarantorPayloads, user) {
+// Pure: mints the four consent rows (one loaner + three guarantors). No I/O, so
+// it can run before the transaction and its output can go straight into batch().
+// Ids and tokens come from the CSPRNG helpers (audit C-4), never from Math.random.
+export function buildLoanConsentRows(loanId, loanPayload, guarantorPayloads) {
+  const createdAt = new Date().toISOString();
+  const participants = [{ personId: loanPayload.Name, role: 'loaner' }]
+    .concat(guarantorPayloads.map(g => ({ personId: g.Guarantor, role: 'guarantor' })));
+
+  return participants.map(p => ({
+    consentId: generateConsentId(),
+    loanId,
+    personId: p.personId,
+    role: p.role,
+    token: generateConsentToken(),
+    createdAt,
+  }));
+}
+
+// The INSERT statements for those rows, ready to be batched with the loan.
+export function consentInsertStatements(env, consents) {
+  return consents.map(c => env.DB_LOANS_EXPENSES.prepare(
+    'INSERT INTO loan_consents (consent_id, loan_id, person_id, role, token, status, otp, otp_verified, send_count, created_at, responded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).bind(c.consentId, c.loanId, c.personId, c.role, c.token, 'pending', '', 0, 1, c.createdAt, ''));
+}
+
+// ---- Consent DELIVERY (runs AFTER the loan transaction has committed) ----
+//
+// Everything here is best-effort by design: a missing template or an invalid
+// WhatsApp number must not undo a committed loan. It is safe to be best-effort
+// precisely BECAUSE the consent rows already exist — "Resend" can retry any of
+// them, which was not true when this function also created them.
+// The `createLoanConsents:*` page labels below are kept verbatim so existing
+// error_log / warning rows stay searchable by the same identifier.
+async function sendLoanConsentInvites(env, loanId, loanPayload, guarantorPayloads, created, consentLink) {
   // audit M-14: only the loaner and the three guarantors are needed — this used to
   // read every member row to look up four of them.
   const userMap = await usersByIdCodes(env, [loanPayload.Name, ...guarantorPayloads.map(g => g.Guarantor)]);
 
-  const now = new Date().toISOString();
-  const participants = [{ personId: loanPayload.Name, role: 'loaner' }]
-    .concat(guarantorPayloads.map(g => ({ personId: g.Guarantor, role: 'guarantor' })));
-
-  const created = [];
-  for (const p of participants) {
-    const consentId = generateConsentId();
-    const token = generateConsentToken();
-    await env.DB_LOANS_EXPENSES.prepare(
-      'INSERT INTO loan_consents (consent_id, loan_id, person_id, role, token, status, otp, otp_verified, send_count, created_at, responded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).bind(consentId, loanId, p.personId, p.role, token, 'pending', '', 0, 1, now, '').run();
-    created.push({ consentId, personId: p.personId, role: p.role, token });
-  }
-
   const loanerU = userMap[loanPayload.Name] || {};
   const guarantorUsers = guarantorPayloads.map(g => userMap[g.Guarantor] || {});
   const rate = loanPayload['Intrest Rate'] || loanPayload['Interest Rate'] || '0';
-  const consentLink = consentLinkBuilder(env); // throws early if misconfigured
 
   const loanerConsent = created.find(c => c.role === 'loaner');
   const guarConsents = created.filter(c => c.role === 'guarantor');
