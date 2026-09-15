@@ -23,6 +23,7 @@
 //   * enqueue enforces the same staff permission the direct save always required.
 
 import { requireStaffRole, requireRole, requireYearUnlocked, requireYearAccess, requireSuperadmin, ValidationError, InternalError } from './auth.js';
+import { fromColumnRow } from './tableRegistry.js';
 import { convertDocxToPdf } from './docxTemplates.js';
 import { triggerCollectionMessages } from './whatsapp.js';
 import { triggerCollectionEmail } from './email.js';
@@ -54,28 +55,55 @@ function jobsDb(env) {
 // ---- ENQUEUE (called from the save path, staff only) ----
 //
 // `job` shape from the client:
-//   { docType, year, rowIndex, recordId, isNewEntry, payload, filledBase64, fileName }
+//   { docType, rowIndex, isNewEntry, filledBase64, fileName, year?, recordId?, payload? }
 // docType/filledBase64 may be '' when the collection has no auto-document
 // (e.g. a resell entry) — in that case the job still runs to queue WhatsApp.
+//
+// `rowIndex` is REQUIRED: it is the id of the collection row that was just saved,
+// and everything that identifies the job (year, record id, notification payload)
+// is read back from that row. `year` / `recordId` / `payload` are still accepted
+// for backwards compatibility, but they are only cross-checked, never trusted
+// (audit P0-03).
 export async function enqueueCollectionJob(env, job, user) {
   // Same gate the direct save enforced: staff role.
   requireStaffRole(user);
   if (!job || typeof job !== 'object') throw InternalError('Invalid job');
 
-  // SECURITY (audit 2.2): the comment used to claim the job was "already
-  // authorized at enqueue time", but the only check here was the staff role —
-  // the year-lock and year-access rules that saveRecord enforces were NOT
-  // re-checked, and runOneJob later drives a PDF + WhatsApp side effect with a
-  // forced-Superadmin system user. So a crafted enqueueCollectionJob could act
-  // on a LOCKED year, or a year the caller has no committee access to, using the
-  // full 'add' permission the queue processor assumes. Re-run the SAME year
-  // checks saveRecord does, against the REAL caller (not the system user), before
-  // the job is ever accepted.
-  const jobYear = (job.year != null && job.year !== '') ? job.year
-    : (job.payload && job.payload.Year) ? job.payload.Year : '';
-  if (jobYear) {
-    await requireYearUnlocked(env, jobYear);
-    await requireYearAccess(env, user, jobYear);
+  // ---- audit P0-03: the job must describe a COMMITTED collection row ----
+  //
+  // Everything below used to be taken from the client: `recordId`, `year` and the
+  // whole `payload` that later drives the PDF filename, the WhatsApp message and
+  // the email. Nothing loaded the collection row those values claimed to
+  // describe. A staff account with 'add' on one year could therefore enqueue an
+  // invented `receipt-<year>-<anything>` with a payload naming any contributor
+  // and any amount, and the cron would generate that document and announce it —
+  // as a system caller, with no committed financial row behind it.
+  //
+  // The row id is now mandatory, the row is loaded, and the job's identity
+  // (year, record id, notification payload) is DERIVED from the stored row.
+  const rowIndex = job.rowIndex != null && job.rowIndex !== '' ? parseInt(job.rowIndex) : NaN;
+  if (!Number.isFinite(rowIndex) || rowIndex <= 0) {
+    throw ValidationError('This job could not be queued: it does not reference a saved collection entry. Please reload the page and save again.');
+  }
+  if (!env.DB_COLLECTIONS) throw InternalError('DB_COLLECTIONS binding not configured — a collection job cannot be verified.');
+  const storedRow = await env.DB_COLLECTIONS.prepare('SELECT * FROM collections WHERE id = ?').bind(rowIndex).first();
+  if (!storedRow) {
+    throw ValidationError('This job could not be queued: the collection entry it refers to no longer exists.');
+  }
+
+  // The year comes from the row, not from the request. The caller's claimed year
+  // is still checked when it differs, so a mismatch can only ADD checks, never
+  // skip one (same rule as deleteLoanTransaction — audit H-8 (4)).
+  const storedYear = (storedRow.year != null && storedRow.year !== '') ? storedRow.year.toString() : '';
+  if (storedYear) {
+    await requireYearUnlocked(env, storedYear);
+    await requireYearAccess(env, user, storedYear);
+  }
+  const claimedYear = (job.year != null && job.year !== '') ? job.year.toString() : '';
+  if (claimedYear && storedYear && claimedYear !== storedYear) {
+    await requireYearUnlocked(env, claimedYear);
+    await requireYearAccess(env, user, claimedYear);
+    throw ValidationError('This job could not be queued: it refers to a different year than the saved entry. Please reload the page and try again.');
   }
 
   // SECURITY (audit C-2): runOneJob() drives convertDocxToPdf() with a fabricated
@@ -92,13 +120,19 @@ export async function enqueueCollectionJob(env, job, user) {
   if (!QUEUEABLE_DOC_TYPES.has(docType)) {
     throw ValidationError(`"${docType}" documents cannot be queued from a collection save.`);
   }
-  const recordId = (job.recordId || '').toString();
-  if (recordId && docType && !recordId.startsWith(`${docType}-`)) {
-    throw ValidationError('This job could not be queued (its document reference does not match its document type).');
-  }
-  if (recordId && !docType) {
+  // The record id is DERIVED, not accepted: `<docType>-<storedYear>-<rowId>` is
+  // exactly what the client is expected to build, so a request that disagrees is
+  // either stale or crafted — refuse it rather than silently writing to the id the
+  // server chose (the caller would then get a document it did not ask for).
+  const derivedRecordId = docType ? `${docType}-${storedYear}-${rowIndex}` : '';
+  const claimedRecordId = (job.recordId || '').toString();
+  if (claimedRecordId && !docType) {
     throw ValidationError('This job could not be queued (a document reference was supplied without a document type).');
   }
+  if (claimedRecordId && claimedRecordId !== derivedRecordId) {
+    throw ValidationError('This job could not be queued: its document reference does not match the saved entry. Please reload the page and try again.');
+  }
+  const recordId = derivedRecordId;
 
   // A job row lives in D1, which has a ~1 MB practical row limit, and
   // filled_base64 is by far the largest column. Reject an oversized payload here
@@ -114,23 +148,55 @@ export async function enqueueCollectionJob(env, job, user) {
   const jobId = genJobId();
   const now = new Date().toISOString();
 
-  await db.prepare(
+  // The notification payload is rebuilt from the STORED row, so the contributor,
+  // amount, payment mode, contribution type and resell flag that the WhatsApp
+  // message and the email announce are the committed ones. The client's payload is
+  // no longer trusted for any of it.
+  //
+  // Residual, deliberately unchanged here: `filled_base64` is still the .docx the
+  // browser filled (that rendering stays client-side — see the FLOW note at the
+  // top of this file). What an attacker can no longer do is point a document at a
+  // record that does not exist, at another year, or announce figures that were
+  // never saved.
+  const payload = fromColumnRow('collections', storedRow);
+  delete payload.__rowIndex;
+  if (!payload['Created By'] && user && user.name) payload['Created By'] = user.name;
+
+  // Double-submit protection: one live job per (row, document) at a time. Two
+  // clicks on Save, or a retry after a slow response, used to create two jobs —
+  // and two PDFs plus two WhatsApp messages for one entry.
+  const inserted = await db.prepare(
     `INSERT INTO collection_jobs
       (job_id, status, doc_type, year, row_index, record_id, is_new_entry, payload, filled_base64, file_name, attempts, created_by, created_at)
-     VALUES (?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
+     SELECT ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?
+      WHERE NOT EXISTS (
+        SELECT 1 FROM collection_jobs
+         WHERE row_index = ? AND doc_type = ? AND status IN ('pending', 'processing')
+      )`
   ).bind(
     jobId,
-    (job.docType || '').toString(),
-    (job.year || '').toString(),
-    job.rowIndex != null ? parseInt(job.rowIndex) : null,
-    (job.recordId || '') || null,
+    docType,
+    storedYear,
+    rowIndex,
+    recordId || null,
     job.isNewEntry === false ? 0 : 1,
-    safeJson(job.payload || {}),
+    safeJson(payload),
     (job.filledBase64 || '').toString(),
     (job.fileName || '').toString(),
     user ? user.name : (job.createdBy || ''),
-    now
+    now,
+    rowIndex,
+    docType
   ).run();
+
+  if (!inserted || !inserted.meta || inserted.meta.changes === 0) {
+    const existing = await db.prepare(
+      `SELECT job_id FROM collection_jobs
+        WHERE row_index = ? AND doc_type = ? AND status IN ('pending', 'processing')
+        ORDER BY id DESC LIMIT 1`
+    ).bind(rowIndex, docType).first('job_id').catch(() => null);
+    return { success: true, jobId: existing || null, deduped: true };
+  }
 
   return { success: true, jobId };
 }
