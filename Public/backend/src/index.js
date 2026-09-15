@@ -371,15 +371,36 @@ function countPayloadRows(data) {
 // since the last snapshot (i.e. roughly once per real data change) — the stored
 // meta records which version the snapshot is for. That is a handful of writes a
 // day, well within limits.
-const SNAPSHOT_KEY = 'pub:snapshot:portalData';
-const SNAPSHOT_META_KEY = 'pub:snapshot:portalData:version';
+// ============ THE SNAPSHOT IS ONE VALUE, NOT TWO KEYS ============
+//
+// audit PUB-BE-07 (additional observation on the snapshot write). The last-known-good
+// copy used to live in TWO keys written together:
+//
+//     pub:snapshot:portalData          <- the body
+//     pub:snapshot:portalData:version  <- which version the body is for
+//
+// KV has no transactions, and the two puts were issued with `Promise.all` inside
+// `ctx.waitUntil`, so nothing ever observed the result. If the VERSION write landed and
+// the BODY write did not, the pair is left claiming that the previous version's body is
+// current — and because `maybeSaveSnapshot` skips the write whenever the recorded
+// version already matches, it would never be corrected. The safety net would then hold
+// the wrong data permanently, and would be discovered only during the D1 outage it
+// exists for, serving stale data marked as the current version.
+//
+// One key holding `{ version, savedAt, data }` cannot be half-written: a KV put either
+// lands or it does not. It also removes the extra read the meta key needed.
+const SNAPSHOT_KEY = 'pub:snapshot:portalData:v2';
+// The v1 pair, still read (never written) so a deployment carrying an older snapshot
+// keeps its safety net until the next data change replaces it with a v2 value.
+const SNAPSHOT_KEY_V1 = 'pub:snapshot:portalData';
+const SNAPSHOT_META_KEY_V1 = 'pub:snapshot:portalData:version';
 
 async function maybeSaveSnapshot(env, ctx, version, dataObj) {
   try {
     const kv = pubKv(env);
     if (!kv) return;
-    const lastVer = await kv.get(SNAPSHOT_META_KEY);
-    if (lastVer === String(version)) return; // snapshot already current for this version — no write
+    const current = await readSnapshotEnvelope(kv);
+    if (current && String(current.version) === String(version)) return; // already current — no write
     // TTL was 24h: if the data didn't change for a day (a quiet, non-festival
     // period) the last-known-good snapshot EXPIRED, so a later D1 outage would
     // hit a 503/500 instead of serving stale-but-real data — exactly when the
@@ -398,27 +419,61 @@ async function maybeSaveSnapshot(env, ctx, version, dataObj) {
     //
     // Refuse early, and say so loudly in the error log, so the operator learns while
     // the portal is still healthy rather than during an outage.
-    const body = JSON.stringify(dataObj);
+    const body = JSON.stringify({ version: String(version), savedAt: new Date().toISOString(), data: dataObj });
     const SNAPSHOT_MAX_BYTES = 20 * 1024 * 1024; // 25 MB hard limit, with headroom
-    if (body.length > SNAPSHOT_MAX_BYTES) {
+
+    // The limit is on BYTES. `body.length` is UTF-16 CODE UNITS, and this payload is
+    // full of Devanagari (`name_hindi`, `village_hindi`, `designation_hindi`,
+    // `discription_hindi`), which is three UTF-8 bytes per single code unit. So the old
+    // check under-counted by up to 3x on exactly the data it was written to protect: a
+    // string measuring a "safe" 20 MB can be over 50 MB of UTF-8, past KV's hard cap.
+    // The put would then fail — silently, inside waitUntil, under a bare catch.
+    const bytes = new TextEncoder().encode(body).length;
+    if (bytes > SNAPSHOT_MAX_BYTES) {
       await logPublicError(
         env, 'public-backend', 'maybeSaveSnapshot',
-        `Snapshot NOT saved: the portalData payload is ${(body.length / 1048576).toFixed(1)} MB, ` +
+        `Snapshot NOT saved: the portalData payload is ${(bytes / 1048576).toFixed(1)} MB, ` +
         `over the ${SNAPSHOT_MAX_BYTES / 1048576} MB guard (KV's hard limit is 25 MB). ` +
         'The last-known-good fallback is therefore UNAVAILABLE — if D1 goes down or hits its ' +
         'daily row limit, the public portal will fail instead of serving a stale copy. ' +
         'Fix by paginating the public payload (audit H-5).',
-        '', JSON.stringify({ bytes: body.length, version }), ''
+        '', JSON.stringify({ bytes, chars: body.length, version }), ''
       );
       return;
     }
 
-    const writes = Promise.all([
-      kv.put(SNAPSHOT_KEY, body, { expirationTtl: SNAPSHOT_TTL }),
-      kv.put(SNAPSHOT_META_KEY, String(version), { expirationTtl: SNAPSHOT_TTL }),
-    ]);
-    if (ctx && ctx.waitUntil) ctx.waitUntil(writes); else await writes;
+    // ONE put: atomic by construction. And its failure is no longer invisible — the
+    // whole point of this value is to exist before it is needed, so an operator has to
+    // learn about a failed write while the portal is still healthy.
+    const write = kv.put(SNAPSHOT_KEY, body, { expirationTtl: SNAPSHOT_TTL }).catch((e) => logPublicError(
+      env, 'public-backend', 'maybeSaveSnapshot',
+      `Snapshot write FAILED: ${(e && e.message) || 'unknown'}. The last-known-good fallback is ` +
+      'stale or missing, so a D1 outage will fail the public portal instead of serving a saved copy.',
+      '', JSON.stringify({ version, bytes }), ''
+    ).catch(() => {}));
+    if (ctx && ctx.waitUntil) ctx.waitUntil(write); else await write;
   } catch (e) { /* best effort — snapshotting must never affect the response */ }
+}
+
+// The snapshot as `{ version, savedAt, data }`, from the v2 value or reconstructed from
+// the v1 pair. Returns null when there is nothing usable.
+async function readSnapshotEnvelope(kv) {
+  try {
+    const raw = await kv.get(SNAPSHOT_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && parsed.data) return parsed;
+    }
+  } catch (e) { /* fall through to v1 */ }
+  try {
+    const [rawV1, verV1] = await Promise.all([kv.get(SNAPSHOT_KEY_V1), kv.get(SNAPSHOT_META_KEY_V1)]);
+    if (!rawV1) return null;
+    const data = JSON.parse(rawV1);
+    if (!data || typeof data !== 'object') return null;
+    // A v1 pair can disagree with itself — that is the defect this format removes — so
+    // its recorded version is taken as advisory only.
+    return { version: verV1 == null ? null : String(verV1), savedAt: null, data, legacy: true };
+  } catch (e) { return null; }
 }
 
 // Returns a Response built from the last-known-good snapshot (marked stale), or
@@ -427,9 +482,12 @@ async function serveSnapshot(env, cors) {
   try {
     const kv = pubKv(env);
     if (!kv) return null;
-    const raw = await kv.get(SNAPSHOT_KEY);
-    if (!raw) return null;
-    const data = JSON.parse(raw);
+    const envelope = await readSnapshotEnvelope(kv);
+    if (!envelope) return null;
+    const data = envelope.data;
+    // `savedAt` is what the frontend shows as the age of a saved copy (PUB-FE-01, #328),
+    // and it now comes from the snapshot itself rather than being unknowable.
+    if (envelope.savedAt) data.savedAt = envelope.savedAt;
     return new Response(JSON.stringify({ ...data, stale: true, staleReason: 'Live data source is temporarily unavailable; showing the most recent saved copy.' }), {
       // no-store: this is a degraded copy, don't let it get cached as if fresh.
       headers: { ...cors, 'Cache-Control': 'no-store' },
@@ -1030,15 +1088,52 @@ async function logPublicError(env, source, page, message, stack, context, client
 // exactly the "serve from cache until the data changes" behaviour we want.
 const DATA_VERSION_KEY = 'public_data_version';
 
+// audit PUB-BE-07 (additional observation: "version failures collapse to a
+// valid-looking version 0").
+//
+// This used to answer `'0'` for three completely different situations: the counter row
+// genuinely does not exist yet, the binding is missing, and *the read failed*. Only the
+// first of those is a version.
+//
+// `'0'` is not an error value here — it is a perfectly usable version string, and this
+// Worker builds its entire caching identity out of it. So a D1 hiccup meant:
+//
+//   * the payload built during the failure — possibly empty, since the section reads
+//     were failing too — was cached under the key `v=0` and given an ETag of `…-v0`, and
+//   * every later failure produced the same `v=0` identity, so that one bad build was
+//     served back as a cache HIT, indefinitely, to everyone.
+//
+// A version we could not read is now `null`, and a caller that needs one to answer
+// safely says so instead of inventing a value. An absent row is still `'0'`: a fresh
+// deployment the mgmt Worker has never bumped really is at version zero.
 async function getDataVersion(env) {
   try {
-    if (!env || !env.DB_CORE) return '0';
+    if (!env || !env.DB_CORE) return null;
     const row = await env.DB_CORE.prepare('SELECT value FROM portal_settings WHERE "key" = ?')
       .bind(DATA_VERSION_KEY).first();
+    if (row === undefined) return null;               // read did not answer
     return (row && row.value != null ? row.value.toString() : '0') || '0';
   } catch (e) {
-    return '0';
+    return null;
   }
+}
+
+// What to answer when the data version cannot be read. Nothing cacheable can be built
+// without it — the key and the ETag are derived from it — so the choice is between a
+// real last-known-good copy and an honest failure. Never a fabricated version.
+async function versionUnavailable(env, cors, action) {
+  if (action === 'portalData') {
+    const snap = await serveSnapshot(env, cors);
+    if (snap) return snap;
+  }
+  return new Response(
+    JSON.stringify({
+      status: false,
+      unavailable: true,
+      message: 'Unable to load data. Please try again in a little while.',
+    }),
+    { status: 503, headers: { ...cors, 'Cache-Control': 'no-store' } }
+  );
 }
 
 // Reads the four public SEO/link-preview fields the Superadmin manages in the
@@ -1825,6 +1920,7 @@ export default {
       // up almost immediately. It's a single-row read, so it's cheap.
       if (action === 'dataVersion') {
         const version = await getDataVersion(env);
+        if (version === null) return versionUnavailable(env, cors, action);
         return new Response(JSON.stringify({ v: version }), {
           headers: { ...cors, 'Cache-Control': 'no-cache' },
         });
@@ -1847,6 +1943,7 @@ export default {
 
       if (action === 'portalData') {
         const version = await getDataVersion(env);
+        if (version === null) return versionUnavailable(env, cors, action);
         const requestedV = (url.searchParams.get('v') || '').trim();
 
         // Hardening C: if today's D1 read budget is spent, do NOT build fresh from
@@ -1934,6 +2031,7 @@ export default {
       // falls back to `portalData` for the detailed lists (loaded lazily per tab).
       if (action === 'summary') {
         const version = await getDataVersion(env);
+        if (version === null) return versionUnavailable(env, cors, action);
         const requestedV = (url.searchParams.get('v') || '').trim();
 
         const etag = etagFor('summary', version);
@@ -1966,6 +2064,7 @@ export default {
 
       if (action === 'activePopups') {
         const version = await getDataVersion(env);
+        if (version === null) return versionUnavailable(env, cors, action);
 
         // audit PUB-BE-04 — see the POPUPS EXPIRE BY THE CLOCK note above. The cache
         // identity is (data version, time bucket), and one policy serves every
