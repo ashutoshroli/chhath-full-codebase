@@ -21,7 +21,7 @@
 // Superadmin AND totp_enabled = 1.
 // ============================================================================
 
-import { requireSuperadmin, ValidationError, InternalError, verifyPassword, timingSafeEqualHex } from './auth.js';
+import { requireSuperadmin, ValidationError, InternalError, verifyPassword, timingSafeEqualHex, revokeSessionsFor } from './auth.js';
 import { encryptSecret, decryptSecret } from './aiConfig.js';
 import { sendViaResend } from './email.js';
 import { randomToken } from './random.js';
@@ -164,7 +164,16 @@ export async function disable2FA(env, user, password) {
   if (!ok) throw ValidationError('Password is incorrect.');
 
   await clearTotp(env, row.id);
-  return { success: true, message: 'Two-factor authentication has been disabled.' };
+  // audit P0-09: turning the second factor OFF is a security-reducing change, so
+  // it must not leave other devices signed in — the same rule a password change
+  // already follows (audit H-15). The current device stays in.
+  const sessionsRevoked = await revokeSessionsFor(env, user.name, { exceptHash: user.th });
+  return {
+    success: true,
+    sessionsRevoked,
+    message: 'Two-factor authentication has been disabled.'
+      + (sessionsRevoked > 0 ? ` Your other ${sessionsRevoked === 1 ? 'device was' : 'devices were'} signed out.` : ''),
+  };
 }
 
 async function clearTotp(env, id) {
@@ -192,7 +201,16 @@ export async function regenerateBackupCodes(env, user, password) {
   await env.DB_CORE.prepare('UPDATE login_users SET totp_backup_codes = ?, updated_at = ? WHERE id = ?')
     .bind(JSON.stringify(hashes), new Date().toISOString(), row.id).run();
 
-  return { success: true, backupCodes: codes, message: 'New backup codes generated. The old ones no longer work.' };
+  // audit P0-09: regenerating backup codes is what you do when the old set may be
+  // compromised, so any other session is suspect too.
+  const sessionsRevoked = await revokeSessionsFor(env, user.name, { exceptHash: user.th });
+  return {
+    success: true,
+    backupCodes: codes,
+    sessionsRevoked,
+    message: 'New backup codes generated. The old ones no longer work.'
+      + (sessionsRevoked > 0 ? ' Your other devices were signed out.' : ''),
+  };
 }
 
 // ============================================================================
@@ -339,7 +357,11 @@ export async function disableViaRecoveryKey(env, name, password, recoveryKey) {
   if (!pwOk || !keyOk) return GENERIC;
 
   await clearTotp(env, row.id);
-  return { success: true, message: 'Two-factor authentication has been disabled using your recovery key. Set it up again from Settings.' };
+  // audit P0-09: recovery is the "I lost control of my second factor" path, so
+  // every existing session for this account must end — there is no current
+  // session to spare here (this runs unauthenticated).
+  await revokeSessionsFor(env, row.name.toString().trim(), {});
+  return { success: true, message: 'Two-factor authentication has been disabled using your recovery key. All devices have been signed out. Set it up again from Settings.' };
 }
 
 // Request a recovery EMAIL: emails a single-use, 30-minute link/token to the
@@ -389,5 +411,7 @@ export async function resetViaRecoveryToken(env, token) {
   if (!row) return GENERIC;
 
   await clearTotp(env, row.id);
-  return { success: true, message: 'Two-factor authentication has been disabled. Please set it up again from Settings.' };
+  // audit P0-09: same reasoning as disableViaRecoveryKey — end every session.
+  await revokeSessionsFor(env, row.name.toString().trim(), {});
+  return { success: true, message: 'Two-factor authentication has been disabled and all devices have been signed out. Please set it up again from Settings.' };
 }

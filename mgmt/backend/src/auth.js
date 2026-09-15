@@ -624,12 +624,17 @@ export async function verifyToken(env, token) {
     // rare stale-role window during a DB outage).
   }
 
-  // REMOTE LOGOUT: a user (or a Superadmin) can revoke a session from another
-  // device. Since we only store the token HASH, we can't delete that other
-  // device's KV entry directly — instead the revoke sets user_sessions.revoked_at
-  // and this check rejects the session on its next request (its KV entry then
-  // expires naturally). Also refresh last_seen, throttled. Best-effort / fail
-  // safe: an audit-DB error never logs a valid user out.
+  // REMOTE LOGOUT — second line of defence.
+  //
+  // audit P0-09: the revoke paths now DELETE the other device's KV entry (the key
+  // is `session:<token_hash>` and `user_sessions.token_hash` is exactly that hash,
+  // so it is reconstructable — see deleteSessionsByHashes). A revoked session
+  // therefore fails at the KV lookup above, before this check runs.
+  //
+  // This check remains for sessions whose KV delete did not land (a KV error
+  // during the revoke) and for legacy raw-token keys. It is deliberately still
+  // best-effort so a transient audit-DB blip cannot log every admin out: the
+  // authoritative revocation is the KV deletion, not this read.
   try {
     if (env.DB_AUDIT) {
       const th = s.th || (await sha256Hex(token));
@@ -679,6 +684,29 @@ export async function getMySessions(env, user, currentHash) {
   return { sessions: (results || []).map(r => sessionOut(r, currentHash)) };
 }
 
+// audit P0-09: delete the KV session entries for a set of token hashes.
+//
+// The KV key is `session:<sha256(token)>` and user_sessions.token_hash IS that
+// hash, so the key is reconstructable without ever storing a replayable token.
+// Every revoke path must call this: marking `revoked_at` alone left the session
+// live in KV, and the verifyToken revocation check is explicitly best-effort
+// (it swallows audit-DB errors), so a revoked device could keep working.
+//
+// Sequential, not Promise.all: bounded by how many devices one person uses, and
+// it keeps the subrequest burst small on the free plan.
+async function deleteSessionsByHashes(env, hashes) {
+  if (!env || !env.KV_SESSIONS) return 0;
+  let deleted = 0;
+  for (const h of hashes) {
+    if (!h) continue;
+    try {
+      await env.KV_SESSIONS.delete(sessionKeyByHash(h));
+      deleted++;
+    } catch (e) { /* best-effort: the audit row is still marked revoked */ }
+  }
+  return deleted;
+}
+
 // Revoke ONE of the caller's own sessions by row id (can't revoke someone
 // else's — the WHERE name = ? binds it to the caller).
 export async function revokeSession(env, user, sessionId, currentHash) {
@@ -688,16 +716,24 @@ export async function revokeSession(env, user, sessionId, currentHash) {
   if (!row) throw ValidationError('Session not found.');
   await env.DB_AUDIT.prepare('UPDATE user_sessions SET revoked_at = ? WHERE id = ? AND name = ?')
     .bind(new Date().toISOString(), sessionId, user.name).run();
+  // audit P0-09: actually end that device's session instead of hoping its next
+  // request happens to reach a healthy audit DB.
+  await deleteSessionsByHashes(env, [row.token_hash]);
   return { success: true, wasCurrent: currentHash != null && row.token_hash === currentHash };
 }
 
 // Revoke every OTHER session of the caller (keep the current device signed in).
 export async function revokeAllOtherSessions(env, user, currentHash) {
   if (!env.DB_AUDIT) throw ValidationError('Audit store not configured.');
+  // Collect the hashes BEFORE the update, so the KV keys can be removed too.
+  const { results } = await env.DB_AUDIT.prepare(
+    'SELECT token_hash FROM user_sessions WHERE name = ? AND revoked_at IS NULL AND token_hash != ?'
+  ).bind(user.name, currentHash || '').all();
   await env.DB_AUDIT.prepare(
     'UPDATE user_sessions SET revoked_at = ? WHERE name = ? AND revoked_at IS NULL AND token_hash != ?'
   ).bind(new Date().toISOString(), user.name, currentHash || '').run();
-  return { success: true };
+  const revoked = await deleteSessionsByHashes(env, (results || []).map(r => r.token_hash));
+  return { success: true, revoked };
 }
 
 // audit H-15 — kill every session belonging to `name`, optionally sparing one.
@@ -864,6 +900,16 @@ export async function revokeUserSession(env, targetName, sessionId, user) {
   if (!env.DB_AUDIT) throw ValidationError('Audit store not configured.');
   const name = (targetName || '').toString().trim();
   const now = new Date().toISOString();
+  // audit P0-09: read the hashes first so the force-logout can delete the KV
+  // sessions as well. Before this, "force logout" only wrote a revoked_at that
+  // verifyToken checks best-effort — so the target could keep working through a
+  // D1 hiccup, which is precisely the moment a Superadmin is cutting someone off.
+  const { results } = sessionId
+    ? await env.DB_AUDIT.prepare('SELECT token_hash FROM user_sessions WHERE id = ? AND name = ?')
+      .bind(sessionId, name).all()
+    : await env.DB_AUDIT.prepare('SELECT token_hash FROM user_sessions WHERE name = ? AND revoked_at IS NULL')
+      .bind(name).all();
+
   if (sessionId) {
     await env.DB_AUDIT.prepare('UPDATE user_sessions SET revoked_at = ? WHERE id = ? AND name = ?')
       .bind(now, sessionId, name).run();
@@ -871,7 +917,8 @@ export async function revokeUserSession(env, targetName, sessionId, user) {
     await env.DB_AUDIT.prepare('UPDATE user_sessions SET revoked_at = ? WHERE name = ? AND revoked_at IS NULL')
       .bind(now, name).run();
   }
-  return { success: true };
+  const revoked = await deleteSessionsByHashes(env, (results || []).map(r => r.token_hash));
+  return { success: true, revoked };
 }
 
 // The token a request actually authenticated with: the body token when present
