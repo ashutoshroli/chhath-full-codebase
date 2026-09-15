@@ -179,7 +179,7 @@ const D1_BUILD_ROWS_FLOOR = 200; // minimum charged per build (per-table query o
 // KV-backed) started failing, and they fail OPEN, disabling the very protection
 // meant to shield the shared D1 quota. Two mitigations:
 //   1. Most repeat traffic never reaches the Worker at all — the version-keyed
-//      edge cache serves it (see edgeCached/versionCached). So the limiter only
+//      edge cache serves it (see cachedPayload). So the limiter only
 //      sees cache-miss/first-touch requests.
 //   2. Counting is now SAMPLED: we still READ the counter every time (reads are
 //      cheap and have a far higher free quota), but only WRITE ~1 in
@@ -903,99 +903,104 @@ function etagFor(action, version) {
   return `W/"${action}-v${version}"`;
 }
 
-// Edge cache (caches.default) for the version-keyed payloads.
+// ============ ONE CANONICAL CACHE KEY PER (ACTION, DATA VERSION) ============
 //
 // A `Cache-Control: immutable` header alone tells the BROWSER to cache, but a
-// Worker response is NOT put on Cloudflare's edge automatically — and Cache
-// Rules don't reliably apply to *.workers.dev. So we cache explicitly here: on a
-// HIT the big payload is returned without ever reading D1; on a MISS we build it
-// and store it under the versioned URL. Because the URL carries ?v=<version>, a
-// data change (new version -> new URL) is a fresh key, so a stale body can never
-// be served. Keyed on the full request URL (which includes ?v=).
+// Worker response is NOT put on Cloudflare's edge automatically — and Cache Rules
+// don't reliably apply to *.workers.dev. So we cache explicitly here: on a HIT the
+// big payload is returned without ever reading D1; on a MISS we build it once.
 //
-// Safe/degrades: if the Cache API is unavailable, build() runs normally.
-async function edgeCached(request, ctx, build) {
-  let cache;
-  try { cache = caches.default; } catch (e) { cache = null; }
-  if (!cache) return build();
+// audit PUB-BE-01 — this used to be TWO caches with two different key schemes:
+//
+//   * the fast path keyed on the CLIENT'S OWN REQUEST URL, and
+//   * the fallback path keyed on a synthetic internal URL carrying the live version.
+//
+// Keying on the client's URL is the bug. The cache key then includes every query
+// parameter the caller chose to send, and this Worker only ever reads `action`,
+// `v` and `health` — so `?action=portalData&v=7&x=1`, `&x=2`, `&x=3` … are all
+// DISTINCT keys for the SAME payload. Each one misses, and each miss runs a full
+// portalData build: nine table scans across four databases. One trivial loop
+// varying a junk parameter therefore bypasses the edge cache completely and burns
+// the D1 daily row quota that this Worker SHARES with the management API — the
+// exact outage this file's own budget guard exists to prevent. The same
+// fragmentation happens innocently: any tracking/cache-buster parameter (utm_*,
+// fbclid, a monitor's nonce) got its own copy, and the two schemes meant the fast
+// and fallback paths never shared a build even for identical data.
+//
+// A second, quieter problem: a whole Response was stored, so the CORS
+// `Access-Control-Allow-Origin` of whoever caused the MISS was cached and replayed
+// to later callers from a different origin (Cache API Vary support on
+// `caches.default` is limited, so the `Vary: Origin` header could not be relied on
+// to prevent it).
+//
+// Both are fixed the same way: cache ONLY the JSON body, under a canonical key
+// derived from nothing but the action and the live data version. Per-request
+// headers (CORS, ETag, Cache-Control) are attached by the caller afterwards, so
+// they are never shared. Unknown query parameters are ignored rather than
+// rejected — once they cannot influence the key they carry no cost, and rejecting
+// them would break any caller that appends one (a monitor, a shared link, an
+// older frontend we cannot redeploy in lockstep).
+const CACHE_ORIGIN = 'https://public-cache.internal';
 
-  const hit = await cache.match(request).catch(() => null);
-  if (hit) return hit;
+// How long the edge keeps a built payload. This value is INTERNAL — it is never
+// sent to a client, so it does not change what browsers cache. A version bump
+// makes a new key, so a stale body can never be served regardless.
+const CACHE_RETENTION_SECONDS = 86400;
 
-  const res = await build();
-  // Only cache a good, cacheable response.
-  try {
-    const cc = res.headers.get('Cache-Control') || '';
-    if (res.status === 200 && /max-age=\d/.test(cc)) {
-      const toStore = res.clone();
-      if (ctx && ctx.waitUntil) ctx.waitUntil(cache.put(request, toStore));
-      else await cache.put(request, toStore);
-    }
-  } catch (e) { /* caching is best-effort — never fail the response */ }
-  return res;
+function cacheKeyFor(action, version) {
+  return new Request(`${CACHE_ORIGIN}/${encodeURIComponent(action)}?v=${encodeURIComponent(version)}`);
 }
 
-// Version-keyed edge cache for the FALLBACK path (no ?v= or a stale ?v=).
-//
-// The fast path (edgeCached) keys on the request URL, which carries the client's
-// ?v= — perfect when that version is current. But a request with NO version, or a
-// STALE version (every already-open browser/tab in the window right after a data
-// change), fell through to a fresh getAllPortalData() — 8 full table scans — on
-// EVERY request, with no cache. Under load that overwhelmed D1 (observed: 500s +
-// multi-second latency at 200 rps). This keys the payload on the CURRENT LIVE
-// version via a synthetic cache URL (independent of whatever ?v= the client sent),
-// so all fallback callers share one built copy per version instead of each
-// triggering their own 8 scans. Data is always current (key = live version), and
-// a version bump makes a new key so a stale body can never be served.
-//
-// Best-effort: if the Cache API is unavailable, build() just runs (unchanged).
-async function versionCached(ctx, cacheName, version, build) {
-  let cache;
-  try { cache = caches.default; } catch (e) { cache = null; }
-  if (!cache) return build();
-  // Synthetic, internal key — NOT the client's URL. Same-origin dummy host.
-  const key = new Request(`https://public-cache.internal/${cacheName}?v=${encodeURIComponent(version)}`);
-  const hit = await cache.match(key).catch(() => null);
-  if (hit) return hit;
-  const res = await build();
-  try {
-    if (res.status === 200) {
-      const toStore = res.clone();
-      if (ctx && ctx.waitUntil) ctx.waitUntil(cache.put(key, toStore));
-      else await cache.put(key, toStore);
-    }
-  } catch (e) { /* best effort */ }
-  return res;
+function edgeCache() {
+  try { return caches.default || null; } catch (e) { return null; }
 }
 
-// Reads (does NOT build) the version-keyed cache for a payload — used by the D1
-// budget guard: when the daily D1 budget is spent we still want to serve a cached
-// copy if one exists, without touching D1. Returns a Response or null. Uses the
-// SAME key scheme as versionCached().
-async function serveVersionCacheOnly(request, ctx, cacheName, version, cors, etag) {
+// The cached JSON TEXT for (action, version), or null when there is none.
+// Never touches D1 — used directly by the budget guard, which must not build.
+async function readCachedPayload(action, version) {
   try {
-    let cache;
-    try { cache = caches.default; } catch (e) { cache = null; }
+    const cache = edgeCache();
     if (!cache) return null;
-    // Try BOTH cache keys a payload could live under:
-    //   1) the fast-path edgeCached key = the client's own request URL (carries ?v=)
-    //   2) the fallback versionCached key = synthetic internal URL on the live version
-    const candidates = [
-      request, // fast-path key (request URL)
-      new Request(`https://public-cache.internal/${cacheName}?v=${encodeURIComponent(version)}`),
-    ];
-    for (const key of candidates) {
-      const hit = await cache.match(key).catch(() => null);
-      if (hit) {
-        const body = await hit.text();
-        // Budget-exhausted path: keep the edge serving this cached copy (fresh 30s,
-        // then stale-while-revalidate for a day) so the public site stays fast
-        // WITHOUT touching D1 while the daily budget is spent.
-        return new Response(body, { headers: { ...cors, ETag: etag, 'Cache-Control': 'public, max-age=30, stale-while-revalidate=86400' } });
-      }
-    }
-    return null;
+    const hit = await cache.match(cacheKeyFor(action, version)).catch(() => null);
+    return hit ? await hit.text() : null;
   } catch (e) { return null; }
+}
+
+// JSON text for (action, version), building it exactly once per version on a miss.
+// `build()` returns the DATA OBJECT (and may do its own accounting/snapshot work);
+// it only runs on a miss. Degrades to a plain build when the Cache API is absent.
+async function cachedPayload(ctx, action, version, build) {
+  const cached = await readCachedPayload(action, version);
+  if (cached !== null) return cached;
+
+  const body = JSON.stringify(await build());
+  const cache = edgeCache();
+  if (cache) {
+    try {
+      const stored = new Response(body, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': `public, max-age=${CACHE_RETENTION_SECONDS}`,
+        },
+      });
+      const put = cache.put(cacheKeyFor(action, version), stored);
+      if (ctx && ctx.waitUntil) ctx.waitUntil(put); else await put;
+    } catch (e) { /* caching is best-effort — never fail the response */ }
+  }
+  return body;
+}
+
+// The two client-facing cache policies, unchanged in value from before this
+// refactor — only where they are attached moved (per response, not per cache
+// entry). `IMMUTABLE_CC` is safe ONLY on a URL that carries the current ?v=.
+const IMMUTABLE_CC = 'public, max-age=31536000, immutable';
+// Fresh for 30s, then the edge may serve this copy instantly for up to a day
+// while it revalidates in the background. This smooths the cliff right after a
+// version bump, when every open tab's ?v= goes stale at once.
+const REVALIDATE_CC = 'public, max-age=30, stale-while-revalidate=86400';
+
+function payloadResponse(body, cors, etag, cacheControl) {
+  return new Response(body, { headers: { ...cors, ETag: etag, 'Cache-Control': cacheControl } });
 }
 
 // True when the client already holds this exact version (If-None-Match matches).
@@ -1004,6 +1009,54 @@ function clientHasCurrent(request, etag) {
   if (!inm) return false;
   // A client/CDN may send a comma-separated list; match any token.
   return inm.split(',').some(t => t.trim() === etag);
+}
+
+// ============ ONE METHOD PER ACTION (audit PUB-BE-02) ============
+//
+// Routing was `if (action === 'x' && request.method === 'POST')` for the two write
+// actions and `if (action === 'x')` — no method check at all — for every read. So:
+//
+//   * `POST ?action=portalData` ran the full nine-scan build. Worse, it could not
+//     be cached: the Cache API refuses a non-GET key, the failure was swallowed by
+//     the best-effort try/catch, and the response was returned uncached. Every
+//     single POST was therefore a fresh D1 build — an unauthenticated way to spend
+//     the D1 daily quota that this Worker shares with the management API, with the
+//     edge cache unable to absorb any of it.
+//   * `PUT` / `DELETE` / `PATCH` on a read action behaved like GET, so a
+//     misconfigured client or scanner silently got data back on a verb the API
+//     does not implement.
+//   * `GET ?action=logError` fell through to a generic `400 Invalid Request`,
+//     which tells a caller nothing about what it did wrong.
+//
+// One table is now the single source of truth, and it drives BOTH the rejection
+// (`405` with a correct `Allow` header, per RFC 9110) and the preflight's
+// `Access-Control-Allow-Methods`, so the two can no longer disagree.
+const ACTION_METHODS = {
+  // Reads. GET only: these are cacheable payloads, and a cacheable payload must
+  // be reachable by exactly one method or the cache is bypassable.
+  dataVersion: ['GET'],
+  publicGetSeo: ['GET'],
+  portalData: ['GET'],
+  summary: ['GET'],
+  activePopups: ['GET'],
+  // The two blessed writes (see the WRITE EXCEPTION notes above).
+  logError: ['POST'],
+  savePushSubscription: ['POST'],
+};
+
+// No ?action= at all: the health probe (`GET ?health=1`) and the generic 400.
+const ROOT_METHODS = ['GET'];
+
+// The methods an action accepts, or null when the action itself is unknown.
+function methodsFor(action) {
+  if (!action) return ROOT_METHODS;
+  return Object.prototype.hasOwnProperty.call(ACTION_METHODS, action) ? ACTION_METHODS[action] : null;
+}
+
+// `Allow` / `Access-Control-Allow-Methods` always include OPTIONS — every endpoint
+// answers a preflight.
+function allowHeaderFor(methods) {
+  return [...methods, 'OPTIONS'].join(', ');
 }
 
 // CORS: if ALLOWED_ORIGINS (comma-separated exact origins) is configured, echo
@@ -1032,10 +1085,49 @@ export default {
       if (corsOrigin !== '*') cors['Vary'] = 'Origin';
     }
 
+    // Preflight now advertises the methods THIS action actually accepts, from the
+    // same table that enforces them below — it used to promise 'GET, POST' for
+    // everything, including read-only endpoints that reject POST.
     if (request.method === 'OPTIONS') {
+      const allow = allowHeaderFor(methodsFor(action) || ROOT_METHODS);
       return new Response(null, {
-        headers: { ...cors, 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' },
+        headers: {
+          ...cors,
+          'Access-Control-Allow-Methods': allow,
+          'Access-Control-Allow-Headers': 'Content-Type',
+          // Let the browser reuse this preflight for a day instead of sending one
+          // before every logError / savePushSubscription POST.
+          'Access-Control-Max-Age': '86400',
+          Allow: allow,
+        },
       });
+    }
+
+    // ---- Method enforcement (audit PUB-BE-02) ----
+    //
+    // Deliberately the FIRST thing after the preflight: a request on a verb this
+    // API does not implement must cost nothing — no KV read for the rate limiter,
+    // no D1 probe from the health check, and above all no portal build.
+    const allowedMethods = methodsFor(action);
+    if (allowedMethods === null) {
+      // Unknown action. Answered here rather than after the routing chain so an
+      // unknown action can never reach a handler or a cache lookup.
+      return new Response(
+        JSON.stringify({ status: false, message: 'Invalid Request' }),
+        { status: 400, headers: { ...cors, 'Cache-Control': 'no-store' } }
+      );
+    }
+    if (!allowedMethods.includes(request.method)) {
+      return new Response(
+        JSON.stringify({
+          status: false,
+          message: `${action || 'This endpoint'} accepts ${allowedMethods.join(', ')} only.`,
+        }),
+        {
+          status: 405,
+          headers: { ...cors, Allow: allowHeaderFor(allowedMethods), 'Cache-Control': 'no-store' },
+        }
+      );
     }
 
     // audit M-36 / M-37 — this Worker had no health endpoint and no config check.
@@ -1121,7 +1213,9 @@ export default {
     // The public frontend POSTs its own JS errors here (window.onerror /
     // unhandledrejection / failed data load) so the committee can actually see
     // when the public site is broken.
-    if (action === 'logError' && request.method === 'POST') {
+    // The method is guaranteed by ACTION_METHODS above — checking it again here
+    // would be a second source of truth that can drift from the table.
+    if (action === 'logError') {
       let body = {};
       try { body = await request.json(); } catch (e) { /* keep the empty object */ }
       // Server-observed edge IP drives the per-IP rate limit (audit 1.3) — the
@@ -1136,7 +1230,7 @@ export default {
     // A visitor opting in to notifications on the portal. Upserts one row into
     // push_subscriptions — see the "WRITE EXCEPTION #2" note above. Already
     // covered by the per-IP rate limit a few lines up.
-    if (action === 'savePushSubscription' && request.method === 'POST') {
+    if (action === 'savePushSubscription') {
       let body = {};
       try { body = await request.json(); } catch (e) { /* keep the empty object */ }
       const res = await savePushSubscription(env, body, request.headers.get('User-Agent') || '');
@@ -1192,8 +1286,12 @@ export default {
         // admins keep working even under a public flood. (A genuine data change
         // still gets served once the next day resets, or from an existing cache.)
         if (await d1BudgetExceeded(env)) {
-          const cachedOnly = await serveVersionCacheOnly(request, ctx, 'portalData', version, cors, etagFor('portalData', version));
-          if (cachedOnly) return cachedOnly;
+          const cachedOnly = await readCachedPayload('portalData', version);
+          if (cachedOnly !== null) {
+            // Keep the edge serving this cached copy WITHOUT touching D1 while the
+            // daily budget is spent.
+            return payloadResponse(cachedOnly, cors, etagFor('portalData', version), REVALIDATE_CC);
+          }
           // No edge cache for this version -> serve the last-known-good snapshot
           // (real data, marked stale) instead of failing, so the public site keeps
           // showing something even with D1 out of quota.
@@ -1210,54 +1308,36 @@ export default {
         // the last-known-good snapshot (stale) instead of a 500 — regardless of how
         // the promise rejection would otherwise propagate.
         try {
+          const etag = etagFor('portalData', version);
+          // One build per data version, shared by BOTH paths below — the fast path
+          // and the fallback now hit the same canonical cache key instead of each
+          // keeping its own copy (audit PUB-BE-01).
+          const buildPortal = async () => {
+            const data = await getAllPortalData(env);
+            await d1BudgetAdd(env, ctx, countPayloadRows(data)); // count the REAL rows this build read
+            await maybeSaveSnapshot(env, ctx, version, data); // last-known-good (only writes on version change)
+            return data;
+          };
+
           // FAST PATH: the client asked for a specific version (?v=) and it still
-          // matches the live version -> return the payload with a long IMMUTABLE
-          // cache so Cloudflare's edge caches it and serves every future request
-          // for this exact URL without ever hitting the Worker again.
+          // matches the live version -> a long IMMUTABLE cache is safe, because
+          // THAT URL can only ever mean this one version.
           if (requestedV && requestedV === version) {
-            return await edgeCached(request, ctx, async () => {
-              const data = await getAllPortalData(env);
-              await d1BudgetAdd(env, ctx, countPayloadRows(data)); // count the REAL rows this build read
-              await maybeSaveSnapshot(env, ctx, version, data); // last-known-good (only writes on version change)
-              return new Response(JSON.stringify(data), {
-                headers: {
-                  ...cors,
-                  ETag: etagFor('portalData', version),
-                  // 1 year + immutable: safe because the URL is version-specific.
-                  'Cache-Control': 'public, max-age=31536000, immutable',
-                },
-              });
-            });
+            const body = await cachedPayload(ctx, 'portalData', version, buildPortal);
+            return payloadResponse(body, cors, etag, IMMUTABLE_CC);
           }
 
-          // FALLBACK PATH (no ?v=, or a stale ?v=): ETag revalidation as before, so
-          // old/no-version callers keep working and get a 304 when unchanged.
-          const etag = etagFor('portalData', version);
+          // FALLBACK PATH (no ?v=, or a stale ?v=): ETag revalidation, so
+          // old/no-version callers keep working and get a 304 when unchanged. These
+          // URLs are NOT version-specific, so they must never be marked immutable.
           if (clientHasCurrent(request, etag)) {
             return new Response(null, {
               status: 304,
               headers: { ...cors, ETag: etag, 'Cache-Control': 'no-cache' },
             });
           }
-          // Cache the build on the CURRENT live version so a burst of stale/no-version
-          // requests doesn't each run 8 full table scans and overwhelm D1.
-          return await versionCached(ctx, 'portalData', version, async () => {
-            const data = await getAllPortalData(env);
-            await d1BudgetAdd(env, ctx, countPayloadRows(data));
-            await maybeSaveSnapshot(env, ctx, version, data);
-            return new Response(JSON.stringify(data), {
-              // fresh for 30s; then, for up to a day, the edge may serve this copy
-              // INSTANTLY while it revalidates in the background. This smooths the
-              // brief cliff right after a data-version bump — the moment every open
-              // tab's ?v= goes stale at once — so those requests are answered from
-              // cache instead of each triggering a fresh D1 build. It is a standard
-              // HTTP cache hint (no Worker/D1 cost, fully free-plan compatible), and
-              // data can never go MORE than one version behind because a bump makes
-              // a new cache key. versionCached ignores this header (it caches on
-              // status only), so nothing here changes when/what we store.
-              headers: { ...cors, ETag: etag, 'Cache-Control': 'public, max-age=30, stale-while-revalidate=86400' },
-            });
-          });
+          const body = await cachedPayload(ctx, 'portalData', version, buildPortal);
+          return payloadResponse(body, cors, etag, REVALIDATE_CC);
         } catch (buildErr) {
           // D1 build failed (likely quota exhausted). Serve the last-known-good
           // snapshot if we have one; otherwise re-throw to the outer handler.
@@ -1280,93 +1360,77 @@ export default {
       //
       // It is ADDITIVE: `portalData` is unchanged and still served, so nothing that
       // depends on it breaks. `summary` reuses the SAME version-keyed cache machinery
-      // (edgeCached / versionCached / the D1 budget guard), so it gets its own
-      // ?v=-scoped edge cache key automatically — the working portalData cache path
-      // is not touched at all. The frontend prefers `summary` for totals and only
+      // (cachedPayload / the D1 budget guard), so it gets its own canonical cache
+      // key automatically — the working portalData cache path is not touched at all. The frontend prefers `summary` for totals and only
       // falls back to `portalData` for the detailed lists (loaded lazily per tab).
       if (action === 'summary') {
         const version = await getDataVersion(env);
         const requestedV = (url.searchParams.get('v') || '').trim();
 
+        const etag = etagFor('summary', version);
+
         if (await d1BudgetExceeded(env)) {
-          const cachedOnly = await serveVersionCacheOnly(request, ctx, 'summary', version, cors, etagFor('summary', version));
-          if (cachedOnly) return cachedOnly;
+          const cachedOnly = await readCachedPayload('summary', version);
+          if (cachedOnly !== null) return payloadResponse(cachedOnly, cors, etag, REVALIDATE_CC);
           // Aggregates are non-critical for a first paint; an empty summary is a safe
           // fallback (the frontend still has portalData/snapshot for the real data).
           return new Response(JSON.stringify({ years: [] }), { headers: { ...cors, 'Cache-Control': 'no-store' } });
         }
 
+        const buildSummary = async () => {
+          const data = await getPortalSummary(env);
+          await d1BudgetAdd(env, ctx);
+          return data;
+        };
+
         if (requestedV && requestedV === version) {
-          return edgeCached(request, ctx, async () => {
-            const data = await getPortalSummary(env);
-            await d1BudgetAdd(env, ctx);
-            return new Response(JSON.stringify(data), {
-              headers: {
-                ...cors,
-                ETag: etagFor('summary', version),
-                'Cache-Control': 'public, max-age=31536000, immutable',
-              },
-            });
-          });
+          const body = await cachedPayload(ctx, 'summary', version, buildSummary);
+          return payloadResponse(body, cors, etag, IMMUTABLE_CC);
         }
 
-        const etag = etagFor('summary', version);
         if (clientHasCurrent(request, etag)) {
           return new Response(null, { status: 304, headers: { ...cors, ETag: etag, 'Cache-Control': 'no-cache' } });
         }
-        return versionCached(ctx, 'summary', version, async () => {
-          const data = await getPortalSummary(env);
-          await d1BudgetAdd(env, ctx);
-          return new Response(JSON.stringify(data), {
-            headers: { ...cors, ETag: etag, 'Cache-Control': 'public, max-age=30, stale-while-revalidate=86400' },
-          });
-        });
+        const body = await cachedPayload(ctx, 'summary', version, buildSummary);
+        return payloadResponse(body, cors, etag, REVALIDATE_CC);
       }
 
       if (action === 'activePopups') {
         const version = await getDataVersion(env);
         const requestedV = (url.searchParams.get('v') || '').trim();
 
+        const etag = etagFor('activePopups', version);
+
         // Hardening C: same budget guard as portalData.
         if (await d1BudgetExceeded(env)) {
-          const cachedOnly = await serveVersionCacheOnly(request, ctx, 'activePopups', version, cors, etagFor('activePopups', version));
-          if (cachedOnly) return cachedOnly;
+          const cachedOnly = await readCachedPayload('activePopups', version);
+          if (cachedOnly !== null) return payloadResponse(cachedOnly, cors, etag, REVALIDATE_CC);
           // Popups are non-critical; an empty list is a safe, silent fallback.
           return new Response(JSON.stringify([]), { headers: { ...cors, 'Cache-Control': 'no-store' } });
         }
 
+        const buildPopups = async () => {
+          const data = await getActivePublicPopups(env);
+          await d1BudgetAdd(env, ctx);
+          return data;
+        };
+
         if (requestedV && requestedV === version) {
-          return edgeCached(request, ctx, async () => {
-            const data = await getActivePublicPopups(env);
-            await d1BudgetAdd(env, ctx);
-            return new Response(JSON.stringify(data), {
-              headers: {
-                ...cors,
-                ETag: etagFor('activePopups', version),
-                'Cache-Control': 'public, max-age=31536000, immutable',
-              },
-            });
-          });
+          const body = await cachedPayload(ctx, 'activePopups', version, buildPopups);
+          return payloadResponse(body, cors, etag, IMMUTABLE_CC);
         }
 
-        const etag = etagFor('activePopups', version);
         if (clientHasCurrent(request, etag)) {
           return new Response(null, {
             status: 304,
             headers: { ...cors, ETag: etag, 'Cache-Control': 'no-cache' },
           });
         }
-        // Same fallback hardening as portalData: cache the build on the current
-        // live version so stale/no-version bursts don't each rebuild.
-        return versionCached(ctx, 'activePopups', version, async () => {
-          const data = await getActivePublicPopups(env);
-          await d1BudgetAdd(env, ctx);
-          return new Response(JSON.stringify(data), {
-            // Same stale-while-revalidate smoothing as portalData (see the note there).
-            headers: { ...cors, ETag: etag, 'Cache-Control': 'public, max-age=30, stale-while-revalidate=86400' },
-          });
-        });
+        const body = await cachedPayload(ctx, 'activePopups', version, buildPopups);
+        return payloadResponse(body, cors, etag, REVALIDATE_CC);
       }
+      // Reached only with no ?action= at all (an unknown action is answered by the
+      // method/action check before any handler runs).
       return new Response(JSON.stringify({ status: false, message: 'Invalid Request' }), { headers: cors, status: 400 });
     } catch (err) {
       // Server-originated error (not attacker-driven), so it is logged without an

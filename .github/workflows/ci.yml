@@ -64,6 +64,16 @@ jobs:
         working-directory: mgmt/backend
         run: npm run lint:errors
 
+      # The public Worker's first tests (audit PUB-BE-01/02). They import
+      # Public/backend/src/index.js directly and stub D1, KV and the Cache API, so
+      # there is nothing to install and no lockfile is needed yet. What they pin is
+      # the contract that protects the D1 daily row quota this Worker SHARES with
+      # the management API: one canonical cache key per (action, version), and one
+      # allowed HTTP method per action.
+      - name: Public Worker test suite
+        working-directory: Public/backend
+        run: npm test
+
       # A syntax error in a Worker file is otherwise found by `wrangler deploy`,
       # which means it is found in production.
       - name: Syntax check every Worker file

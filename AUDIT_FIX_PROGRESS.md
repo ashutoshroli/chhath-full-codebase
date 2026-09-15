@@ -6,9 +6,9 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status: 17 of 48 PRs merged · 1 open (this one) · 30 pending**
+**Status: 18 of 48 PRs merged · 1 open (this one) · 29 pending**
 
-Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · W2–W7 not started
+Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 1/8 in progress** · W3–W7 not started
 
 ---
 
@@ -31,46 +31,48 @@ Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is c
 | [#324](https://github.com/ashutoshroli/chhath-full-codebase/pull/324) | validate money and payment details before saving | P0-09 (UI half) | `lib/money.ts` mirrors the backend limits, applied in Home/Expenses/Loans (add + edit); loan year switch no longer keeps the previous year's contributors; donation details validated before any write | Field-level inline errors (still `alert()`) → PR-40; donation publish still setting-by-setting (C3) |
 | [#325](https://github.com/ashutoshroli/chhath-full-codebase/pull/325) | keep consent evidence private and update the DB before deleting R2 | P0-06 | Archive order is upload → conditional update → verify → delete; consent photos/signatures archived private while PDFs stay public; stale archive cannot overwrite a re-generated file | Consent copies already published by earlier archive runs need a one-off ACL pass (C11) |
 | [#326](https://github.com/ashutoshroli/chhath-full-codebase/pull/326) | back up every table and restore an empty table faithfully | P0-07 | All 9 bindings + every schema table (12 were missing, incl. all of `DB_AUDIT`); a schema-vs-map test fails on drift either way; manifest v2 records `{rows, present}`; a present-and-empty table is now cleared on restore while v1 files keep the lenient skip | R2/Drive object backup stays an operational step (the file stores links); `collection_jobs.filled_base64` excluded on purpose |
-| [#327](https://github.com/ashutoshroli/chhath-full-codebase/pull/327) | never report a genuine record as not found | P0-10 | Verify screen's two-way verdict → seven explicit states in a pure `verifyVerdict.ts`; the red "not found" is asserted only against **live** data (otherwise "Verification Unavailable" / "Could Not Confirm" + Retry); `idle` counts as checking | The freshness *provenance* behind the stale flag = this PR |
+| [#327](https://github.com/ashutoshroli/chhath-full-codebase/pull/327) | never report a genuine record as not found | P0-10 | Verify screen's two-way verdict → seven explicit states in a pure `verifyVerdict.ts`; the red "not found" is asserted only against **live** data (otherwise "Verification Unavailable" / "Could Not Confirm" + Retry); `idle` counts as checking | Freshness provenance behind the stale flag = #328 |
+| [#328](https://github.com/ashutoshroli/chhath-full-codebase/pull/328) | distinguish live data from a saved copy, and bound every request | PUB-FE-01 | `source: network\|snapshot\|empty`; `savedAt` only from a real network response; SW API rule `NetworkFirst` → `NetworkOnly`; 12 s request / 30 s chat deadlines; concurrent loads share one request | Showing the age prominently in the UI is a design change → W5/W6 |
 
 <sub>#322 was closed as superseded by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — a saved copy can no longer pose as live data
+## 2. This PR — the public Worker's cache key and method contract
 
-**Audit ID:** PUB-FE-01 (the freshness half of P0-10). Last W1 PR.
+**Audit ID:** PUB-BE-01 (cache key) and PUB-BE-02 (methods). First W2 PR.
+
+Both findings are about the same thing: an anonymous caller could make this Worker rebuild the entire portal payload — nine table scans across four databases — at will, and so spend the **D1 daily row quota that this Worker shares with the management API**. That is the outage this file's own budget guard exists to prevent.
 
 Done:
 
-- **Provenance is explicit.** `PortalResult` carries `source: 'network' | 'snapshot' | 'empty'`, and `savedAt` is now set **only** by a real network response. Previously every usable payload was stamped `savedAt: now()`, so an eight-hour-old saved copy was presented with a "just updated" timestamp; the store also derives `stale` from the source, not just from the flag.
-- **The service worker no longer caches the API.** The portal API rule was `NetworkFirst` with a 6 s timeout and a 24 h cache: when the network missed that deadline, workbox replayed a cached `200` that the client cannot tell apart from a live response — yesterday's contribution figures under a brand-new "last updated" time. It is `NetworkOnly` now, so the only cache left is our own localStorage snapshot, whose age we know and surface honestly. Offline still works, and now says so.
-- **Every request has a deadline.** `fetchJson` aborts at `REQUEST_TIMEOUT_MS` (12 s) and falls back to the saved copy; the chat `fetch` aborts at 30 s instead of leaving the panel stuck on "sending" until a page reload.
-- **One load at a time.** The root layout, the reconnect handler and the visibility handler could each start a load of the same shared store, and whichever response landed *last* won — even the oldest one. Concurrent callers now share the in-flight promise; `force` still supersedes it.
-- New `src/lib/api/client.test.ts` (9 tests): provenance for all three sources, snapshot age preserved, backend-declared staleness respected, snapshot `savedAt` = fetch time, stalled request aborted (fake timers), and single-flight / memory-TTL / `force` behaviour.
+- **One canonical cache key per (action, data version).** The edge cache used to be keyed on the *client's full request URL*, so `&utm_source=1`, `&utm_source=2`, `&nonce=…` were all distinct keys for one payload — every one a miss, every miss a full build. It is now `https://public-cache.internal/<action>?v=<live version>`, derived from nothing the caller controls. Unknown parameters are **ignored, not rejected**: once they cannot influence the key they carry no cost, and a 400 would break any caller that appends one (a monitor, a shared link, the older frontend we cannot redeploy in lockstep).
+- **The fast path and the fallback path now share one build.** They were two caches with two key schemes, so identical data was built twice. `edgeCached` / `versionCached` / `serveVersionCacheOnly` collapse into `cachedPayload()` + `readCachedPayload()`.
+- **Only the body is cached; headers are per request.** A whole `Response` used to be stored, so the `Access-Control-Allow-Origin` of whoever caused the miss was replayed to callers from *other* origins (`caches.default` Vary support is too limited to rely on). The client-facing `Cache-Control` values are unchanged — and `immutable` is still attached **only** to a URL carrying the current `?v=`.
+- **One HTTP method per action,** from a single `ACTION_METHODS` table that drives both the rejection and the preflight. Reads are `GET`, the two blessed writes are `POST`; anything else is `405` with a correct `Allow` header. This matters beyond tidiness: the Cache API refuses a non-GET key, so every `POST ?action=portalData` was an **uncached** full build. Enforcement runs before the rate limiter and the health probe, so a wrong verb now costs zero KV reads and zero D1 queries.
+- The preflight advertises the action's real methods (it promised `GET, POST` for everything) and is reusable for a day (`Access-Control-Max-Age`).
 
-Verification: `Public/frontend-v6` `npm test` **70/70** · `npm run check` **0 errors, 0 warnings** · build pass.
+New `Public/backend/test/cache-key-and-methods.test.mjs` — **the first tests this Worker has ever had** (19 tests, `node --test`). They import `src/index.js` and stub D1, KV and the Cache API, so there is nothing to install and no lockfile is needed yet; a new CI step runs them in the existing Worker job. **12 of the 19 fail on `main`**, including "junk query parameters cannot force a rebuild" (six requests → six rebuilds before, zero after) and "`POST ?action=portalData` is refused before any database work" (14 D1 queries before, zero after).
 
-Left for later: showing the age itself more prominently in the UI (a relative "updated 8 hours ago" line) is a design change, not a correctness fix — it rides along with the a11y/UX wave (W5/W6). The Worker-side caching contract is PR-18, next.
+Verification: `Public/backend` `npm test` **19/19** · `node --check` on every Worker file · `mgmt/backend` 713 tests unaffected.
+
+Left for later (same wave): the popup payload is still cached `immutable` per version, so a *scheduled* popup can be served outside its window — that is PR-20, which needs the canonical key this PR introduces. The `?health=1` probe still does six D1 round-trips on every call (PR-19), and single-flight for a cache miss is PR-24.
 
 ---
 
 ## 3. Pending
 
-**W1 is complete** once this PR merges — all 11 P0 findings are closed. Next up is W2.
-
-**W2 — Public backend (8 PRs, next):**
+**W2 — Public backend (7 left):**
 
 | PR | Branch | What |
 |---|---|---|
-| 18 | `fix/public-api-cache-key-and-methods` | Canonical cache keys + per-action HTTP method enforcement |
-| 19 | `fix/public-health-split` | Split liveness from dependency health |
-| 20 | `fix/public-popup-ttl` | Time-aware popup TTL (a scheduled popup can currently be cached past its window) |
+| 19 | `fix/public-health-split` | Split liveness from dependency health (the probe does six D1 round-trips per call) |
+| 20 | `fix/public-popup-ttl` | Time-aware popup TTL — a scheduled popup is cached `immutable` per version, so it can be served outside its window |
 | 21 | `fix/public-users-allowlist` | Explicit column allowlist on the public users payload |
 | 22 | `fix/public-write-hardening` | Size/shape/rate limits on the public write paths |
 | 23 | `fix/public-snapshot-atomicity` | KV last-known-good snapshot written atomically |
-| 24 | `perf/public-assembly` | Portal assembly does per-row work that belongs in one pass |
-| 25 | `test/public-backend-harness` | First tests + a lockfile for `Public/backend` (C8) |
+| 24 | `perf/public-assembly` | Parallel section reads + single-flight cache fill + post-assembly version re-check |
+| 25 | `test/public-backend-harness` | Lockfile + a Miniflare/workerd harness covering every action (extends the tests added in PR-18) |
 **W3 — Render / AI / chat (7):** payload size contract · durable idempotent jobs · callback outbox + version bump · provider SSRF policy · AI write allowlist · chat abuse controls · chat privacy + Neon
 **W4 — Database (3):** duplicate/orphan detection · enforce keys & relations · migration ledger
 **W5 — Accessibility (6):** dialog primitives (public + mgmt) · combobox/buttons · contrast/focus/zoom · live regions + labels · structure/motion
@@ -90,7 +92,7 @@ Left for later: showing the age itself more prominently in the UI (a relative "u
 | C5 | `H-6 … WITHOUT decoding` test flake (asserts `ms < 250`) | Pre-existing; timing-based, passes in isolation, fails under full-suite load | PR-46 (CI gates) |
 | C6 | Migration CI only scans `mgmt/db/migration/2026-09-05/` | Older folders have uncovered files; widening it fails today | PR-46 |
 | C7 | 160 `svelte-check` warnings in the mgmt SPA | Mostly label association — belongs with the a11y work, then fail-on-warning | PR-40 / PR-46 |
-| C8 | Public backend has no lockfile or tests | Needs a Miniflare/workerd harness | PR-25 |
+| C8 | Public backend has no lockfile; tests started in PR-18 cover the cache/method contract only | Full action coverage needs a Miniflare/workerd harness | PR-25 |
 | C9 | `verifyToken` revocation check still fails open on an audit-DB error | Availability trade-off; KV deletion (#319) is now the authoritative revocation | Revisit with W4 observability |
 | C10 | React mgmt main chunk at 218.3 kB vs 230 kB CI budget | Little headroom left; not a regression | PR-46 bundle budgets |
 | C11 | Consent photos/signatures already archived to Drive by earlier runs are still anonymously readable | Code no longer publishes them (#325), but existing files need a one-off ACL remediation | Operational step: dry-run report → apply, before the next archive |
