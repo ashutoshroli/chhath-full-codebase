@@ -6,9 +6,9 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status: 13 of 48 PRs merged · 1 open (this one) · 34 pending**
+**Status: 14 of 48 PRs merged · 1 open (this one) · 33 pending**
 
-Wave progress: **W0 ✅ done** · **W1 12/15** · W2–W7 not started
+Wave progress: **W0 ✅ done** · **W1 14/15** · W2–W7 not started
 
 ---
 
@@ -27,39 +27,39 @@ Wave progress: **W0 ✅ done** · **W1 12/15** · W2–W7 not started
 | [#319](https://github.com/ashutoshroli/chhath-full-codebase/pull/319) | end revoked sessions in KV, not just the audit row | P0-09 / C2 | All three revoke paths delete `session:<hash>`; 2FA disable / backup-code regeneration / recovery revoke sessions | Fail-open audit check kept as a *secondary* line (availability) — KV delete is now authoritative |
 | [#320](https://github.com/ashutoshroli/chhath-full-codebase/pull/320) | scope and purge the view cache per account | P0-08 | Deferred hydration behind `setCacheIdentity(name\|role)`; `purgeCache()` on sign-out; sensitive views never written to disk (both frontends) | Bearer token still in Web Storage → cookie-only auth (§4) |
 | [#321](https://github.com/ashutoshroli/chhath-full-codebase/pull/321) | return to Login when the session expires | P0-11 | `onAuthExpired` channel (server *and* local expiry, once per expiry); session store clears itself; `resolveAllowedTab()` for initial hash | React rollback app not covered (§4) |
-| [#323](https://github.com/ashutoshroli/chhath-full-codebase/pull/323) | validate money, year and server-owned columns on every write | P0-09 (backend half) | `assertMoney` / `assertYear` / `assertNoServerOwnedFields`; year mandatory on financial rows; edits can no longer rewrite `Sl. No.` / `created_by` | UI half = this PR |
+| [#323](https://github.com/ashutoshroli/chhath-full-codebase/pull/323) | validate money, year and server-owned columns on every write | P0-09 (backend half) | `assertMoney` / `assertYear` / `assertNoServerOwnedFields`; year mandatory on financial rows; edits can no longer rewrite `Sl. No.` / `created_by` | UI half = #324 |
+| [#324](https://github.com/ashutoshroli/chhath-full-codebase/pull/324) | validate money and payment details before saving | P0-09 (UI half) | `lib/money.ts` mirrors the backend limits, applied in Home/Expenses/Loans (add + edit); loan year switch no longer keeps the previous year's contributors; donation details validated before any write | Field-level inline errors (still `alert()`) → PR-40; donation publish still setting-by-setting (C3) |
 
 <sub>#322 was closed as superseded by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — money validation in the UI + safer donation publish
+## 2. This PR — consent evidence privacy + archival ordering
 
-**Audit ID:** P0-09 (UI half) + the donation-settings and loan-year findings.
+**Audit ID:** P0-06.
 
 Done:
 
-- New `mgmt/frontend-svelte/src/lib/money.ts` — `checkMoney`, `checkYear`, `checkDonationDetails`, mirroring the backend limits (`> 0`, ≤ 2 decimals, no commas, ≤ ₹10 crore).
-- **Home / Expenses / Loans** (add *and* edit paths) validate the amount, and loans also validate rate/tenure with `min: 0`. Inputs gained `min` / `step`.
-- **Loans year switch** clears the contributor list and the selected participants, applies a response only if it is still the requested year, catches failures (no more unhandled rejection) and **blocks issuing** while the list is unavailable — previously year A's contributors stayed selectable for a year B loan.
-- **Donation settings** validate UPI / account number / IFSC / WhatsApp **before any write**, refuse half-entered bank details, and if a later write fails, name exactly which fields already went live.
-- New `src/lib/money.test.ts` (17 tests).
+- **The R2 object is no longer deleted before the database has moved.** `moveOneUrl()` now runs upload → **conditional** DB update (guarded on the old URL) → **verify** the row reads the new URL → only then delete the source. If any step fails, both copies are kept and the file is reported as failed, because a duplicate is recoverable and a dangling reference to a receipt — or to consent evidence — is not. The file-header comment claimed this order already; it was the reverse.
+- **Consent photos and signatures are archived PRIVATE.** `uploadBytesToDrive()` takes `publicRead`, and only generated PDFs (which the public portal serves) get `setAnyoneReader`. Archiving a year used to publish every consent photo and signature, undoing the `makePublic: false` the upload path deliberately uses for the same data.
+- A concurrent re-generation of a PDF is no longer overwritten by a stale archive attempt (the guarded update fails and the file is reported instead).
+- New `test/p0-storage-archive-order.test.mjs` (9 tests) with an R2 + Drive-API stub. **5 of the 9 fail on `main`**: the source is already deleted, the row points at a missing object, the delete/update order is inverted, three permission grants instead of one, and the stale overwrite lands.
 
-Verification: `npm test` 46/46 · `npm run check` 0 errors (160 pre-existing warnings) · build pass.
+Verification: `mgmt/backend` `npm test` 700 tests / 699 pass (the 1 failure is the pre-existing `H-6` timing flake, C5) · `lint:errors` pass · `node --check` pass.
 
-Left for later: field-level inline errors (these views use `alert()` today) → a11y wave, PR-40. Donation publish is validated but still writes setting-by-setting → needs one atomic backend action (§4).
+Left for later: existing Drive copies of consent evidence that were made public by earlier archive runs still need a one-off remediation pass (dry-run report → apply) — that is an operational step, listed as **C11** below.
 
 ---
 
 ## 3. Pending
 
-**W1 — remaining P0 (2 PRs)**
+**W1 — remaining P0 (3 PRs)**
 
 | PR | Branch | Depends |
 |---|---|---|
-| 14 | `fix/consent-evidence-privacy-and-archive-order` | — |
 | 15 | `feat/backup-complete-manifest-v2` | #312 |
-| 16–17 | public verify states + freshness provenance | — |
+| 16 | `fix/public-verify-truthful-states` | — |
+| 17 | `fix/public-data-freshness-provenance` | 16 |
 
 **W2 — Public backend (8):** canonical cache keys + method enforcement · health split · popup time-aware TTL · users allowlist · write hardening · snapshot atomicity · assembly perf · tests + lockfile
 **W3 — Render / AI / chat (7):** payload size contract · durable idempotent jobs · callback outbox + version bump · provider SSRF policy · AI write allowlist · chat abuse controls · chat privacy + Neon
@@ -84,3 +84,4 @@ Left for later: field-level inline errors (these views use `alert()` today) → 
 | C8 | Public backend has no lockfile or tests | Needs a Miniflare/workerd harness | PR-25 |
 | C9 | `verifyToken` revocation check still fails open on an audit-DB error | Availability trade-off; KV deletion (#319) is now the authoritative revocation | Revisit with W4 observability |
 | C10 | React mgmt main chunk at 218.3 kB vs 230 kB CI budget | Little headroom left; not a regression | PR-46 bundle budgets |
+| C11 | Consent photos/signatures already archived to Drive by earlier runs are still anonymously readable | Code no longer publishes them (#325), but existing files need a one-off ACL remediation | Operational step: dry-run report → apply, before the next archive |
