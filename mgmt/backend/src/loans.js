@@ -126,8 +126,23 @@ async function trySend(env, page, fn, context) {
 // with views.js getHomeData. `excludeLoanId` lets an EDIT of an existing loan
 // exclude its own current amount from the "already given" total.
 export async function availableLoanFund(env, year, excludeLoanId) {
+  const { available } = await loanYearBudget(env, year, excludeLoanId);
+  return available;
+}
+
+// The same figures, but broken out, because the atomic guard in
+// saveLoanTransaction needs the CEILING (surplus) rather than the remainder:
+//
+//   available = surplus − alreadyGiven
+//
+// `surplus` is derived from collections (another D1 database), last year's loan
+// returns and this year's expenses. `alreadyGiven` is the only part that two
+// concurrent loan saves race on, and it lives in DB_LOANS_EXPENSES — the same
+// database the INSERT goes to, which is what makes an atomic re-check possible.
+export async function loanYearBudget(env, year, excludeLoanId) {
   const y = parseInt(year);
-  if (!Number.isFinite(y)) return Infinity; // no year -> no cap (shouldn't happen; Year is validated earlier)
+  // no year -> no cap (shouldn't happen; Year is validated earlier)
+  if (!Number.isFinite(y)) return { surplus: Infinity, alreadyGiven: 0, available: Infinity };
 
   const [colAgg, expAgg, retAgg, givenAgg] = await Promise.all([
     env.DB_COLLECTIONS.prepare('SELECT COALESCE(SUM(amount),0) AS t FROM collections WHERE year = ?').bind(y).first(),
@@ -145,7 +160,7 @@ export async function availableLoanFund(env, year, excludeLoanId) {
 
   const surplus = (Number(colAgg && colAgg.t) || 0) + (Number(retAgg && retAgg.t) || 0) - (Number(expAgg && expAgg.t) || 0);
   const alreadyGiven = Number(givenAgg && givenAgg.t) || 0;
-  return surplus - alreadyGiven;
+  return { surplus, alreadyGiven, available: surplus - alreadyGiven };
 }
 
 // ---- Save / delete loan transaction ----
@@ -172,15 +187,18 @@ export async function saveLoanTransaction(env, loanPayload, guarantorPayloads, u
   // interest) − this-year expenses (the exact figure the Home screen shows, see
   // views.js getHomeData). So if the year's surplus is ₹5000 and a ₹3000 loan
   // already exists, the next loan can be at most ₹2000.
-  {
-    const newAmount = parseFloat(loanPayload.Amount) || 0;
-    const available = await availableLoanFund(env, loanPayload.Year);
-    if (newAmount > available + 0.01) {
-      throw ValidationError(
-        `This loan (₹${newAmount}) exceeds the amount still available for lending in ${loanPayload.Year}: ₹${Math.max(0, Math.round(available * 100) / 100)}. ` +
-        `The yearly budget is the surplus (collections + last year's loan returns − expenses) minus loans already given this year.`
-      );
-    }
+  //
+  // This read-then-check is only the FRIENDLY error path: it produces the exact
+  // figures for the admin. It cannot be the enforcement point, because between
+  // this read and the INSERT another request can commit its own loan (see the
+  // atomic guard on the INSERT below — audit P0-02).
+  const newAmount = parseFloat(loanPayload.Amount) || 0;
+  const budget = await loanYearBudget(env, loanPayload.Year);
+  if (newAmount > budget.available + 0.01) {
+    throw ValidationError(
+      `This loan (₹${newAmount}) exceeds the amount still available for lending in ${loanPayload.Year}: ₹${Math.max(0, Math.round(budget.available * 100) / 100)}. ` +
+      `The yearly budget is the surplus (collections + last year's loan returns − expenses) minus loans already given this year.`
+    );
   }
 
   loanPayload['Created By'] = user.name;
@@ -205,11 +223,42 @@ export async function saveLoanTransaction(env, loanPayload, guarantorPayloads, u
   // The admin saw a plain success.
   //
   // One batch() is one implicit transaction in D1: all four rows land, or none do.
+  // ---- audit P0-02: the budget check must be ATOMIC with the INSERT ----
+  //
+  // The check above reads `SUM(loans.amount) WHERE year` and the INSERT happens
+  // later. Two concurrent saves therefore both read the same "already given"
+  // total and both commit: with ₹5,000 available, two parallel ₹4,000 loans
+  // produced ₹8,000 of lending. Nothing in the code or the schema stopped it.
+  //
+  // The racing quantity is SUM(loans.amount) for the year, and it lives in THIS
+  // database — so the INSERT can re-check it itself:
+  //
+  //   INSERT INTO loans (...) SELECT ?,?,...
+  //     WHERE (SELECT COALESCE(SUM(amount),0) FROM loans WHERE year = ?) + ? <= ?
+  //
+  // Inside one batch (one transaction) that re-check and the write cannot be
+  // interleaved, so the second concurrent loan inserts ZERO rows instead of
+  // overshooting. The ceiling is the year's surplus; `alreadyGiven` is
+  // deliberately NOT reused from the read above — the SQL recomputes it.
+  //
+  // The guarantors and consents are then guarded on the loan actually existing,
+  // so a skipped loan cannot leave orphan rows behind. Result: 8 rows or 0 rows.
   const loanCols = toColumnPayload('loans', loanPayload);
   const loanKeys = Object.keys(loanCols);
-  const loanStmt = env.DB_LOANS_EXPENSES.prepare(
-    `INSERT INTO loans (${loanKeys.join(', ')}) VALUES (${loanKeys.map(() => '?').join(', ')})`
-  ).bind(...loanKeys.map(k => loanCols[k]));
+  const loanPlaceholders = loanKeys.map(() => '?').join(', ');
+  const capped = Number.isFinite(budget.surplus);
+
+  const loanStmt = capped
+    ? env.DB_LOANS_EXPENSES.prepare(
+      `INSERT INTO loans (${loanKeys.join(', ')}) SELECT ${loanPlaceholders} `
+      + `WHERE (SELECT COALESCE(SUM(amount), 0) FROM loans WHERE year = ?) + ? <= ?`
+    ).bind(
+      ...loanKeys.map(k => loanCols[k]),
+      parseInt(loanPayload.Year), newAmount, budget.surplus + 0.01,
+    )
+    : env.DB_LOANS_EXPENSES.prepare(
+      `INSERT INTO loans (${loanKeys.join(', ')}) VALUES (${loanPlaceholders})`
+    ).bind(...loanKeys.map(k => loanCols[k]));
 
   const guarStmts = guarantorPayloads.map(gPayload => {
     gPayload['Created By'] = user.name;
@@ -217,8 +266,9 @@ export async function saveLoanTransaction(env, loanPayload, guarantorPayloads, u
     const cols = toColumnPayload('loan_guarantors', gPayload);
     const keys = Object.keys(cols);
     return env.DB_LOANS_EXPENSES.prepare(
-      `INSERT INTO loan_guarantors (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`
-    ).bind(...keys.map(k => cols[k]));
+      `INSERT INTO loan_guarantors (${keys.join(', ')}) SELECT ${keys.map(() => '?').join(', ')} `
+      + `WHERE EXISTS (SELECT 1 FROM loans WHERE loan_id = ?)`
+    ).bind(...keys.map(k => cols[k]), loanId);
   });
 
   // ---- audit P0-01: the four CONSENT rows belong in the SAME transaction ----
@@ -245,11 +295,33 @@ export async function saveLoanTransaction(env, loanPayload, guarantorPayloads, u
   const consentLink = consentLinkBuilder(env); // config check BEFORE any write
   const consentRows = buildLoanConsentRows(loanId, loanPayload, guarantorPayloads);
 
-  await env.DB_LOANS_EXPENSES.batch([
+  const batchResults = await env.DB_LOANS_EXPENSES.batch([
     loanStmt,
     ...guarStmts,
-    ...consentInsertStatements(env, consentRows),
+    ...consentInsertStatements(env, consentRows, loanId),
   ]);
+
+  // audit P0-02: zero rows inserted means the atomic re-check refused the loan —
+  // another save consumed the year's remaining budget while this one was being
+  // prepared. Nothing was written (the dependent rows are guarded on the loan
+  // existing), so there is nothing to undo; the admin gets a real error instead
+  // of an overshooting loan and a success message.
+  const loanChanges = batchResults && batchResults[0] && batchResults[0].meta
+    ? Number(batchResults[0].meta.changes)
+    : null;
+  const loanLanded = loanChanges === null
+    // Defensive: if a runtime ever omits meta.changes, confirm by reading back.
+    ? !!(await env.DB_LOANS_EXPENSES.prepare('SELECT 1 AS ok FROM loans WHERE loan_id = ?').bind(loanId).first('ok'))
+    : loanChanges > 0;
+
+  if (!loanLanded) {
+    const now = await loanYearBudget(env, loanPayload.Year);
+    throw ValidationError(
+      `This loan (₹${newAmount}) could not be saved: another loan was recorded for ${loanPayload.Year} at the same moment, `
+      + `and only ₹${Math.max(0, Math.round(now.available * 100) / 100)} is still available for lending. `
+      + `Nothing was saved — reload the Loans screen to see the current figures and try again.`
+    );
+  }
 
   // Everything that DEFINES the loan is committed now. From here we must not
   // throw: the remaining work is sending the invitations.
@@ -399,10 +471,24 @@ export function buildLoanConsentRows(loanId, loanPayload, guarantorPayloads) {
 }
 
 // The INSERT statements for those rows, ready to be batched with the loan.
-export function consentInsertStatements(env, consents) {
-  return consents.map(c => env.DB_LOANS_EXPENSES.prepare(
-    'INSERT INTO loan_consents (consent_id, loan_id, person_id, role, token, status, otp, otp_verified, send_count, created_at, responded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).bind(c.consentId, c.loanId, c.personId, c.role, c.token, 'pending', '', 0, 1, c.createdAt, ''));
+//
+// `guardLoanId` (audit P0-02): when the loan INSERT is itself conditional on the
+// yearly budget, it can legitimately insert zero rows. These dependent rows must
+// then be skipped too, or a refused loan would leave orphan consents carrying
+// live tokens. Guarding on the loan's existence keeps the batch all-or-nothing.
+export function consentInsertStatements(env, consents, guardLoanId) {
+  const cols = 'consent_id, loan_id, person_id, role, token, status, otp, otp_verified, send_count, created_at, responded_at';
+  return consents.map(c => {
+    const values = [c.consentId, c.loanId, c.personId, c.role, c.token, 'pending', '', 0, 1, c.createdAt, ''];
+    return guardLoanId
+      ? env.DB_LOANS_EXPENSES.prepare(
+        `INSERT INTO loan_consents (${cols}) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? `
+        + `WHERE EXISTS (SELECT 1 FROM loans WHERE loan_id = ?)`
+      ).bind(...values, guardLoanId)
+      : env.DB_LOANS_EXPENSES.prepare(
+        `INSERT INTO loan_consents (${cols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(...values);
+  });
 }
 
 // ---- Consent DELIVERY (runs AFTER the loan transaction has committed) ----
