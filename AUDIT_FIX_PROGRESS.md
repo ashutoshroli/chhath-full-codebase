@@ -6,9 +6,9 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status: 22 of 48 PRs merged · 1 open (this one) · 25 pending**
+**Status: 23 of 48 PRs merged · 1 open (this one) · 24 pending**
 
-Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 5/8 in progress** · W3–W7 not started
+Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 6/8 in progress** · W3–W7 not started
 
 ---
 
@@ -38,67 +38,64 @@ Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is c
 
 | [#331](https://github.com/ashutoshroli/chhath-full-codebase/pull/331) | let a scheduled popup expire on time | PUB-BE-04 | Cache identity for `activePopups` is (data version, 60 s time bucket) instead of `immutable` per version, so a scheduled popup is no longer cached for a year outside its window and a stale ETag cannot answer `304`; a malformed schedule stamp fails closed; the `popups` scan is pre-filtered in SQL and slides are read only for eligible popups | Single-flight for a concurrent miss → PR-24 |
 | [#334](https://github.com/ashutoshroli/chhath-full-codebase/pull/334) | make the public users projection an allowlist | PUB-BE-05 | `USERS_PUBLIC_COLS` drives both the `SELECT` and the emitted row, iterating the allowlist rather than the DB row, so `created_by` stops leaking and a future column fails closed; `id` is ordered by without being returned; `__rowIndex` is opt-in and only `collections` (whose QR record id is built from it) asks | Explicit SQL for the other seven sections → PR-24 |
+| [#335](https://github.com/ashutoshroli/chhath-full-codebase/pull/335) | require an approved origin, JSON and a shape on the two writes | PUB-BE-06 | The two anonymous writes now need an approved `Origin`, `application/json` (which forces the preflight CORS alone never triggered), a hard body cap measured on the bytes read, and a per-action shape check — all before any D1 work; the push endpoint is parsed with `new URL` instead of a `^https://` regex; `415`/`403`/`413`/`400`/`429`/`503` replace a blanket `200`/`400`; five frontends now declare JSON | Challenge/nonce judged not worth a round-trip + KV write; IP hashing → C12 |
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — the two write paths get an authenticity check
+## 2. This PR — the safety net and the version it is keyed on
 
-**Audit ID:** PUB-BE-06. Fifth W2 PR.
+**Audit ID:** PUB-BE-07's additional observations — the snapshot write and *"version failures collapse to a valid-looking version `0`"*. Sixth W2 PR.
 
-`logError` and `savePushSubscription` are the only writes on this Worker, they are anonymous by necessity, and they had no authenticity control of any kind. The assumption worth naming is that CORS was one:
+Two defects in the same area, both of which stay invisible until the moment they matter.
 
-> **CORS does not stop a request. It stops the caller reading the response.**
+### The snapshot could be half-written
 
-A cross-origin `POST` still arrives and is still executed — the browser only refuses to hand the *reply* to the calling script. For a write the reply is not the point, the row is. And a `POST` with `Content-Type: text/plain` is a CORS **simple request**, so it never even gets a preflight for an origin allow-list to reject. Which meant:
+The last-known-good copy lived in **two** KV keys — the body, and "which version the body is for" — written together with `Promise.all` inside `ctx.waitUntil`, so nothing ever observed the result. KV has no transactions. If the *version* write landed and the *body* write did not, the pair is left asserting that the previous version's body is current; and because the writer skips whenever the recorded version already matches, **it would never be corrected**. The safety net would hold the wrong data permanently, and this would be discovered during the D1 outage it exists for — serving stale data labelled as the current version.
 
-- any page on the internet, or any script anywhere, could insert rows into **`error_log`** — the table the committee reads to find out whether the public site is broken. Polluting it is enough to hide a real fault, and every insert spends the D1 write quota shared with the management API.
-- any caller could insert or **reactivate** a `push_subscriptions` row (`ON CONFLICT … active = 1`), so a subscription a visitor had switched off could be turned back on by a third party.
-- the stored push `endpoint` was validated by `/^https:\/\//i`, which accepts `https://` alone, `https://localhost/x`, `https://10.0.0.1/x`, `https://user:pw@host/x`. That column is a delivery target the mgmt Worker later POSTs to, so what is written here decides where a future request is sent.
-- `logError` answered `200` even when the write failed, so a logger that had stopped working looked exactly like one that was fine.
+It is now **one key** holding `{ version, savedAt, data }`. A single KV put either lands or it does not, so there is no partial state to land in, and the extra read the meta key needed is gone. The v1 pair is still *read* (never written), so a deployment carrying an older snapshot keeps its safety net until the next data change replaces it.
 
-Done — four controls, cheapest first, all applied **before the body is read** and before any D1 work:
+`savedAt` now comes from the snapshot itself, which is the value #328 shows as the age of a saved copy — previously it could only be inferred.
 
-1. **Content-Type must be `application/json`.** This is not decoration: it makes the request non-simple, which *forces* a preflight, which is what gives the origin allow-list any power over a browser caller. `; charset=utf-8` is fine; `text/plain` and `application/x-www-form-urlencoded` — precisely the simple-request types — are `415`.
-2. **Origin.** When `ALLOWED_ORIGINS` is configured, a write's `Origin` must be on it. When it is **not** configured, a write must still carry *some* `Origin`: every browser sends one on a cross-origin POST, so a real visitor is unaffected, while the trivial scripted flood that sets none is refused. That is a floor, not a substitute, and `wrangler.toml` now says so where an operator will read it.
-3. **A hard body cap** (8 KB for a report, 4 KB for a subscription), checked against `Content-Length` first and then against the bytes actually read — so a lying or absent header cannot get past it.
-4. **A shape check per action.** A report needs a non-empty `message`; `page`/`stack`/`context` must be the right type when present. An unparseable body used to be swallowed into `{}` and written as a row with no message, indistinguishable from a real error that had none.
+### Its size guard counted the wrong unit
 
-Also:
+The guard compared `body.length` — UTF-16 **code units** — against a limit expressed in **bytes**. This payload is full of Devanagari (`name_hindi`, `village_hindi`, `designation_hindi`, `discription_hindi`), which is three UTF-8 bytes per single code unit, so the check under-counted by up to **3x on exactly the data it was written to protect**: a string measuring a "safe" 20 MB can be over 50 MB of UTF-8, past KV's 25 MB hard cap. The put would then fail — silently, inside `waitUntil`, under a bare `catch`. It now measures with `TextEncoder`, and **a failed write is logged** rather than vanishing, because the whole point of this value is to exist before it is needed.
 
-- **The push endpoint is parsed, not pattern-matched.** `new URL`, then: `https:` only, no embedded credentials, no IP literal (v4 or bracketed v6), no `localhost` / `.local`, and a host with a dot in it. Deliberately a shape check rather than a host allow-list — pinning today's four push services would break a visitor on a browser that adds a fifth, and the endpoint is not a secret. What must be impossible is storing a delivery target that points somewhere internal. An over-long endpoint is now **refused** rather than truncated: trimming a URL to the 500-character cap invents a different URL and stores it as if the visitor had sent it.
-- **The status codes tell the truth:** `415` wrong media type, `403` unapproved origin, `413` too large, `400` bad shape (the caller's fault), `429` rate limited, `503` the write failed (ours). A write is `no-store`.
-- **The frontends declare JSON.** `Public/frontend-v6` (and v4, v5, and the retained `Public/frontend` and `frontend-v3`) POSTed `logError` with **no** `Content-Type`, which `fetch` sends as `text/plain` — the simple-request case this finding is about. They now send `application/json`. The cost is one preflight per browsing session, amortised by the `Access-Control-Max-Age: 86400` this Worker already sends; a report lost at unload is a report lost, but a writable log is a broken log. The push POSTs already declared JSON.
+### A version that could not be read is not a version
 
-New `Public/backend/test/write-hardening.test.mjs` — 47 tests. Highlights of what fails on `main`:
+`getDataVersion` answered `'0'` for three different situations: the counter row genuinely does not exist yet, the binding is missing, and *the read failed*. Only the first is a version — `'0'` is a perfectly usable version string, and this Worker builds its entire caching identity out of it. So a D1 hiccup meant the payload built during the failure (possibly empty, since the section reads were failing too) was cached under the key `v=0` with an ETag of `…-v0`, and **every later failure produced that same identity**, serving the one bad build back as a cache hit, indefinitely, to everyone.
+
+An unreadable version is now `null`, and every caller that needs one to answer safely says so instead: `portalData` serves the saved copy if there is one, otherwise an explicit `503 { unavailable: true }` with `no-store` and no ETag. Nothing cacheable is ever keyed on a version we do not have. An absent counter row is still `'0'` — a fresh deployment the mgmt Worker has never bumped really is at version zero, and that case must not be confused with a failure.
+
+## Verification
+
+New `Public/backend/test/snapshot-and-version.test.mjs` — 16 tests, **12 of which fail on `main`**:
 
 | | on `main` | on this branch |
 |---|---|---|
-| `POST logError` with `Content-Type: text/plain` | row written | `415`, no D1 work |
-| the same from `https://evil.example`, with the allow-list set | row written | `403`, no D1 work |
-| a 9 KB body, or one with `Content-Length: 10` | row written | `413` |
-| `{}` / `not json` / `[1,2,3]` / `null` | written as a blank row | `400` |
-| a failed `error_log` write | `200` | `503` |
-| endpoint `https://10.0.0.1/push`, `https://user:pw@…`, `https://localhost/push` | stored | `400` |
-| a 600-character endpoint | silently truncated to 500 and stored | `400` |
+| a snapshot write | two KV puts, no transaction, result unobserved | one put carrying its own version |
+| a failed snapshot put | silent — the safety net just stops existing | logged with the KV error |
+| 8M Devanagari characters (24 MB of UTF-8) | inside the 20 MB guard, put fails at KV's 25 MB cap | refused before the put |
+| `portalData` while D1 is down, with a saved copy | payload built and cached under `v=0` | the saved copy, `stale: true`, `savedAt` |
+| the same with no saved copy | a `v=0` payload, cached at the edge | `503 { unavailable: true }`, nothing cached |
+| `dataVersion` / `summary` / `activePopups` while D1 is down | `v=0` | `503`, unavailable |
 
-Also pinned: `application/json; charset=utf-8` is accepted, an explicit `ALLOWED_ORIGINS = "*"` keeps the wildcard posture for writes too, the four real push services are accepted and stored byte-for-byte, both the flattened and nested subscription shapes still work, and the **read** paths still need neither an `Origin` nor a `Content-Type`.
+Also pinned: a second request at the same version does not write again (the ~1,000/day KV write budget is shared); a genuinely absent counter row is still version `0` and still works; a v1 pair is still read when there is no v2 value; a v2 value wins over a v1 pair; and a corrupt snapshot value is ignored rather than served.
 
-Verification: `Public/backend` `npm test` **116/116** (69 + 47) · `mgmt/backend` **714/714** · `frontend-v6` `svelte-check` 0 errors, `npm test` **70/70** · `node --check` on all 51 Worker files and both legacy scripts.
+Two existing mgmt assertions are updated in the same commit. `h4-kv-isolation-and-session-keys.test.mjs` pinned the snapshot key constants **by name**, so it now matches them by shape — the namespace rule has to hold for whatever they are called next — and its H-5 guard test additionally asserts the guard measures bytes.
 
-Deliberately **not** added: a challenge/nonce endpoint, which the report suggests. It costs a second round-trip and a KV write per opt-in against the ~1,000/day budget this file already treats as scarce, and it cannot authenticate an anonymous visitor anyway — anything the page can fetch, a script can fetch. The controls above raise the cost of abuse without pretending to solve attribution.
+Verification: `Public/backend` `npm test` **132/132** (116 + 16) · `mgmt/backend` **714/714** · `npm run lint:errors` clean · `node --check` on all 51 Worker files.
 
 ---
 
 ## 3. Pending
 
-**W2 — Public backend (3 left):**
+**W2 — Public backend (2 left):**
 
 | PR | Branch | What |
 |---|---|---|
-| 23 | `fix/public-snapshot-atomicity` | KV last-known-good snapshot written atomically |
 | 24 | `perf/public-assembly` | Parallel section reads + single-flight cache fill + post-assembly version re-check |
-| 25 | `test/public-backend-harness` | Lockfile + a Miniflare/workerd harness covering every action (extends the tests added in PR-18/19/20/21/22) |
+| 25 | `test/public-backend-harness` | Lockfile + a Miniflare/workerd harness covering every action (extends the tests added in PR-18/19/20/21/22/23) |
 
 **W3 — Render / AI / chat (7):** payload size contract · durable idempotent jobs · callback outbox + version bump · provider SSRF policy · AI write allowlist · chat abuse controls · chat privacy + Neon
 **W4 — Database (3):** duplicate/orphan detection · enforce keys & relations · migration ledger

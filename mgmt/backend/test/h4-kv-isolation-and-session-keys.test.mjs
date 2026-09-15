@@ -172,9 +172,15 @@ test('H-4: the public Worker touches KV only through pubKv(), and only pub:* key
   for (const k of keys) {
     assert.ok(k.startsWith('pub:'), `public Worker key is not namespaced: "${k}"`);
   }
-  // The constants it uses for the snapshot are pub:-prefixed too.
-  assert.match(code, /SNAPSHOT_KEY\s*=\s*'pub:/);
-  assert.match(code, /SNAPSHOT_META_KEY\s*=\s*'pub:/);
+  // Every snapshot key constant is pub:-prefixed too. Matched by SHAPE rather than by
+  // name: the snapshot moved from a two-key pair to a single `{version, data}` value
+  // (audit PUB-BE-07), and the namespace rule has to hold for whatever the constants are
+  // called next, including the legacy names kept for reading an older value.
+  const snapshotKeys = [...code.matchAll(/const\s+(SNAPSHOT[A-Z0-9_]*KEY[A-Z0-9_]*)\s*=\s*'([^']*)'/g)];
+  assert.ok(snapshotKeys.length > 0, 'sanity: some snapshot key constants were found');
+  for (const [, name, value] of snapshotKeys) {
+    assert.ok(value.startsWith('pub:'), `${name} is not namespaced: "${value}"`);
+  }
 });
 
 test('H-5: the snapshot has a KV size guard instead of a silent failure', () => {
@@ -182,9 +188,13 @@ test('H-5: the snapshot has a KV size guard instead of a silent failure', () => 
   assert.match(src, /SNAPSHOT_MAX_BYTES/, 'a size guard must exist');
   // It must LOG rather than swallow — the old bare catch {} meant the operator only
   // discovered the missing fallback during an actual D1 outage.
-  const guard = src.slice(src.indexOf('SNAPSHOT_MAX_BYTES'), src.indexOf('const writes = Promise.all'));
+  const guard = src.slice(src.indexOf('SNAPSHOT_MAX_BYTES'), src.indexOf('kv.put(SNAPSHOT_KEY'));
   assert.match(guard, /logPublicError/, 'crossing the cap must be reported, not swallowed');
   assert.match(guard, /audit H-5|paginating/i, 'the message must point at the real fix');
+  // And it must measure BYTES. `body.length` is UTF-16 code units, while KV's limit is
+  // bytes and this payload is full of Devanagari at 3 UTF-8 bytes per code unit, so the
+  // old comparison under-counted by up to 3x on exactly the data it protects.
+  assert.match(guard, /TextEncoder/, 'the cap is in bytes, so it must be measured in bytes');
 });
 
 
