@@ -495,51 +495,102 @@ async function serveSnapshot(env, cors) {
   } catch (e) { return null; }
 }
 
-async function getAllPortalData(env) {
-  return {
+// audit PUB-BE-07. The twelve sections below were twelve SEQUENTIAL awaits, so a build
+// took the SUM of twelve round-trips across four databases while doing nothing in
+// between. They are independent — no section's query depends on another's result — so
+// the sum was pure latency, paid by the visitor who caused the cache miss and, worse,
+// paid while holding the single-flight slot every other concurrent visitor waits on.
+//
+// They now run together. Each entry is a [name, thunk] pair rather than a bare promise
+// so nothing starts until `Promise.all` runs them, which keeps the failure semantics
+// obvious: this is still all-or-nothing (one broken required table fails the build and
+// the caller falls back to the snapshot, as before), just concurrent.
+//
+// A note on why this is safe with the D1 read budget: it is the same queries, in the
+// same number. Only the wall-clock shape changes.
+function portalSections(env) {
+  return [
     // Public transparency portal only needs Name/Village/Father's Name/
     // Designation/Mobile for display (Mobile is shown next to Committee
     // members) — email and personal WhatsApp numbers are never rendered on
     // the public site, so they're dropped here rather than shipped to every
     // visitor's browser (data-minimization — see MIGRATION_NOTES.md flag).
-    // PII minimization (audit 1.2): the public site only renders a mobile number
-    // next to COMMITTEE members (via the users map — see Public/frontend
-    // renderCommittee), but this payload used to ship `mobile` for EVERY user to
-    // every anonymous visitor. We now drop `mobile` for everyone who is NOT a
-    // committee member (in any year), so a plain contributor's number never
-    // leaves the server while committee mobiles still render as before.
-    users: await usersPublicSafe(env),
-    // audit H-5: all sections below use an ALLOWLIST of exactly the columns the public
+    // PII minimization (audit 1.2 / PUB-BE-05): `mobile` is emitted only for committee
+    // members, and the projection is an allowlist, so a plain contributor's number
+    // never leaves the server and a column added later cannot ship itself.
+    ['users', () => usersPublicSafe(env)],
+    // audit H-5: every section uses an ALLOWLIST of exactly the columns the public
     // frontend reads (verified field-by-field), so nothing extra leaves the server and
     // any future column fails closed.
     //
-    // PUB-BE-05: `id` -> `__rowIndex` is now requested by exactly ONE section. The
+    // PUB-BE-05: `id` -> `__rowIndex` is requested by exactly ONE section. The
     // collections row id is load-bearing — it is the `<docType>-<year>-<id>` record id
     // the Verify screen matches a paper document against — and no frontend reads it
     // from anywhere else, so publishing the internal row ids of the other seven
     // tables bought nothing.
-    committee: await tableRows(env.DB_CORE, 'committee_members', REVERSE_MAPS.committee_members, null, COMMITTEE_PUBLIC_COLS),
-    collections: await tableRows(env.DB_COLLECTIONS, 'collections', REVERSE_MAPS.collections, null, COLLECTIONS_PUBLIC_COLS, true),
-    expenses: await tableRows(env.DB_LOANS_EXPENSES, 'expenses', REVERSE_MAPS.expenses, null, EXPENSES_PUBLIC_COLS),
-    loans: await tableRows(env.DB_LOANS_EXPENSES, 'loans', REVERSE_MAPS.loans, null, LOANS_PUBLIC_COLS),
-    guarantors: await tableRows(env.DB_LOANS_EXPENSES, 'loan_guarantors', REVERSE_MAPS.loan_guarantors, null, LOAN_GUARANTORS_PUBLIC_COLS),
-    generatedFiles: await tableRows(env.DB_FILE_INDEX, 'generated_files', REVERSE_MAPS.generated_files, null, GENERATED_FILES_PUBLIC_COLS),
-    loanConsents: await tableRows(env.DB_LOANS_EXPENSES, 'loan_consents', REVERSE_MAPS.loan_consents, null, LOAN_CONSENTS_PUBLIC_COLS),
+    ['committee', () => tableRows(env.DB_CORE, 'committee_members', REVERSE_MAPS.committee_members, null, COMMITTEE_PUBLIC_COLS)],
+    ['collections', () => tableRows(env.DB_COLLECTIONS, 'collections', REVERSE_MAPS.collections, null, COLLECTIONS_PUBLIC_COLS, true)],
+    ['expenses', () => tableRows(env.DB_LOANS_EXPENSES, 'expenses', REVERSE_MAPS.expenses, null, EXPENSES_PUBLIC_COLS)],
+    ['loans', () => tableRows(env.DB_LOANS_EXPENSES, 'loans', REVERSE_MAPS.loans, null, LOANS_PUBLIC_COLS)],
+    ['guarantors', () => tableRows(env.DB_LOANS_EXPENSES, 'loan_guarantors', REVERSE_MAPS.loan_guarantors, null, LOAN_GUARANTORS_PUBLIC_COLS)],
+    ['generatedFiles', () => tableRows(env.DB_FILE_INDEX, 'generated_files', REVERSE_MAPS.generated_files, null, GENERATED_FILES_PUBLIC_COLS)],
+    ['loanConsents', () => tableRows(env.DB_LOANS_EXPENSES, 'loan_consents', REVERSE_MAPS.loan_consents, null, LOAN_CONSENTS_PUBLIC_COLS)],
     // "Our Journey" year-by-year story (DB-driven, managed in the mgmt portal).
     // A missing table on an older deployment degrades to [] rather than failing.
-    journeyEntries: await getJourneyEntries(env),
+    ['journeyEntries', () => getJourneyEntries(env)],
     // The journey tagline (bilingual), from the same portal_settings key/value
     // table this Worker already reads for the data version + SEO.
-    journeyTagline: await getJourneyTagline(env),
+    ['journeyTagline', () => getJourneyTagline(env)],
     // The rest of the "Our Journey" static prose (intro, origin, timeline,
     // milestones, closing, labels…) — one JSON blob per language in
     // portal_settings. The frontend falls back to its built-in i18n per field.
-    journeyPageText: await getJourneyPageText(env),
+    ['journeyPageText', () => getJourneyPageText(env)],
     // The "Donate Now" page fields (UPI id, QR image URL, bank details, WhatsApp
     // number), from the same portal_settings key/value table. All fail-soft to ''
     // so the frontend hides any field that has not been filled in yet.
-    donation: await getDonationSettings(env),
-  };
+    ['donation', () => getDonationSettings(env)],
+  ];
+}
+
+// A section this size is not a bug today — it is the warning that the payload is on its
+// way to being one. `portalData` materialises whole tables, and the KV snapshot that
+// backs the outage fallback is hard-capped at 25 MB (see maybeSaveSnapshot), so the
+// portal loses its safety net BEFORE it loses the ability to serve. Saying so in
+// `error_log` while everything still works is the whole point: the alternative is
+// finding out during an outage.
+//
+// Deliberately NOT a truncation. Silently dropping rows from a TRANSPARENCY portal —
+// hiding contributions or expenses — would be a worse failure than a slow payload, and
+// it would be invisible to the visitor. Bounding the payload for real means paginating
+// the contract, which changes every frontend; see PUB-BE-07 in the plan.
+const SECTION_ROW_WARN = 20000;
+
+async function getAllPortalData(env, ctx) {
+  const sections = portalSections(env);
+  const values = await Promise.all(sections.map(([, load]) => load()));
+
+  const out = {};
+  const oversized = [];
+  sections.forEach(([name], i) => {
+    out[name] = values[i];
+    if (Array.isArray(values[i]) && values[i].length > SECTION_ROW_WARN) {
+      oversized.push({ section: name, rows: values[i].length });
+    }
+  });
+
+  if (oversized.length) {
+    const logging = logPublicError(
+      env, 'public-backend', 'getAllPortalData',
+      `portalData sections past ${SECTION_ROW_WARN} rows: ${oversized.map(o => `${o.section}=${o.rows}`).join(', ')}. ` +
+      'This payload is materialised whole on every cache miss and stored whole in the KV ' +
+      'snapshot, which is capped at 25 MB — the outage fallback breaks before serving does. ' +
+      'The fix is to paginate the public contract (audit PUB-BE-07).',
+      '', JSON.stringify({ oversized }), ''
+    ).catch(() => {});
+    if (ctx && ctx.waitUntil) ctx.waitUntil(logging); else await logging;
+  }
+
+  return out;
 }
 
 // The public "Donate Now" settings from portal_settings (donation_*). Returns an
@@ -1245,25 +1296,82 @@ async function readCachedPayload(action, version) {
 // `retentionSeconds` is how long the EDGE keeps this entry — never sent to a client.
 // It is a parameter because a payload keyed on a time bucket (popups, below) must
 // not sit in the cache for a day after its bucket can no longer be requested.
-async function cachedPayload(ctx, action, version, build, retentionSeconds = CACHE_RETENTION_SECONDS) {
-  const cached = await readCachedPayload(action, version);
-  if (cached !== null) return cached;
+// ============ ONE BUILD PER (ACTION, VERSION), NOT ONE PER CONCURRENT MISS ============
+//
+// audit PUB-BE-07. The edge cache collapses SEQUENTIAL requests, and nothing collapsed
+// CONCURRENT ones: every request arriving during a build found no cache entry — the
+// entry is written at the END — and started its own full build. Nine table scans across
+// four databases, each.
+//
+// That is the worst possible moment for it, because the misses are correlated by
+// construction. A version bump invalidates every key at once, so the requests that
+// arrive in the following second are exactly the ones that all miss together; the same
+// happens after a deploy, after a cache eviction, and under a link-preview crawl. Ten
+// simultaneous visitors meant ten builds of an identical payload, against a D1 daily row
+// quota SHARED with the management API — i.e. the thundering herd this Worker's own
+// budget guard exists to catch after the fact.
+//
+// One isolate-local map of in-flight builds fixes it: the first miss builds, and every
+// other request for the same (action, version) awaits that same promise. This is not a
+// distributed lock and does not pretend to be one — a Worker runs in many isolates, so
+// the guarantee is "one build per isolate per version", which turns N concurrent builds
+// into (number of isolates), typically a handful. A KV- or DO-backed global lock would
+// cost a round-trip on the hot path and a write against the ~1,000/day KV budget, to
+// save a build that the edge cache is about to make unnecessary anyway.
+const inFlightBuilds = new Map();
 
-  const body = JSON.stringify(await build());
-  const cache = edgeCache();
-  if (cache) {
-    try {
-      const stored = new Response(body, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': `public, max-age=${retentionSeconds}`,
-        },
-      });
-      const put = cache.put(cacheKeyFor(action, version), stored);
-      if (ctx && ctx.waitUntil) ctx.waitUntil(put); else await put;
-    } catch (e) { /* caching is best-effort — never fail the response */ }
+// `verify()` runs AFTER the payload is assembled and returns false when what was built
+// no longer belongs under this key — see the post-assembly version re-check below.
+async function cachedPayload(ctx, action, version, build, options = {}) {
+  const { retentionSeconds = CACHE_RETENTION_SECONDS, verify = null } = options;
+
+  const cached = await readCachedPayload(action, version);
+  if (cached !== null) return { body: cached, cached: true, cacheable: true };
+
+  const key = `${action}?v=${version}`;
+  const existing = inFlightBuilds.get(key);
+  if (existing) return existing;
+
+  const buildOnce = (async () => {
+    const body = JSON.stringify(await build());
+
+    // POST-ASSEMBLY VERSION RE-CHECK. The version is read BEFORE the build and the key
+    // is derived from it, but the build takes time and an admin write can land inside
+    // that window. The payload was then stored under the OLD version's key — where it
+    // sits until the next bump, and where a caller passing `?v=<old>` is handed it with
+    // `immutable` for a year. That is a cache entry that is wrong the moment it is
+    // written, and re-reading one row is a trivial price for not creating one.
+    //
+    // When the version moved we still RETURN the body — it is fresh data, and the
+    // visitor asked for data — but we neither cache it nor let it be marked immutable.
+    // The next request rebuilds cleanly under the new version.
+    const stillValid = verify ? await verify() : true;
+    if (!stillValid) return { body, cached: false, cacheable: false };
+
+    const cache = edgeCache();
+    if (cache) {
+      try {
+        const stored = new Response(body, {
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': `public, max-age=${retentionSeconds}`,
+          },
+        });
+        const put = cache.put(cacheKeyFor(action, version), stored);
+        if (ctx && ctx.waitUntil) ctx.waitUntil(put); else await put;
+      } catch (e) { /* caching is best-effort — never fail the response */ }
+    }
+    return { body, cached: false, cacheable: true };
+  })();
+
+  inFlightBuilds.set(key, buildOnce);
+  try {
+    return await buildOnce;
+  } finally {
+    // Cleared on both paths: a failed build must not be remembered, or every later
+    // request for this version would await the same rejection.
+    inFlightBuilds.delete(key);
   }
-  return body;
 }
 
 // The two client-facing cache policies, unchanged in value from before this
@@ -1979,18 +2087,24 @@ export default {
           // and the fallback now hit the same canonical cache key instead of each
           // keeping its own copy (audit PUB-BE-01).
           const buildPortal = async () => {
-            const data = await getAllPortalData(env);
+            const data = await getAllPortalData(env, ctx);
             await d1BudgetAdd(env, ctx, countPayloadRows(data)); // count the REAL rows this build read
             await maybeSaveSnapshot(env, ctx, version, data); // last-known-good (only writes on version change)
             return data;
           };
+          // Re-read one row after the build: an admin write inside the build window
+          // would otherwise be cached under the PREVIOUS version's key (PUB-BE-07).
+          const versionUnchanged = async () => (await getDataVersion(env)) === version;
+          const buildOpts = { verify: versionUnchanged };
 
           // FAST PATH: the client asked for a specific version (?v=) and it still
           // matches the live version -> a long IMMUTABLE cache is safe, because
           // THAT URL can only ever mean this one version.
           if (requestedV && requestedV === version) {
-            const body = await cachedPayload(ctx, 'portalData', version, buildPortal);
-            return payloadResponse(body, cors, etag, IMMUTABLE_CC);
+            const built = await cachedPayload(ctx, 'portalData', version, buildPortal, buildOpts);
+            // `immutable` is a promise that this URL's answer can never change. If the
+            // version moved during the build, that promise would be false for a year.
+            return payloadResponse(built.body, cors, etag, built.cacheable ? IMMUTABLE_CC : REVALIDATE_CC);
           }
 
           // FALLBACK PATH (no ?v=, or a stale ?v=): ETag revalidation, so
@@ -2002,8 +2116,8 @@ export default {
               headers: { ...cors, ETag: etag, 'Cache-Control': 'no-cache' },
             });
           }
-          const body = await cachedPayload(ctx, 'portalData', version, buildPortal);
-          return payloadResponse(body, cors, etag, REVALIDATE_CC);
+          const built = await cachedPayload(ctx, 'portalData', version, buildPortal, buildOpts);
+          return payloadResponse(built.body, cors, etag, REVALIDATE_CC);
         } catch (buildErr) {
           // D1 build failed (likely quota exhausted). Serve the last-known-good
           // snapshot if we have one; otherwise re-throw to the outer handler.
@@ -2050,16 +2164,18 @@ export default {
           return data;
         };
 
+        const summaryOpts = { verify: async () => (await getDataVersion(env)) === version };
+
         if (requestedV && requestedV === version) {
-          const body = await cachedPayload(ctx, 'summary', version, buildSummary);
-          return payloadResponse(body, cors, etag, IMMUTABLE_CC);
+          const built = await cachedPayload(ctx, 'summary', version, buildSummary, summaryOpts);
+          return payloadResponse(built.body, cors, etag, built.cacheable ? IMMUTABLE_CC : REVALIDATE_CC);
         }
 
         if (clientHasCurrent(request, etag)) {
           return new Response(null, { status: 304, headers: { ...cors, ETag: etag, 'Cache-Control': 'no-cache' } });
         }
-        const body = await cachedPayload(ctx, 'summary', version, buildSummary);
-        return payloadResponse(body, cors, etag, REVALIDATE_CC);
+        const built = await cachedPayload(ctx, 'summary', version, buildSummary, summaryOpts);
+        return payloadResponse(built.body, cors, etag, REVALIDATE_CC);
       }
 
       if (action === 'activePopups') {
@@ -2095,12 +2211,12 @@ export default {
           });
         }
 
-        const body = await cachedPayload(ctx, 'activePopups', cacheVersion, async () => {
+        const built = await cachedPayload(ctx, 'activePopups', cacheVersion, async () => {
           const data = await getActivePublicPopups(env);
           await d1BudgetAdd(env, ctx);
           return data;
-        }, POPUP_CACHE_RETENTION_SECONDS);
-        return payloadResponse(body, cors, etag, cacheControl);
+        }, { retentionSeconds: POPUP_CACHE_RETENTION_SECONDS });
+        return payloadResponse(built.body, cors, etag, cacheControl);
       }
       // Reached only with no ?action= at all (an unknown action is answered by the
       // method/action check before any handler runs).
