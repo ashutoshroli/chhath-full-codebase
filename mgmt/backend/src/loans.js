@@ -944,17 +944,77 @@ export async function respondConsent(env, token, decision, deviceId, deviceInfo,
   if (decision === 'accepted') {
     await recomputeLoanStatus(env, rowObj.loan_id);
     await notifyConsentAccepted(env, rowObj.loan_id, rowObj.person_id, rowObj.role);
+  } else {
+    // C14. This branch used to write the row and return, so a DECLINE told nobody: the
+    // loaner was never informed his loan had stopped and simply waited, the committee got
+    // no message, and the remarks the decliner is FORCED to write went nowhere a person
+    // sees. Recipients (decided with the committee): the loaner and the group.
+    await notifyConsentClosed(env, 'declined', rowObj.loan_id, rowObj.person_id, rowObj.role, {
+      declineRemarks: declineRemarks.toString().trim(),
+    });
   }
   return { success: true, status: decision };
+}
+
+// C14 — one notifier for both ways a consent can CLOSE a loan.
+//
+// `respondConsent` and `setConsentVerification` each notified only on their happy path, so a
+// declined consent and a rejected verification were both silent. They are the same event as
+// far as everyone waiting is concerned — the loan has stopped — so they share a notifier and
+// differ only in which template pair they pick.
+//
+// Wrapped in trySend like the other notifiers: a notification that cannot be delivered must
+// never roll back the decision that was already recorded. The decline is the user's; failing
+// to announce it is ours.
+async function notifyConsentClosed(env, outcome, loanId, personId, role, extra = {}) {
+  return trySend(env, `notifyConsent_${outcome}`, async () => {
+    const loan = (await loanByLoanId(env, loanId)) || {};
+    const guarantorIds = await guarantorPersonIds(env, loanId);
+    const userMap = await usersByIdCodes(env, [loan.Name, personId, ...guarantorIds]);
+    const loanerU = userMap[loan.Name] || {};
+    const person = userMap[personId] || {};
+    const guarantorUsers = guarantorIds.map(id => userMap[id] || {});
+
+    const data = notificationData(loan, loanerU, person, role, guarantorUsers, extra);
+    const tpls = await loanTemplateContext(env);
+
+    // The GROUP message carries the reason: it is the committee's own channel, and the
+    // remark is what they need in order to decide what happens next.
+    const groupTpl = tpls.pick(`consent_${outcome}_group`);
+    if (groupTpl) {
+      const groups = (await getSheetDataAsJSON(env, 'WHATSAPP_GROUPS')).filter(g => isTruthyFlag(g.active));
+      const message = await renderLoanTemplate(env, `notifyConsent_${outcome}:group`, groupTpl, data, { loanId, personId });
+      for (const g of groups) {
+        await queueGroupMessageDirect(env, g.groupid, message, tpls.sender, groupTpl.message_type, groupTpl.file_link);
+      }
+    }
+
+    // The LOANER is told his loan has stopped and who to talk to. The shipped template
+    // deliberately omits {DeclineRemarks} — see the note in migration 32 — but the
+    // placeholder IS supplied, so a committee that wants it there only has to edit the text.
+    const loanerWa = waNumberOf(loanerU);
+    const loanerTpl = tpls.pick(`consent_${outcome}_loaner_personal`);
+    if (loanerWa && loanerTpl) {
+      const message = await renderLoanTemplate(env, `notifyConsent_${outcome}:loaner`, loanerTpl, data, { loanId, personId });
+      await queuePersonMessageDirect(env, loanerWa, message, tpls.sender, loanerTpl.message_type, loanerTpl.file_link);
+    }
+    // Email mirror — independent template and channel, so a loaner with an email address but
+    // no WhatsApp number is still told. Same shape as the accepted path.
+    await queueLoanEmail(env, `consent_${outcome}_loaner_personal`, loanerU, data, { loanId, personId });
+  });
 }
 
 // Builds the notification placeholder set. The old code built a much SMALLER
 // object here than createLoanConsents' baseData while reusing the same
 // operator-authored templates, which is one of the two reasons real recipients
 // received literal {Guarantor1} / {Village} / {FatherName} text.
-function notificationData(loan, loanerU, person, role, guarantorUsers) {
+function notificationData(loan, loanerU, person, role, guarantorUsers, extra = {}) {
   const gu = guarantorUsers || [];
   return {
+    // Only the decline/reject templates use this. It is always present so a template
+    // that references it can never render the literal text "{DeclineRemarks}" — the
+    // failure mode this function's own comment above was written about.
+    DeclineRemarks: (extra.declineRemarks || '').toString().trim(),
     Name: person.Name || '', NameHindi: person['Name (Hindi)'] || '',
     FatherName: person["Father's Name"] || '', FatherNameHindi: person["Father's Name (Hindi)"] || '',
     Village: person.Village || '', VillageHindi: person['Village (Hindi)'] || '',
@@ -1134,6 +1194,19 @@ export async function setConsentVerification(env, consentId, status, remarks, us
   const consentRow = await env.DB_LOANS_EXPENSES.prepare('SELECT loan_id FROM loan_consents WHERE consent_id = ?').bind(consentId).first().catch(() => null);
   if (consentRow && consentRow.loan_id) await recomputeLoanStatus(env, consentRow.loan_id);
   if (status === 'verified') await notifyConsentVerified(env, consentId);
+  else {
+    // C14, the other half: a REJECTED verification also stops the loan and also told
+    // nobody. The consent row carries the loan and person, so this reads them the same way
+    // notifyConsentVerified does. `remarks` here are the verifier's, not the decliner's.
+    const c = await env.DB_LOANS_EXPENSES
+      .prepare('SELECT loan_id, person_id, role FROM loan_consents WHERE consent_id = ? LIMIT 1')
+      .bind(consentId).first();
+    if (c) {
+      await notifyConsentClosed(env, 'rejected', c.loan_id, c.person_id, c.role, {
+        declineRemarks: (remarks || '').toString().trim(),
+      });
+    }
+  }
   return { success: true };
 }
 

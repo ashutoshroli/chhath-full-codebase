@@ -111,6 +111,10 @@ const SCHEMA_FOR_MIGRATION = {
   // it applies on a fresh schema and a second run is a no-op. Fully idempotent
   // (no ALTER), like 28/29/30.
   '31-push-subscriptions.sql': 'core.sql',
+  // C14 — consent declined/rejected notification templates. The only migration in this
+  // folder that SEEDS ROWS: each INSERT is guarded by NOT EXISTS on its `type`, so a
+  // re-run changes nothing and cannot overwrite text the committee has since edited.
+  '32-consent-decline-templates.sql': 'loans_expenses.sql',
 };
 
 // Migrations that legitimately do more than CREATE INDEX. Keep this list as short

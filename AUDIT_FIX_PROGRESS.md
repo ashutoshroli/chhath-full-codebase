@@ -6,7 +6,7 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status: 33 of 48 PRs merged · 1 open (this one) · 14 pending**
+**Status: 34 of 48 PRs merged · 1 open (this one) · 13 pending**
 
 Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 ✅ done (8/8 — every PUB-BE finding is closed)** · **W3 6/7 in progress** · W4–W7 not started
 
@@ -51,55 +51,71 @@ Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is c
 | [#345](https://github.com/ashutoshroli/chhath-full-codebase/pull/345) | count concurrency instead of milliseconds | — | The assembly test I added in #337 asserted on elapsed wall-clock time and failed on a loaded runner, turning #344's CI red for an unrelated reason. It now counts in-flight D1 reads — the question it was really asking, and one that cannot flake | Same defect shape as C5 |
 | [#346](https://github.com/ashutoshroli/chhath-full-codebase/pull/346) | record three committee-reported items | — | C14 (a declined/rejected consent notifies nobody — loaner + group, decided with the committee), C15 (no father's name in the contributor picker), C16 (the public portal never shows a father's name, for anyone — a trailing-space key mismatch) | C14 needs the first migration of the effort |
 | [#347](https://github.com/ashutoshroli/chhath-full-codebase/pull/347) | make the public chat's limits actually limit | Render #8 | The per-IP limiter was keyed on the FIRST `X-Forwarded-For` hop, which the caller writes — measured on `main`: 200 forged requests, **0 limited**, against a 15/min ceiling. The IP is now read from the right; a global concurrency cap and a daily token budget answer a fast `503` before any provider work; the slot is released in `finally`. An existing test that PINNED the vulnerability is corrected | The shared (cross-instance) counter → PR-32, which is already opening Neon |
+| [#348](https://github.com/ashutoshroli/chhath-full-codebase/pull/348) | show the father's name where it was supposed to be | C15, C16 | The contributor picker showed only name + village, so two same-name people in one village were indistinguishable — when a contribution gets recorded against the wrong person. Father's name now sits beside the name and is searchable, via one shared helper. And the public portal never showed a father's name **for anyone**: the Worker emits the key with a trailing space and the frontend read it without one; fixed on the read side so the wire key stays stable for every other reader | No migration — frontend only |
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — the father's name, where it was supposed to be (C15, C16)
+## 2. This PR — a declined or rejected consent now tells somebody (C14)
 
-Both items came from the committee using the live portal. Neither is an audit finding; both are real.
-
-### C15 — the contributor picker could not tell two people apart
-
-`Home.svelte` and `Loans.svelte` each built `{ value: ID, label: Name, sub: Village }`, and `u["Father's Name"]` sat on the row unused.
-
-The reported screenshot of the Add Collection dropdown contains **two `Ajay Verma`** — one Gardih, one Shaharpura. Village separates *those* two. It does **not** separate two people with the same name in the *same* village, and that is exactly when the wrong contributor is selected and **a contribution is recorded against the wrong person**. Money on the wrong name is not a cosmetic problem.
-
-The father's name now goes in the **label**, beside the name — where it disambiguates at a glance, and where `SearchableSelect` already filters, so searching a father's name finds his sons. Both call sites (and `LoanConsentModal`, which is passed its options) now share one `personOption` helper, so they cannot drift apart again.
-
-An absent father's name renders **nothing**, not empty brackets: `Aarohi bharti ( )` is worse than `Aarohi bharti` — it reads as data that failed to load, which is how the original report was phrased.
-
-### C16 — the public portal never showed a father's name, for anyone
-
-Found while checking C15. The portal's column headers originate in the spreadsheet this system replaced, and some carried a **trailing space**. The public Worker still emits them that way:
+Reported by the committee from live use. **This is the first migration of the entire effort.**
 
 ```js
-fathers_name: "Father's Name "        // note the space
+// respondConsent
+if (decision === 'accepted') {
+  await recomputeLoanStatus(...);
+  await notifyConsentAccepted(...);
+}
+return { success: true, status: decision };      // declined: just returns
 ```
 
-while `derive.ts` read `user["Father's Name"]` without one. Nothing errored — `fatherName` was simply always `''`, so `ContributorDetail`'s `{#if displayFather}` never rendered. Verified against `main` with the real payload shape:
+`setConsentVerification` had the same shape — only `verified` notified.
+
+The consequence is not a missing nicety. **A loaner was never told his loan had stopped**, so he waited on a process that was already over. The committee got no message either. And the remarks the decliner is *forced* to write —
+
+```js
+if (!declineRemarks?.trim()) throw ValidationError('Remarks are required in order to Decline.');
+```
+
+— went nowhere a person sees, unless someone happened to open the Consent Review screen. The system demanded a reason and then discarded it.
+
+Done:
+
+- **One notifier for both ways a consent closes a loan.** A declined consent and a rejected verification are the same event to everyone waiting — the loan has stopped — so they share `notifyConsentClosed` and differ only in which template pair they pick.
+- **Recipients: the loaner and the group**, as decided with the committee. Plus the email mirror the accepted path already has, so a loaner with an email address but no WhatsApp number is still told.
+- **The group message carries the reason; the loaner's does not.** That judgement call is in the *template text*, not the code, and is asserted by a test rather than left to a reader of the SQL: a decline remark can be blunt about the person it concerns, and forwarding it to him verbatim should be a deliberate edit. `{DeclineRemarks}` **is** supplied to both, so adding it to the loaner template is a one-line change in the Templates screen.
+- **A failed notification cannot roll back the decision.** Wrapped in `trySend` like every other notifier: the decline is the user's, and failing to announce it is ours.
+- `DeclineRemarks` is always present in the placeholder set, so a template referencing it can never render the literal `{DeclineRemarks}` — the failure `notificationData`'s own comment was written about.
+
+### Migrations & setup 🟡 — the first one in this effort
+
+`mgmt/db/migration/2026-09-05/32-consent-decline-templates.sql`
 
 ```
->>> on main, fatherName = "" (worker sends it under "Father's Name ")
+wrangler d1 execute chhath-loans-expenses --remote --file=./migration/2026-09-05/32-consent-decline-templates.sql
 ```
 
-Fixed on the **read** side, in a `rowField` helper that tries the exact key, then the trailing-space variant, then a normalised match (trimmed, inner whitespace collapsed, curly apostrophe folded — `Father’s Name` has been seen too). Renaming the wire key would be one line here and a **breaking change for every other reader** of that payload: the older frontends, the chatbot's context builder, anything holding a cached copy. `mgmt/backend/src/tableRegistry.js` already solved the same problem the same way for its *inbound* lookups and documents why.
+It seeds six template rows (4 WhatsApp + 2 email) and creates `loan_email_templates` if absent, so it is self-sufficient on a fresh database. **Every INSERT is guarded by `NOT EXISTS` on its `type`**, so a re-run changes nothing — and, importantly, cannot revert wording the committee has since edited. It drops nothing, deletes nothing, and modifies no existing row.
 
-Applied to all eight user-field reads, so `Mobile ` — the other spaced header — is correct too, rather than waiting to be reported.
-
-**Migrations & setup:** **none** for either. No schema change, no variable, nothing to run. Both are frontend-only.
+**Then do this:** the shipped text is a *starting point* in Hindi. Open mgmt → WhatsApp/Email Templates and reword it in the committee's own voice before the next loan cycle. The notifier guards on the template existing, so nothing sends until the migration is applied — which is why the migration is not optional here.
 
 ## Verification
 
-- `Public/frontend-v6/src/lib/api/rowField.test.ts` — 11 tests, including a contributor built from the **real** payload shape (trailing spaces included) whose `fatherName` is populated, and one with no father recorded that still builds.
-- `mgmt/frontend-svelte/src/lib/personOption.test.ts` — 12 tests, including the case village cannot solve: two `Ajay Verma` in **one** village now produce different labels.
+`mgmt/backend/test/consent-decline-notifications.test.mjs` — 13 tests, **6 of which fail on `main`** (the seven migration-content tests cannot run there at all, since the file does not exist):
+
+| | on `main` | on this branch |
+|---|---|---|
+| a guarantor declines | nobody is told | group + loaner + email |
+| the committee rejects a verification | nobody is told | group + loaner + email |
+| the remarks the decliner was forced to write | discarded | in the group message |
+| the loaner's message | — | ships without the raw remark, by design |
+
+Also pinned: all four template types the notifier builds are seeded (a missing row is a silent no-op, since the notifier guards on it); every INSERT is guarded; the migration drops/deletes/updates nothing; and **every `{placeholder}` used in the text is one `notificationData` actually supplies** — `notificationData`'s own comment records that real recipients once received literal `{Guarantor1}` text.
 
 ```
-Public/frontend-v6:      npm test -> 80 passed (69 + 11) · svelte-check 0 errors · build OK
-mgmt/frontend-svelte:    npm test -> 58 passed (46 + 12) · svelte-check 0 errors · build OK
+mgmt/backend: npm test -> 839 passed (826 + 13) · lint:errors clean
+              the migration applies against the committed schema and is idempotent
 ```
-
-C14 — the decline/reject notification — is the remaining one of the three, and needs the first migration of this effort, so it stays its own PR.
 
 ---
 
@@ -129,6 +145,6 @@ C14 — the decline/reject notification — is the remaining one of the three, a
 | C11 | Consent photos/signatures already archived to Drive by earlier runs are still anonymously readable | Code no longer publishes them (#325), but existing files need a one-off ACL remediation | Operational step: dry-run report → apply, before the next archive |
 | C12 | Public visitor IPs are stored raw in `error_log.client_ip` (and in `context.edgeIp`) | Hashing them needs a salt SECRET to be worth anything — an unsalted hash of an IPv4 is 2^32 to reverse — so it is a deployment step (`wrangler secret put`) plus a fallback path, not a code-only change. Split out of PR-22 to keep the authenticity fix reviewable | Own PR, with the retention window, before W3 |
 | C13 | `portalData` still materialises whole tables; the other seven sections still read `SELECT *` and filter in JS | Bounding the payload for real means PAGINATING the public contract, which changes all six frontends — a contract decision, not a fix. PR-24 makes the size visible (a section past 20k rows is logged) instead of pretending it is bounded. Truncating a transparency payload was rejected: hiding contributions is worse than a slow page | Contract decision, then its own PR; the row-count log is the trigger |
-| C14 | **Consent `declined` / `rejected` sends nothing at all.** `respondConsent` notifies only on `accepted`; `setConsentVerification` notifies only on `verified`. So a loaner is never told his loan is blocked by a guarantor's refusal — he simply waits — the committee is not told either, and the remarks the decliner is *forced* to write (`'Remarks are required in order to Decline.'`) are visible only if someone opens the Consent Review screen. | New `consent_declined_*` / `consent_rejected_*` templates on the existing naming convention, WhatsApp + email. **Recipients (decided with the committee): the LOANER and the GROUP.** Remarks go to the group message; the loaner is told it was declined and by whom, without the raw remark text, which can be blunt — say so if that should change. **Needs a migration** (seed the new template rows) — the first migration since W0 — plus an operator pass to review the wording before it is used. | Own PR, after W3 |
+| ~~C14~~ ✅ | **Consent `declined` / `rejected` sends nothing at all.** `respondConsent` notifies only on `accepted`; `setConsentVerification` notifies only on `verified`. So a loaner is never told his loan is blocked by a guarantor's refusal — he simply waits — the committee is not told either, and the remarks the decliner is *forced* to write (`'Remarks are required in order to Decline.'`) are visible only if someone opens the Consent Review screen. | New `consent_declined_*` / `consent_rejected_*` templates on the existing naming convention, WhatsApp + email. **Recipients (decided with the committee): the LOANER and the GROUP.** Remarks go to the group message; the loaner is told it was declined and by whom, without the raw remark text, which can be blunt — say so if that should change. **Needs a migration** (seed the new template rows) — the first migration since W0 — plus an operator pass to review the wording before it is used. | **Done — this PR** |
 | ~~C15~~ ✅ | **The contributor picker shows no father's name.** `Home.svelte` builds `{ value: ID, label: Name, sub: Village }`; `u["Father's Name"]` is on the row and unused. Village separates the two *Ajay Verma* rows in the reported screenshot (Gardih / Shaharpura) but **two same-name people in the same village are indistinguishable** — which is exactly when the wrong contributor is picked and money is recorded against the wrong person. | Add father's name to the option and to the search text, in every picker sharing `SearchableSelect`. No migration, no setup. | **Done — this PR** |
 | ~~C16~~ ✅ | **The public portal never shows a father's name — for anyone.** The public Worker emits the key with a TRAILING SPACE (`fathers_name: "Father's Name "`, inherited from the original sheet headers) and `Public/frontend-v6/src/lib/api/derive.ts:268` reads `"Father's Name"` without it, so `fatherName` is always `''` and `ContributorDetail.svelte`'s `{#if displayFather}` never renders. Found while checking C15; mgmt is unaffected (its alias is exact and its inbound lookup already normalises — see the note at `tableRegistry.js:75`). | Normalise the header lookup on the READ side, not the wire key: changing the key would break any other reader. No migration, no setup. | **Done — this PR** |
