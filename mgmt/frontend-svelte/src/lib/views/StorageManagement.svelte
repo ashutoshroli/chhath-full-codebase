@@ -51,7 +51,7 @@
 </p>
 
 {#if loading}<div class="inline-spinner">Loading...</div>{/if}
-{#if error}<div class="error-banner">{error}</div>{/if}
+{#if error}<div role="alert" class="error-banner">{error}</div>{/if}
 
 {#if !loading && data && !data.r2Enabled}
   <div style="background:#FEF3C7; color:#92400E; border-radius:8px; padding:10px 12px; font-size:0.85rem; margin-bottom:15px;">

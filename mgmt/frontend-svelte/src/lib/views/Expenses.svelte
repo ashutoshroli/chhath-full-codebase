@@ -10,13 +10,25 @@
   import TransliterateInput from '$lib/components/TransliterateInput.svelte';
   import { canAddView } from '$lib/permissions';
   import { checkMoney } from '$lib/money';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   interface Props { year: string; role: string; editable: boolean; }
   let { year, role, editable }: Props = $props();
 
   const BLANK = { Discription: '', 'Discription (Hindi)': '', Amount: '', Category: 'Other' };
 
+  // audit PR-40: deliberate one-time capture. This is EDITABLE local state seeded from a
+  // prop; making it `$derived` would discard whatever the operator has typed every time the
+  // parent re-rendered. The prop is re-read where it genuinely needs to be (see the $effect).
+  // svelte-ignore state_referenced_locally
   let view = $state<ViewData<any[]>>(createViewData(`expenses:${year}`, () => api.getExpenses(year)));
+  // audit PR-40: deliberate one-time capture. This is EDITABLE local state seeded from a
+  // prop; making it `$derived` would discard whatever the operator has typed every time the
+  // parent re-rendered. The prop is re-read where it genuinely needs to be (see the $effect).
+  // svelte-ignore state_referenced_locally
   let lastYear = year;
   $effect(() => {
     if (year !== lastYear) {
@@ -101,7 +113,7 @@
 {#if vs.loading}
   <div class="inline-spinner">Loading expenses...</div>
 {:else if vs.error}
-  <div class="error-banner">{vs.error}</div>
+  <div role="alert" class="error-banner">{vs.error}</div>
 {:else}
   <h2 style="margin-bottom:15px;">Expenses Ledger</h2>
   <div class="glass-card">
@@ -135,12 +147,12 @@
         onChange={({ en, hi }) => (form = { ...form, Discription: en, 'Discription (Hindi)': hi })}
       />
       <div class="form-group">
-        <label>Amount</label>
-        <input type="number" min="0.01" step="0.01" bind:value={form.Amount} />
+        <label for={`${uid}-f1`}>Amount</label>
+        <input id={`${uid}-f1`} type="number" min="0.01" step="0.01" bind:value={form.Amount} />
       </div>
       <div class="form-group">
-        <label>Category</label>
-        <select bind:value={form.Category}>
+        <label for={`${uid}-f2`}>Category</label>
+        <select id={`${uid}-f2`} bind:value={form.Category}>
           {#each categoryOptions as c (c['English Value'])}
             <option value={c['English Value']}>{c['English Value']}{c['Hindi Label'] ? ` (${c['Hindi Label']})` : ''}</option>
           {/each}

@@ -10,6 +10,10 @@
   import ReportErrorButton from '$lib/components/ReportErrorButton.svelte';
   import CameraCapture from '$lib/components/consent/CameraCapture.svelte';
   import ConsentPdfDownload from '$lib/components/consent/ConsentPdfDownload.svelte';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   const MAX_SIGNATURE_BYTES = 1024 * 1024;
   const pageStyle = 'min-height:100vh; background:var(--bg-offwhite); padding:20px 15px;';
@@ -203,7 +207,7 @@
 {:else if error && !data}
   <div style={pageStyle}>
     <div class="glass-card" style="padding:20px; max-width:480px; margin:40px auto;">
-      <div class="error-banner">{error}</div>
+      <div role="alert" class="error-banner">{error}</div>
       <ReportErrorButton page="Consent" message={error} />
     </div>
   </div>
@@ -212,7 +216,7 @@
     <div class="glass-card" style="padding:20px; max-width:640px; margin:20px auto;">
       <div class="consent-doc">{@html html}</div>
 
-      {#if error}<div class="error-banner" style="margin:15px 0;">{error}</div>{/if}
+      {#if error}<div role="alert" class="error-banner" style="margin:15px 0;">{error}</div>{/if}
 
       {#if locked}
         <div style="text-align:center; padding:20px;">
@@ -247,8 +251,8 @@
           </button>
         {:else if !verifyToken}
           <div class="form-group">
-            <label>Enter OTP (sent via WhatsApp)</label>
-            <input value={otp} oninput={(e) => (otp = (e.currentTarget as HTMLInputElement).value.replace(/\D/g, '').slice(0, 6))} maxlength={6} inputmode="numeric" />
+            <label for={`${uid}-f1`}>Enter OTP (sent via WhatsApp)</label>
+            <input id={`${uid}-f1`} value={otp} oninput={(e) => (otp = (e.currentTarget as HTMLInputElement).value.replace(/\D/g, '').slice(0, 6))} maxlength={6} inputmode="numeric" />
           </div>
           <button class="btn-submit" onclick={verifyOtp} disabled={busy || otp.length !== 6}>
             {busy ? 'Verifying...' : 'Verify OTP'}
@@ -268,8 +272,8 @@
         {:else if mode === 'decline'}
           <div>
             <div class="form-group">
-              <label>Reason for declining (required)</label>
-              <textarea rows={3} bind:value={declineRemarks} style="width:100%; padding:8px; border-radius:8px; border:1px solid #ddd;"></textarea>
+              <label for={`${uid}-f2`}>Reason for declining (required)</label>
+              <textarea id={`${uid}-f2`} rows={3} bind:value={declineRemarks} style="width:100%; padding:8px; border-radius:8px; border:1px solid #ddd;"></textarea>
             </div>
             <div style="display:flex; gap:8px;">
               <button class="btn-submit" style="background:var(--danger);" onclick={submitDecline} disabled={busy || !declineRemarks.trim()}>

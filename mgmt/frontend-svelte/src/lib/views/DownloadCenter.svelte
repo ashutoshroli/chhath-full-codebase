@@ -5,6 +5,10 @@
   import { api } from '$lib/api';
   import { createDropdownList } from '$lib/dropdownList';
   import DownloadItem from '$lib/components/DownloadItem.svelte';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   interface Props {
     role: string;
@@ -69,12 +73,12 @@
 </script>
 
 <h2 style="margin-bottom:15px;">Download Center</h2>
-{#if error}<div class="error-banner">{error}</div>{/if}
+{#if error}<div role="alert" class="error-banner">{error}</div>{/if}
 
 <div class="glass-card" style="padding:15px; margin-bottom:15px;">
   <div class="form-group">
-    <label>Village</label>
-    <select
+    <label for={`${uid}-f1`}>Village</label>
+    <select id={`${uid}-f1`}
       value={village}
       onchange={(e) => { village = (e.currentTarget as HTMLSelectElement).value; results = null; selected = null; downloads = null; }}
     >
@@ -85,8 +89,8 @@
     </select>
   </div>
   <div class="form-group">
-    <label>Name / Mobile / ID</label>
-    <input bind:value={nameQuery} placeholder="Search..." disabled={!village} />
+    <label for={`${uid}-f2`}>Name / Mobile / ID</label>
+    <input id={`${uid}-f2`} bind:value={nameQuery} placeholder="Search..." disabled={!village} />
   </div>
   <button class="btn-submit" onclick={search} disabled={searching || !village}>{searching ? 'Searching...' : 'Search'}</button>
 </div>

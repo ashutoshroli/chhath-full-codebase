@@ -13,6 +13,10 @@
   import { checkMoney } from '$lib/money';
   import LoanConsentModal from '$lib/components/LoanConsentModal.svelte';
   import { personOption } from '$lib/personOption';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   interface Props {
     year: string;
@@ -26,7 +30,15 @@
   const BLANK = { receiver: '', g1: '', g2: '', g3: '', Amount: '', Rate: '', Tenure: '', FinalRepaymentDate: '', Status: 'Active' };
 
   // Year-scoped loans view (matches useViewData deps [year]).
+  // audit PR-40: deliberate one-time capture. This is EDITABLE local state seeded from a
+  // prop; making it `$derived` would discard whatever the operator has typed every time the
+  // parent re-rendered. The prop is re-read where it genuinely needs to be (see the $effect).
+  // svelte-ignore state_referenced_locally
   let view = $state<ViewData<any>>(createViewData(`loans:${year}`, () => api.getLoans(year)));
+  // audit PR-40: deliberate one-time capture. This is EDITABLE local state seeded from a
+  // prop; making it `$derived` would discard whatever the operator has typed every time the
+  // parent re-rendered. The prop is re-read where it genuinely needs to be (see the $effect).
+  // svelte-ignore state_referenced_locally
   let lastYear = year;
   $effect(() => {
     if (year !== lastYear) {
@@ -225,7 +237,7 @@
 {#if vs.loading}
   <div class="inline-spinner">Loading loans...</div>
 {:else if vs.error}
-  <div class="error-banner">{vs.error}</div>
+  <div role="alert" class="error-banner">{vs.error}</div>
 {:else}
   <h2 style="margin-bottom:15px;">Surplus Loan Distribution</h2>
 
@@ -298,13 +310,13 @@
       <form onsubmit={submit}>
         {#if !editing}
           <div class="form-group">
-            <label>Receiver</label>
-            <SearchableSelect options={contributorOptions} value={form.receiver} onChange={(v) => (form = { ...form, receiver: v })} />
+            <label for={`${uid}-receiver1`}>Receiver</label>
+            <SearchableSelect id={`${uid}-receiver1`} options={contributorOptions} value={form.receiver} onChange={(v) => (form = { ...form, receiver: v })} />
           </div>
         {/if}
         <div class="form-group">
-          <label>Amount</label>
-          <input type="number" min="0.01" step="0.01" value={form.Amount} oninput={(e) => (form = { ...form, Amount: (e.currentTarget as HTMLInputElement).value })} />
+          <label for={`${uid}-f1`}>Amount</label>
+          <input id={`${uid}-f1`} type="number" min="0.01" step="0.01" value={form.Amount} oninput={(e) => (form = { ...form, Amount: (e.currentTarget as HTMLInputElement).value })} />
           {#if !editing && available !== null}
             <div style="font-size:0.78rem; margin-top:4px; color:{((parseFloat(form.Amount) || 0) > available + 0.01) ? 'var(--danger)' : 'var(--text-muted)'};">
               Available to lend this year: ₹{Math.max(0, Math.round(available * 100) / 100)}{(parseFloat(form.Amount) || 0) > available + 0.01 ? ' — this loan exceeds it' : ''}
@@ -312,21 +324,21 @@
           {/if}
         </div>
         <div class="form-group">
-          <label>Interest Rate (%)</label>
-          <input type="number" min="0" step="0.1" value={form.Rate} oninput={(e) => (form = { ...form, Rate: (e.currentTarget as HTMLInputElement).value })} />
+          <label for={`${uid}-f2`}>Interest Rate (%)</label>
+          <input id={`${uid}-f2`} type="number" min="0" step="0.1" value={form.Rate} oninput={(e) => (form = { ...form, Rate: (e.currentTarget as HTMLInputElement).value })} />
         </div>
         <div class="form-group">
-          <label>Tenure (Months)</label>
-          <input type="number" min="0" step="1" value={form.Tenure} oninput={(e) => (form = { ...form, Tenure: (e.currentTarget as HTMLInputElement).value })} />
+          <label for={`${uid}-f3`}>Tenure (Months)</label>
+          <input id={`${uid}-f3`} type="number" min="0" step="1" value={form.Tenure} oninput={(e) => (form = { ...form, Tenure: (e.currentTarget as HTMLInputElement).value })} />
         </div>
         <div class="form-group">
-          <label>Final Repayment Date</label>
-          <input type="date" value={form.FinalRepaymentDate} oninput={(e) => (form = { ...form, FinalRepaymentDate: (e.currentTarget as HTMLInputElement).value })} />
+          <label for={`${uid}-f4`}>Final Repayment Date</label>
+          <input id={`${uid}-f4`} type="date" value={form.FinalRepaymentDate} oninput={(e) => (form = { ...form, FinalRepaymentDate: (e.currentTarget as HTMLInputElement).value })} />
         </div>
         {#if editing}
           <div class="form-group">
-            <label>Status</label>
-            <select bind:value={form.Status}>
+            <label for={`${uid}-f5`}>Status</label>
+            <select id={`${uid}-f5`} bind:value={form.Status}>
               {#each statusOptions as s (s['English Value'])}
                 <option value={s['English Value']}>
                   {s['English Value']}{s['Hindi Label'] ? ` (${s['Hindi Label']})` : ''}
@@ -338,8 +350,8 @@
         {#if !editing}
           {#each [['g1', 1], ['g2', 2], ['g3', 3]] as [key, i] (key)}
             <div class="form-group">
-              <label>Guarantor {i}</label>
-              <SearchableSelect options={contributorOptions} value={form[key as string]} onChange={(v) => (form = { ...form, [key as string]: v })} />
+              <label for={`${uid}-guarantor-${key}`}>Guarantor {i}</label>
+              <SearchableSelect id={`${uid}-guarantor-${key}`} options={contributorOptions} value={form[key as string]} onChange={(v) => (form = { ...form, [key as string]: v })} />
             </div>
           {/each}
         {/if}

@@ -2,6 +2,10 @@
   // Ported from React TransliterateInput.jsx — English input auto-transliterated
   // to Hindi (debounced 400ms) with a toggle to edit the Hindi manually.
   import { transliterate } from '$lib/transliterate';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   interface Val { en: string; hi: string; }
   interface Props {
@@ -39,8 +43,8 @@
 </script>
 
 <div class="form-group">
-  <label>{label}</label>
-  <input
+  <label for={`${uid}-f1`}>{label}</label>
+  <input id={`${uid}-f1`}
     value={en}
     {placeholder}
     list={listId}

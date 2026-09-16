@@ -4,6 +4,10 @@
   // contributors data, converting to PDF, and listing previously generated files.
   import { api, reportClientError } from '$lib/api';
   import { fillDocxTemplateFromRow, getLastRenderReport } from '$lib/docxFill';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   const DOC_TYPE_FOR_MODE: Record<string, string> = { en: 'report_en', hi: 'report_hi', both: 'report_both' };
   const MODE_LABEL_FOR_DOC_TYPE: Record<string, string> = { report_en: 'English', report_hi: 'Hindi', report_both: 'Both' };
@@ -198,7 +202,7 @@
 </script>
 
 <h2 style="margin-bottom:15px;">PDF Export</h2>
-{#if error}<div class="error-banner">{error}</div>{/if}
+{#if error}<div role="alert" class="error-banner">{error}</div>{/if}
 {#if warning}
   <div style="background:#FEF3C7; color:#92400E; border-radius:8px; padding:8px 12px; font-size:0.8rem; margin-bottom:10px;">
     ⚠️ {warning}
@@ -207,15 +211,15 @@
 
 <div class="glass-card" style="padding:20px;">
   <div class="form-group">
-    <label>Year</label>
-    <select bind:value={year}>
+    <label for={`${uid}-f1`}>Year</label>
+    <select id={`${uid}-f1`} bind:value={year}>
       {#each years || [] as y (y)}<option value={y}>{y}</option>{/each}
     </select>
   </div>
 
   <div class="form-group">
-    <label>Language</label>
-    <div style="display:flex; gap:8px;">
+    <span id={`${uid}-lang-label`} class="form-label">Language</span>
+    <div role="group" aria-labelledby={`${uid}-lang-label`} style="display:flex; gap:8px;">
       {#each [['en', 'English'], ['hi', 'Hindi'], ['both', 'Both']] as [val, lbl] (val)}
         <button
           type="button"

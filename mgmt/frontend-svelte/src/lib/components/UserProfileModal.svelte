@@ -45,7 +45,7 @@
     <div class="inline-spinner">Loading profile...</div>
   {/if}
   {#if error}
-    <div class="error-banner">{error}</div>
+    <div role="alert" class="error-banner">{error}</div>
   {/if}
   {#if data}
     <h3 style="margin-bottom:10px;">{data.user.Name}</h3>

@@ -4,6 +4,10 @@
   import { api } from '$lib/api';
   import Modal from '$lib/components/Modal.svelte';
   import { isTruthyFlag } from '$lib/flags';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   let rows = $state<any[] | null>(null);
   let loading = $state(true);
@@ -58,7 +62,7 @@
 {#if loading}
   <div class="inline-spinner">Loading groups...</div>
 {:else if error}
-  <div class="error-banner">{error}</div>
+  <div role="alert" class="error-banner">{error}</div>
 {:else}
   {#if !rows || rows.length === 0}<div class="glass-card" style="text-align:center; padding:20px;">No groups have been added yet.</div>{/if}
 
@@ -92,12 +96,12 @@
     <h3 id="dlg-groupinfolist-92-title" style="margin-bottom:15px;">{editing ? 'Edit Group' : 'New Group'}</h3>
     <form onsubmit={submit}>
       <div class="form-group">
-        <label>Group Name</label>
-        <input value={form.groupName} oninput={(e) => (form = { ...form, groupName: (e.currentTarget as HTMLInputElement).value })} />
+        <label for={`${uid}-f1`}>Group Name</label>
+        <input id={`${uid}-f1`} value={form.groupName} oninput={(e) => (form = { ...form, groupName: (e.currentTarget as HTMLInputElement).value })} />
       </div>
       <div class="form-group">
-        <label>Group ID</label>
-        <input value={form.groupid} oninput={(e) => (form = { ...form, groupid: (e.currentTarget as HTMLInputElement).value })} placeholder="e.g. 1203630xxxx@g.us" />
+        <label for={`${uid}-f2`}>Group ID</label>
+        <input id={`${uid}-f2`} value={form.groupid} oninput={(e) => (form = { ...form, groupid: (e.currentTarget as HTMLInputElement).value })} placeholder="e.g. 1203630xxxx@g.us" />
       </div>
       <button class="btn-submit" disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
     </form>

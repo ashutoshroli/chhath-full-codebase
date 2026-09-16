@@ -163,7 +163,7 @@
   </h2>
 
   {#if status}<div class="glass-card" style="padding:12px; margin-bottom:12px; color:var(--success, #16a34a);">{status}</div>{/if}
-  {#if error}<div class="error-banner" style="margin:12px 0;">{error}</div>{/if}
+  {#if error}<div role="alert" class="error-banner" style="margin:12px 0;">{error}</div>{/if}
 
   <div class="glass-card" style="padding:18px; margin-bottom:18px;">
     <h3 style="margin-top:0;">1. Full Backup Download</h3>

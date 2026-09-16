@@ -41,7 +41,7 @@
       <button type="button" class="btn-danger" disabled={busy} style="font-size:0.82rem;" onclick={unlockAll}>Unlock all</button>
     {/if}
   </div>
-  {#if error}<div class="error-banner" style="margin-bottom:10px;">{error}</div>{/if}
+  {#if error}<div role="alert" class="error-banner" style="margin-bottom:10px;">{error}</div>{/if}
   {#if loading}<div class="inline-spinner">Loading...</div>{/if}
   {#if !loading && rows.length === 0 && !error}
     <div style="color:var(--success); font-size:0.85rem;">✓ No accounts are currently locked.</div>

@@ -4,6 +4,10 @@
   import { api, reportClientError } from '$lib/api';
   import Modal from './Modal.svelte';
   import DiffView from './DiffView.svelte';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   interface Props {
     error: any;
@@ -185,7 +189,7 @@
   {/if}
 
   {#if !loading && errMsg}
-    <div class="error-banner" style="margin-bottom:12px;">{errMsg}</div>
+    <div role="alert" class="error-banner" style="margin-bottom:12px;">{errMsg}</div>
   {/if}
 
   {#if !loading && result}
@@ -219,10 +223,10 @@
 
   {#if !loading && (result || errMsg) && !pr}
     <div style="margin-bottom:12px;">
-      <label style="display:block; font-size:0.72rem; color:var(--text-muted); margin-bottom:4px;">
+      <label for={`${uid}-f1`} style="display:block; font-size:0.72rem; color:var(--text-muted); margin-bottom:4px;">
         Optional: guide the next attempt (used when you press Re-generate)
       </label>
-      <textarea
+      <textarea id={`${uid}-f1`}
         bind:value={guidance}
         rows={2}
         maxlength={1000}

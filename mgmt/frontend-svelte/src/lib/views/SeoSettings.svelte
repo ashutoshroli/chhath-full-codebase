@@ -3,6 +3,10 @@
   // the public + mgmt portals, upload preview images, set deploy hooks, publish.
   import { api, reportClientError } from '$lib/api';
   import { prepareImageForUpload } from '$lib/imagePrep';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   const str = (v: unknown) => (v === undefined || v === null ? '' : v.toString());
 
@@ -163,17 +167,17 @@
     <div class="glass-card" style="margin-bottom:18px; padding:16px;">
       <h3 style="margin-bottom:12px;">Public Portal — chhath.shaharpura.com</h3>
 
-      <label style={labelStyle}>Title</label>
-      <input style={inputStyle} value={data.public.title} oninput={(e) => setPublic({ title: (e.currentTarget as HTMLInputElement).value })} placeholder="Navyuvak Chhath Puja Samiti Shaharpura" />
+      <label for={`${uid}-f1`} style={labelStyle}>Title</label>
+      <input id={`${uid}-f1`} style={inputStyle} value={data.public.title} oninput={(e) => setPublic({ title: (e.currentTarget as HTMLInputElement).value })} placeholder="Navyuvak Chhath Puja Samiti Shaharpura" />
 
-      <label style={labelStyle}>Description</label>
-      <textarea style="{inputStyle} min-height:70px;" value={data.public.description} oninput={(e) => setPublic({ description: (e.currentTarget as HTMLTextAreaElement).value })} placeholder="Short summary shown under the title in search results and link previews."></textarea>
+      <label for={`${uid}-f2`} style={labelStyle}>Description</label>
+      <textarea id={`${uid}-f2`} style="{inputStyle} min-height:70px;" value={data.public.description} oninput={(e) => setPublic({ description: (e.currentTarget as HTMLTextAreaElement).value })} placeholder="Short summary shown under the title in search results and link previews."></textarea>
 
-      <label style={labelStyle}>Keywords (comma separated)</label>
-      <textarea style="{inputStyle} min-height:70px;" value={data.public.keywords} oninput={(e) => setPublic({ keywords: (e.currentTarget as HTMLTextAreaElement).value })} placeholder="Chhath Puja, Shaharpura, Gardih, Giridih, Jharkhand, ..."></textarea>
+      <label for={`${uid}-f3`} style={labelStyle}>Keywords (comma separated)</label>
+      <textarea id={`${uid}-f3`} style="{inputStyle} min-height:70px;" value={data.public.keywords} oninput={(e) => setPublic({ keywords: (e.currentTarget as HTMLTextAreaElement).value })} placeholder="Chhath Puja, Shaharpura, Gardih, Giridih, Jharkhand, ..."></textarea>
 
-      <label style={labelStyle}>Preview Image (recommended 1200 × 630)</label>
-      <input type="file" accept="image/*" onchange={(e) => uploadImage('public', (e.currentTarget as HTMLInputElement).files?.[0])} disabled={uploading === 'public'} style="margin-bottom:12px;" />
+      <label for={`${uid}-f4`} style={labelStyle}>Preview Image (recommended 1200 × 630)</label>
+      <input id={`${uid}-f4`} type="file" accept="image/*" onchange={(e) => uploadImage('public', (e.currentTarget as HTMLInputElement).files?.[0])} disabled={uploading === 'public'} style="margin-bottom:12px;" />
       {#if uploading === 'public'}<div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">Uploading...</div>{/if}
 
       <div style="margin-top:8px;">
@@ -185,14 +189,14 @@
     <div class="glass-card" style="margin-bottom:18px; padding:16px;">
       <h3 style="margin-bottom:12px;">Management Portal — mgmt-chhath.shaharpura.com</h3>
 
-      <label style={labelStyle}>Title</label>
-      <input style={inputStyle} value={data.mgmt.title} oninput={(e) => setMgmt({ title: (e.currentTarget as HTMLInputElement).value })} placeholder="Chhath Puja Management Portal" />
+      <label for={`${uid}-f5`} style={labelStyle}>Title</label>
+      <input id={`${uid}-f5`} style={inputStyle} value={data.mgmt.title} oninput={(e) => setMgmt({ title: (e.currentTarget as HTMLInputElement).value })} placeholder="Chhath Puja Management Portal" />
 
-      <label style={labelStyle}>Description</label>
-      <textarea style="{inputStyle} min-height:70px;" value={data.mgmt.description} oninput={(e) => setMgmt({ description: (e.currentTarget as HTMLTextAreaElement).value })} placeholder="Short summary for the management portal link preview."></textarea>
+      <label for={`${uid}-f6`} style={labelStyle}>Description</label>
+      <textarea id={`${uid}-f6`} style="{inputStyle} min-height:70px;" value={data.mgmt.description} oninput={(e) => setMgmt({ description: (e.currentTarget as HTMLTextAreaElement).value })} placeholder="Short summary for the management portal link preview."></textarea>
 
-      <label style={labelStyle}>Preview Image (recommended 1200 × 630)</label>
-      <input type="file" accept="image/*" onchange={(e) => uploadImage('mgmt', (e.currentTarget as HTMLInputElement).files?.[0])} disabled={uploading === 'mgmt'} style="margin-bottom:12px;" />
+      <label for={`${uid}-f7`} style={labelStyle}>Preview Image (recommended 1200 × 630)</label>
+      <input id={`${uid}-f7`} type="file" accept="image/*" onchange={(e) => uploadImage('mgmt', (e.currentTarget as HTMLInputElement).files?.[0])} disabled={uploading === 'mgmt'} style="margin-bottom:12px;" />
       {#if uploading === 'mgmt'}<div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">Uploading...</div>{/if}
 
       <div style="margin-top:8px;">
@@ -208,15 +212,15 @@
         Publish buttons can rebuild it. Leave a field blank to keep the existing hook.
       </p>
 
-      <label style={labelStyle}>
+      <label for={`${uid}-f8`} style={labelStyle}>
         Public portal hook {#if data.deployHooks.publicConfigured}<span style="color:var(--success);">(configured)</span>{/if}
       </label>
-      <input style={inputStyle} bind:value={publicHook} placeholder="https://api.vercel.com/v1/integrations/deploy/..." />
+      <input id={`${uid}-f8`} style={inputStyle} bind:value={publicHook} placeholder="https://api.vercel.com/v1/integrations/deploy/..." />
 
-      <label style={labelStyle}>
+      <label for={`${uid}-f9`} style={labelStyle}>
         Management portal hook {#if data.deployHooks.mgmtConfigured}<span style="color:var(--success);">(configured)</span>{/if}
       </label>
-      <input style={inputStyle} bind:value={mgmtHook} placeholder="https://api.vercel.com/v1/integrations/deploy/..." />
+      <input id={`${uid}-f9`} style={inputStyle} bind:value={mgmtHook} placeholder="https://api.vercel.com/v1/integrations/deploy/..." />
     </div>
 
     <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">

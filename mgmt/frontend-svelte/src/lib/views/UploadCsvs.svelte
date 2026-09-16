@@ -3,6 +3,10 @@
   // (Users / Collections / Committee / Expenses): download sample or existing
   // data, upload+parse a CSV, validate headers, import, and show a report.
   import { api } from '$lib/api';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   interface SectionSpec {
     label: string;
@@ -273,7 +277,7 @@
     already in the system (with each person's User ID) — edit it and re-upload to make changes in bulk.
     Keep the header row exactly as-is, then upload below.
   </p>
-  {#if exportError}<div class="error-banner" style="margin-top:8px;">{exportError}</div>{/if}
+  {#if exportError}<div role="alert" class="error-banner" style="margin-top:8px;">{exportError}</div>{/if}
 
   <div style="font-size:0.8rem; color:#1E40AF; background:#DBEAFE; border-radius:6px; padding:6px 10px; margin:8px 0 0;">
     ℹ️ <strong>Columns:</strong> {spec.columns.join(', ')}
@@ -297,11 +301,11 @@
 </div>
 
 <div class="glass-card" style="padding:15px; margin-bottom:15px;">
-  <label style="display:block; font-weight:600; margin-bottom:8px;">Upload {spec.label} CSV</label>
-  <input type="file" accept=".csv,text/csv" onchange={onFile} />
+  <label for={`${uid}-f1`} style="display:block; font-weight:600; margin-bottom:8px;">Upload {spec.label} CSV</label>
+  <input id={`${uid}-f1`} type="file" accept=".csv,text/csv" onchange={onFile} />
   {#if fileName}<div style="font-size:0.8rem; color:var(--text-muted); margin-top:6px;">Selected: {fileName}</div>{/if}
 
-  {#if parseError}<div class="error-banner" style="margin-top:10px;">{parseError}</div>{/if}
+  {#if parseError}<div role="alert" class="error-banner" style="margin-top:10px;">{parseError}</div>{/if}
 
   {#if parsed}
     <div style="margin-top:12px;">

@@ -3,6 +3,10 @@
   // TOTP 2FA for eligible (Superadmin) accounts, with QR + backup codes.
   import { api } from '$lib/api';
   import { generateQrDataUrl } from '$lib/qrCode';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   let status = $state<any>(null);
   let loading = $state(true);
@@ -107,7 +111,7 @@
     <p style="font-size:0.82rem; color:var(--text-muted); margin-bottom:10px;">
       Protect your Superadmin login with an authenticator app (Google Authenticator, Authy…).
     </p>
-    {#if err}<div class="error-banner" style="margin-bottom:10px;">{err}</div>{/if}
+    {#if err}<div role="alert" class="error-banner" style="margin-bottom:10px;">{err}</div>{/if}
 
     {#if showBackup}
       <div style="{box} border-color:var(--success, #16a34a);">
@@ -164,16 +168,16 @@
         </div>
 
         <div style="margin-bottom:14px;">
-          <label style="font-size:0.85rem;">Regenerate backup codes (enter password):</label>
-          <input type="password" bind:value={regenPw} placeholder="Your password" />
+          <label for={`${uid}-f1`} style="font-size:0.85rem;">Regenerate backup codes (enter password):</label>
+          <input id={`${uid}-f1`} type="password" bind:value={regenPw} placeholder="Your password" />
           <button type="button" class="btn-submit" disabled={busy || !regenPw} onclick={doRegen} style="margin-top:6px;">
             Regenerate backup codes
           </button>
         </div>
 
         <div>
-          <label style="font-size:0.85rem;">Disable 2FA (enter password):</label>
-          <input type="password" bind:value={disablePw} placeholder="Your password" />
+          <label for={`${uid}-f2`} style="font-size:0.85rem;">Disable 2FA (enter password):</label>
+          <input id={`${uid}-f2`} type="password" bind:value={disablePw} placeholder="Your password" />
           <button type="button" class="btn-danger" disabled={busy || !disablePw} onclick={doDisable} style="margin-top:6px;">
             Turn off 2FA
           </button>

@@ -23,8 +23,10 @@
     onChange: (v: string) => void;
     placeholder?: string;
     onAddNew?: (() => void) | null;
+    /** Forwarded to the combobox input so a caller's <label for=...> can name it (PR-40). */
+    id?: string;
   }
-  let { options, value, onChange, placeholder = 'Search...', onAddNew = null }: Props = $props();
+  let { options, value, onChange, placeholder = 'Search...', onAddNew = null, id }: Props = $props();
 
   let query = $state('');
   let open = $state(false);
@@ -110,6 +112,7 @@
   <div style="display:flex; gap:8px;">
     <input
       bind:this={inputEl}
+      {id}
       {placeholder}
       role="combobox"
       aria-expanded={open}

@@ -49,7 +49,7 @@
     <button type="button" class="btn-outline" style="padding:8px 12px; font-size:0.85rem;" onclick={load}>Search</button>
   </div>
 
-  {#if error}<div class="error-banner" style="margin-bottom:10px;">{error}</div>{/if}
+  {#if error}<div role="alert" class="error-banner" style="margin-bottom:10px;">{error}</div>{/if}
   {#if loading}<div class="inline-spinner">Loading...</div>{/if}
   {#if !loading && rows.length === 0 && !error}<div style="color:var(--text-muted); font-size:0.85rem;">No login attempts found.</div>{/if}
 

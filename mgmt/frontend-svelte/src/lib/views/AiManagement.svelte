@@ -3,6 +3,10 @@
   // AI-fix / public chatbot), priority ordering, set-default, test with optional
   // custom prompt, encrypted key handling.
   import { api, reportClientError } from '$lib/api';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   const TYPES = [
     { value: 'anthropic', label: 'Anthropic (Claude — native)' },
@@ -130,21 +134,21 @@
 
 {#if form}
   <h2 style="margin-bottom:12px;">{form.providerId ? 'Edit AI Provider' : 'Add AI Provider'}</h2>
-  {#if error}<div class="error-banner">{error}</div>{/if}
+  {#if error}<div role="alert" class="error-banner">{error}</div>{/if}
   <div class="glass-card" style="padding:15px; margin-bottom:15px;">
     <div class="form-group">
-      <label>Name (for your reference)</label>
-      <input value={form.name} oninput={(e) => (form = { ...form, name: (e.currentTarget as HTMLInputElement).value })} placeholder="e.g. OpenAI GPT-4o" />
+      <label for={`${uid}-f1`}>Name (for your reference)</label>
+      <input id={`${uid}-f1`} value={form.name} oninput={(e) => (form = { ...form, name: (e.currentTarget as HTMLInputElement).value })} placeholder="e.g. OpenAI GPT-4o" />
     </div>
     <div class="form-group">
-      <label>Type</label>
-      <select value={form.type} onchange={(e) => (form = { ...form, type: (e.currentTarget as HTMLSelectElement).value })}>
+      <label for={`${uid}-f2`}>Type</label>
+      <select id={`${uid}-f2`} value={form.type} onchange={(e) => (form = { ...form, type: (e.currentTarget as HTMLSelectElement).value })}>
         {#each TYPES as t (t.value)}<option value={t.value}>{t.label}</option>{/each}
       </select>
     </div>
     <div class="form-group">
-      <label>Use for</label>
-      <select value={form.purpose} onchange={(e) => (form = { ...form, purpose: (e.currentTarget as HTMLSelectElement).value })}>
+      <label for={`${uid}-f3`}>Use for</label>
+      <select id={`${uid}-f3`} value={form.purpose} onchange={(e) => (form = { ...form, purpose: (e.currentTarget as HTMLSelectElement).value })}>
         {#each PURPOSES as p (p.value)}<option value={p.value}>{p.label}</option>{/each}
       </select>
       <div style="font-size:0.72rem; color:var(--text-muted); margin-top:4px;">
@@ -153,8 +157,8 @@
     </div>
     {#if form.purpose === 'public_chat'}
       <div class="form-group">
-        <label>Data sent to the model</label>
-        <select value={form.data_mode} onchange={(e) => (form = { ...form, data_mode: (e.currentTarget as HTMLSelectElement).value })}>
+        <label for={`${uid}-f4`}>Data sent to the model</label>
+        <select id={`${uid}-f4`} value={form.data_mode} onchange={(e) => (form = { ...form, data_mode: (e.currentTarget as HTMLSelectElement).value })}>
           {#each DATA_MODES as d (d.value)}<option value={d.value}>{d.label}</option>{/each}
         </select>
         <div style="font-size:0.72rem; color:var(--text-muted); margin-top:4px;">
@@ -164,20 +168,20 @@
     {/if}
     {#if form.type === 'openai-compatible'}
       <div class="form-group">
-        <label>Base URL</label>
-        <input value={form.baseUrl} oninput={(e) => (form = { ...form, baseUrl: (e.currentTarget as HTMLInputElement).value })} placeholder="https://api.openai.com/v1" />
+        <label for={`${uid}-f5`}>Base URL</label>
+        <input id={`${uid}-f5`} value={form.baseUrl} oninput={(e) => (form = { ...form, baseUrl: (e.currentTarget as HTMLInputElement).value })} placeholder="https://api.openai.com/v1" />
         <div style="font-size:0.72rem; color:var(--text-muted); margin-top:4px;">
           OpenAI: <code>https://api.openai.com/v1</code> · OpenRouter: <code>https://openrouter.ai/api/v1</code> · Groq: <code>https://api.groq.com/openai/v1</code> · Gemini: <code>https://generativelanguage.googleapis.com/v1beta/openai</code>
         </div>
       </div>
     {/if}
     <div class="form-group">
-      <label>Model</label>
-      <input value={form.model} oninput={(e) => (form = { ...form, model: (e.currentTarget as HTMLInputElement).value })} placeholder="e.g. gpt-4o, claude-sonnet-4-5, google/gemini-2.0-flash" />
+      <label for={`${uid}-f6`}>Model</label>
+      <input id={`${uid}-f6`} value={form.model} oninput={(e) => (form = { ...form, model: (e.currentTarget as HTMLInputElement).value })} placeholder="e.g. gpt-4o, claude-sonnet-4-5, google/gemini-2.0-flash" />
     </div>
     <div class="form-group">
-      <label>API key {form.providerId ? '(leave blank to keep the existing key)' : ''}</label>
-      <input type="password" value={form.apiKey} oninput={(e) => (form = { ...form, apiKey: (e.currentTarget as HTMLInputElement).value })} placeholder={form.providerId ? '•••••••• (unchanged)' : 'Paste the API key'} autocomplete="off" />
+      <label for={`${uid}-f7`}>API key {form.providerId ? '(leave blank to keep the existing key)' : ''}</label>
+      <input id={`${uid}-f7`} type="password" value={form.apiKey} oninput={(e) => (form = { ...form, apiKey: (e.currentTarget as HTMLInputElement).value })} placeholder={form.providerId ? '•••••••• (unchanged)' : 'Paste the API key'} autocomplete="off" />
       <div style="font-size:0.72rem; color:var(--text-muted); margin-top:4px;">
         Stored encrypted on the server (AES-GCM). It is never shown again or sent back to this screen.
       </div>
@@ -197,7 +201,7 @@
     rate-limited or down, the next is used automatically. Use <strong>↑ / ↓</strong> to set the order.
     AI-Fixes falls back to the <code>ANTHROPIC_API_KEY</code> server secret if none is set.
   </p>
-  {#if error}<div class="error-banner">{error}</div>{/if}
+  {#if error}<div role="alert" class="error-banner">{error}</div>{/if}
 
   {#if !anyFixDefault}
     <div style="background:#DBEAFE; color:#1E40AF; border-radius:8px; padding:8px 10px; font-size:0.8rem; margin-bottom:12px;">
@@ -273,10 +277,11 @@
 
       {#if promptOpen[p.provider_id]}
         <div style="margin-top:10px; border-top:1px solid #eef0f2; padding-top:10px;">
-          <label style="font-size:0.72rem; color:var(--text-muted);">
+          <label for={`${uid}-prompt-${p.provider_id}`} style="font-size:0.72rem; color:var(--text-muted);">
             Custom test prompt — sends this to the model and shows its reply (max 256 tokens back).
           </label>
           <textarea
+            id={`${uid}-prompt-${p.provider_id}`}
             value={promptText[p.provider_id] || ''}
             oninput={(e) => (promptText = { ...promptText, [p.provider_id]: (e.currentTarget as HTMLTextAreaElement).value })}
             placeholder={'e.g. Reply with a one-line JSON: {"status":"ok"}'}

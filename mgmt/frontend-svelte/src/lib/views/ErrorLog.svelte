@@ -94,7 +94,7 @@
     🔄 Refresh
   </button>
 </div>
-{#if error}<div class="error-banner">{error}</div>{/if}
+{#if error}<div role="alert" class="error-banner">{error}</div>{/if}
 
 <CleanupPanel target="error_log" label="the Error Log" {role} onDone={() => load(limit)} />
 

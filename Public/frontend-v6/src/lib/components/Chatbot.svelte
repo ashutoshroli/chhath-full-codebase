@@ -134,7 +134,21 @@
       <span class="text-sm font-bold">{$tr('ask_assistant')}</span>
     </div>
 
-    <div bind:this={listEl} class="flex-1 space-y-2 overflow-y-auto p-3">
+    <!-- audit PR-40: the transcript is a log, and the assistant's replies arrive
+         asynchronously. Without role="log" nothing announced them, so a screen-reader user
+         asked a question and then sat in silence with no way to know an answer had appeared.
+         `role="log"` is the right choice over `role="status"`: it means "new items are
+         appended", so only the ADDITION is read out, not the whole conversation again.
+         aria-busy tells the user the reply is still coming rather than lost. -->
+    <div
+      bind:this={listEl}
+      role="log"
+      aria-live="polite"
+      aria-relevant="additions"
+      aria-busy={sending}
+      aria-label={$tr('ask_assistant')}
+      class="flex-1 space-y-2 overflow-y-auto p-3"
+    >
       {#each messages as m}
         <div class="flex {m.role === 'user' ? 'justify-end' : 'justify-start'}">
           <div

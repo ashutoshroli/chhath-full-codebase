@@ -3,6 +3,10 @@
   // management: download sample, upload year template, copy year, delete year,
   // and the full in-Word authoring instructions.
   import { api } from '$lib/api';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   type DocTypeEntry = [string, string, string, string[]];
   const DOC_TYPES: DocTypeEntry[] = [
@@ -131,7 +135,7 @@
 </script>
 
 <h2 style="margin-bottom:15px;">Document Templates (Word / .docx)</h2>
-{#if error}<div class="error-banner">{error}</div>{/if}
+{#if error}<div role="alert" class="error-banner">{error}</div>{/if}
 
 <div class="subtabs" style="margin-bottom:15px;">
   {#each DOC_TYPES as [val, lbl] (val)}
@@ -213,12 +217,12 @@
   <strong>Upload .docx Template</strong>
   <form onsubmit={upload}>
     <div class="form-group">
-      <label>Year</label>
-      <input type="number" bind:value={uploadYear} placeholder="e.g. 2026" />
+      <label for={`${uid}-f1`}>Year</label>
+      <input id={`${uid}-f1`} type="number" bind:value={uploadYear} placeholder="e.g. 2026" />
     </div>
     <div class="form-group">
-      <label>.docx File</label>
-      <input type="file" accept=".docx" onchange={(e) => (file = (e.currentTarget as HTMLInputElement).files?.[0] || null)} />
+      <label for={`${uid}-f2`}>.docx File</label>
+      <input id={`${uid}-f2`} type="file" accept=".docx" onchange={(e) => (file = (e.currentTarget as HTMLInputElement).files?.[0] || null)} />
     </div>
     <button class="btn-submit" disabled={uploading}>{uploading ? 'Uploading...' : 'Upload'}</button>
   </form>

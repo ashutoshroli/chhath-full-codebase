@@ -5,6 +5,10 @@
   import { invalidate } from '$lib/cache';
   import Modal from './Modal.svelte';
   import VillageInput from './VillageInput.svelte';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   interface Props {
     open: boolean;
@@ -38,13 +42,13 @@
   <h3 id="dlg-quickadduser-37-title" style="margin-bottom:15px;">Quick Add User</h3>
   <form onsubmit={submit}>
     <div class="form-group">
-      <label>Name</label>
+      <label for={`${uid}-f1`}>Name</label>
       <!-- svelte-ignore a11y_autofocus -->
-      <input bind:value={form.Name} autofocus />
+      <input id={`${uid}-f1`} bind:value={form.Name} autofocus />
     </div>
     <div class="form-group">
-      <label>Village</label>
-      <VillageInput value={form.Village} onChange={(v) => (form = { ...form, Village: v })} />
+      <label for={`${uid}-village1`}>Village</label>
+      <VillageInput id={`${uid}-village1`} value={form.Village} onChange={(v) => (form = { ...form, Village: v })} />
     </div>
     <button class="btn-submit" disabled={saving}>{saving ? 'Saving...' : 'Add & Select'}</button>
   </form>
