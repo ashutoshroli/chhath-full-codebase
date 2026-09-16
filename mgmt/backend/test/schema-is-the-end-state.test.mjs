@@ -146,6 +146,49 @@ describe('the schema builds, and this test can see it', () => {
   });
 });
 
+describe('applying the schema to an existing database is not a full reset', () => {
+  // Most tables begin with `DROP TABLE IF EXISTS`, so re-applying the schema recreates
+  // them empty. NINE do not — they use `CREATE TABLE IF NOT EXISTS` with no DROP, so
+  // their old rows SURVIVE. That is the trap in "just re-apply the schema to reset":
+  // a partial reset is worse than none, because it looks complete.
+  //
+  // The list is pinned rather than fixed, because IF NOT EXISTS is right for these:
+  // several were added by a later migration and must not destroy data on a database that
+  // already has them. What was missing was anyone writing down that a reset therefore
+  // needs explicit drops — runbook §W8g step 1 does now, and this keeps the two in step.
+  const NO_DROP = {
+    'loans_expenses.sql': ['loan_email_templates'],
+    'logs.sql': ['ai_fixes', 'ai_providers'],
+    'misc.sql': ['collection_jobs', 'render_jobs'],
+    'whatsapp_index.sql': ['email_message_templates', 'email_messages', 'official_emails'],
+  };
+
+  test('the tables a re-apply does NOT empty are exactly the documented eight', () => {
+    const found = {};
+    for (const file of new Set(Object.values(SCHEMA_BY_DB))) {
+      const sql = schemaSql(file);
+      const dropped = new Set([...sql.matchAll(/DROP TABLE IF EXISTS (\w+)/g)].map((m) => m[1]));
+      const survives = [...sql.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?(\w+)/g)]
+        .map((m) => m[1]).filter((t) => !dropped.has(t));
+      if (survives.length) found[file] = survives;
+    }
+    assert.deepEqual(
+      found, NO_DROP,
+      'a table changed whether it survives a schema re-apply. If a NEW one is here, ' +
+      'runbook §W8g step 1 must drop it too, or a "reset" will silently keep its rows.'
+    );
+  });
+
+  test('the count matches what the runbook tells an operator to drop', () => {
+    // Eight. This assertion was written saying nine, and failed on its first run —
+    // which is what it is for: the runbook lists these tables by name, and a number
+    // that disagrees with the list is how an operator drops seven of them and assumes
+    // they are done.
+    const total = Object.values(NO_DROP).reduce((n, xs) => n + xs.length, 0);
+    assert.equal(total, 8, 'the runbook says eight tables; keep the number honest');
+  });
+});
+
 describe('nothing a migration creates is missing from the schema', () => {
   const all = migrations();
 
