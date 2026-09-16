@@ -110,7 +110,10 @@ export default function Home({ year, users, onUserCreated, role, editable }) {
       if (editing) {
         genYear = editing.Year;
         savedRowIndex = editing.__rowIndex;
-        await api.updateRecord('COLLECTIONS', editing.__rowIndex, { Year: editing.Year, 'Sl. No.': editing['Sl. No.'], ...payload, 'Created By': editing['Created By'] });
+        // Neither `Sl. No.` (the receipt number) nor `Created By` is sent: the server owns
+        // both and REJECTS them, which is what broke every edit here. An unsent column keeps
+        // its stored value, because updateRecord builds `SET` from the keys it receives.
+        await api.updateRecord('COLLECTIONS', editing.__rowIndex, { Year: editing.Year, ...payload });
       } else {
         genYear = year === 'All' ? new Date().getFullYear() : year;
         const res = await api.saveRecord('COLLECTIONS', { Year: genYear, ...payload });

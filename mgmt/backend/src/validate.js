@@ -254,7 +254,15 @@ const SERVER_OWNED_FIELDS = {
   expenses: ['id', 'created_by'],
   users: ['id', 'id_code', 'created_by'],
   committee_members: ['id', 'created_by'],
-  loans: ['id', 'loan_id', 'loan_status', 'created_by', 'cash_amount', 'online_amount', 'final_repayment_date'],
+  // `final_repayment_date` is NOT here, and was removed after #323 listed it. It is
+  // typed by the operator on the Loans form, `saveLoanTransaction` writes it straight
+  // from that payload, and the consent document reads it back as FINAL_REPAYMENT_DATE.
+  // NOTHING on the server ever sets it. Listing it meant the create path accepted the
+  // value and the edit path refused it, so the date could be set once and then never
+  // corrected — and the guard's own message told the operator to reload the page, which
+  // could not possibly help. Contrast `cash_amount` / `online_amount`, which really are
+  // server-owned: only markLoanDisbursed writes those, and only from status 'Approved'.
+  loans: ['id', 'loan_id', 'loan_status', 'created_by', 'cash_amount', 'online_amount'],
   loan_guarantors: ['id', 'loan_id', 'created_by'],
   login_users: ['id'],
 };

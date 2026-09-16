@@ -1,6 +1,7 @@
 import { getSheetDataAsJSON, saveRecord } from './crud.js';
 import { requireRole, requireYearUnlocked, requireYearAccess, requireSuperadmin, requireAdminOrAbove, requireStaffRole, ValidationError, timingSafeEqualHex, InternalError } from './auth.js';
-import { toColumnPayload } from './tableRegistry.js';
+import { toColumnPayload, COLUMN_ALIASES } from './tableRegistry.js';
+import { assertNoServerOwnedFields } from './validate.js'; // audit P0-09 (this path was missed)
 import { otpConsentSenderNumber } from './settings.js';
 import { getConsentPageTemplate } from './settings.js';
 import { pickRandomActive, renderTemplateChecked, queuePersonMessageDirect, queueGroupMessageDirect, isTruthyFlag as waTruthyFlag, MAX_GROUPS_PER_JOB } from './whatsapp.js';
@@ -167,6 +168,24 @@ export async function loanYearBudget(env, year, excludeLoanId) {
 
 export async function saveLoanTransaction(env, loanPayload, guarantorPayloads, user) {
   requireRole(user, 'add', 'LOANS');
+
+  // audit P0-09, the gap this path was left out of. saveRecord and updateRecordByIdx both
+  // reject server-owned columns; this one built its INSERT straight from
+  // toColumnPayload(), which accepts any key that maps to a column. Proven on `main`: a
+  // create carrying `cash_amount: 30000, online_amount: 20000` stored both, so a loan
+  // could show money as paid out without ever going through the disbursement workflow —
+  // only markLoanDisbursed is supposed to write those, and only from status 'Approved'.
+  //
+  // `created_by`, `loan_id` and `loan_status` were already safe here, but by accident of
+  // ordering rather than by a check: the server overwrites all three a few lines below,
+  // AFTER the payload arrives. The probe confirmed that (status stayed 'Created', the row
+  // stayed attributed to the session). The guard runs BEFORE those assignments, so it
+  // rejects a client that sends them and the server's own values are unaffected.
+  assertNoServerOwnedFields('loans', loanPayload, { aliases: COLUMN_ALIASES.loans || {} });
+  for (const g of guarantorPayloads || []) {
+    assertNoServerOwnedFields('loan_guarantors', g, { aliases: COLUMN_ALIASES.loan_guarantors || {} });
+  }
+
   if (loanPayload.Year) await requireYearUnlocked(env, loanPayload.Year);
   if (loanPayload.Year) await requireYearAccess(env, user, loanPayload.Year);
   if (!loanPayload.Name || !loanPayload.Amount) throw ValidationError('Missing required field: Name/Amount');

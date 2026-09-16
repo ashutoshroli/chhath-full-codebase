@@ -41,7 +41,10 @@ export default function Committee({ year, users, role, editable }) {
     setSaving(true);
     try {
       if (editing) {
-        await api.updateRecord('COMMITEE MEMBERS', editing.__rowIndex, { Year: editing.Year, Name: form.Name, 'View Role': form['View Role'], 'View Role (Hindi)': form['View Role (Hindi)'], 'Created By': editing['Created By'] });
+        // `Created By` is not sent: the server owns it and REJECTS it, which is what broke
+        // every edit here. Omitting it keeps the stored value — updateRecord builds `SET`
+        // from the keys it receives, so an unsent column is left alone.
+        await api.updateRecord('COMMITEE MEMBERS', editing.__rowIndex, { Year: editing.Year, Name: form.Name, 'View Role': form['View Role'], 'View Role (Hindi)': form['View Role (Hindi)'] });
       } else {
         await api.saveRecord('COMMITEE MEMBERS', { Year: year === 'All' ? new Date().getFullYear() : year, ...form });
       }

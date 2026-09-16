@@ -36,7 +36,10 @@ export default function Expenses({ year, role, editable }) {
     setSaving(true);
     try {
       if (editing) {
-        await api.updateRecord('EXPENSES', editing.__rowIndex, { Year: editing.Year, Discription: form.Discription, 'Discription (Hindi)': form['Discription (Hindi)'], Amount: form.Amount, Category: form.Category, 'Created By': editing['Created By'] });
+        // `Created By` is not sent: the server owns it and REJECTS it, which is what broke
+        // every edit here. Omitting it keeps the stored value — updateRecord builds `SET`
+        // from the keys it receives, so an unsent column is left alone.
+        await api.updateRecord('EXPENSES', editing.__rowIndex, { Year: editing.Year, Discription: form.Discription, 'Discription (Hindi)': form['Discription (Hindi)'], Amount: form.Amount, Category: form.Category });
       } else {
         await api.saveRecord('EXPENSES', { Year: year === 'All' ? new Date().getFullYear() : year, ...form });
       }

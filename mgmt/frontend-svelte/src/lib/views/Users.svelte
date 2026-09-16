@@ -98,7 +98,10 @@
     saving = true;
     try {
       if (editing) {
-        await api.updateRecord('USERS', editing.__rowIndex, { ID: editing.ID, ...form });
+        // `ID` is not sent: it is the member id the server allocates, and sending it back
+        // would be a request to REWRITE it — which is why the server rejects it. The row
+        // to edit is identified by `__rowIndex`, so the id is not needed here.
+        await api.updateRecord('USERS', editing.__rowIndex, { ...form });
       } else {
         await api.saveRecord('USERS', form);
       }

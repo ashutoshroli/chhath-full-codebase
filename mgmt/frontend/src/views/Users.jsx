@@ -84,7 +84,9 @@ export default function Users({ users, loading, error, onRefresh, role }) {
     setSaving(true);
     try {
       if (editing) {
-        await api.updateRecord('USERS', editing.__rowIndex, { ID: editing.ID, ...form });
+        // `ID` is not sent: it is the member id the server allocates, so sending it back is
+        // a request to REWRITE it and the server refuses. `__rowIndex` identifies the row.
+        await api.updateRecord('USERS', editing.__rowIndex, { ...form });
       } else {
         await api.saveRecord('USERS', form);
       }
