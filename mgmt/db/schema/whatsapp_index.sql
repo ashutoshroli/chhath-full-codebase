@@ -178,3 +178,43 @@ CREATE INDEX IF NOT EXISTS idx_official_emails_direction ON official_emails(dire
 CREATE INDEX IF NOT EXISTS idx_official_emails_thread ON official_emails(thread_id);
 CREATE INDEX IF NOT EXISTS idx_official_emails_created_at ON official_emails(created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_official_emails_message_id ON official_emails(message_id);
+
+
+-- ============================================================================
+-- INDEXES AND CONSTRAINTS THAT USED TO EXIST ONLY IN A MIGRATION
+--
+-- Everything below was created by a file under db/migration/ and was NOT in this
+-- schema, which meant a database built from this file alone was missing it. That is
+-- the wrong direction of drift: the test suite applies THIS file, so it was more
+-- permissive than production -- a duplicate the live database rejects, the tests
+-- accepted. (Proven at the time: a duplicate `error_log.error_id` inserted cleanly
+-- against the committed schema while production has uq_error_log_error_id.)
+--
+-- This file is now the END STATE. A fresh database needs this file and nothing else.
+-- schema-is-the-end-state.test.mjs fails if a migration ever creates an index or adds
+-- a column that is not also here.
+-- ============================================================================
+
+-- from migration/05-whatsapp-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_person_messages_status_sent_at
+  ON person_messages (status, sent_at);
+
+-- from migration/05-whatsapp-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_group_messages_status_sent_at
+  ON group_messages (status, sent_at);
+
+-- from migration/05-whatsapp-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_person_messages_created_at
+  ON person_messages (created_at);
+
+-- from migration/05-whatsapp-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_group_messages_created_at
+  ON group_messages (created_at);
+
+-- from migration/05-whatsapp-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_person_message_templates_contribution_type
+  ON person_message_templates (contribution_type);
+
+-- from migration/05-whatsapp-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_group_message_templates_contribution_type
+  ON group_message_templates (contribution_type);

@@ -195,6 +195,13 @@ test('H-8: a token from a deleted loan can no longer be resolved', async () => {
 test('H-8: another loan\'s consents are NOT touched', async () => {
   const env = makeEnv();
   const a = await seedLoan(env, { loanId: 'LN-aaa' });
+  // The other loan has to actually exist: the committed schema carries the
+  // loan-relation triggers now, so a consent naming a loan that is not there is
+  // refused. Which makes this fixture a closer match to a real database — the point of
+  // the test is that deleting one loan leaves ANOTHER loan's consents alone, and that
+  // other loan was previously a fiction.
+  await env.DB_LOANS_EXPENSES.prepare('INSERT INTO loans (year, loan_id, name) VALUES (?,?,?)')
+    .bind(2026, 'LN-bbb', 'USER0009').run();
   await env.DB_LOANS_EXPENSES.prepare(
     'INSERT INTO loan_consents (consent_id, loan_id, person_id, role, token, status) VALUES (?,?,?,?,?,?)'
   ).bind('CN-other', 'LN-bbb', 'USER0009', 'loaner', 'tok-other', 'sent').run();

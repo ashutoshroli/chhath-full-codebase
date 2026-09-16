@@ -21,10 +21,7 @@ const SUPER = { name: 'USER0001', role: 'Superadmin' };
 // by migration 24). saveAiProvider now writes purpose, so bring the test DB up to
 // the migrated schema — same pattern the 2FA test uses for the totp columns.
 function logsSchemaWithPurpose() {
-  const m24 = readFileSync(new URL('../../db/migration/2026-09-05/24-ai-providers-purpose.sql', import.meta.url), 'utf8');
-  const m25 = readFileSync(new URL('../../db/migration/2026-09-05/25-ai-providers-priority.sql', import.meta.url), 'utf8');
-  const m26 = readFileSync(new URL('../../db/migration/2026-09-05/26-ai-providers-data-mode.sql', import.meta.url), 'utf8');
-  return schemaFor('logs.sql') + '\n' + m24 + '\n' + m25 + '\n' + m26;
+  return schemaFor('logs.sql');
 }
 
 function makeEnv() {

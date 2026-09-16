@@ -12,7 +12,15 @@ CREATE TABLE error_log (
   stack TEXT,
   context TEXT,
   created_at TEXT,
-  reported TEXT
+  reported TEXT,
+  -- audit M-13. Previously only in migration 2026-09-05/09-error-log-client-ip.sql, so a
+  -- database built from this schema had no column for the public logError per-visitor cap
+  -- to count on — and the Worker's INSERT silently fell back to the version without it.
+  --
+  -- It holds a KEYED, DAILY-ROTATING PSEUDONYM, never an address (carry-over C12): 32
+  -- lowercase hex characters, or '' when no pseudonym could be produced. The name is
+  -- historical; do not put an IP in it.
+  client_ip TEXT
 );
 CREATE INDEX idx_error_log_created_at ON error_log(created_at);
 CREATE INDEX idx_error_log_reported ON error_log(reported);
@@ -75,8 +83,45 @@ CREATE TABLE IF NOT EXISTS ai_providers (
   key_hint TEXT,               -- masked hint only, e.g. "••••••••1234"
   is_default INTEGER,          -- 1 = the provider the AI-fix engine uses
   created_at TEXT,
-  updated_at TEXT
+  updated_at TEXT,
+  -- These three lived only in migrations 24/25/26, so a database built from this
+  -- schema had an ai_providers table the AI code could not use.
+  purpose TEXT DEFAULT 'fix',       -- 'fix' | 'chat' — which engine may use this provider
+  priority INTEGER DEFAULT 100,     -- lower runs first in the provider chain
+  data_mode TEXT DEFAULT 'summary'  -- how much portal data the chat provider is given
 );
 CREATE INDEX IF NOT EXISTS idx_ai_providers_provider_id ON ai_providers(provider_id);
 CREATE INDEX IF NOT EXISTS idx_ai_providers_default ON ai_providers(is_default);
 
+
+
+-- ============================================================================
+-- INDEXES AND CONSTRAINTS THAT USED TO EXIST ONLY IN A MIGRATION
+--
+-- Everything below was created by a file under db/migration/ and was NOT in this
+-- schema, which meant a database built from this file alone was missing it. That is
+-- the wrong direction of drift: the test suite applies THIS file, so it was more
+-- permissive than production -- a duplicate the live database rejects, the tests
+-- accepted. (Proven at the time: a duplicate `error_log.error_id` inserted cleanly
+-- against the committed schema while production has uq_error_log_error_id.)
+--
+-- This file is now the END STATE. A fresh database needs this file and nothing else.
+-- schema-is-the-end-state.test.mjs fails if a migration ever creates an index or adds
+-- a column that is not also here.
+-- ============================================================================
+
+-- from migration/04-logs.sql
+CREATE UNIQUE INDEX IF NOT EXISTS uq_error_log_error_id
+  ON error_log (error_id);
+
+-- from migration/04-logs-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_error_log_dedup
+  ON error_log (source, page, created_at);
+
+-- from migration/04-logs-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_activity_log_timestamp
+  ON activity_log (timestamp);
+
+-- from migration/09-error-log-client-ip.sql
+CREATE INDEX IF NOT EXISTS idx_error_log_client_ip_created_at
+  ON error_log (client_ip, created_at);

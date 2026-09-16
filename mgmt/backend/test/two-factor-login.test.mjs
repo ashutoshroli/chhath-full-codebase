@@ -23,13 +23,12 @@ import { generateTotp } from '../src/totp.js';
 const PW = 'a-good-password';
 const IP = '203.0.113.9';
 
-// core.sql + the 2FA migration (mirrors how a live DB will look after migration
-// 22-login-users-totp.sql). The migration is the source of the totp_* columns.
+// The totp_* columns are in core.sql itself now. They used to be applied here from
+// migration 22, because the committed schema deliberately omitted them; the schema is the
+// end state since schema-is-the-end-state.test.mjs, so applying the migration on top
+// would fail with "duplicate column" and a fresh database needs only the schema.
 function coreSchemaWith2fa() {
-  const migration = readFileSync(
-    new URL('../../db/migration/2026-09-05/22-login-users-totp.sql', import.meta.url), 'utf8'
-  );
-  return schemaFor('core.sql') + '\n' + migration;
+  return schemaFor('core.sql');
 }
 
 async function makeEnv() {

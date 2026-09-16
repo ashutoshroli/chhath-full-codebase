@@ -163,14 +163,21 @@ const CONSTRAINT_MIGRATIONS = new Set([
 // `wrangler d1 execute` time against a live database. It is also exactly the
 // information PR-35's migration ledger/runner needs in order to apply migrations in
 // a defensible order.
-const PREREQ_MIGRATIONS = {
-  '33-scrub-visitor-ips.sql': ['09-error-log-client-ip.sql'],
-};
+// Empty, and that is the point: 33's only prerequisite was migration 09, for the
+// `error_log.client_ip` column — which the committed schema now defines itself. The
+// mechanism stays because it is what PR-35's runner needs the moment one migration
+// genuinely depends on another again.
+// Empty, and that is the point: 33's only prerequisite was migration 09, for the
+// `error_log.client_ip` column — which the committed schema now defines itself. The
+// mechanism stays, because it is what PR-35's runner needs the moment one migration
+// genuinely depends on another again.
+const PREREQ_MIGRATIONS = {};
 
 // Migrations that legitimately do more than CREATE INDEX. Keep this list as short
 // as possible: everything on it opts out of the "cannot drop, delete, update or
 // alter" guarantee that makes the rest safe to run unattended.
-const SCHEMA_ONLY_MIGRATIONS = new Set(['09-error-log-client-ip.sql', '22-login-users-totp.sql', '24-ai-providers-purpose.sql', '25-ai-providers-priority.sql', '26-ai-providers-data-mode.sql', '27-users-photo.sql']);
+// (superseded by ALREADY_IN_SCHEMA_MIGRATIONS above — the columns these add are part of
+// the committed schema now, so the FIRST apply is the duplicate, not the second.)
 
 // A THIRD category, and the narrowest of the three: a migration whose whole purpose
 // is to REMOVE data that should never have been stored.
@@ -186,6 +193,28 @@ const SCHEMA_ONLY_MIGRATIONS = new Set(['09-error-log-client-ip.sql', '22-login-
 // by a WHERE; and unlike the schema-changers it must stay fully IDEMPOTENT, so it is
 // deliberately NOT excluded from the apply-twice check above.
 const DATA_SCRUB_MIGRATIONS = new Set(['33-scrub-visitor-ips.sql']);
+
+// A FIFTH category: migrations whose effect is ALREADY IN THE COMMITTED SCHEMA.
+//
+// These add a column, and that column is now part of the schema file itself — because
+// the schema is the end state (schema-is-the-end-state.test.mjs). They used to be in
+// SCHEMA_ONLY_MIGRATIONS, which expects the FIRST apply to succeed and only the second
+// to fail on the duplicate column. Now the first one fails too, and that is correct: a
+// fresh database already has the column, so re-adding it is a duplicate.
+//
+// They are kept on disk rather than deleted, because an EXISTING database still needs
+// them — that is the whole point of a migration. What changed is that a database built
+// from the schema does not. The test below asserts the failure is precisely
+// "duplicate column" and nothing else, so a migration that starts failing for some
+// other reason is not quietly absorbed by this exemption.
+const ALREADY_IN_SCHEMA_MIGRATIONS = new Set([
+  '09-error-log-client-ip.sql',
+  '22-login-users-totp.sql',
+  '24-ai-providers-purpose.sql',
+  '25-ai-providers-priority.sql',
+  '26-ai-providers-data-mode.sql',
+  '27-users-photo.sql',
+]);
 
 const DAY = 86400000;
 const isoAgo = (d) => new Date(Date.now() - d * DAY).toISOString();
@@ -208,13 +237,18 @@ test('H-10: every migration applies against the real schema, and is IDEMPOTENT',
       db.exec(readFileSync(new URL(prereq, MIGRATION_DIR), 'utf8'));
     }
     const sql = readFileSync(new URL(file, MIGRATION_DIR), 'utf8');
-    db.exec(sql);            // first run
-    // SQLite has no `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, so a migration that
-    // adds a column cannot be fully re-runnable. Its own test asserts that the
-    // ONLY thing failing on a second run is the duplicate column.
-    if (!SCHEMA_ONLY_MIGRATIONS.has(file)) {
-      db.exec(sql);          // second run must be a no-op, not an error
+    if (ALREADY_IN_SCHEMA_MIGRATIONS.has(file)) {
+      // The column this adds is part of the committed schema now, so applying it to a
+      // schema-built database is a duplicate on the FIRST run. Asserted precisely, so a
+      // migration that starts failing for some OTHER reason is not absorbed by the
+      // exemption — which is how an exemption quietly stops meaning anything.
+      assert.throws(() => db.exec(sql), /duplicate column name/i,
+        `${file} should fail only as a duplicate column against the end-state schema`);
+      db.close();
+      continue;
     }
+    db.exec(sql);            // first run
+    db.exec(sql);            // second run must be a no-op, not an error
     db.close();
   }
 });
@@ -223,10 +257,10 @@ test('H-10: the users.id_code index exists and is actually USED by the hot query
   const db = new DatabaseSync(':memory:');
   db.exec(schemaFor('core.sql'));
 
-  // Before: the planner must scan.
-  const before = db.prepare('EXPLAIN QUERY PLAN SELECT * FROM users WHERE id_code = ?').all()
-    .map(r => r.detail).join(' ');
-  assert.match(before, /SCAN/i, 'precondition: without the index this is a table scan');
+  // There is no "before" any more: idx_users_id_code is part of core.sql itself, because
+  // the committed schema is the end state. The old shape of this test (assert SCAN, apply
+  // the migration, assert SEARCH) measured the migration; what matters now is the
+  // property — a database built from the schema answers this query from an index.
 
   db.exec(readFileSync(new URL('01-core-indexes.sql', MIGRATION_DIR), 'utf8'));
 
@@ -307,7 +341,7 @@ function sqlWithoutCommentsAndStrings(file) {
 
 test('H-10: no INDEX-ONLY migration drops anything or mutates a row', () => {
   for (const file of migrationFiles()) {
-    if (SCHEMA_ONLY_MIGRATIONS.has(file)) continue; // asserted explicitly below
+    if (ALREADY_IN_SCHEMA_MIGRATIONS.has(file)) continue; // asserted explicitly below
     if (DATA_SCRUB_MIGRATIONS.has(file)) continue;  // ditto, with tighter rules
     if (CONSTRAINT_MIGRATIONS.has(file)) continue;  // ditto — triggers, so "UPDATE" appears
     const sql = sqlWithoutCommentsAndStrings(file);
@@ -570,7 +604,8 @@ test('H-10: a data-scrub migration only clears fields, and stays idempotent', ()
 test('C12: the scrub removes both copies of an address and leaves everything else', () => {
   const db = new DatabaseSync(':memory:');
   db.exec(schemaFor('logs.sql'));
-  db.exec(readFileSync(new URL('09-error-log-client-ip.sql', MIGRATION_DIR), 'utf8'));
+  // migration 09 used to be applied here for the client_ip column. logs.sql defines it
+  // itself now, so applying 09 would be a duplicate.
 
   const row = (id, ip, ctx) => db.prepare(
     'INSERT INTO error_log (error_id, source, page, message, created_at, reported, client_ip, context) VALUES (?,?,?,?,?,0,?,?)'
@@ -615,7 +650,7 @@ test('C12: the scrub removes both copies of an address and leaves everything els
 // out of the index-only guarantees still has to be safe, so state exactly what each
 // one is allowed to do.
 test('H-10: the schema-changing migrations are still narrowly scoped', () => {
-  for (const file of SCHEMA_ONLY_MIGRATIONS) {
+  for (const file of ALREADY_IN_SCHEMA_MIGRATIONS) {
     const sql = readFileSync(new URL(file, MIGRATION_DIR), 'utf8').replace(/--.*$/gm, '');
     assert.ok(!/\bDROP\b/i.test(sql), `${file} must still not DROP anything`);
     assert.ok(!/\bDELETE\b/i.test(sql), `${file} must still not DELETE rows`);

@@ -131,3 +131,43 @@ CREATE INDEX IF NOT EXISTS idx_render_jobs_status ON render_jobs(status);
 -- The reconciliation cron scans (status, dispatched_at) for stuck 'dispatched' rows.
 CREATE INDEX IF NOT EXISTS idx_render_jobs_status_dispatched ON render_jobs(status, dispatched_at);
 CREATE INDEX IF NOT EXISTS idx_render_jobs_ref_id ON render_jobs(ref_id);
+
+
+-- ============================================================================
+-- INDEXES AND CONSTRAINTS THAT USED TO EXIST ONLY IN A MIGRATION
+--
+-- Everything below was created by a file under db/migration/ and was NOT in this
+-- schema, which meant a database built from this file alone was missing it. That is
+-- the wrong direction of drift: the test suite applies THIS file, so it was more
+-- permissive than production -- a duplicate the live database rejects, the tests
+-- accepted. (Proven at the time: a duplicate `error_log.error_id` inserted cleanly
+-- against the committed schema while production has uq_error_log_error_id.)
+--
+-- This file is now the END STATE. A fresh database needs this file and nothing else.
+-- schema-is-the-end-state.test.mjs fails if a migration ever creates an index or adds
+-- a column that is not also here.
+-- ============================================================================
+
+-- from migration/05-popups-active.sql
+CREATE INDEX IF NOT EXISTS idx_popups_start_at
+  ON popups (start_at);
+
+-- from migration/05-popups-active.sql
+CREATE INDEX IF NOT EXISTS idx_popups_end_at
+  ON popups (end_at);
+
+-- from migration/03-misc-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_popups_popup_id
+  ON popups (popup_id);
+
+-- from migration/03-misc-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_custom_announcements_id_code
+  ON custom_announcements (id_code);
+
+-- from migration/03-misc-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_collection_jobs_finished_at
+  ON collection_jobs (finished_at);
+
+-- from migration/03-misc-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_collection_jobs_status_finished
+  ON collection_jobs (status, finished_at);
