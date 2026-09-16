@@ -6,10 +6,10 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status — against the plan's 48 PRs: 33.5 done · 14.5 remaining.**
-Separately, **42 GitHub PRs** have been merged for this effort (#311–#355). Those two numbers are not the same thing and earlier revisions of this file wrongly treated them as one: several merged PRs were docs/runbook updates (#340, #343, #346, #352), CI fix-ups (#330, #345) or carry-over work outside the 48 (**this one**). The plan count is the one to read for progress; the header used to say "8 pending" while §3 below listed 14.5.
+**Status — against the plan's 48 PRs: 34 done · 14 remaining.**
+Separately, **43 GitHub PRs** have been merged for this effort (#311–#356). Those two numbers are not the same thing, and revisions of this file before #356 wrongly treated them as one — the header claimed "8 pending" while §3 below listed 14.5. Several merged PRs were docs/runbook updates (#340, #343, #346, #352), CI fix-ups (#330, #345), or carry-over items outside the 48 (#348, #356). Others, like this one, are a **slice** of a plan PR rather than a whole one. **The plan count is the one to read for progress.**
 
-Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-BE closed)** · **W3 6.5/7** · **W4 1/3** · W5 0/6 · W6 0/4 · **W7 1/3**
+Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-BE closed)** · **W3 6.5/7** · **W4 1/3** · **W5 0.5/6 (the viewport fix — this PR)** · W6 0/4 · **W7 1/3**
 
 ---
 
@@ -60,77 +60,61 @@ Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-
 | [#353](https://github.com/ashutoshroli/chhath-full-codebase/pull/353) | declare what every migration does, in every folder | C6 | Migration CI scanned only the newest folder; the three older ones held **twelve** files covered by nothing. Widening it fails — which is why C6 stayed open — so each file's *relationship to the schema* is now declared instead: nine apply idempotently, **two span three D1 databases and cannot be run whole**, one is already in the schema. Two headers said "TWO databases" while having three sections | No migration — one new test, two header comments, and the CI glob |
 | [#354](https://github.com/ashutoshroli/chhath-full-codebase/pull/354) | find the broken data before anything tries to enforce it | W4 PR-33 | Every business key is an ordinary index, not a unique constraint: `main`’s committed schema accepts two Superadmin/Subadmin logins of one name, two identical `Ajay Verma`, two contributions printing receipt `NCS-2026-45`, and **two consents sharing one token**. Detection queries existed — as SQL *comments* (migration 10 is 101 comment lines, **0 executable**). Eleven checks now run in one Superadmin call, including two that span databases and so could never have been a SQL file at all | No migration — read-only action `getIntegrityReport`; runbook §W8 |
 | [#355](https://github.com/ashutoshroli/chhath-full-codebase/pull/355) | make three gates that were not gating actually gate | PR-46, C5 | The `H-6 … WITHOUT decoding` test asserted `ms < 250` — **3 failures in 6 runs** under load, blaming the code for something it never did. Now asserts the `atob` call count is 0: **0 failures in 12 runs**. Plus the first bundle budgets for the two SvelteKit apps (602 kB / 999 kB, both gates checked in *both* directions) and `--fail-on-warnings` for Public v6 | No migration — CI, one script, one test |
+| [#356](https://github.com/ashutoshroli/chhath-full-codebase/pull/356) | stop keeping visitor IP addresses, and clear the ones we kept | C12 | A public JS error stored the visitor’s address **three times** (the WHERE, the JSON context, the column) — permanently, in a table the committee reads. Now a keyed pseudonym from a **KV salt that rotates daily and expires**, so there is no operator step and yesterday’s rows become unlinkable to any address by anybody. Migration 33 clears what was already written | Migration **33** on `chhath_logs` (§W8e); no new secret |
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — a visitor's address is no longer something we keep (closes C12)
+## 2. This PR — nothing may stop a visitor zooming (slice of PR-39)
 
-**Audit ID:** carry-over **C12**, split out of PR-22 so the authenticity fix there stayed reviewable.
+**Audit ID:** Wave 5 **PR-39**, the viewport half. WCAG 2.1 SC 1.4.4 (Resize Text).
 
-`logError` is anonymous, and it is called by the visitor's **browser**, not by the visitor. A JavaScript error is not something they did, chose, or can see. Every one of them wrote that person's IP address into `error_log` — and proved on `main`, **three times over** for a single report:
-
-```
-SELECT ... WHERE client_ip = ?            args: ["203.0.113.47", ...]
-INSERT INTO error_log (... context ...)   args: [..., "{\"edgeIp\":\"203.0.113.47\"}", ..., "203.0.113.47"]
+```html
+<meta name="viewport" content="... maximum-scale=1.0, user-scalable=no">
 ```
 
-Permanently, with no retention limit, in a table the committee reads. Nothing in this portal needs a visitor's address. The flood cap needs to know only whether two requests came from the **same** visitor — a much weaker question, and a pseudonym answers it exactly as well.
+That disables pinch-zoom. On this portal it is not a styling preference: the people using it are committee members reading contribution tables and loan amounts on a phone, and the ones most likely to need to zoom are the least likely to know how to work around a page that refuses to.
 
-### Why the key lives in KV, not in a secret
+Four tracked app shells had it — including **both live mgmt frontends**:
 
-C12 itself assumed the fix needed `wrangler secret put` — *"a deployment step ... not a code-only change"*. It does not, and a random salt in KV is strictly better:
+| shell | |
+|---|---|
+| `mgmt/frontend-svelte/src/app.html` | live |
+| `mgmt/frontend/index.html` | live (the retained React SPA) |
+| `Public/frontend/index.html` | legacy |
+| `Public/frontend-v3/index.html` | legacy |
 
-- **No operator step**, so the privacy fix cannot sit un-deployed waiting for one, and there is no window where the code is live but the key is not.
-- **It rotates daily and then expires.** A long-lived secret makes every row ever written linkable to every other row for that visitor, for ever. Here, once a day's salt has expired, that day's pseudonyms cannot be tied back to an address by anybody — us included, with the database in hand. Deleting the key is what makes the old rows genuinely anonymous.
+### The test is the point, not the fix
 
-The daily period is chosen against the 60-second flood window: the pseudonym only has to be stable for far longer than the window it is counted in. At rollover an in-flight window restarts — a once-a-day, 60-second relaxation of a cap whose other two layers (the KV limiter, and message de-duplication) are untouched, and which fails open by design anyway.
+The fix is four one-line changes. What matters is why it was still there: the block was in the **original** public frontend, and it was carried into `frontend-v3`, then into the mgmt React SPA, then into the mgmt SvelteKit app. It disappeared from the public side around the v4 rewrite **by accident, not decision** — `v4`, `v5` and `v6` are all clean, and nothing anywhere said it must not come back.
 
-`sha256(ip)` was never an option: an IPv4 is 2³² candidates, so the table builds in minutes and the stored value is the address with extra steps. **With no key available it stores nothing** — never the address, never an unkeyed hash.
+Every one of those shells is a hand-written `index.html`/`app.html`, and the next new app will be too. So the guarantee is now a test that scans **every tracked shell in the tree**, including ones that do not exist yet. It asks `git ls-files` rather than walking the tree, so generated copies under `build/` and `.svelte-kit/` are skipped — a generated copy of a fixed template is not a defect.
 
-### Two things removed
+Both spellings are checked, because they fail differently: `user-scalable=no` refuses the gesture, `maximum-scale=1` lets the gesture happen and caps the result. A `maximum-scale` of 2 or more is accepted, since that still permits the 200% zoom 1.4.4 requires.
 
-- **`context.edgeIp` is gone entirely**, and is stripped even if a *client* sends the key — it was a second, unindexed, permanent copy of the same address.
-- **The `context LIKE '%"edgeIp":"…"%'` fallback count is gone.** It could never match a pseudonym, and it was a leading-wildcard scan on an anonymous endpoint — precisely what migration 09 was written to remove. Where the column is missing the D1 cap is now skipped instead; the KV limiter and de-duplication still apply, so nothing is left open.
+### A gap in my own test, found by mutating it
 
-### Migration 33 — the rows already written
+The "still declares a responsive viewport" assertion originally skipped files with no viewport tag — so **deleting the tag outright passed**, while the comment above it claimed to prevent exactly that. Removing a zoom block and accidentally removing the whole tag would be a worse mobile bug than the one being fixed. Every tracked shell has a viewport tag today, so there was nothing to grandfather: the assertion is now unconditional, and a new shell that forgets one fails.
 
-The code change stops new addresses. It does nothing about the old ones, so `33-scrub-visitor-ips.sql` clears both copies. Two decisions worth naming:
-
-- **The condition is "not a pseudonym", not "looks like an IP".** A pseudonym is exactly 32 lowercase hex characters; clearing everything else catches IPv4, IPv6, the literal `unknown` the older code substituted, and any shape nobody thought of. Matching `'%.%' OR '%:%'` would have left the last two behind — the kind of near-miss that makes a privacy scrub look finished when it is not.
-- **It removes only the one JSON key.** `json_remove` keeps the screen size and everything else a report carried. This is a privacy fix, not a data cull.
-
-**This is the first migration that depends on another** (`client_ip` comes from migration 09, not the committed schema). That ordering used to be something you were expected to know; `PREREQ_MIGRATIONS` in the harness now makes it tested — and it is exactly what PR-35's ledger will need.
-
-It is also the first **data-scrub** migration, so it gets its own category with tighter rules rather than being squeezed into `SCHEMA_ONLY_MIGRATIONS` (whose rule — "an UPDATE may only backfill a column this migration ADDED" — is right for a schema change and wrong here; widening it would have removed the guarantee for the six migrations relying on it). A scrub may only ever **clear** a field, must be bounded by a `WHERE`, and unlike the schema-changers must stay fully idempotent.
-
-**Migrations & setup:** migration **33** on `chhath_logs` (runbook §W8e). **No new secret, no new variable.**
+**Migrations & setup:** none. Four HTML attributes and one test.
 
 ## Verification
 
-On `main`, the same test file fails **8 of 13** — the address is stored three times. On this branch, 13/13.
-
-Mutation-checked in both places:
-
-| mutation | caught by |
+| mutation | outcome |
 |---|---|
-| pseudonym returns the raw IP | 7 tests |
-| client-supplied `edgeIp` kept | *cannot reinstate edgeIp* |
-| unkeyed `sha256` fallback when KV fails | *raw IP appears nowhere* + *KV throws* |
-| salt written without a TTL | *the salt is random, dated, and given a TTL* |
-| scrub writes a value instead of clearing | the invariant test **and** the behavioural test |
-| scrub's `WHERE` removed | the behavioural test |
-| scrub uses the near-miss `'.'`/`':'` condition | the behavioural test |
+| `user-scalable=no` returns | caught |
+| `maximum-scale=1.5` (blocks 200%) | caught |
+| `maximum-scale=5` (permits 200%) | **correctly allowed** |
+| viewport tag deleted entirely | caught |
+| `width=device-width` dropped | caught |
 
-The invariant test originally missed the "writes a value" mutation, because the shared `sqlWithoutCommentsAndStrings()` helper blanks every string literal — making `SET client_ip = 'REDACTED'` look identical to `SET client_ip = ''`. It now reads the raw SQL, so the one rule it exists to enforce is actually enforceable.
+Against `main` the same test reports all eight offences (four files × both spellings). On this branch it passes.
 
 ```
-Public/backend: 158 unit (145 + 13) + 25 integration
-mgmt/backend:   883 passed (881 + 2)
-migration gate: all 45 migrations in 4 folders covered
+mgmt/backend: 886 passed (883 + 3)
 ```
 
-Not touched: both Workers also put a raw IP in an **ephemeral** KV rate-limit key (`rl:logError:<ip>:<bucket>`, TTL ~65s). Those expire in about a minute and are never read back as data, so hashing them would cost a limiter for no privacy gain. Said out loud here rather than left for someone to find and wonder about.
+Still open in PR-39: the contrast tokens (AA-verified per theme) and `:focus-visible` rings. Those are real design work across every skin, not a one-line change, so they stay with the rest of W5.
 
 ---
 
@@ -138,7 +122,7 @@ Not touched: both Workers also put a raw IP in an **ephemeral** KV rate-limit ke
 
 **W3 — Render / AI / chat (1 left):** PR-32 remainder — Neon **schema**: FK/cascade, role CHECK, automated raw-content retention; consent/disclosure copy; **plus the shared rate/concurrency store deferred from #347 and the in-process job claim from #350**. (TLS verification, the keyed rotating IP pseudonym and server-issued session ids shipped in #351.)
 **W4 — Database (2 left):** ~~duplicate/orphan detection~~ *(this PR)* · **PR-34** repair + partial unique indexes + CHECKs + loan relations (insert **and update** triggers) — *needs a backup, a quiet window, and the output of this PR's report first* · **PR-35** `schema_migrations` ledger + transactional runner + checksums *(its precondition, the migration matrix, merged in #353)*
-**W5 — Accessibility (6):** dialog primitives (public + mgmt) · combobox/buttons · contrast/focus/zoom · live regions + labels · structure/motion
+**W5 — Accessibility (5.5 left):** dialog primitives (public + mgmt) · combobox/buttons · contrast + `:focus-visible` *(the zoom half shipped in this PR)* · live regions + labels · structure/motion
 **W6 — SEO / PWA / privacy / perf (4):** route metadata · manifest + update UX · privacy + same-origin push · lazy skins
 **W7 — Platform (1.5 left):** ~~CI gates~~ *(#353 migration matrix + this PR: C5, bundle budgets, fail-on-warning)* · **PR-47** dependency upgrades · **PR-48** observability + retention
 
