@@ -6,10 +6,10 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status — against the plan's 48 PRs: 38 done · 10 remaining.**
-Separately, **50 GitHub PRs** have been merged for this effort (#311–#363). Those two numbers are not the same thing, and revisions of this file before #356 wrongly treated them as one — the header claimed "8 pending" while §3 below listed 14.5. Several merged PRs were docs/runbook updates (#340, #343, #346, #352), CI fix-ups (#330, #345), or carry-over items outside the 48 (#348, #356). Others, like this one, are a **slice** of a plan PR rather than a whole one. **The plan count is the one to read for progress.**
+**Status — against the plan's 48 PRs: 39 done · 9 remaining.**
+Separately, **51 GitHub PRs** have been merged for this effort (#311–#364). Those two numbers are not the same thing, and revisions of this file before #356 wrongly treated them as one — the header claimed "8 pending" while §3 below listed 14.5. Several merged PRs were docs/runbook updates (#340, #343, #346, #352), CI fix-ups (#330, #345), or carry-over items outside the 48 (#348, #356). Others, like this one, are a **slice** of a plan PR rather than a whole one. **The plan count is the one to read for progress.**
 
-Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-BE closed)** · **W3 7/7 (consent copy folded into PR-44)** · **W4 ✅ 3/3** · **W5 0.5/6** · W6 0/4 · **W7 2/3**
+Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-BE closed)** · **W3 7/7 (consent copy folded into PR-44)** · **W4 ✅ 3/3** · **W5 0.5/6** · W6 0/4 · **W7 2.5/3**
 
 ---
 
@@ -67,67 +67,72 @@ Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-
 | [#360](https://github.com/ashutoshroli/chhath-full-codebase/pull/360) | five migrations named a database that does not exist | PR-35 precondition | The "Apply with:" line an operator copy-pastes said `chhath_logs`, `chhath_core`, `chhath_collections`, `chhath_loans_expenses` — **underscores**, where every real database uses hyphens. One of the five was mine (#356), repeated in the runbook, so a **privacy remediation** was handed a command that could only fail and was reported as run. No test had ever read the one line a human acts on | No migration — comments only. **Verify migration 33 applied** (§W8e) |
 | [#361](https://github.com/ashutoshroli/chhath-full-codebase/pull/361) | a migration system that records what it did | PR-35 | Nobody could say which migrations were applied — which is how a privacy remediation got reported as applied when its command had failed. `schema_migrations` (one ledger per database, D1 has no cross-DB query) + `migrate.mjs` with `status`/`apply`/`adopt`/`verify`. `adopt` is what makes it usable on a deployment with 40+ migrations already applied by hand. Two of my own bugs caught by its tests: unrouted migrations were silently skipped, inert recipes were queued | Migration **37**, bootstrapped by the tool |
 | [#363](https://github.com/ashutoshroli/chhath-full-codebase/pull/363) | make the chat retention window real, and give the chat tables constraints | PR-32 | The retention policy was two commented-out DELETEs under *"OPTIONAL ... if you want to keep the free tier small"* — a privacy commitment framed as housekeeping, and never run, so every public question ever typed was still stored. Now code. Plus FK + CHECK via Postgres `NOT VALID` (the analogue of D1’s partial indexes), and `ON DELETE CASCADE`, which is what makes retention correct rather than tidy | `db/neon/02-constraints-and-retention.sql`; optional `CHAT_RETENTION_DAYS` |
+| [#364](https://github.com/ashutoshroli/chhath-full-codebase/pull/364) | retention for the tables it forgot, and the one it half-covered | PR-48 | `boundedBlank` cleared `filled_base64` only for `status = 'done'`, so a **failed** job kept its whole base64 `.docx` for ever — and failed jobs are the ones that accumulate. The sweep written because that column is "the fastest route to the 5 GB limit" was leaking through the half it did not cover. Plus `render_jobs`, `ai_fixes`, official mail and dead push subscriptions, each with a rule that age alone would have got wrong | No migration |
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — the tables retention forgot, and the half-covered one (PR-48)
+## 2. This PR — the fail-open fallbacks are no longer silent (PR-48 telemetry, closes C9)
 
-**Audit ID:** Wave 7 **PR-48**, the retention half.
+**Audit ID:** Wave 7 **PR-48**, the telemetry half. Closes carry-over **C9**.
 
-The M-38 sweep already pruned logs, sessions, login attempts, and WhatsApp/email history. Four tables had **no retention at all** — and one had **half** of one, which is the interesting case.
+This portal is built out of fail-open fallbacks, and almost all of them are the right call:
 
-### The leak inside the sweep written to stop leaks
+- `verifyToken` re-reads the live role on every authenticated request and, if that read throws, carries on with the cached session — failing closed would log **every admin out** during a transient D1 blip;
+- the public rate limiters return `false` on a KV error, so a KV hiccup cannot take the portal down;
+- the retention sweep swallows a missing table, so an older deployment cannot break the cron.
 
-`boundedBlank` cleared `collection_jobs.filled_base64` only where `status = 'done'`:
+Every one is a considered availability trade. They share a property that was **not** considered: **when they trigger, nothing anywhere says so.**
 
-```sql
-WHERE status = 'done' AND filled_base64 != '' AND finished_at < ?
-```
+C9 is the sharpest case, and it is why "fix C9" was never "fail closed". If that read has been throwing for a day, every **demoted or deleted** account is still operating on its cached role — and `?health=1` reported `status: 'ok'`, identical to a healthy deployment. The fix for C9 was to *say so*.
 
-A job that **failed** kept its complete base64 `.docx` for ever. And failed jobs are precisely the ones that accumulate — a successful job's bytes are cleared the next day, a failure's were kept indefinitely.
+### Why a counter in KV, not a log line
 
-retention.js's own header calls that column *"THE WORST BY FAR ... the fastest route to the 5 GB free-tier storage limit"*. It was leaking through the half of the condition it did not cover.
+A log line per event fails twice over. If the degradation is rare, the line is lost in the noise weeks before anyone reads it. If it is frequent — a D1 outage means *every* request logs — it floods `error_log`, which is the one place the committee looks when something is wrong, and buries the real cause.
 
-It could not simply be folded in with the done jobs, because `retryQueueJob` resets `attempts = 0` and re-runs **from those bytes** — they are the manual retry. So the two need different windows, and **the trade is stated rather than buried**: after 30 days a manual retry of a failed job can no longer regenerate from the stored bytes and the collection has to be re-saved. A month is far longer than anyone waits to chase a missing receipt; the alternative is paying storage for every failure the portal has ever had. A test asserts the two windows stay different, so that trade cannot be silently dropped by making them equal.
+A counter is bounded, answers the question that matters (*is this happening, and how much*), and can be **read back** — which a log line cannot. Reading it back is the whole point: `?health=1` now reports degradations, so the uptime probe that already polls it finds out without anyone grepping anything. A daily key expires by itself, and *"37 revocation checks failed today"* is the sentence an operator wants.
 
-### Four tables that had nothing — and what each rule protects
+### When it should actually alarm anybody
 
-The rules are more interesting than the windows. In every case, "delete anything old" would have been wrong:
+Only the security-relevant kind, and only past a threshold:
 
-| table | rule | why not just age |
-|---|---|---|
-| `render_jobs` | terminal only (`completed`/`failed`) | a `dispatched` row is what the reconciliation cron scans for. Pruning it by age would **hide a stuck job** instead of cleaning up a finished one |
-| `ai_fixes` | `merged`/`failed`/`ci_failed` | **`needs_manual_review` is excluded.** That status is a request for a human — deleting it because it is old silently drops the request, and nobody knows the fix is still unreviewed |
-| `official_emails` | outbound `sent`/`failed` only | the table holds **both directions**. `received` is mail somebody sent the committee; pruning it is deleting correspondence nobody agreed to delete. The filter is an allowlist of outbound states, so a new inbound status cannot start being swept by accident |
-| `push_subscriptions` | `active = 0` | keyed on `active`, not age. Somebody who subscribed two years ago and never unsubscribed is a **real subscriber**, and deleting them silently stops their notifications |
+| | |
+|---|---|
+| a handful of revocation failures | reported, status stays **ok** — this is the transient blip the fallback exists for |
+| a sustained count (≥ 25/day) | status **degraded** — the check has effectively stopped running |
+| rate-limit / retention / data-version failures | reported, **never** degrade the status |
 
-**Migrations & setup:** none. Existing hourly cron, existing bounded-statement shape, four more statements.
+That last row is deliberate. A rate limiter that could not count is a cost problem; retention skipping a table is a storage problem. Both belong in the report. Neither should page anyone — a signal that cries wolf gets muted, which is how the property stops being watched at all. That is the same lesson as the flaky timing test removed in #355.
+
+Three smaller decisions worth naming:
+
+- **`recordDegradation` never throws and is never awaited by its caller.** It sits inside catch blocks whose entire job is to keep working when something is already broken; a telemetry write that could throw would make the fallback it observes *less* reliable than before.
+- **Kinds are an allowlist.** A typo'd kind would create a counter nobody ever reads — the exact failure mode this module exists to remove.
+- **"Could not check" is distinguished from "nothing wrong".** A health report that says all is well because it could not look is precisely what this was written about.
+
+**Migrations & setup:** none. One KV write per *degrading* request, not per request; KV read on the health path only.
 
 ## Verification
 
-Every case is planted into the **committed** schema, so the statements are tested against real column names rather than a fixture agreeing with itself. That caught a fixture bug immediately (`render_jobs.kind` is `NOT NULL`).
-
-Six mutations, six different tests:
+19 tests. Seven mutations, seven different tests:
 
 | mutation | caught by |
 |---|---|
-| the failed-blob sweep removed (the original leak) | *a failed job's bytes are cleared after their window* |
-| failed blobs blanked after one day (breaks manual retry) | same test |
-| `render_jobs` pruned by age, catching `dispatched` | *pending and dispatched are not* |
-| `ai_fixes` pruned by age, catching `needs_manual_review` | *needs_manual_review is kept* |
-| official mail pruned by age, catching `received` | *RECEIVED mail is never touched* |
-| push pruned by age, catching an active subscriber | *an old but ACTIVE subscriber is kept* |
+| C9 made silent again | *a failing role re-check keeps the session AND records the degradation* |
+| degradations dropped from the health report | two health tests |
+| a sustained failure no longer turns the status red | *a sustained revocation failure turns the deployment DEGRADED* |
+| alarm on a single blip (cry wolf) | *a few failures are the blip the fallback exists for* |
+| every kind reported as 0 | four tests, including *ABSENT, not zero* |
+| unknown kinds accepted | *an unknown kind is refused* |
+| `rows=0` dropped by truthiness | *a zero is reported, not dropped* |
 
-Also asserted: the report names only what it actually removed, no statement reports an `:error` (which would mean a column that does not exist in the committed schema), and a missing binding is survived rather than thrown — the cron must not break on a deployment that has not bound every database.
+The C9 test reproduces the exact situation: a valid KV session, a live-role read that throws. It asserts **both** that the request still succeeds (the trade is intact) and that the degradation was recorded.
+
+One of my own test bugs, caught and fixed: the first draft's health env was not config-complete, so `healthCheck` returned `degraded` for missing config while looking like a threshold bug. There is now an explicit assertion that the suite's env is genuinely healthy, *"or nothing below means anything"*.
 
 ```
-mgmt/backend: 933 passed (925 + 8)
+mgmt/backend: 952 passed (933 + 19)
 ```
-
-## What remains of PR-48
-
-The **telemetry** half — request/job ids, cache HIT/MISS, rows read, payload bytes, latency, queue depth, snapshot age, budget usage, and alerts. That is a cross-cutting change through the router, the cache layer and every D1 call, and it is where carry-over **C9** belongs: `verifyToken`'s revocation check fails open on an audit-DB error, which is the right availability trade (failing closed would log every admin out during a D1 blip) but is currently **invisible**. Making it observable is a telemetry change, not a security one, so it goes with that half rather than being bolted on here.
 
 ---
 
@@ -153,7 +158,7 @@ The **telemetry** half — request/job ids, cache HIT/MISS, rows read, payload b
 | ~~C5~~ ✅ | `H-6 … WITHOUT decoding` test flake (asserted `ms < 250`) | Reproduced on `main`: **3 failures in 6 runs** under load, with a message that falsely blamed the code. Now asserts the `atob` call count is 0 — the property the title always claimed — plus a control assertion so a mis-wired spy cannot pass. **0 failures in 12 runs** under the same load | **Done — this PR** |
 | ~~C6~~ ✅ | Migration CI only scans `mgmt/db/migration/2026-09-05/` | Widening it did fail, on twelve files — nine appliable, two that span THREE databases and cannot be run whole, one already in the schema. All now declared in `migration-matrix.test.mjs`; CI scans all four folders | **Done — this PR** |
 | C7 | 160 `svelte-check` warnings in the mgmt SPA | Mostly label association — belongs with the a11y work, then fail-on-warning | PR-40 / PR-46 |
-| C9 | `verifyToken` revocation check still fails open on an audit-DB error | Availability trade-off; KV deletion (#319) is now the authoritative revocation | Revisit with W4 observability |
+| ~~C9~~ ✅ | `verifyToken` revocation check fails open on an audit-DB error | The trade was right — failing closed logs every admin out during a D1 blip — but it was **silent**: a deployment where the check had thrown all day reported `status: 'ok'`. Now counted and surfaced by `?health=1`, which turns **degraded** past a threshold (a handful is the blip the fallback exists for; a sustained count means demoted accounts are still working) | **Done** |
 | C10 | React mgmt main chunk at 218.3 kB vs 230 kB CI budget | Little headroom left; not a regression. The two SvelteKit apps had **no** budget at all until this PR — that gap is now closed (602 kB / 999 kB gated) | Reducing the React chunk itself is still open |
 | C11 | Consent photos/signatures already archived to Drive by earlier runs are still anonymously readable | Code no longer publishes them (#325), but existing files need a one-off ACL remediation | Operational step: dry-run report → apply, before the next archive |
 | ~~C12~~ ✅ | Public visitor IPs stored raw in `error_log.client_ip`, `context.edgeIp` **and the KV rate-limit key** | #356 pseudonymised the first two and deliberately left the KV key, on the grounds that it expires in ~65s. That was the wrong call — a KV snapshot still lists everyone who has just visited — and #356’s own test contradicted it, passing only because the write is sampled 1-in-5. Closed properly in the follow-up: the limiter keys on the pseudonym too, salt cached per namespace so the hot path gains no KV read | **Done** |

@@ -4,6 +4,7 @@
 // Everything else (LOGIN table, LOCKED YEARS, MANUAL YEARS) lives in `core` D1.
 
 import { newCsrfToken } from './cookies.js'; // audit H-12: CSRF token minted with each session
+import { recordDegradation, DEGRADATIONS } from './telemetry.js'; // PR-48 / C9: fail-open must be audible
 import { beginLoginChallenge } from './twoFactor.js'; // 2FA login challenge (Superadmin TOTP)
 
 const SESSION_SHORT_MS = 8 * 60 * 60 * 1000;      // 8 hours (not "remember me") — matches Code.js exactly
@@ -622,6 +623,18 @@ export async function verifyToken(env, token) {
   } catch (e) {
     // Fall through with the cached session (fail-safe, availability over the
     // rare stale-role window during a DB outage).
+    //
+    // carry-over C9. The trade above is the right one — failing closed would log every
+    // admin out during a transient D1 blip — but until now it was also COMPLETELY
+    // SILENT. A deployment where this read had been throwing for a day looked exactly
+    // like a healthy one, while every demoted or deleted account carried on with its
+    // cached role. The fix for C9 was never "fail closed"; it was "say so".
+    //
+    // Not awaited: this is inside a catch block whose entire job is to keep working when
+    // something is already broken, and making the fallback wait on another I/O call
+    // would make it less reliable than it was before. Counted, surfaced by `?health=1`,
+    // and left to the operator to act on.
+    recordDegradation(env, DEGRADATIONS.REVOCATION_CHECK, (e && e.message) || '').catch(() => {});
   }
 
   // REMOTE LOGOUT — second line of defence.
