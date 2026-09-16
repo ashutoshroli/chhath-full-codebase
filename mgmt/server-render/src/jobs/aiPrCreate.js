@@ -9,6 +9,7 @@
 
 import { config } from '../config.js';
 import { gh, githubGetFile, isBlockedPath, toBase64Utf8 } from '../lib/github.js';
+import { checkWritablePath, checkDiffWithinContext, checkBranchName } from '../lib/aiWritePolicy.js';
 import { applyUnifiedDiff, pathsInDiff } from '../lib/diffApply.js';
 
 export async function runAiPrCreate(payload) {
@@ -19,11 +20,29 @@ export async function runAiPrCreate(payload) {
 
   const [owner, repo] = config.githubRepo.split('/');
 
-  // 1) Which files does the diff touch? Re-check the blocklist (defence in depth).
+  // 1) Which files does the diff touch? Gate every one of them (audit Render/offload #7).
+  //
+  // This used to be the denylist alone, which fails open: `.github/workflows/*.yml` — code
+  // that runs in CI with the repository's secrets — and `package.json` were both writable.
+  // `checkWritablePath` is an ALLOWLIST of source roots and extensions, with the old
+  // denylist still applied inside them as a second line.
   const paths = pathsInDiff(diff);
   if (!paths.length) throw new Error('The diff does not name any file to change.');
+  const writePaths = [];
   for (const p of paths) {
-    if (isBlockedPath(p)) throw new Error(`Refusing to modify a protected path: ${p}`);
+    const verdict = checkWritablePath(p, isBlockedPath);
+    if (!verdict.ok) throw new Error(verdict.error);
+    writePaths.push(verdict.path);
+  }
+
+  // And the containment that does not depend on having listed the dangerous paths
+  // correctly: the diff may only touch files the model was SHOWN. Its input includes error
+  // text and CI logs, which a third party can influence, so a diff that reaches for a file
+  // outside its context set is refused as a whole.
+  const contextPaths = (payload && Array.isArray(payload.files)) ? payload.files : null;
+  if (contextPaths) {
+    const scoped = checkDiffWithinContext(writePaths, contextPaths);
+    if (!scoped.ok) throw new Error(scoped.error);
   }
 
   // 2) Fetch current content + sha for each touched file.
@@ -53,6 +72,10 @@ export async function runAiPrCreate(payload) {
 
   // 5) Create the fix branch off the base head. If it exists (retry), reuse it.
   const branch = `fix/error-${errorId}`;
+  // `branch` is interpolated into `refs/heads/<branch>`, so an unvalidated id could climb
+  // out of that namespace. Validated rather than trusted (audit Render/offload #7).
+  const branchVerdict = checkBranchName(branch);
+  if (!branchVerdict.ok) throw new Error(branchVerdict.error);
   try {
     await gh('POST', `/repos/${owner}/${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: baseSha });
   } catch (e) {
