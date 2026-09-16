@@ -17,6 +17,16 @@ process.env.DRIVE_OAUTH_REFRESH_TOKEN ||= 'rtok';
 
 const { runPdfConvertBatch } = await import('../src/jobs/pdfConvertBatch.js');
 
+// A real .docx is a ZIP, so the batch contract requires the decoded bytes to start with
+// the local-file-header magic `PK\x03\x04` (audit Render/offload #2). The old fixture was
+// 'UEsDBok', which decodes to PK\x03\x06 — not a ZIP header at all, so it now describes an
+// item the contract refuses. These bytes are a valid header with a placeholder body, which
+// is what the Drive stub is standing in for.
+const DOCX_B64 = Buffer.concat([
+  Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+  Buffer.from('docx-body-placeholder'),
+]).toString('base64');
+
 test('rejects an empty batch', async () => {
   await assert.rejects(() => runPdfConvertBatch({}), /items is required/);
   await assert.rejects(() => runPdfConvertBatch({ items: [] }), /items is required/);
@@ -47,9 +57,9 @@ test('converts a batch and isolates a per-record failure', async () => {
     const res = await runPdfConvertBatch({
       docType: 'receipt', year: 2026,
       items: [
-        { recordId: 'receipt-2026-1', base64: 'UEsDBok', fileName: 'good1.docx' },
-        { recordId: 'receipt-2026-2', base64: 'UEsDBok', fileName: 'bad2.docx' },
-        { recordId: 'receipt-2026-3', base64: 'UEsDBok', fileName: 'good3.docx' },
+        { recordId: 'receipt-2026-1', base64: DOCX_B64, fileName: 'good1.docx' },
+        { recordId: 'receipt-2026-2', base64: DOCX_B64, fileName: 'bad2.docx' },
+        { recordId: 'receipt-2026-3', base64: DOCX_B64, fileName: 'good3.docx' },
       ],
     });
     assert.equal(res.results.length, 3);

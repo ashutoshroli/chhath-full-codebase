@@ -19,6 +19,9 @@
 #   public-harness  the public Worker under workerd, on real D1/KV/Cache. Separate job
 #                   because it installs the workerd binary; the fast checks above must
 #                   not wait for it
+#   render-service  the Render offload service's own suite. It existed and CI never ran
+#                   it, so nothing caught a Worker/Render contract change breaking the
+#                   separately-deployed, auto-deploying service
 #
 # Deliberately NOT here: `wrangler deploy`, `npm audit --audit-level=high` as a
 # hard gate (one unfixable transitive advisory is handled by an npm override and
@@ -86,6 +89,33 @@ jobs:
             node --check "$f"
           done
           echo "node --check OK: $(ls mgmt/backend/src/*.js Public/backend/src/*.js | wc -l) files"
+
+  # The Render offload service's own suite. audit Render/offload #11: these tests have
+  # existed and CI has never run them, so nothing stopped a change to the Worker/Render
+  # contract from breaking the service that is deployed separately and auto-deploys.
+  #
+  # Brought forward from PR-46 (CI gates) because the byte-contract work in this wave is
+  # unverifiable without it: half the contract is enforced HERE, and a test nobody runs
+  # is documentation.
+  render-service:
+    name: Render service tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # No lockfile in this service yet (audit Render/offload #10 — it resolves semver at
+      # deploy time and auto-deploys, which is its own finding and its own PR). `npm
+      # install` is therefore what reproduces what Render actually runs today.
+      - name: Install
+        working-directory: mgmt/server-render
+        run: npm install --no-audit --no-fund
+
+      - name: Test suite
+        working-directory: mgmt/server-render
+        run: npm test
 
   # The public Worker running for real: workerd, real D1 built from the committed
   # schema in mgmt/db/schema/, real KV and the real Cache API (audit PUB-BE-08).
