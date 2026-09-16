@@ -6,6 +6,7 @@
    * in a session it stays closed (sessionStorage), so it isn't nagging.
    */
   import { X, ChevronLeft, ChevronRight } from '@lucide/svelte';
+  import { dialog } from '$lib/a11y/dialog'; // audit PR-36
   import { browser } from '$app/environment';
   import { onMount } from 'svelte';
   import { loadActivePopups } from '$lib/api/client';
@@ -100,15 +101,14 @@
     idx = (idx + dir + slides.length) % slides.length;
   }
 
+  // Escape now belongs to `use:dialog`; the arrows stay here because they are this
+  // component's own carousel controls. Bound to the dialog node rather than the window, so
+  // they cannot fire for a popup that is not on screen.
   function onKey(e: KeyboardEvent) {
-    if (!open) return;
-    if (e.key === 'Escape') close();
-    else if (e.key === 'ArrowRight') go(1);
+    if (e.key === 'ArrowRight') go(1);
     else if (e.key === 'ArrowLeft') go(-1);
   }
 </script>
-
-<svelte:window onkeydown={onKey} />
 
 {#if open && slides.length > 0}
   {@const s = slides[idx]}
@@ -126,6 +126,8 @@
       aria-modal="true"
       aria-label={(popup?.title ?? 'Announcement').toString()}
       tabindex="-1"
+      use:dialog={{ onclose: close }}
+      onkeydown={onKey}
       onclick={(e) => e.stopPropagation()}
     >
       <button
