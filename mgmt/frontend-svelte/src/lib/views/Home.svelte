@@ -15,6 +15,7 @@
   import { createDropdownList } from '$lib/dropdownList';
   import { isTruthyFlag } from '$lib/flags';
   import { checkMoney } from '$lib/money';
+  import { personOptions } from '$lib/personOption';
 
   interface Props {
     year: string;
@@ -84,7 +85,9 @@
     (users || []).forEach((u) => (m[u.ID] = u));
     return m;
   });
-  let userOptions = $derived((users || []).map((u) => ({ value: u.ID, label: u.Name, sub: u.Village })));
+  // Name + father's name, so two same-name people in one village are distinguishable — and
+  // searchable by either (see lib/personOption.ts).
+  let userOptions = $derived(personOptions(users));
 
   // Contribution history for the selected contributor (matches deps [form.Name]).
   let lastHistName = '__init__';

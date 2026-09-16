@@ -12,6 +12,7 @@
   import { createDropdownList } from '$lib/dropdownList';
   import { checkMoney } from '$lib/money';
   import LoanConsentModal from '$lib/components/LoanConsentModal.svelte';
+  import { personOption } from '$lib/personOption';
 
   interface Props {
     year: string;
@@ -108,7 +109,7 @@
     if (!contributorIds) return [];
     return (users || [])
       .filter((u) => contributorIds!.has(u.ID))
-      .map((u) => ({ value: u.ID, label: u.Name, sub: u.Village }));
+      .map(personOption);   // name + father's name — see lib/personOption.ts
   });
 
   function closeModal() {

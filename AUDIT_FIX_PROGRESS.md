@@ -6,7 +6,7 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status: 32 of 48 PRs merged · 1 open (this one) · 15 pending**
+**Status: 33 of 48 PRs merged · 1 open (this one) · 14 pending**
 
 Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 ✅ done (8/8 — every PUB-BE finding is closed)** · **W3 6/7 in progress** · W4–W7 not started
 
@@ -50,60 +50,56 @@ Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is c
 | [#344](https://github.com/ashutoshroli/chhath-full-codebase/pull/344) | claim the job row before applying a callback | MGMT-BE-02, -03, -04 | The callback's idempotency check was a SELECT with the R2/GitHub side effect between it and the finalising write, so two concurrent callbacks both applied it — a duplicate PDF, or a second pull request. The claim is now the UPDATE; a dead claim is failed rather than retried; jobs whose payload was never stored time out instead of being re-dispatched with the essentials missing; a completed PDF callback bumps `public_data_version` | No migration — `status` is TEXT with no CHECK |
 | [#345](https://github.com/ashutoshroli/chhath-full-codebase/pull/345) | count concurrency instead of milliseconds | — | The assembly test I added in #337 asserted on elapsed wall-clock time and failed on a loaded runner, turning #344's CI red for an unrelated reason. It now counts in-flight D1 reads — the question it was really asking, and one that cannot flake | Same defect shape as C5 |
 | [#346](https://github.com/ashutoshroli/chhath-full-codebase/pull/346) | record three committee-reported items | — | C14 (a declined/rejected consent notifies nobody — loaner + group, decided with the committee), C15 (no father's name in the contributor picker), C16 (the public portal never shows a father's name, for anyone — a trailing-space key mismatch) | C14 needs the first migration of the effort |
+| [#347](https://github.com/ashutoshroli/chhath-full-codebase/pull/347) | make the public chat's limits actually limit | Render #8 | The per-IP limiter was keyed on the FIRST `X-Forwarded-For` hop, which the caller writes — measured on `main`: 200 forged requests, **0 limited**, against a 15/min ceiling. The IP is now read from the right; a global concurrency cap and a daily token budget answer a fast `503` before any provider work; the slot is released in `finally`. An existing test that PINNED the vulnerability is corrected | The shared (cross-instance) counter → PR-32, which is already opening Neon |
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — the public chat's limits actually limit
+## 2. This PR — the father's name, where it was supposed to be (C15, C16)
 
-**Audit ID:** Render/offload #8. Fifth W3 PR.
+Both items came from the committee using the live portal. Neither is an audit finding; both are real.
 
-`/public-chat` is anonymous, and every request costs money and provider quota. It had one guard — a per-IP sliding window — and that guard was keyed on **a value the caller writes**:
+### C15 — the contributor picker could not tell two people apart
+
+`Home.svelte` and `Loans.svelte` each built `{ value: ID, label: Name, sub: Village }`, and `u["Father's Name"]` sat on the row unused.
+
+The reported screenshot of the Add Collection dropdown contains **two `Ajay Verma`** — one Gardih, one Shaharpura. Village separates *those* two. It does **not** separate two people with the same name in the *same* village, and that is exactly when the wrong contributor is selected and **a contribution is recorded against the wrong person**. Money on the wrong name is not a cosmetic problem.
+
+The father's name now goes in the **label**, beside the name — where it disambiguates at a glance, and where `SearchableSelect` already filters, so searching a father's name finds his sons. Both call sites (and `LoanConsentModal`, which is passed its options) now share one `personOption` helper, so they cannot drift apart again.
+
+An absent father's name renders **nothing**, not empty brackets: `Aarohi bharti ( )` is worse than `Aarohi bharti` — it reads as data that failed to load, which is how the original report was phrased.
+
+### C16 — the public portal never showed a father's name, for anyone
+
+Found while checking C15. The portal's column headers originate in the spreadsheet this system replaced, and some carried a **trailing space**. The public Worker still emits them that way:
 
 ```js
-const xff = headers['x-forwarded-for'].split(',')[0].trim();   // the FIRST hop
+fathers_name: "Father's Name "        // note the space
 ```
 
-`X-Forwarded-For` is built by each proxy **appending** the address it received from, so the left-hand entries are whatever the caller claimed and only the rightmost were added by infrastructure we control. Sending a different value per request therefore makes every request a new "IP".
-
-Measured on `main`: **200 requests from one client, each forging a different first hop → 0 were limited**, against a configured ceiling of 15/minute. A limiter keyed on a value the caller chooses is not a limiter; it is a formality.
-
-Done:
-
-- **The IP is read from the right.** With one trusted proxy in front (Render's), the last entry is the address that proxy actually observed. `CHAT_TRUSTED_PROXY_HOPS` (default 1) says how many hops to skip if that changes, and a *wrong* value clamps towards the proxy's own address — which throttles everyone rather than nobody, the safe direction for a limiter.
-- **Absolute ceilings, because the per-IP window answers the wrong question.** It catches one greedy caller; it cannot catch total cost, and 200 IPs each politely inside the window still bought 200 model calls. So: a **global concurrency cap** and a **daily token budget**, both checked *before* any provider work, both answering a fast `503` rather than queueing — holding the request open would tie up memory and a connection while the caller waits for something already saturated.
-- **The slot is released in a `finally`.** A slot leaked on the error path would saturate the endpoint permanently after a handful of provider failures — exactly when it most needs to still work.
-- The budget resets by **UTC day key**, not by a timer, so a process that sleeps through midnight still starts the new day at zero. Unparseable token counts contribute nothing rather than `NaN`.
-
-**An existing test was pinning the vulnerability.** `publicChat.test.mjs` asserted `clientIpFrom` *"prefers the first X-Forwarded-For hop"` — the exact behaviour that made the bypass work. It now asserts the opposite, with the reason recorded.
-
-**Migrations & setup:** **no migration.** Three optional variables, all with defaults that are already the intended posture:
+while `derive.ts` read `user["Father's Name"]` without one. Nothing errored — `fatherName` was simply always `''`, so `ContributorDetail`'s `{#if displayFather}` never rendered. Verified against `main` with the real payload shape:
 
 ```
-CHAT_TRUSTED_PROXY_HOPS = 1        # Render puts exactly one proxy in front
-CHAT_MAX_CONCURRENT     = 4
-CHAT_DAILY_TOKEN_BUDGET = 200000
+>>> on main, fatherName = "" (worker sends it under "Father's Name ")
 ```
 
-**Stated limitation, not hidden:** both new counters are **in-process**. Render can run more than one instance, so the effective ceiling is (instances × limit). Making it exact needs a shared store, and the only one this service has is Neon — which PR-32 is already opening for the chat retention work. Putting the shared counter there is better than building a second, throwaway mechanism here.
+Fixed on the **read** side, in a `rowField` helper that tries the exact key, then the trailing-space variant, then a normalised match (trimmed, inner whitespace collapsed, curly apostrophe folded — `Father’s Name` has been seen too). Renaming the wire key would be one line here and a **breaking change for every other reader** of that payload: the older frontends, the chatbot's context builder, anything holding a cached copy. `mgmt/backend/src/tableRegistry.js` already solved the same problem the same way for its *inbound* lookups and documents why.
+
+Applied to all eight user-field reads, so `Mobile ` — the other spaced header — is correct too, rather than waiting to be reported.
+
+**Migrations & setup:** **none** for either. No schema change, no variable, nothing to run. Both are frontend-only.
 
 ## Verification
 
-`mgmt/server-render/test/chatAbuseControls.test.mjs` — 15 tests:
-
-| | on `main` | on this branch |
-|---|---|---|
-| 200 requests, a different forged first hop each | **0 limited** | the window fills |
-| three forged left-hand entries, same real client | three distinct limiter keys | one |
-| 200 callers each inside the per-IP window | 200 model calls | capped, then fast `503` |
-| a day's token spend | unbounded | `503` once the budget is spent |
-| a provider failure mid-request | — | the slot is released in `finally` |
-
-Also pinned: no header falls back to the socket address; a hop count larger than the chain clamps to the leftmost; the ceilings are checked *before* `getPublicChatProviders`; and the first-hop read is gone from the guards module.
+- `Public/frontend-v6/src/lib/api/rowField.test.ts` — 11 tests, including a contributor built from the **real** payload shape (trailing spaces included) whose `fatherName` is populated, and one with no father recorded that still builds.
+- `mgmt/frontend-svelte/src/lib/personOption.test.ts` — 12 tests, including the case village cannot solve: two `Ajay Verma` in **one** village now produce different labels.
 
 ```
-mgmt/server-render: npm test -> 134 passed (119 + 15)
+Public/frontend-v6:      npm test -> 80 passed (69 + 11) · svelte-check 0 errors · build OK
+mgmt/frontend-svelte:    npm test -> 58 passed (46 + 12) · svelte-check 0 errors · build OK
 ```
+
+C14 — the decline/reject notification — is the remaining one of the three, and needs the first migration of this effort, so it stays its own PR.
 
 ---
 
@@ -134,5 +130,5 @@ mgmt/server-render: npm test -> 134 passed (119 + 15)
 | C12 | Public visitor IPs are stored raw in `error_log.client_ip` (and in `context.edgeIp`) | Hashing them needs a salt SECRET to be worth anything — an unsalted hash of an IPv4 is 2^32 to reverse — so it is a deployment step (`wrangler secret put`) plus a fallback path, not a code-only change. Split out of PR-22 to keep the authenticity fix reviewable | Own PR, with the retention window, before W3 |
 | C13 | `portalData` still materialises whole tables; the other seven sections still read `SELECT *` and filter in JS | Bounding the payload for real means PAGINATING the public contract, which changes all six frontends — a contract decision, not a fix. PR-24 makes the size visible (a section past 20k rows is logged) instead of pretending it is bounded. Truncating a transparency payload was rejected: hiding contributions is worse than a slow page | Contract decision, then its own PR; the row-count log is the trigger |
 | C14 | **Consent `declined` / `rejected` sends nothing at all.** `respondConsent` notifies only on `accepted`; `setConsentVerification` notifies only on `verified`. So a loaner is never told his loan is blocked by a guarantor's refusal — he simply waits — the committee is not told either, and the remarks the decliner is *forced* to write (`'Remarks are required in order to Decline.'`) are visible only if someone opens the Consent Review screen. | New `consent_declined_*` / `consent_rejected_*` templates on the existing naming convention, WhatsApp + email. **Recipients (decided with the committee): the LOANER and the GROUP.** Remarks go to the group message; the loaner is told it was declined and by whom, without the raw remark text, which can be blunt — say so if that should change. **Needs a migration** (seed the new template rows) — the first migration since W0 — plus an operator pass to review the wording before it is used. | Own PR, after W3 |
-| C15 | **The contributor picker shows no father's name.** `Home.svelte` builds `{ value: ID, label: Name, sub: Village }`; `u["Father's Name"]` is on the row and unused. Village separates the two *Ajay Verma* rows in the reported screenshot (Gardih / Shaharpura) but **two same-name people in the same village are indistinguishable** — which is exactly when the wrong contributor is picked and money is recorded against the wrong person. | Add father's name to the option and to the search text, in every picker sharing `SearchableSelect`. No migration, no setup. | Own PR with C16 |
-| C16 | **The public portal never shows a father's name — for anyone.** The public Worker emits the key with a TRAILING SPACE (`fathers_name: "Father's Name "`, inherited from the original sheet headers) and `Public/frontend-v6/src/lib/api/derive.ts:268` reads `"Father's Name"` without it, so `fatherName` is always `''` and `ContributorDetail.svelte`'s `{#if displayFather}` never renders. Found while checking C15; mgmt is unaffected (its alias is exact and its inbound lookup already normalises — see the note at `tableRegistry.js:75`). | Normalise the header lookup on the READ side, not the wire key: changing the key would break any other reader. No migration, no setup. | Own PR with C15 |
+| ~~C15~~ ✅ | **The contributor picker shows no father's name.** `Home.svelte` builds `{ value: ID, label: Name, sub: Village }`; `u["Father's Name"]` is on the row and unused. Village separates the two *Ajay Verma* rows in the reported screenshot (Gardih / Shaharpura) but **two same-name people in the same village are indistinguishable** — which is exactly when the wrong contributor is picked and money is recorded against the wrong person. | Add father's name to the option and to the search text, in every picker sharing `SearchableSelect`. No migration, no setup. | **Done — this PR** |
+| ~~C16~~ ✅ | **The public portal never shows a father's name — for anyone.** The public Worker emits the key with a TRAILING SPACE (`fathers_name: "Father's Name "`, inherited from the original sheet headers) and `Public/frontend-v6/src/lib/api/derive.ts:268` reads `"Father's Name"` without it, so `fatherName` is always `''` and `ContributorDetail.svelte`'s `{#if displayFather}` never renders. Found while checking C15; mgmt is unaffected (its alias is exact and its inbound lookup already normalises — see the note at `tableRegistry.js:75`). | Normalise the header lookup on the READ side, not the wire key: changing the key would break any other reader. No migration, no setup. | **Done — this PR** |
