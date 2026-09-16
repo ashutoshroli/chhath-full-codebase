@@ -69,6 +69,7 @@ Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-
 | [#363](https://github.com/ashutoshroli/chhath-full-codebase/pull/363) | make the chat retention window real, and give the chat tables constraints | PR-32 | The retention policy was two commented-out DELETEs under *"OPTIONAL ... if you want to keep the free tier small"* — a privacy commitment framed as housekeeping, and never run, so every public question ever typed was still stored. Now code. Plus FK + CHECK via Postgres `NOT VALID` (the analogue of D1’s partial indexes), and `ON DELETE CASCADE`, which is what makes retention correct rather than tidy | `db/neon/02-constraints-and-retention.sql`; optional `CHAT_RETENTION_DAYS` |
 | [#364](https://github.com/ashutoshroli/chhath-full-codebase/pull/364) | retention for the tables it forgot, and the one it half-covered | PR-48 | `boundedBlank` cleared `filled_base64` only for `status = 'done'`, so a **failed** job kept its whole base64 `.docx` for ever — and failed jobs are the ones that accumulate. The sweep written because that column is "the fastest route to the 5 GB limit" was leaking through the half it did not cover. Plus `render_jobs`, `ai_fixes`, official mail and dead push subscriptions, each with a rule that age alone would have got wrong | No migration |
 | [#365](https://github.com/ashutoshroli/chhath-full-codebase/pull/365) | make the fail-open fallbacks audible | PR-48, C9 | `verifyToken` carries on with a cached session when the live-role read throws — the right trade, but **silent**: a deployment where it had thrown all day reported `status: 'ok'` while demoted and deleted accounts kept working. Counted in KV, surfaced by `?health=1`, **degraded** past a threshold. A log line was rejected: rare → lost in noise, frequent → floods the one place the committee looks | No migration |
+| [#370](https://github.com/ashutoshroli/chhath-full-codebase/pull/370) | wire the request id #365 built and never used | PR-48 | #365 shipped `newRequestId()` and `requestSummary()` with the log format tested and **zero callers** — found while auditing my own work; a tested format that is never emitted is worse than none, because the tests make it look done. The id now appears as `X-Request-Id` (with `Access-Control-Expose-Headers`, or the page cannot read it), on one `[req]` line per request, and **in the `error_log` context — the join key**, without which an error row and the request that produced it had nothing in common. A line not a table (a row per request would bury the real errors in the committee's error screen); `degraded` marks only unexpected faults; the id is per-request and server-minted. Of eleven mutations, ten failed at once — **the eleventh exposed a gap in my own test** | None |
 | [#369](https://github.com/ashutoshroli/chhath-full-codebase/pull/369) | publish the donation details atomically, and validate them on the server | C3 | The seven `donation_*` keys ARE the page telling people where to send money, and both frontends published them in a **seven-call loop** with no server validation. Proven on `main`: failing call 4 of 7 left the NEW UPI id live beside the OLD account number and OLD IFSC — a transfer from that page reaches a bank the committee has left. And `money.ts` validates in the BROWSER only; the retained React app validated **nothing**. One `setPortalSettings` now validates everything before writing anything and writes via a D1 `batch` (all-or-none). The account⇔IFSC rule is enforced on the SET and deliberately not per key, since the old loop necessarily passed through that state. Also fixed: `setPortalSetting` was a racy `SELECT`-then-write, now an upsert; and omitting the action from `EXPECTED_MUTATING_ACTIONS` would have left it **CSRF-unprotected** on a cookie session, not merely unclassified | None |
 | [#368](https://github.com/ashutoshroli/chhath-full-codebase/pull/368) | stop writing visitors' addresses into the mgmt Worker's KV keys | C12 (mgmt half) | C12 had been called closed twice and was not: #362 named one mgmt function, and the mgmt Worker had **five** keys spelling out an address — the broadest being `rl:<action>:<ip>:<bucket>`, i.e. every rate-limited public action. A probe on `main` printed all five, populated. All five now key on an HMAC under a **daily-rotating salt** that expires after two days; no fallback to the address, and the salt is cached per namespace (a `WeakMap` on the binding, not a module global). The announce-PIN gate is the deliberate exception — it does not fail open, so with no salt it degrades to the **token-only** key rather than skipping a 6-digit PIN's only brake. `login_attempts.ip`, `user_sessions.ip`, the consent record and `loginfail:` keep the address: named staff accounts and legal evidence, not passers-by. The invariant is a KV **sweep** with one named exception, so a new leaking key fails without anyone adding a case | None — nothing reached D1, no secret |
 | [#367](https://github.com/ashutoshroli/chhath-full-codebase/pull/367) | how to rebuild the databases before launch, and the two traps in doing it | — (operator half of #366) | §W8g: the portal has not launched and D1 holds only test data, so the clean start is nine databases built from `schema/*.sql`. Two things would have made that quietly wrong: **eight** tables are `CREATE TABLE IF NOT EXISTS` with no `DROP` and survive a re-apply, so "re-apply to reset" gives a partial reset that looks complete; and the schema creates tables but not the **five** seed rows migrations insert — without `32-consent-decline-templates` a declined consent notifies nobody, the exact failure #349 already had once. Migrations 11/12/13, 33 and §W8f become unnecessary on a rebuilt DB; `migrate.mjs adopt` records history without running anything, which is also the only thing that works (the six ADD-COLUMN migrations fail on `duplicate column` against the end state). The test written for the runbook caught the runbook saying "nine" when the list has eight | Operator: §W8g, 5 confirmations |
@@ -77,76 +78,39 @@ Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-
 
 ---
 
-## 2. This PR — the request id #365 built and never used
+## 2. This PR — correcting this file
 
-**Audit ID:** **PR-48** (observability), finishing my own unfinished work. No migration, no
-operator step.
+**Audit ID:** none. Housekeeping on the tracker, prompted by re-reading it end to end after
+the backend work closed.
 
-#365 added `newRequestId()` and `requestSummary()` to `telemetry.js`, tested the log format,
-and wired them to **nothing**. Both had zero callers. I found that while auditing my own
-work, and a tested format that is never emitted is worse than no format, because the tests
-make it look done.
+Five carry-over rows still said **"Done — this PR"**, which was true when each was written
+and false afterwards: C5 shipped in #355, C6 in #353, C14 in #349, C15 and C16 in #348, and
+C10's bundle-budget note also belonged to #355. A row that says "this PR" in a file listing
+forty PRs points at nothing. Each now names the PR that shipped it.
 
-### The point is the join
+Section 3 also claimed, flatly, that "every backend and database wave is now done". That
+overstates it in the same way #362 overstated C12. Two carry-overs still touch the backend
+and are **not** defects, and the file now says so rather than leaving them to look
+forgotten:
 
-An `error_log` row and the log line describing the request that produced it had **nothing in
-common**. So "what else happened in that request" was unanswerable, and an operator
-reporting "it failed" gave us nothing to search on. The id now appears in three places, and
-any two of them without the third is useless:
+- **C4** — rendering the collection DOCX server-side is a feature change.
+- **C13** — bounding `portalData` means paginating the public contract, a decision that
+  changes all six frontends. #324 made the size visible instead of pretending it is bounded.
 
-| where | why |
-|---|---|
-| the response, as `X-Request-Id` | so the caller has something to quote — on failures above all |
-| one `[req]` line per request | action, method, status, ms, cache, user, degraded |
-| the `error_log` context | **the join key.** Without it the other two are decoration |
+What *is* true, and is what the section now says: every backend and database wave is
+complete, and every backend carry-over that was a defect is closed.
 
-`Access-Control-Expose-Headers` had to be added too: without it the browser hides the header
-from JavaScript, so the frontend could not read the id and the whole point would be lost.
-
-### Choices worth stating
-
-- **A log line, not a table.** A row per request in `error_log` would bury the actual errors
-  in the committee's error screen within a day — the opposite of observability. Lines go to
-  `wrangler tail`, cost nothing and are free to discard.
-- **`degraded` only for unexpected faults.** A session timing out or a validation message is
-  routine; marking those degraded would make the field meaningless exactly when it matters.
-- **The id is per request, and server-minted.** A module-scoped id would correlate unrelated
-  requests in the same isolate — worse than none. And a client-supplied one would let an
-  attacker's error row be made to look like part of somebody else's request, so `__requestId`
-  is set from the server's value only, after the body is parsed.
-- **Telemetry can never break a response.** `logRequest` swallows everything: it runs after
-  the body is built, and a line that can fail a request is not worth having.
-- **No re-indentation.** The id is minted inside `fetch` and used at the two final return
-  points rather than in a wrapper around the handler. A wrapper would have meant re-indenting
-  ~1000 lines, which would also have broken the Q-8 test's structural parse of the router
-  table for no behavioural gain.
-
-## Verification
-
-```
-mgmt/backend        1024 passed (1011 + 13)
-Public/backend      159 unit + 25 integration passed
-mgmt/server-render  181 passed
-lint:errors         clean
-```
-
-**Eleven mutations were checked. Ten failed the suite immediately**: a module-scoped id;
-the header dropped from the success path; dropped from the error path only;
-`Access-Control-Expose-Headers` removed; the id kept out of the error-log context; an
-expected refusal also marked degraded; the cache outcome always reported `MISS`;
-`logRequest` allowed to throw; and the client's `context` allowed to overwrite our fields.
-
-**The eleventh passed, and that was a gap in my test.** Letting a client-supplied
-`__requestId` win left the *header* correct — it is built from the local variable — and
-poisoned only the error-log context, which is where it matters, because a chosen id lets an
-attacker's row be made to look like part of someone else's request. The test asserted the
-header alone. It now asserts the stored context as well, and the mutation fails.
+**Nothing in this PR changes behaviour.** No source file is touched.
 
 ---
 
 ## 3. Pending
 
-**Every backend and database wave is now done.** What is left is frontend and toolchain.
+**Every backend and database wave is done, and so is every backend carry-over that was a
+defect.** What is left is frontend and toolchain — plus two items that are deliberately not
+fixes and are recorded as such: **C4** (rendering the collection DOCX server-side is a
+feature change) and **C13** (bounding `portalData` means paginating the public contract,
+which is a decision affecting all six frontends). Neither is a bug waiting to be fixed.
 
 **W3 — Render / AI / chat ✅ done:** the PR-32 remainder shipped in [#363](https://github.com/ashutoshroli/chhath-full-codebase/pull/363) — Neon FK/cascade, the role CHECK and automated raw-content retention, using `NOT VALID` so the constraints govern new writes without failing on legacy rows. (TLS verification, the keyed rotating IP pseudonym and server-issued session ids shipped in #351.)
 **W4 — Database ✅ done (3/3):** ~~duplicate/orphan detection (#354)~~ · ~~partial unique indexes + loan relations (#359)~~ · ~~migration ledger + runner (#361)~~
@@ -166,14 +130,14 @@ header alone. It now asserts the stored context as well, and the mutation fails.
 | C2 | Retained React app: no auth-expiry handling, no tests | No test harness there; it is the rollback target, so changes need their own verification | PR-47 (retained-app hardening) |
 | ~~C3~~ ✅ | Donation settings published **one key at a time**, with no server-side validation | The seven `donation_*` keys ARE the page telling people where to send money. Proven on `main`: a failure on call 4 of 7 left the NEW UPI id live beside the OLD account number and OLD IFSC — a transfer from that page reaches a bank the committee has left. And the server validated nothing: `money.ts` checks in the browser, and the retained React app checked **nothing at all**, so a typo'd account number went live from there. One atomic `setPortalSettings` (a D1 `batch`, so all-or-none), validated before any write, wired in both frontends | **Done** |
 | C4 | Collection DOCX still rendered client-side | Server-side rendering is a feature change, not a fix | Post-W3 |
-| ~~C5~~ ✅ | `H-6 … WITHOUT decoding` test flake (asserted `ms < 250`) | Reproduced on `main`: **3 failures in 6 runs** under load, with a message that falsely blamed the code. Now asserts the `atob` call count is 0 — the property the title always claimed — plus a control assertion so a mis-wired spy cannot pass. **0 failures in 12 runs** under the same load | **Done — this PR** |
-| ~~C6~~ ✅ | Migration CI only scans `mgmt/db/migration/2026-09-05/` | Widening it did fail, on twelve files — nine appliable, two that span THREE databases and cannot be run whole, one already in the schema. All now declared in `migration-matrix.test.mjs`; CI scans all four folders | **Done — this PR** |
+| ~~C5~~ ✅ | `H-6 … WITHOUT decoding` test flake (asserted `ms < 250`) | Reproduced on `main`: **3 failures in 6 runs** under load, with a message that falsely blamed the code. Now asserts the `atob` call count is 0 — the property the title always claimed — plus a control assertion so a mis-wired spy cannot pass. **0 failures in 12 runs** under the same load | **Done — [#355](https://github.com/ashutoshroli/chhath-full-codebase/pull/355)** |
+| ~~C6~~ ✅ | Migration CI only scans `mgmt/db/migration/2026-09-05/` | Widening it did fail, on twelve files — nine appliable, two that span THREE databases and cannot be run whole, one already in the schema. All now declared in `migration-matrix.test.mjs`; CI scans all four folders | **Done — [#353](https://github.com/ashutoshroli/chhath-full-codebase/pull/353)** |
 | C7 | 160 `svelte-check` warnings in the mgmt SPA | Mostly label association — belongs with the a11y work, then fail-on-warning | PR-40 / PR-46 |
 | ~~C9~~ ✅ | `verifyToken` revocation check fails open on an audit-DB error | The trade was right — failing closed logs every admin out during a D1 blip — but it was **silent**: a deployment where the check had thrown all day reported `status: 'ok'`. Now counted and surfaced by `?health=1`, which turns **degraded** past a threshold (a handful is the blip the fallback exists for; a sustained count means demoted accounts are still working) | **Done** |
-| C10 | React mgmt main chunk at 218.3 kB vs 230 kB CI budget | Little headroom left; not a regression. The two SvelteKit apps had **no** budget at all until this PR — that gap is now closed (602 kB / 999 kB gated) | Reducing the React chunk itself is still open |
+| C10 | React mgmt main chunk at 218.3 kB vs 230 kB CI budget | Little headroom left; not a regression. The two SvelteKit apps had **no** budget at all until [#355](https://github.com/ashutoshroli/chhath-full-codebase/pull/355) — that gap is now closed (602 kB / 999 kB gated) | Reducing the React chunk itself is still open |
 | C11 | Consent photos/signatures already archived to Drive by earlier runs are still anonymously readable | Code no longer publishes them (#325). The owner is deleting the existing files by hand, which resolves it — no ACL remediation needed, because the data is test data | **Operator, in hand** |
-| ~~C12~~ ✅ | Visitor IPs stored raw in `error_log.client_ip`, `context.edgeIp` **and the KV keys of both Workers** | #356 pseudonymised the first two and deliberately left the KV key, on the grounds that it expires in ~65s. That was the wrong call — a KV snapshot still lists everyone who has just visited — and #356’s own test contradicted it, passing only because the write is sampled 1-in-5. #362 fixed the public Worker and **called C12 closed. It was not**: it named one mgmt function, and the mgmt Worker had **five** keys spelling out an address, the broadest being every rate-limited public action. This PR does the mgmt half and asserts the invariant as a KV **sweep** with one named exception, so the count cannot be understated a third time | **Done** |
+| ~~C12~~ ✅ | Visitor IPs stored raw in `error_log.client_ip`, `context.edgeIp` **and the KV keys of both Workers** | #356 pseudonymised the first two and deliberately left the KV key, on the grounds that it expires in ~65s. That was the wrong call — a KV snapshot still lists everyone who has just visited — and #356’s own test contradicted it, passing only because the write is sampled 1-in-5. #362 fixed the public Worker and **called C12 closed. It was not**: it named one mgmt function, and the mgmt Worker had **five** keys spelling out an address, the broadest being every rate-limited public action. [#368](https://github.com/ashutoshroli/chhath-full-codebase/pull/368) does the mgmt half and asserts the invariant as a KV **sweep** with one named exception, so the count cannot be understated a third time | **Done** |
 | C13 | `portalData` still materialises whole tables; the other seven sections still read `SELECT *` and filter in JS | Bounding the payload for real means PAGINATING the public contract, which changes all six frontends — a contract decision, not a fix. PR-24 makes the size visible (a section past 20k rows is logged) instead of pretending it is bounded. Truncating a transparency payload was rejected: hiding contributions is worse than a slow page | Contract decision, then its own PR; the row-count log is the trigger |
-| ~~C14~~ ✅ | **Consent `declined` / `rejected` sends nothing at all.** `respondConsent` notifies only on `accepted`; `setConsentVerification` notifies only on `verified`. So a loaner is never told his loan is blocked by a guarantor's refusal — he simply waits — the committee is not told either, and the remarks the decliner is *forced* to write (`'Remarks are required in order to Decline.'`) are visible only if someone opens the Consent Review screen. | New `consent_declined_*` / `consent_rejected_*` templates on the existing naming convention, WhatsApp + email. **Recipients (decided with the committee): the LOANER and the GROUP.** Remarks go to the group message; the loaner is told it was declined and by whom, without the raw remark text, which can be blunt — say so if that should change. **Needs a migration** (seed the new template rows) — the first migration since W0 — plus an operator pass to review the wording before it is used. | **Done — this PR** |
-| ~~C15~~ ✅ | **The contributor picker shows no father's name.** `Home.svelte` builds `{ value: ID, label: Name, sub: Village }`; `u["Father's Name"]` is on the row and unused. Village separates the two *Ajay Verma* rows in the reported screenshot (Gardih / Shaharpura) but **two same-name people in the same village are indistinguishable** — which is exactly when the wrong contributor is picked and money is recorded against the wrong person. | Add father's name to the option and to the search text, in every picker sharing `SearchableSelect`. No migration, no setup. | **Done — this PR** |
-| ~~C16~~ ✅ | **The public portal never shows a father's name — for anyone.** The public Worker emits the key with a TRAILING SPACE (`fathers_name: "Father's Name "`, inherited from the original sheet headers) and `Public/frontend-v6/src/lib/api/derive.ts:268` reads `"Father's Name"` without it, so `fatherName` is always `''` and `ContributorDetail.svelte`'s `{#if displayFather}` never renders. Found while checking C15; mgmt is unaffected (its alias is exact and its inbound lookup already normalises — see the note at `tableRegistry.js:75`). | Normalise the header lookup on the READ side, not the wire key: changing the key would break any other reader. No migration, no setup. | **Done — this PR** |
+| ~~C14~~ ✅ | **Consent `declined` / `rejected` sends nothing at all.** `respondConsent` notifies only on `accepted`; `setConsentVerification` notifies only on `verified`. So a loaner is never told his loan is blocked by a guarantor's refusal — he simply waits — the committee is not told either, and the remarks the decliner is *forced* to write (`'Remarks are required in order to Decline.'`) are visible only if someone opens the Consent Review screen. | New `consent_declined_*` / `consent_rejected_*` templates on the existing naming convention, WhatsApp + email. **Recipients (decided with the committee): the LOANER and the GROUP.** Remarks go to the group message; the loaner is told it was declined and by whom, without the raw remark text, which can be blunt — say so if that should change. **Needs a migration** (seed the new template rows) — the first migration since W0 — plus an operator pass to review the wording before it is used. | **Done — [#349](https://github.com/ashutoshroli/chhath-full-codebase/pull/349)** |
+| ~~C15~~ ✅ | **The contributor picker shows no father's name.** `Home.svelte` builds `{ value: ID, label: Name, sub: Village }`; `u["Father's Name"]` is on the row and unused. Village separates the two *Ajay Verma* rows in the reported screenshot (Gardih / Shaharpura) but **two same-name people in the same village are indistinguishable** — which is exactly when the wrong contributor is picked and money is recorded against the wrong person. | Add father's name to the option and to the search text, in every picker sharing `SearchableSelect`. No migration, no setup. | **Done — [#348](https://github.com/ashutoshroli/chhath-full-codebase/pull/348)** |
+| ~~C16~~ ✅ | **The public portal never shows a father's name — for anyone.** The public Worker emits the key with a TRAILING SPACE (`fathers_name: "Father's Name "`, inherited from the original sheet headers) and `Public/frontend-v6/src/lib/api/derive.ts:268` reads `"Father's Name"` without it, so `fatherName` is always `''` and `ContributorDetail.svelte`'s `{#if displayFather}` never renders. Found while checking C15; mgmt is unaffected (its alias is exact and its inbound lookup already normalises — see the note at `tableRegistry.js:75`). | Normalise the header lookup on the READ side, not the wire key: changing the key would break any other reader. No migration, no setup. | **Done — [#348](https://github.com/ashutoshroli/chhath-full-codebase/pull/348)** |
