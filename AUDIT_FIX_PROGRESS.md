@@ -6,9 +6,9 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status: 24 of 48 PRs merged · 1 open (this one) · 23 pending**
+**Status: 25 of 48 PRs merged · 1 open (this one) · 22 pending**
 
-Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 7/8 in progress** · W3–W7 not started
+Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 ✅ done (8/8 — every PUB-BE finding is closed)** · W3–W7 not started
 
 ---
 
@@ -40,67 +40,62 @@ Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is c
 | [#334](https://github.com/ashutoshroli/chhath-full-codebase/pull/334) | make the public users projection an allowlist | PUB-BE-05 | `USERS_PUBLIC_COLS` drives both the `SELECT` and the emitted row, iterating the allowlist rather than the DB row, so `created_by` stops leaking and a future column fails closed; `id` is ordered by without being returned; `__rowIndex` is opt-in and only `collections` (whose QR record id is built from it) asks | Explicit SQL for the other seven sections → PR-24 |
 | [#335](https://github.com/ashutoshroli/chhath-full-codebase/pull/335) | require an approved origin, JSON and a shape on the two writes | PUB-BE-06 | The two anonymous writes now need an approved `Origin`, `application/json` (which forces the preflight CORS alone never triggered), a hard body cap measured on the bytes read, and a per-action shape check — all before any D1 work; the push endpoint is parsed with `new URL` instead of a `^https://` regex; `415`/`403`/`413`/`400`/`429`/`503` replace a blanket `200`/`400`; five frontends now declare JSON | Challenge/nonce judged not worth a round-trip + KV write; IP hashing → C12 |
 | [#336](https://github.com/ashutoshroli/chhath-full-codebase/pull/336) | make the snapshot atomic and stop inventing a data version | PUB-BE-07 (observations) | The last-known-good copy is ONE KV value `{version, savedAt, data}` instead of a two-key pair that could be half-written and never corrected; the size guard measures UTF-8 bytes rather than UTF-16 code units (3x under-count on Devanagari); a failed write is logged; an unreadable version is `null` and answers `503 {unavailable}` instead of a cacheable `v=0` | Paginating the payload itself → PR-24 |
+| [#337](https://github.com/ashutoshroli/chhath-full-codebase/pull/337) | read the sections together, build once, verify the version after | PUB-BE-07 | Twelve sequential section reads become concurrent (same queries, same D1 cost); concurrent misses share one build per isolate per version instead of each running nine table scans; the version is re-checked after assembly so a payload is never cached under a version it no longer matches; a section past 20k rows is logged before the 25 MB snapshot cap silently removes the outage fallback | Paginating the contract = C13 |
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — how one build is paid for
+## 2. This PR — the public Worker gets a lockfile and runs for real in CI
 
-**Audit ID:** PUB-BE-07. Seventh W2 PR.
+**Audit ID:** PUB-BE-08 ("backend has no local tests, lockfile, lint or integration harness; only syntax is checked by CI"). **Last W2 PR** — this closes Wave 2 and carry-over **C8**.
 
-Three defects that all surface at the same moment: the second after a version bump, when every cache key in existence has just been invalidated.
+Wave 2 gave this Worker its first tests, and they are good tests: 145 of them, pinning every finding W2 fixed. But they all import `src/index.js` and stub D1, KV and the Cache API with plain objects — and **a stub only ever behaves the way the person who wrote it expected**. That leaves a whole class of defect invisible:
 
-### The twelve sections were read one after another
+- The Cache API **refuses to store a response with no freshness information**. A `Map` keeps everything, so a stub cannot tell you that a cache write silently did nothing. (This is not hypothetical: it is how the smoke test for this harness failed first time.)
+- The Cache API **refuses a non-GET key** — the reason every `POST ?action=portalData` used to be an uncached full build (PUB-BE-01). The unit suite asserts this by hand, because someone remembered to.
+- D1 errors have real shapes, and the SQL is checked against the **committed schema** rather than against a fixture that agrees with the code by construction.
+- `caches.default`, `ctx.waitUntil`, `Content-Length`, preflight handling and status-code semantics are the platform's behaviour, not ours.
 
-They are independent — no section's query depends on another's result — so the build took the **sum** of twelve round-trips across four databases while doing nothing in between. That latency is paid by the visitor who caused the miss, and paid while holding up every other concurrent visitor. They now run together, so a build is bounded by the slowest section rather than by their total. It is the same queries in the same number: only the wall-clock shape changes, so the D1 row cost is identical.
+Done:
 
-The failure semantics are deliberately unchanged — still all-or-nothing. A section that cannot be read is still a failed build that falls back to the saved copy, because concurrency must not quietly turn "we could not read the contributions" into "there are no contributions".
+- **A lockfile** (`Public/backend/package-lock.json`), which closes the first half of C8. Installs are deterministic, and `npm ci` is what CI runs.
+- **`miniflare` pinned exactly**, not caret-ranged: it ships the workerd binary, and workerd's behaviour is the thing under test — a floating range would let the platform change underneath a passing suite with no commit. It must also stay on the 4.x line to match `wrangler ^4.20.0`; miniflare 5.x is a different constructor API.
+- **`test/integration/harness.mjs`** boots the real Worker under workerd with all six D1 bindings created from `mgmt/db/schema/*.sql` — the same committed DDL the mgmt suite runs against, so drift between this Worker's SQL and the schema now fails here — plus real KV and the real Cache API. D1's `exec()` splits on newlines and chokes on comments, and those schema files are as much documentation as DDL, so statements are split and run one at a time; a failure names the statement that failed.
+- **`test/integration/every-action.integration.test.mjs`** — 25 tests covering every action end to end: `dataVersion`, `portalData`, `summary`, `activePopups`, `publicGetSeo`, `logError`, `savePushSubscription`, liveness, readiness, the unknown-action `400`, method rejection with the right `Allow`, and the preflight.
+- **A separate CI job**, `public-harness`. Deliberately not folded into the existing `backend` job: it needs an `npm ci` that downloads workerd, and the fast checks everyone waits on for every push must not wait for that. `npm test` stays dependency-free and stays the suite that runs everywhere in a second.
 
-### Nothing collapsed concurrent misses
+**Two `overrides`, documented in `package.json`.** `miniflare 4.20260730.0` pins `undici 7.28.0` exactly (four HIGH advisories, fixed in 7.29.1) and `sharp 0.35.2` (fixed in 0.35.4). npm's own remedy is `miniflare@5.x-alpha` — a breaking prerelease in CI, which is a worse trade than two overrides. Neither is a production concern: miniflare is a devDependency that only ever talks to a local workerd, and none of it is bundled into the deployed Worker. With the overrides, `npm audit` reports **0 vulnerabilities**. Same pattern and same reasoning as the `xmldom` override already documented in `mgmt/frontend/package.json`.
 
-The cache entry is written at the **end** of a build, so every request that arrived during one found no entry and started its own full build — nine table scans across four databases, each.
+## What the harness proves that the stubs could not
 
-That is the worst possible moment for it, because the misses are **correlated by construction**: a version bump invalidates every key at once, so the requests in the following second are exactly the ones that all miss together. The same happens after a deploy, after an eviction, and under a link-preview crawl. Ten simultaneous visitors meant ten identical builds against a D1 daily row quota **shared with the management API** — the thundering herd this Worker's own budget guard exists to notice after the fact.
-
-An isolate-local map of in-flight builds fixes it: the first miss builds, everyone else awaits that same promise. This is **not** a distributed lock and does not pretend to be one — a Worker runs in many isolates, so the guarantee is "one build per isolate per version", which turns N concurrent builds into roughly the number of isolates. A KV- or DO-backed global lock would cost a round-trip on the hot path and a write against the ~1,000/day KV budget, to save a build the edge cache is about to make unnecessary anyway. A failed build is removed from the map, so a transient error is not remembered as a permanent one.
-
-### A build could be cached under a version it no longer matched
-
-The version is read *before* the build and the key is derived from it, but the build takes time and an admin write can land inside that window. The payload was then stored under the **previous** version's key — where it sits until the next bump, and where a caller passing `?v=<old>` is handed it with `max-age=31536000, immutable`. A cache entry that is wrong the moment it is written, for a year.
-
-One row is re-read after assembly. When the version moved we still **return** the body — it is fresh data and the visitor asked for data — but it is neither cached nor marked immutable, and the next request rebuilds cleanly under the new version.
-
-### And the payload's size is now visible before it is fatal
-
-`portalData` still materialises whole tables. A section past 20,000 rows is **logged** to `error_log`, naming the section and its row count, because the KV snapshot that backs the outage fallback is capped at 25 MB — **the portal loses its safety net before it loses the ability to serve**, and finding that out during an outage is exactly the failure mode this whole wave is about.
-
-Deliberately **not** a truncation: silently dropping rows from a *transparency* portal — hiding contributions or expenses — would be a worse failure than a slow payload, and invisible to the visitor. Bounding the payload for real means paginating the contract, which changes every frontend; that is a contract decision, recorded as **C13** rather than taken here.
+| | why a stub cannot show it |
+|---|---|
+| a built payload is really stored, and a second request is served without reading D1 — verified by changing a row *without* bumping the version and getting the old payload back | a `Map` accepts any response; workerd applies the real storability rules |
+| `POST ?action=portalData` → `405` + `Allow: GET, OPTIONS` | the real Cache API is what refuses a non-GET key |
+| `logError` lands a row that is then read back out of `error_log` | a stub records a call, not a row |
+| `savePushSubscription` **upserts** — two posts for one endpoint leave one row, with the second's key | `ON CONFLICT` is SQLite's behaviour |
+| every section of `portalData` is built from the committed schema | a fixture agrees with the code by construction |
+| `ETag` revalidation returns a real `304` with an empty body | the platform decides what a 304 carries |
+| the users projection withholds `created_by` / `email` / `whatsapp` **that really are in the row** | the seed writes all three, so absence proves the allowlist |
+| the snapshot is one KV value `{version, savedAt, data}`, and the old `:version` key is not written | KV is real, and the key list is real |
 
 ## Verification
 
-New `Public/backend/test/assembly-and-single-flight.test.mjs` — 13 tests, **5 of which fail on `main`**:
+```
+Public/backend:  npm test               -> 145 passed   (no install required)
+                 npm run test:integration -> 25 passed  (workerd, real bindings)
+                 npm ci && npm audit    -> 0 vulnerabilities
+mgmt/backend:    npm test               -> 714 passed
+all Workers:     node --check           -> OK (51 files)
+```
 
-| | on `main` | on this branch |
-|---|---|---|
-| a build with 40 ms sections | the sum of twelve round-trips | bounded by the slowest |
-| ten simultaneous cache misses | **10 full builds** | 1 |
-| a version bump inside the build window, `?v=` request | cached under the stale key, served `immutable` | not cached, not immutable, data still returned |
-| the same for `summary` | cached under the stale key | not cached |
-| a 20,001-row section | invisible until the snapshot silently stops fitting | logged, and every row still served |
+Wave 2 is complete: **PUB-BE-01 … PUB-BE-08 are all closed.**
 
-Also pinned: the same eight tables are still read exactly once each (so the D1 cost is unchanged), the payload keys and `__rowIndex` are unchanged, a failing required section still serves the saved copy rather than a partial payload, all five sharers of one build get identical bytes, a transient build failure is retried rather than remembered, two different versions are not collapsed into one build, and with the version steady the fast path is still `immutable` and still cached under exactly `portalData?v=9`.
-
-Verification: `Public/backend` `npm test` **145/145** (132 + 13) · `mgmt/backend` **714/714** · `npm run lint:errors` clean · `node --check` on all 51 Worker files.
+Left deliberately: the harness covers every action's contract, not every branch of every action — the unit suites do that, faster, and are where a new finding should be pinned first. What the harness is for is the platform.
 
 ---
 
 ## 3. Pending
-
-**W2 — Public backend (1 left):**
-
-| PR | Branch | What |
-|---|---|---|
-| 25 | `test/public-backend-harness` | Lockfile + a Miniflare/workerd harness covering every action (extends the tests added in PR-18 through PR-24) |
 
 **W3 — Render / AI / chat (7):** payload size contract · durable idempotent jobs · callback outbox + version bump · provider SSRF policy · AI write allowlist · chat abuse controls · chat privacy + Neon
 **W4 — Database (3):** duplicate/orphan detection · enforce keys & relations · migration ledger
@@ -121,7 +116,6 @@ Verification: `Public/backend` `npm test` **145/145** (132 + 13) · `mgmt/backen
 | C5 | `H-6 … WITHOUT decoding` test flake (asserts `ms < 250`) | Pre-existing; timing-based, passes in isolation, fails under full-suite load | PR-46 (CI gates) |
 | C6 | Migration CI only scans `mgmt/db/migration/2026-09-05/` | Older folders have uncovered files; widening it fails today | PR-46 |
 | C7 | 160 `svelte-check` warnings in the mgmt SPA | Mostly label association — belongs with the a11y work, then fail-on-warning | PR-40 / PR-46 |
-| C8 | Public backend has no lockfile; tests started in PR-18 cover the cache/method contract only | Full action coverage needs a Miniflare/workerd harness | PR-25 |
 | C9 | `verifyToken` revocation check still fails open on an audit-DB error | Availability trade-off; KV deletion (#319) is now the authoritative revocation | Revisit with W4 observability |
 | C10 | React mgmt main chunk at 218.3 kB vs 230 kB CI budget | Little headroom left; not a regression | PR-46 bundle budgets |
 | C11 | Consent photos/signatures already archived to Drive by earlier runs are still anonymously readable | Code no longer publishes them (#325), but existing files need a one-off ACL remediation | Operational step: dry-run report → apply, before the next archive |

@@ -5,9 +5,19 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "test:integration": "node --test test/integration/*.test.mjs",
+    "test:all": "npm test && npm run test:integration"
   },
+  "//test": "`test` is the unit suite. It imports src/index.js and stubs D1, KV and the Cache API, so it needs NOTHING installed — that is deliberate, and it is why this Worker was able to get its first tests at all (audit PUB-BE-01). Keep it that way: it is the suite that runs everywhere, in a second. `test:integration` boots the real Worker under workerd via Miniflare, on real D1 built from mgmt/db/schema, and needs `npm ci` first.",
   "devDependencies": {
+    "miniflare": "4.20260730.0",
     "wrangler": "^4.20.0"
-  }
+  },
+  "//devDependencies": "miniflare is pinned EXACTLY, not caret-ranged. It ships the workerd binary, and workerd's behaviour is the thing under test here — a floating range would mean the platform could change underneath a passing suite without a commit. Bump it deliberately. It must also stay compatible with the wrangler line above: miniflare 5.x is a different constructor API.",
+  "overrides": {
+    "undici": "^7.29.1",
+    "sharp": "^0.35.4"
+  },
+  "//overrides": "Both exist to clear HIGH advisories in miniflare's own dependency tree, and neither is a production concern: miniflare is a devDependency that only ever talks to a local workerd, and none of this is bundled into the deployed Worker. miniflare 4.20260730.0 pins undici 7.28.0 exactly (four advisories, fixed in 7.29.1) and sharp 0.35.2 (fixed in 0.35.4). npm's own remedy is `miniflare@5.x-alpha`, i.e. a breaking prerelease in CI, which is a worse trade than two overrides. With these, `npm audit` reports 0 vulnerabilities. Re-check them when miniflare is bumped — the same pattern and the same reasoning as the xmldom override documented in mgmt/frontend/package.json."
 }

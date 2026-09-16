@@ -16,6 +16,9 @@
 #                   and be re-runnable
 #   no-real-data    the PII dumps under mgmt/db/migration/ must never be committed
 #                   (GitGuardian has flagged this repo for exactly that before)
+#   public-harness  the public Worker under workerd, on real D1/KV/Cache. Separate job
+#                   because it installs the workerd binary; the fast checks above must
+#                   not wait for it
 #
 # Deliberately NOT here: `wrangler deploy`, `npm audit --audit-level=high` as a
 # hard gate (one unfixable transitive advisory is handled by an npm override and
@@ -83,6 +86,37 @@ jobs:
             node --check "$f"
           done
           echo "node --check OK: $(ls mgmt/backend/src/*.js Public/backend/src/*.js | wc -l) files"
+
+  # The public Worker running for real: workerd, real D1 built from the committed
+  # schema in mgmt/db/schema/, real KV and the real Cache API (audit PUB-BE-08).
+  #
+  # A SEPARATE job on purpose. It needs an `npm ci` that downloads the workerd binary,
+  # so folding it into `backend` above would slow down the suite everyone waits on for
+  # every push. The two are complementary: `backend` proves the logic in a second with
+  # nothing installed, this proves it against the platform's real rules — the Cache API
+  # refusing a response with no freshness information, refusing a non-GET key, real D1
+  # errors, real preflight handling.
+  public-harness:
+    name: Public Worker — workerd integration harness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: Public/backend/package-lock.json
+
+      # `npm ci` and not `npm install`: the lockfile pins the exact miniflare (and so the
+      # exact workerd) the assertions were written against, plus the two `overrides` that
+      # clear HIGH advisories in miniflare's tree — see the notes in package.json.
+      - name: Install
+        working-directory: Public/backend
+        run: npm ci
+
+      - name: Integration harness (every action, on real bindings)
+        working-directory: Public/backend
+        run: npm run test:integration
 
   frontend:
     name: mgmt SPA build
