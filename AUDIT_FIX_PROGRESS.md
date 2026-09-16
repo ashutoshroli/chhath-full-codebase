@@ -6,9 +6,9 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status: 35 of 48 PRs merged · 1 open (this one) · 12 pending**
+**Status: 36 of 48 PRs merged · 1 open (this one) · 11 pending**
 
-Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 ✅ done (8/8 — every PUB-BE finding is closed)** · **W3 7/7 — only PR-32 (chat privacy + Neon) left of the section** · W4–W7 not started
+Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 ✅ done (8/8 — every PUB-BE finding is closed)** · **W3 7/7 — PR-32 half done (security in, Neon schema + retention left)** · W4–W7 not started
 
 ---
 
@@ -53,76 +53,80 @@ Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is c
 | [#347](https://github.com/ashutoshroli/chhath-full-codebase/pull/347) | make the public chat's limits actually limit | Render #8 | The per-IP limiter was keyed on the FIRST `X-Forwarded-For` hop, which the caller writes — measured on `main`: 200 forged requests, **0 limited**, against a 15/min ceiling. The IP is now read from the right; a global concurrency cap and a daily token budget answer a fast `503` before any provider work; the slot is released in `finally`. An existing test that PINNED the vulnerability is corrected | The shared (cross-instance) counter → PR-32, which is already opening Neon |
 | [#348](https://github.com/ashutoshroli/chhath-full-codebase/pull/348) | show the father's name where it was supposed to be | C15, C16 | The contributor picker showed only name + village, so two same-name people in one village were indistinguishable — when a contribution gets recorded against the wrong person. Father's name now sits beside the name and is searchable, via one shared helper. And the public portal never showed a father's name **for anyone**: the Worker emits the key with a trailing space and the frontend read it without one; fixed on the read side so the wire key stays stable for every other reader | No migration — frontend only |
 | [#349](https://github.com/ashutoshroli/chhath-full-codebase/pull/349) | tell somebody when a consent is declined or rejected | C14 | `respondConsent` notified only on `accepted` and `setConsentVerification` only on `verified`, so a refusal told **nobody** — a loaner was never informed his loan had stopped, and the remarks the decliner is *forced* to write were discarded. One notifier for both outcomes → loaner + group + email mirror | **The first migration of this effort** — 32-consent-decline-templates.sql, idempotent and guarded so committee edits survive; then reword the text in Templates |
+| [#350](https://github.com/ashutoshroli/chhath-full-codebase/pull/350) | claim a job before running it, and bound how long it may run | Render #3, #5 | `/jobs` answered `202` and fire-and-forgot, recording nothing — so the Worker's ten-minute redispatch of a job that was merely SLOW ran it a second time, opening a second GitHub pull request. Adds a claim taken before the ack (a duplicate is answered `202` with the running state), a per-job deadline just under the Worker's reconcile window, and bounded concurrency answering `503` so the Worker falls back | No migration; `JOBS_MAX_CONCURRENT`, `JOB_DEADLINE_MS` optional. The claim is in-process — exact version needs PR-32's Neon store |
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — a job runs once, and not forever
+## 2. This PR — the chat's privacy claims are now true
 
-**Audit IDs:** Render/offload #3 and #5. **Last W3 PR** — this closes Wave 3.
+**Audit ID:** Render/offload #9, the security half. First part of PR-32.
 
-`/jobs` accepted a job, answered `202`, and fire-and-forgot it, recording nothing:
+Three things that looked like protections and were not.
+
+### TLS verification was off
 
 ```js
-res.status(202).json({ accepted: true, jobId });
-(async () => { const result = await handler(payload); await postResult(...); })();
+ssl: { rejectUnauthorized: false }, // Neon requires TLS; managed cert
 ```
 
-The Worker's reconciler re-dispatches a row stuck in `dispatched` after ten minutes — and **"stuck" means "we have not heard back", not "it stopped"**. A slow Claude call or a large Drive batch is still running. So the redispatch ran the whole job **again, alongside the original**: for `ai_pr_create` that is *two GitHub pull requests*; for the PDF paths, two Drive conversions and two R2 objects.
+The comment is a true statement that does not justify the code. **Requiring TLS and verifying it are different things.** With verification off the connection is encrypted but *unauthenticated*: anything that can get into the path presents its own certificate and reads — and rewrites — everything crossing it. What crosses it is every public chat question and answer, plus the visitor IP pseudonyms.
 
-#344 fixed the Worker side — the callback claims before applying, and non-reconstructable kinds are not retried at all. But the AI kinds **are** still re-dispatched, by design, because they usually should be. The missing half had to be here: the second dispatch must recognise the first is in flight and do nothing.
+Neon serves a publicly-trusted certificate, so there was nothing to work around. Verification is now on, with an escape hatch that is opt-in and **named for what it is** (`NEON_ALLOW_UNVERIFIED_TLS`) so nobody turns it off by accident or leaves it off without having typed the reason.
 
-Measured on `main`:
+### The IP "hash" was reversible
 
-```
-claim/dedupe present:       false
-any deadline on the work:   false
-any concurrency ceiling:    false
-the unbounded call:         PRESENT — a redispatch runs the job again
-```
+`sha256(ip)` with no secret. An unsalted hash of an IPv4 address is **2³² candidates** — a few minutes of a laptop's time to build the entire lookup table. The stored value was the visitor's address with extra steps, kept in Neon indefinitely.
 
-Done:
+It is now an **HMAC keyed on a secret**, with a **monthly rotating period** in the message so one visitor does not carry a stable identifier for ever — linkability across months is what turns *"these requests came together"* into a person's history.
 
-- **A claim, taken before the `202`.** A duplicate `jobId` is answered `202 { duplicate: true, state }` — not an error, because the Worker asked for this job and it *is* running; a 4xx/5xx would make it park a perfectly healthy job. A recently *finished* job reports its outcome instead of starting again, because the Worker may have had the callback in flight when it decided to re-dispatch.
-- **A hard deadline per job**, set just **under** the Worker's ten-minute reconcile window — so a job that is going to fail says so *before* the Worker decides to re-dispatch it, rather than racing it.
-- **Bounded concurrency**, answering `503` at capacity so the Worker's dispatch fails cleanly and falls back, which it already knows how to do. A free-tier instance has one CPU and 512 MB and had no ceiling at all.
-- Finished claims are **swept**, so the map cannot grow without bound.
+And **with no secret configured it stores nothing at all**, rather than falling back to the reversible hash. That is the important choice: an unset secret must not silently mean *"store a value that looks protected and is not"*. Chat logging is best-effort and never blocks an answer, so the cost is a missing column, not a broken chatbot.
 
-**What this deliberately does not claim.** The deadline bounds how long we *wait* and how long a slot is held. It does **not** cancel the work: stopping an in-flight Drive upload or GitHub commit would mean threading an `AbortSignal` through every provider call in every job, and a half-cancelled irreversible operation is worse than a slow one. The failure message says so — *"it may still be running… re-running it could duplicate work — check the outcome first"* — because telling an operator that is the truth, and "cancelled" would not be.
+### The session id came from the caller
 
-**Migrations & setup:** **no migration.** Two optional variables whose defaults are the intended posture:
-
-```
-JOBS_MAX_CONCURRENT = 3
-JOB_DEADLINE_MS     = 570000     # 9.5 min — just under the Worker's 10-minute reconcile
+```js
+const sessionId = ((req.body && req.body.sessionId) || '').toString().slice(0, 80);
 ```
 
-**Stated limitation:** the claim is **in-process**, so two dispatches landing on different instances would still both run. What makes that acceptable here rather than a fig leaf is that the Worker only re-dispatches after ten minutes of silence, and the practical case — a redispatch reaching the same warm instance that is still working — is exactly what this catches. The exact version needs the shared store PR-32 is already opening Neon for.
+That value is the key that groups a conversation in Neon. So any caller could send **somebody else's** session id and have their questions appended to that conversation — or send one arbitrary string per request and shard the table.
+
+The id is now issued by the server as `<uuid>.<hmac>`, signed with a secret this service already holds, and verified on the way back in with a constant-time comparison. A client may keep using the id it was **given** — that is what a session is — but it cannot invent one. A new id is returned only when one was issued, so the widget keeps working without ever choosing its own.
+
+**Migrations & setup:** **no migration.** One secret worth setting, and one variable that should stay unset:
+
+```
+CHAT_IP_HASH_SECRET      = <any strong random string>   # unset ⇒ no IP pseudonym is stored
+CHAT_SESSION_SECRET      = <optional>                    # falls back to RENDER_WEBHOOK_SECRET
+NEON_ALLOW_UNVERIFIED_TLS                                # leave UNSET
+```
+
+The session signing works out of the box: it falls back to `CHAT_IP_HASH_SECRET` and then to the `RENDER_WEBHOOK_SECRET` this service already has, so the protection is on by default rather than waiting for configuration.
 
 ## Verification
 
-`mgmt/server-render/test/jobClaims.test.mjs` — 18 tests:
+`mgmt/server-render/test/chatPrivacy.test.mjs` — 14 tests:
 
 | | on `main` | on this branch |
 |---|---|---|
-| a redispatch of a running job | **runs it again** (a second pull request) | refused as a duplicate, with the running state |
-| a duplicate just after completion | runs again | reports the outcome |
-| a provider that never answers | holds the job forever | fails at the deadline, slot freed |
-| the 3rd concurrent job on a 1-CPU instance | accepted | `503`, so the Worker falls back |
+| Neon TLS | any certificate accepted | verified; the override is off by default |
+| the stored IP value | `sha256(ip)` — 2³² to reverse | HMAC, keyed, rotating monthly |
+| with no secret configured | a reversible hash is stored | nothing is stored |
+| a borrowed or forged session id | **accepted and written to** | replaced with a fresh signed one |
 
-Also pinned: a *failed* job reports its error to a duplicate rather than re-running; finished claims are forgotten after an hour so ids are not retained forever; a real failure is passed through rather than masked as a timeout; releasing an unknown id is harmless; and the deadline is asserted to sit **under** the Worker's reconcile window and **over** five minutes.
+Also pinned: the pseudonym is stable *within* a period so correlation still works where it is needed; different addresses do not collide; the signature comparison is constant-time; and the route no longer reads the id out of the body.
 
 ```
-mgmt/server-render: npm test -> 152 passed (134 + 18)
+mgmt/server-render: npm test -> 166 passed (152 + 14)
+mgmt/backend:       npm test -> 839 passed (unaffected)
 ```
 
-**Wave 3 is complete with this PR.** Render/offload #1, #2, #3, #5, #6, #7, #8 and #11 are closed. What remains of that section is PR-32 (chat privacy + Neon, which also carries the shared rate/concurrency store deferred from #347) and #10, the Render lockfile.
+What remains of PR-32: the Neon **schema** work — FK/cascade, a role CHECK, and an automated retention job for raw question/answer content — plus the shared rate/concurrency store deferred from #347 and the in-process job claim from #350. Those all need the migration this PR deliberately does not carry, so that the security fixes above could ship without waiting on a schema change.
 
 ---
 
 ## 3. Pending
 
-**W3 — Render / AI / chat (1 left):** chat privacy + Neon — consent/disclosure, raw-content retention, server-generated session ids, rotating HMAC IP hash, verified TLS, Neon FK/CHECK, **plus the shared rate/concurrency store deferred from #347 and the in-process job claim from #350**
+**W3 — Render / AI / chat (1 left):** PR-32 remainder — Neon **schema**: FK/cascade, role CHECK, automated raw-content retention; consent/disclosure copy; **plus the shared rate/concurrency store deferred from #347 and the in-process job claim from #350**. (TLS verification, the keyed rotating IP pseudonym and server-issued session ids shipped in #351.)
 **W4 — Database (3):** duplicate/orphan detection · enforce keys & relations · migration ledger
 **W5 — Accessibility (6):** dialog primitives (public + mgmt) · combobox/buttons · contrast/focus/zoom · live regions + labels · structure/motion
 **W6 — SEO / PWA / privacy / perf (4):** route metadata · manifest + update UX · privacy + same-origin push · lazy skins

@@ -68,6 +68,18 @@ export const config = {
   // 10 minutes: deliberately just UNDER the Worker's own ten-minute reconcile window, so a
   // job that is going to fail says so before the Worker decides to re-dispatch it.
   jobDeadlineMs: parseInt(opt('JOB_DEADLINE_MS', '570000'), 10) || 570000,
+  // audit Render/offload #9. The IP pseudonym stored with chat logs is an HMAC keyed on this
+  // secret. UNSET means no pseudonym is stored at all — deliberately, because an unsalted hash
+  // of an IPv4 address is 2^32 candidates and therefore not a pseudonym.
+  chatIpHashSecret: opt('CHAT_IP_HASH_SECRET', ''),
+  // Signs the chat session id, so a client cannot write into someone else's session history.
+  // Falls back to the IP-hash secret, then to the webhook secret this service already holds,
+  // so the protection is on by default rather than waiting for configuration.
+  chatSessionSecret: opt('CHAT_SESSION_SECRET', '') || opt('CHAT_IP_HASH_SECRET', '') || opt('RENDER_WEBHOOK_SECRET', ''),
+  // Escape hatch for Neon TLS verification. Named for what it is so nobody turns it off by
+  // accident, or leaves it off without having typed the reason. Neon serves a publicly-trusted
+  // certificate, so this should never be needed.
+  neonAllowUnverifiedTls: opt('NEON_ALLOW_UNVERIFIED_TLS', '') === '1',
   // Neon Postgres connection string for chat logs. OPTIONAL — if unset, the
   // chatbot still answers and just skips logging.
   databaseUrl: opt('DATABASE_URL', ''),

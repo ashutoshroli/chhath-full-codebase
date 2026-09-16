@@ -12,7 +12,7 @@ import express from 'express';
 import { config } from '../config.js';
 import { getPortalData, buildContextForProvider } from '../lib/publicData.js';
 import { getPublicChatProviders } from '../lib/chatProvider.js';
-import { ensureChatSession, logChatMessage, hashIp } from '../lib/neon.js';
+import { ensureChatSession, logChatMessage, hashIp, resolveChatSessionId } from '../lib/neon.js';
 import {
   isOriginAllowed,
   rateLimited,
@@ -165,7 +165,11 @@ publicChatRouter.post('/public-chat', async (req, res) => {
   }
 
   const question = ((req.body && req.body.question) || '').toString().trim();
-  const sessionId = ((req.body && req.body.sessionId) || '').toString().slice(0, 80);
+  // The session id is ISSUED and SIGNED by the server (audit Render/offload #9). It used to be
+  // taken straight from the body, so any caller could append to somebody else's conversation
+  // by sending their id — or shard the table with one arbitrary string per request.
+  const session = resolveChatSessionId(req.body && req.body.sessionId);
+  const sessionId = session.sessionId;
   const lang = ((req.body && req.body.lang) || '').toString() === 'hi' ? 'hi' : 'en';
   if (!question) return res.status(400).json({ ok: false, error: 'Please type a question.' });
   if (question.length > MAX_QUESTION_CHARS) return res.status(400).json({ ok: false, error: 'Your question is too long.' });
@@ -194,7 +198,9 @@ publicChatRouter.post('/public-chat', async (req, res) => {
     logChatMessage({ sessionId, role: 'user', content: question, dataVersion: version }).catch(() => {});
     logChatMessage({ sessionId, role: 'assistant', content: answer, model, promptTokens, completionTokens, dataVersion: version }).catch(() => {});
 
-    return res.json({ ok: true, answer });
+    // Handed back only when we issued a new one, so the widget can keep the conversation
+    // going without ever being able to choose its own id.
+    return res.json({ ok: true, answer, ...(session.issued ? { sessionId } : {}) });
   } catch (err) {
     // Log the full error (message already includes the model's HTTP status + body
     // slice from callChatModel) so a recurring failure is diagnosable in the logs.
