@@ -8,7 +8,7 @@ import { parseCookies, buildSessionCookies, buildClearCookies, SESSION_COOKIE, C
 import { getYears, addYear, getHomeData, getLoansData, getExpensesData, getCommitteeData, getUserHistory, getYearContributors, getUserProfile } from './views.js';
 import { getLoginUsers, addLoginUser, updateLoginUser, deleteLoginUser, updateOwnProfile, changePassword, uploadFileToDrive } from './account.js';
 import { getDropdownList, getAllDropdownLists, addDropdownListItem, updateDropdownListItem, deleteDropdownListItem } from './dropdownLists.js';
-import { getFestivalDates, saveFestivalDates, getPortalSetting, setPortalSetting, getConsentPageTemplate, updateConsentPageTemplate } from './settings.js';
+import { getFestivalDates, saveFestivalDates, getPortalSetting, setPortalSetting, setPortalSettings, getConsentPageTemplate, updateConsentPageTemplate } from './settings.js';
 import * as seo from './seo.js';
 import * as wa from './whatsapp.js';
 import { logError, reportErrorToWhatsApp, getErrorLog, reportErrorPublic, isLogErrorRateLimited } from './errorLog.js';
@@ -134,7 +134,10 @@ export const EXPECTED_MUTATING_ACTIONS = new Set([
   'resendConsent', 'respondConsent', 'setConsentVerification', 'setPortalSetting',
   'updateConsentPageTemplate',
   // festival dates / portal settings
-  'saveFestivalDates',
+  // NOTE `setPortalSettings` (plural, carry-over C3) must stay in this set: besides the
+  // Q-8 drift guard, this is the set the CSRF double-submit check consults, so an omitted
+  // write action is not merely unclassified — it is UNPROTECTED on a cookie session.
+  'saveFestivalDates', 'setPortalSettings',
   // dropdown lists
   'addDropdownListItem', 'updateDropdownListItem', 'deleteDropdownListItem',
   // whatsapp groups + templates
@@ -976,6 +979,20 @@ export default {
       // ---- Portal Settings ----
       getPortalSetting: () => withAuth(env, req, async (user) => { requireSuperadmin(user); return { value: await getPortalSetting(env, req.key) }; }),
       setPortalSetting: () => withAuth(env, req, (user) => setPortalSetting(env, req.key, req.value, user)),
+      // carry-over C3: all-or-none. The donation details are the page that tells people
+      // where to send money, and publishing them one key at a time could leave a NEW UPI
+      // id beside an OLD account number. Audited, because changing where the committee's
+      // money arrives is exactly the kind of change someone will later need to trace.
+      setPortalSettings: () => withAuth(env, req, async (user) => {
+        const res = await setPortalSettings(env, req.settings, user);
+        ctx.waitUntil(logActivity(env, {
+          name: user.name,
+          action: 'update portal settings',
+          details: Object.keys(req.settings || {}).sort().join(', '),
+          deviceInfo: req.deviceInfo, ip: req.serverIp, deviceId: req.deviceId,
+        }));
+        return res;
+      }),
 
       // ---- SEO / social link preview (Superadmin) ----
       // publicGetSeo is intentionally unauthenticated: the frontends' build step

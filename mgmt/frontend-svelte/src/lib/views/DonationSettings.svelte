@@ -83,16 +83,18 @@
   }
 
   async function save() {
-    // audit: these seven values are published one setting at a time, and NOTHING
+    // audit: these seven values were published one setting at a time, and NOTHING
     // was validated first. So a typo'd UPI id or account number went live on the
     // public Donate page, and a failure halfway through left the page showing a
     // MIX of old and new payment details — the worst possible state for a page
     // whose whole purpose is telling people where to send money.
     //
-    // Validation now happens before any write, so an invalid set is never
-    // partially published. The remaining risk (one call failing mid-loop) cannot
-    // be removed from the client — it needs a single atomic settings action on the
-    // backend — so the operator is told exactly which fields did go live.
+    // Both halves are now closed. This check keeps the error next to the field the
+    // operator is looking at; the SERVER repeats it (settings.js), which is what
+    // actually guarantees it, since this view is not the only caller. And the write
+    // is a SINGLE atomic action — carry-over C3, the "single atomic settings action
+    // on the backend" this comment used to ask for — so there is no longer a
+    // half-published state to report.
     const problem = checkDonationDetails({
       upiId: form.upiId,
       accountNumber: form.accountNumber,
@@ -108,21 +110,20 @@
     saving = true;
     error = '';
     notice = '';
-    const saved: string[] = [];
     try {
+      const settings: Record<string, string> = {};
       for (const [key, field] of Object.entries(FIELDS)) {
-        await api.setPortalSetting(key, str(form[field]).trim());
-        saved.push(field);
+        settings[key] = str(form[field]).trim();
       }
+      await api.setPortalSettings(settings);
       notice = 'Donation settings saved. The public Donate Now page updates within a minute.';
       await load();
     } catch (err) {
       const message = (err as Error).message || 'Failed to save donation settings.';
-      error = saved.length
-        ? `${message} — ${saved.length} of ${Object.keys(FIELDS).length} fields were already published (${saved.join(', ')}). `
-          + 'The Donate page may now show a mix of old and new details: fix the error and press Save again.'
-        : `${message} — nothing was changed.`;
-      reportClientError('DonationSettings', 'Failed to save donation settings', err as Error, { savedFields: saved });
+      // No "N of 7 already published" any more: the write is all-or-none, so a failure
+      // means the live Donate page is exactly as it was.
+      error = `${message} — nothing was changed, the Donate page still shows the previous details.`;
+      reportClientError('DonationSettings', 'Failed to save donation settings', err as Error);
       await load();
     } finally {
       saving = false;
