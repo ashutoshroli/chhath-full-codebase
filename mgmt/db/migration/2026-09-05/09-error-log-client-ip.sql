@@ -1,6 +1,6 @@
 -- ============================================================================
 -- audit M-13 — the PUBLIC logError per-IP limiter was an unindexable scan
--- Database: chhath_logs
+-- Database: chhath-logs
 --
 -- Public/backend/src/index.js folded the edge IP into the JSON `context` column and
 -- then counted it with:
@@ -23,7 +23,7 @@
 -- nothing. The CREATE INDEX below IS idempotent and is what the code depends on.
 --
 -- Apply with:
---   wrangler d1 execute chhath_logs --remote --file=./09-error-log-client-ip.sql
+--   wrangler d1 execute chhath-logs --remote --file=./09-error-log-client-ip.sql
 -- ============================================================================
 
 -- Safe to re-run: fails with "duplicate column name" the second time, which is a

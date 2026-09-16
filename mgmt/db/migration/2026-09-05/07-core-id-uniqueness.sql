@@ -1,6 +1,6 @@
 -- ============================================================================
 -- audit H-9 — defence in depth for `users.id_code` (the USER#### series)
--- Database: chhath_core
+-- Database: chhath-core
 --
 -- The real fix is in code (mgmt/backend/src/crud.js saveRecord): `id_code` is now
 -- allocated INSIDE the INSERT, so read-then-write can no longer hand the same
@@ -18,7 +18,7 @@
 -- run blind three weeks before launch.
 --
 -- Idempotent. Apply with:
---   wrangler d1 execute chhath_core --remote --file=./07-core-id-uniqueness.sql
+--   wrangler d1 execute chhath-core --remote --file=./07-core-id-uniqueness.sql
 -- ============================================================================
 
 -- ---------------------------------------------------------------- PART 1

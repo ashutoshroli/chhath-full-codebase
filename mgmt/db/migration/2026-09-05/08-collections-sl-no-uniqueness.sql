@@ -1,6 +1,6 @@
 -- ============================================================================
 -- audit H-9 — defence in depth for `collections.sl_no` (per-year receipt number)
--- Database: chhath_collections
+-- Database: chhath-collections
 --
 -- Companion to 07-core-id-uniqueness.sql; see that file's header for why PART 2
 -- is not applied automatically. The real fix is in code
@@ -8,7 +8,7 @@
 -- INSERT, so two concurrent saves can no longer be handed the same number.
 --
 -- Idempotent. Apply with:
---   wrangler d1 execute chhath_collections --remote --file=./08-collections-sl-no-uniqueness.sql
+--   wrangler d1 execute chhath-collections --remote --file=./08-collections-sl-no-uniqueness.sql
 -- ============================================================================
 
 -- ---------------------------------------------------------------- PART 1
@@ -42,7 +42,7 @@ CREATE INDEX IF NOT EXISTS idx_collections_year_sl_no ON collections (year, sl_n
 --
 -- Note: a duplicate here means two donors were given the SAME receipt number, so
 -- also check whether a receipt/certificate PDF was already generated for the row
--- you re-number (generated_files in chhath_file_index) and regenerate it.
+-- you re-number (generated_files in chhath-file-index) and regenerate it.
 --
 -- Step 3 — once the detection query returns zero rows:
 --

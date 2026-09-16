@@ -19,7 +19,7 @@
 --
 -- Idempotent (it is entirely comments — running it changes nothing).
 -- Apply with:
---   wrangler d1 execute chhath_loans_expenses --remote --file=./10-loans-referential-integrity.sql
+--   wrangler d1 execute chhath-loans-expenses --remote --file=./10-loans-referential-integrity.sql
 -- ============================================================================
 
 

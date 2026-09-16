@@ -50,7 +50,7 @@
 -- ============================================================================
 -- Rebuild each table in ONE `wrangler d1 execute`. The SELECT converts REAL ->
 -- clean TEXT: cast to INTEGER first (drops the '.0' that float storage adds) then
--- to TEXT, guarding NULL/blank. Example for `users` (chhath_core):
+-- to TEXT, guarding NULL/blank. Example for `users` (chhath-core):
 --
 --   CREATE TABLE users_new (
 --     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,9 +72,9 @@
 --   CREATE INDEX idx_users_mobile ON users(mobile);
 --
 -- Same shape for:
---   committee_members.whatsapp (chhath_core)  — recreate idx_committee_members_year
---   login_users.mobile         (chhath_core)  — recreate idx_login_users_name
---   collections.utr            (chhath_collections) — fold into 12-*.sql's collections
+--   committee_members.whatsapp (chhath-core)  — recreate idx_committee_members_year
+--   login_users.mobile         (chhath-core)  — recreate idx_login_users_name
+--   collections.utr            (chhath-collections) — fold into 12-*.sql's collections
 --                                rebuild so the table is rebuilt once (see the note there)
 --
 -- After this, mobile/whatsapp/utr are TEXT and round-trip losslessly. The app's
