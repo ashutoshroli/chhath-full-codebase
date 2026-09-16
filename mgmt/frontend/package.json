@@ -29,6 +29,7 @@
   },
   "comment:overrides": "SECURITY (audit S3): docxtemplater-image-module-free pulls in the deprecated, unmaintained 'xmldom' (0.1.x) which has CRITICAL advisories and no upstream fix. We redirect it to its maintained, patched successor '@xmldom/xmldom' via an npm override. The DOMParser/XMLSerializer API the module uses is compatible. Re-run `npm install` after cloning so the override applies, then `npm audit` should no longer list xmldom.",
   "overrides": {
+    "@xmldom/xmldom": "^0.9.12",
     "xmldom": "npm:@xmldom/xmldom@^0.9.12"
   }
 }
