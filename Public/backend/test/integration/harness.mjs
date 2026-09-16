@@ -49,10 +49,31 @@ function statementsOf(sql) {
     .split('\n')
     .map((line) => line.replace(/--.*$/, ''))
     .join('\n');
-  return withoutComments
-    .split(';')
-    .map((s) => s.trim())
-    .filter(Boolean);
+  // A TRIGGER body is `... BEGIN <statement>; END`, and those inner semicolons belong to
+  // ONE statement. Splitting naively on `;` cut every trigger into two broken halves —
+  // `CREATE TRIGGER ... BEGIN SELECT RAISE(...)` and a bare `END` — which is how this
+  // harness started failing the moment the committed schema gained the loan-relation
+  // triggers.
+  //
+  // Accumulation starts only at a `CREATE TRIGGER` and ends at a fragment that is exactly
+  // `END`, rather than counting BEGIN/END keywords: a `CASE ... END` expression anywhere
+  // else in a schema file would unbalance a counter and silently swallow the statement
+  // after it.
+  const out = [];
+  let trigger = null;
+  for (const frag of withoutComments.split(';')) {
+    if (trigger !== null) {
+      trigger += `;${frag}`;
+      if (/^\s*END\s*$/i.test(frag)) { out.push(trigger.trim()); trigger = null; }
+      continue;
+    }
+    if (/\bCREATE\s+TRIGGER\b/i.test(frag)) { trigger = frag; continue; }
+    const stmt = frag.trim();
+    if (stmt) out.push(stmt);
+  }
+  // An unterminated trigger is a malformed schema file, not something to paper over.
+  if (trigger !== null) throw new Error(`unterminated CREATE TRIGGER: ${trigger.slice(0, 120)}`);
+  return out;
 }
 
 export async function startWorker({ vars = {}, seed = null } = {}) {
