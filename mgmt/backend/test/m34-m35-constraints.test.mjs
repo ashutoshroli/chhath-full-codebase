@@ -47,6 +47,10 @@ function extractTrigger(fileText, triggerName) {
 test('M-34: the loan_consents FK trigger recipe rejects orphan consents and allows valid ones', () => {
   const db = new DatabaseSync(':memory:');
   db.exec(schemaFor('loans_expenses.sql'));
+  // The trigger is IN the committed schema now (migration 36 made it executable and the
+  // schema became the end state), so applying migration 10's recipe on top is a no-op —
+  // it is `CREATE TRIGGER IF NOT EXISTS`. What is asserted below is therefore the
+  // trigger the schema actually installs; migration 10's wording is superseded.
   const trig = extractTrigger(migFor('10-loans-referential-integrity.sql'), 'trg_loan_consents_loan_fk_ins');
   db.exec(trig);
   db.exec(trig); // idempotent
@@ -59,7 +63,7 @@ test('M-34: the loan_consents FK trigger recipe rejects orphan consents and allo
   // invalid: orphan
   assert.throws(
     () => db.exec(`INSERT INTO loan_consents (consent_id, loan_id, role) VALUES ('CN-3','LN-MISSING','guarantor');`),
-    /non-existent/, 'an orphan consent must be rejected'
+    /does not exist|non-existent/, 'an orphan consent must be rejected'
   );
   db.close();
 });
@@ -73,7 +77,7 @@ test('M-34: the loan_guarantors FK trigger recipe rejects orphan guarantor rows'
   db.exec(`INSERT INTO loan_guarantors (loan_id, loaner, guarantor) VALUES ('LN-9','USER1','USER2');`); // ok
   assert.throws(
     () => db.exec(`INSERT INTO loan_guarantors (loan_id, loaner, guarantor) VALUES ('LN-X','USER1','USER2');`),
-    /non-existent/
+    /does not exist|non-existent/
   );
   db.close();
 });

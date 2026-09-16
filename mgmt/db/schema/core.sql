@@ -23,20 +23,19 @@ CREATE TABLE login_users (
   role TEXT,
   updated_at TEXT,
   mobile TEXT,                -- audit M-33: was REAL. Phone number; compared as text in login lookup.
-  email TEXT
+  email TEXT,
   -- ---- TOTP two-factor authentication (Superadmin) ----
-  -- The five 2FA columns (totp_enabled, totp_secret_enc, totp_pending_enc,
-  -- totp_backup_codes, totp_recovery_hash) are added by the ADD-COLUMN migration
-  -- 2026-09-05/22-login-users-totp.sql. As with error_log.client_ip (migration 09),
-  -- an ADD-COLUMN migration is applied ON TOP of this committed schema, so the
-  -- columns deliberately do NOT appear here — the migration is their source of
-  -- truth. Semantics:
-  --   totp_enabled       INTEGER 0/1 — when 1, login requires a second factor.
-  --   totp_secret_enc    TEXT — Base32 secret, AES-GCM encrypted ("v1:iv:ct"). Never plain.
-  --   totp_pending_enc   TEXT — in-progress enrollment secret (encrypted), promoted
-  --                             to totp_secret_enc only after a valid code proves possession.
-  --   totp_backup_codes  TEXT — JSON array of PBKDF2 hashes of 10 single-use codes.
-  --   totp_recovery_hash TEXT — PBKDF2 hash of the 32-char recovery key (shown once).
+  -- These five used to live ONLY in migration 2026-09-05/22-login-users-totp.sql, on the
+  -- reasoning that an ADD-COLUMN migration is applied on top of this file so the
+  -- migration is "their source of truth". That reasoning does not survive the question
+  -- "what happens when somebody creates the database from this schema?" — the answer was
+  -- that two-factor authentication is silently absent. This file is the end state now.
+  totp_enabled INTEGER DEFAULT 0, -- 0/1 — when 1, login requires a second factor.
+  totp_secret_enc TEXT,           -- Base32 secret, AES-GCM encrypted ("v1:iv:ct"). Never plain.
+  totp_pending_enc TEXT,          -- in-progress enrollment secret (encrypted), promoted to
+                                  -- totp_secret_enc only after a valid code proves possession.
+  totp_backup_codes TEXT,         -- JSON array of PBKDF2 hashes of 10 single-use codes.
+  totp_recovery_hash TEXT         -- PBKDF2 hash of the 32-char recovery key (shown once).
 );
 CREATE INDEX idx_login_users_name ON login_users(name);
 
@@ -142,15 +141,64 @@ CREATE TABLE users (
   name_hindi TEXT,
   fathers_name_hindi TEXT,
   designation_hindi TEXT,
-  village_hindi TEXT
-  -- ---- profile photo ----
-  -- The `photo` column (public R2 URL of the member's profile picture; NULL/'' ->
-  -- the portal's initials avatar) is added by the ADD-COLUMN migration
-  -- 2026-09-05/27-users-photo.sql. As with login_users' TOTP columns and
-  -- error_log.client_ip (migration 09), an ADD-COLUMN migration is applied ON TOP
-  -- of this committed schema, so the column deliberately does NOT appear here —
-  -- the migration is its source of truth.
+  village_hindi TEXT,
+  -- Public R2 URL of the member's profile picture; NULL/'' -> the portal's initials
+  -- avatar. Previously only in migration 2026-09-05/27-users-photo.sql, which meant a
+  -- database built from this schema had no profile photos at all.
+  photo TEXT
 );
 CREATE INDEX idx_users_village ON users(village);
 CREATE INDEX idx_users_mobile ON users(mobile);
 
+
+
+-- ============================================================================
+-- INDEXES AND CONSTRAINTS THAT USED TO EXIST ONLY IN A MIGRATION
+--
+-- Everything below was created by a file under db/migration/ and was NOT in this
+-- schema, which meant a database built from this file alone was missing it. That is
+-- the wrong direction of drift: the test suite applies THIS file, so it was more
+-- permissive than production -- a duplicate the live database rejects, the tests
+-- accepted. (Proven at the time: a duplicate `error_log.error_id` inserted cleanly
+-- against the committed schema while production has uq_error_log_error_id.)
+--
+-- This file is now the END STATE. A fresh database needs this file and nothing else.
+-- schema-is-the-end-state.test.mjs fails if a migration ever creates an index or adds
+-- a column that is not also here.
+-- ============================================================================
+
+-- from migration/08-public-data-version.sql
+CREATE UNIQUE INDEX IF NOT EXISTS idx_portal_settings_key
+  ON portal_settings ("key");
+
+-- from migration/02-perf-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_login_users_mobile
+  ON login_users (mobile);
+
+-- from migration/02-perf-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_login_users_email
+  ON login_users (email);
+
+-- from migration/03-scalability-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_committee_members_name
+  ON committee_members (name);
+
+-- from migration/01-core-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_users_id_code
+  ON users (id_code);
+
+-- from migration/01-core-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_users_name
+  ON users (name);
+
+-- from migration/01-core-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_login_users_role
+  ON login_users (role);
+
+-- from migration/07-core-id-uniqueness.sql
+CREATE INDEX IF NOT EXISTS idx_users_id_code_seq
+  ON users (id_code);
+
+-- from migration/34-core-unique-id-code.sql
+CREATE UNIQUE INDEX IF NOT EXISTS uq_users_id_code
+  ON users (id_code) WHERE id_code IS NOT NULL AND id_code <> '';

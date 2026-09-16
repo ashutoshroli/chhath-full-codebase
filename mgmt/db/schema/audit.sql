@@ -49,3 +49,27 @@ CREATE TABLE login_attempts (
 CREATE INDEX IF NOT EXISTS idx_login_attempts_identifier ON login_attempts(identifier);
 CREATE INDEX IF NOT EXISTS idx_login_attempts_created_at ON login_attempts(created_at);
 CREATE INDEX IF NOT EXISTS idx_login_attempts_success ON login_attempts(success);
+
+
+-- ============================================================================
+-- INDEXES AND CONSTRAINTS THAT USED TO EXIST ONLY IN A MIGRATION
+--
+-- Everything below was created by a file under db/migration/ and was NOT in this
+-- schema, which meant a database built from this file alone was missing it. That is
+-- the wrong direction of drift: the test suite applies THIS file, so it was more
+-- permissive than production -- a duplicate the live database rejects, the tests
+-- accepted. (Proven at the time: a duplicate `error_log.error_id` inserted cleanly
+-- against the committed schema while production has uq_error_log_error_id.)
+--
+-- This file is now the END STATE. A fresh database needs this file and nothing else.
+-- schema-is-the-end-state.test.mjs fails if a migration ever creates an index or adds
+-- a column that is not also here.
+-- ============================================================================
+
+-- from migration/06-audit-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_user_sessions_name_revoked
+  ON user_sessions (name, revoked_at);
+
+-- from migration/06-audit-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_login_attempts_name
+  ON login_attempts (name);

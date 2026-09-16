@@ -29,15 +29,13 @@ import { disable2FA, regenerateBackupCodes } from '../src/twoFactor.js';
 
 const SUPERADMIN = { name: 'USER0001', role: 'Superadmin' };
 
-// The totp_* columns come from migration 2026-09-05/22, not from core.sql — the
-// same way test/two-factor-login.test.mjs builds its schema, so code + migration
-// are proved to agree.
-const TOTP_MIGRATION = readFileSync(
-  new URL('../../db/migration/2026-09-05/22-login-users-totp.sql', import.meta.url), 'utf8'
-);
+// The totp_* columns are in core.sql itself now. They used to be applied here from
+// migration 22, because the committed schema deliberately omitted them; the schema is the
+// end state since schema-is-the-end-state.test.mjs, so applying the migration on top
+// would fail with "duplicate column" and a fresh database needs only the schema.
 
 async function makeEnv() {
-  const core = makeD1(schemaFor('core.sql') + '\n' + TOTP_MIGRATION);
+  const core = makeD1(schemaFor('core.sql'));
   core.prepare('INSERT INTO login_users (name, mobile, email, password, role, updated_at) VALUES (?,?,?,?,?,?)')
     .bind('USER0001', '9876543210', 'a@b.test', await hashPassword('a-good-password', 'test-salt'), 'Superadmin', '2026-01-01').run();
   return {

@@ -125,3 +125,115 @@ CREATE TABLE loan_guarantors (
 );
 CREATE INDEX idx_loan_guarantors_loan_id ON loan_guarantors(loan_id);
 
+
+
+-- ============================================================================
+-- INDEXES AND CONSTRAINTS THAT USED TO EXIST ONLY IN A MIGRATION
+--
+-- Everything below was created by a file under db/migration/ and was NOT in this
+-- schema, which meant a database built from this file alone was missing it. That is
+-- the wrong direction of drift: the test suite applies THIS file, so it was more
+-- permissive than production -- a duplicate the live database rejects, the tests
+-- accepted. (Proven at the time: a duplicate `error_log.error_id` inserted cleanly
+-- against the committed schema while production has uq_error_log_error_id.)
+--
+-- This file is now the END STATE. A fresh database needs this file and nothing else.
+-- schema-is-the-end-state.test.mjs fails if a migration ever creates an index or adds
+-- a column that is not also here.
+-- ============================================================================
+
+-- from migration/02-perf-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_loan_consents_status
+  ON loan_consents (status);
+
+-- from migration/03-scalability-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_loans_name
+  ON loans (name);
+
+-- from migration/03-scalability-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_loan_guarantors_guarantor
+  ON loan_guarantors (guarantor);
+
+-- from migration/02-loans-expenses-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_loan_consents_consent_id
+  ON loan_consents (consent_id);
+
+-- from migration/02-loans-expenses-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_loan_consents_role
+  ON loan_consents (role);
+
+-- from migration/02-loans-expenses-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_loan_consents_verification_status
+  ON loan_consents (verification_status);
+
+-- from migration/02-loans-expenses-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_loan_consents_responded_at
+  ON loan_consents (responded_at);
+
+-- from migration/02-loans-expenses-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_loan_message_templates_type
+  ON loan_message_templates (type);
+
+-- from migration/02-loans-expenses-indexes.sql
+CREATE INDEX IF NOT EXISTS idx_loan_guarantors_year_loaner
+  ON loan_guarantors (year, loaner);
+
+-- from migration/36-loans-keys-and-relations.sql
+CREATE UNIQUE INDEX IF NOT EXISTS uq_loans_loan_id
+  ON loans (loan_id) WHERE loan_id IS NOT NULL AND loan_id <> '';
+
+
+-- ============================================================================
+-- THE LOAN RELATIONS (audit M-34 / H-8) — enforced, not described
+--
+-- These four triggers used to exist only in migration 36-loans-keys-and-relations.sql,
+-- so a database built from this schema alone had NO enforcement of the relationship at
+-- all: a consent or guarantor row could name a loan that does not exist, which is
+-- exactly the H-8 orphan the audit found.
+--
+-- Why triggers rather than a FOREIGN KEY: D1 does not persist `PRAGMA foreign_keys`
+-- across requests, so a declared FK would be documentation and these would still be
+-- what actually enforces it. The blank/NULL exemption is deliberate — legacy rows
+-- predate `loan_id`, and a row with no reference is not a broken reference.
+--
+-- Both verbs are covered. An insert-only guard is half a guard: it stops a row being
+-- created against a missing loan and then allows the same row to be re-pointed at one
+-- a moment later.
+--
+-- NOTE: there is deliberately NO `BEFORE DELETE ON loans` guard. `deleteLoan`
+-- (loans.js) sends one batch whose FIRST statement deletes the loan and whose last two
+-- delete the children, so a delete guard would abort the application's own correct
+-- deletion. See migration 36 for the full reasoning.
+-- ============================================================================
+
+CREATE TRIGGER IF NOT EXISTS trg_loan_consents_loan_fk_ins
+BEFORE INSERT ON loan_consents
+FOR EACH ROW WHEN NEW.loan_id IS NOT NULL AND NEW.loan_id <> ''
+  AND NOT EXISTS (SELECT 1 FROM loans WHERE loan_id = NEW.loan_id)
+BEGIN
+  SELECT RAISE(ABORT, 'loan_consents.loan_id references a loan that does not exist');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_loan_consents_loan_fk_upd
+BEFORE UPDATE OF loan_id ON loan_consents
+FOR EACH ROW WHEN NEW.loan_id IS NOT NULL AND NEW.loan_id <> ''
+  AND NOT EXISTS (SELECT 1 FROM loans WHERE loan_id = NEW.loan_id)
+BEGIN
+  SELECT RAISE(ABORT, 'loan_consents.loan_id would be re-pointed at a loan that does not exist');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_loan_guarantors_loan_fk_ins
+BEFORE INSERT ON loan_guarantors
+FOR EACH ROW WHEN NEW.loan_id IS NOT NULL AND NEW.loan_id <> ''
+  AND NOT EXISTS (SELECT 1 FROM loans WHERE loan_id = NEW.loan_id)
+BEGIN
+  SELECT RAISE(ABORT, 'loan_guarantors.loan_id references a loan that does not exist');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_loan_guarantors_loan_fk_upd
+BEFORE UPDATE OF loan_id ON loan_guarantors
+FOR EACH ROW WHEN NEW.loan_id IS NOT NULL AND NEW.loan_id <> ''
+  AND NOT EXISTS (SELECT 1 FROM loans WHERE loan_id = NEW.loan_id)
+BEGIN
+  SELECT RAISE(ABORT, 'loan_guarantors.loan_id would be re-pointed at a loan that does not exist');
+END;

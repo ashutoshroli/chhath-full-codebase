@@ -312,14 +312,19 @@ test('M-22: the re-read still recovers exactly this poll\'s rows via the shared 
 
 const MIGRATION = new URL('../../db/migration/2026-09-05/09-error-log-client-ip.sql', import.meta.url);
 
-test('M-13 migration: applies against the real schema and backfills the IP out of context', () => {
+// error_log.client_ip is in logs.sql itself now (schema-is-the-end-state.test.mjs), so
+// this no longer proves the ADD COLUMN — it proves the BACKFILL, which is the part that
+// still matters for an existing database. The ALTER is stripped for that reason; leaving
+// it in would fail with "duplicate column" against the end-state schema.
+test('M-13 migration: backfills the IP out of context (the column itself is in the schema now)', () => {
   const db = new DatabaseSync(':memory:');
   db.exec(schemaFor('logs.sql'));
   db.exec(`INSERT INTO error_log (error_id, source, page, message, context, created_at)
            VALUES ('E1','public','portal','boom','{"edgeIp":"203.0.113.9","ua":"x"}','2026-09-01'),
                   ('E2','public','portal','boom2','{"note":"no ip here"}','2026-09-01')`);
 
-  const sql = readFileSync(MIGRATION, 'utf8');
+  const sql = readFileSync(MIGRATION, 'utf8')
+    .split('\n').filter((l) => !/^\s*ALTER\s+TABLE/i.test(l)).join('\n');
   db.exec(sql);
 
   const rows = db.prepare('SELECT error_id, client_ip FROM error_log ORDER BY error_id').all().map(r => ({ ...r }));
@@ -336,18 +341,22 @@ test('M-13 migration: applies against the real schema and backfills the IP out o
 test('M-13 migration: the CREATE INDEX and UPDATE halves are re-runnable', () => {
   const db = new DatabaseSync(':memory:');
   db.exec(schemaFor('logs.sql'));
-  const sql = readFileSync(MIGRATION, 'utf8');
-  db.exec(sql);
+  const full = readFileSync(MIGRATION, 'utf8');
 
-  // ALTER TABLE ADD COLUMN cannot be IF NOT EXISTS in SQLite, so a second full run
-  // fails on exactly that statement and nothing else. Assert that precisely, so the
-  // operator knows a repeat run is a harmless no-op rather than a broken migration.
-  const err = (() => { try { db.exec(sql); return null; } catch (e) { return e; } })();
-  assert.ok(err, 'a second full run does raise');
+  // `error_log.client_ip` is part of logs.sql itself now, so the FIRST run against a
+  // schema-built database is the one that hits the duplicate — SQLite has no
+  // `ADD COLUMN IF NOT EXISTS`. Assert that precisely, so an operator knows a run
+  // against a fresh database is a harmless no-op and not a broken migration.
+  const err = (() => { try { db.exec(full); return null; } catch (e) { return e; } })();
+  assert.ok(err, 'the ALTER does raise against the end-state schema');
   assert.match(err.message, /duplicate column name: client_ip/,
     'and only because the column already exists — nothing else in the file fails');
 
-  // The idempotent halves really are idempotent.
+  // The idempotent halves really are idempotent — the index and the backfill can be run
+  // as often as you like, which is what matters for an EXISTING database.
+  const sql = full.split('\n').filter((l) => !/^\s*ALTER\s+TABLE/i.test(l)).join('\n');
+  db.exec(sql);
+  db.exec(sql);
   db.exec('CREATE INDEX IF NOT EXISTS idx_error_log_client_ip_created_at ON error_log (client_ip, created_at)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_error_log_client_ip_created_at ON error_log (client_ip, created_at)');
 });
@@ -355,7 +364,9 @@ test('M-13 migration: the CREATE INDEX and UPDATE halves are re-runnable', () =>
 test('M-13: the limiter query is index-served and no longer a leading-wildcard LIKE', () => {
   const db = new DatabaseSync(':memory:');
   db.exec(schemaFor('logs.sql'));
-  db.exec(readFileSync(MIGRATION, 'utf8'));
+  // No migration to apply: both the column and idx_error_log_client_ip_created_at are in
+  // logs.sql now, which is the property being checked — a fresh database answers the
+  // limiter's query from an index without anything else being run.
 
   const plan = db.prepare(
     'EXPLAIN QUERY PLAN SELECT COUNT(*) AS n FROM error_log WHERE client_ip = ? AND created_at >= ?'

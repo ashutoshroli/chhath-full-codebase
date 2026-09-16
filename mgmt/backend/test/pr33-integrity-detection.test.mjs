@@ -45,13 +45,29 @@ function spy(d1, log, label) {
   };
 }
 
-// A full four-database env on the committed schema. `log` collects every statement.
+// The schema WITHOUT the unique guards and relation triggers.
+//
+// This report exists to find defects in a database that has been running for a while.
+// Since the committed schema became the end state it REFUSES most of them outright — a
+// duplicate id_code, a duplicate receipt number, an orphan consent — which is the fix
+// working, and which means these fixtures can no longer contain the very things under
+// test. So they are planted into a database shaped like the one the report is for: an
+// older one, without the guards.
+//
+// That is not a workaround, it is the point. The detector is for databases that predate
+// the constraints; #359's migrations only govern writes from the moment they are applied.
+const preConstraint = (file) =>
+  schemaFor(file)
+    .replace(/CREATE UNIQUE INDEX IF NOT EXISTS uq_[\s\S]*?;/g, '')
+    .replace(/CREATE TRIGGER IF NOT EXISTS[\s\S]*?END;/g, '');
+
+// A full four-database env on that schema. `log` collects every statement.
 function makeEnv(log = []) {
   const env = {
-    DB_CORE: makeD1(schemaFor('core.sql')),
-    DB_COLLECTIONS: makeD1(schemaFor('collections.sql')),
-    DB_LOANS_EXPENSES: makeD1(schemaFor('loans_expenses.sql')),
-    DB_FILE_INDEX: makeD1(schemaFor('file_index.sql')),
+    DB_CORE: makeD1(preConstraint('core.sql')),
+    DB_COLLECTIONS: makeD1(preConstraint('collections.sql')),
+    DB_LOANS_EXPENSES: makeD1(preConstraint('loans_expenses.sql')),
+    DB_FILE_INDEX: makeD1(preConstraint('file_index.sql')),
   };
   const raw = { ...env };
   for (const k of Object.keys(env)) env[k] = spy(env[k], log, k);

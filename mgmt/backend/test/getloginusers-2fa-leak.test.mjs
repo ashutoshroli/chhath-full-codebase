@@ -23,9 +23,12 @@ const SUBADMIN = { name: 'USER0003', role: 'Subadmin' };
 const marker = (name) => `TEST-${name}-${' x'.repeat(6).replace(/ /g, '')}-value`;
 const SECRETS = [marker('SECRETENC'), marker('PENDINGENC'), marker('BACKUPCODES'), marker('RECOVERYHASH')];
 
+// The totp_* columns are in core.sql itself now. They used to be applied here from
+// migration 22, because the committed schema deliberately omitted them; the schema is the
+// end state since schema-is-the-end-state.test.mjs, so applying the migration on top
+// would fail with "duplicate column" and a fresh database needs only the schema.
 function coreSchemaWith2fa() {
-  const migration = readFileSync(new URL('../../db/migration/2026-09-05/22-login-users-totp.sql', import.meta.url), 'utf8');
-  return schemaFor('core.sql') + '\n' + migration;
+  return schemaFor('core.sql');
 }
 
 async function makeEnv() {

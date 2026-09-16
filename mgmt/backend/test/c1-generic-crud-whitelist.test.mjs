@@ -30,6 +30,11 @@ function makeEnv() {
   // An Admin login row — the escalation target.
   core.prepare('INSERT INTO login_users (id, name, password, role, updated_at) VALUES (?,?,?,?,?)')
     .bind(7, 'USER0002', 'pbkdf2$x', 'Admin', '2026-01-01').run();
+  // The loan the consent belongs to. Needed since the committed schema carries the
+  // loan-relation triggers (a consent naming a loan that does not exist is refused) —
+  // which makes this fixture more like a real database than it was before.
+  loansExpenses.prepare('INSERT INTO loans (year, loan_id, name) VALUES (?,?,?)')
+    .bind(2026, 'LN1', 'USER0009').run();
   // A pending consent — the forgery target.
   loansExpenses.prepare(
     'INSERT INTO loan_consents (id, consent_id, loan_id, person_id, role, token, status) VALUES (?,?,?,?,?,?,?)')

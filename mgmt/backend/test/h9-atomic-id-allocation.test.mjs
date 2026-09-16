@@ -21,6 +21,22 @@ import { saveRecord } from '../src/crud.js';
 
 const SUPERADMIN = { name: 'USER0001', role: 'Superadmin' };
 
+// The schema AS IT WAS BEFORE the unique guards existed.
+//
+// Two tests below have to demonstrate the H-9 bug — five writers each told they own
+// Sl. No. 1, five rows written sharing one receipt number. Since the committed schema
+// became the end state it carries `uq_collections_year_sl_no` and `uq_users_id_code`,
+// so the second of those writes is now REFUSED — which is the fix working, and which
+// makes the historical bug impossible to show.
+//
+// Stripping the guards is the faithful way to show it: the bug existed precisely
+// because nothing enforced uniqueness, so the demonstration should run against a
+// database where nothing does. Each of those tests then also asserts that the REAL
+// schema refuses what the old one accepted, so the fix is pinned in the same place as
+// the bug it fixed.
+const preConstraint = (file) =>
+  schemaFor(file).replace(/CREATE UNIQUE INDEX IF NOT EXISTS uq_[\s\S]*?;/g, '');
+
 function makeEnv() {
   return {
     DB_CORE: makeD1(schemaFor('core.sql')),
@@ -53,7 +69,9 @@ async function allocateTheOldWay(db, year, name) {
 }
 
 test('H-9 proof: the OLD read-then-write allocator hands the SAME id to every writer', async () => {
-  const env = makeEnv();
+  // Against a pre-constraint database — see `preConstraint`. The bug happened because
+  // nothing enforced uniqueness, so this is where it can still be shown.
+  const env = { DB_COLLECTIONS: makeD1(preConstraint('collections.sql')) };
   const handedOut = await Promise.all(
     [1, 2, 3, 4, 5].map(n => allocateTheOldWay(env.DB_COLLECTIONS, 2026, `Donor ${n}`))
   );
@@ -65,6 +83,16 @@ test('H-9 proof: the OLD read-then-write allocator hands the SAME id to every wr
   assert.deepEqual(stored, [1, 1, 1, 1, 1],
     'and five rows were written sharing one receipt number, with nothing raising an error');
   assert.equal(new Set(stored).size, 1);
+
+  // And the other half of the story, in the same test: the schema a database is built
+  // from TODAY refuses the second of those writes outright.
+  const guarded = makeD1(schemaFor('collections.sql'));
+  await guarded.prepare('INSERT INTO collections (year, sl_no, name) VALUES (?,?,?)').bind(2026, 1, 'A').run();
+  await assert.rejects(
+    () => guarded.prepare('INSERT INTO collections (year, sl_no, name) VALUES (?,?,?)').bind(2026, 1, 'B').run(),
+    /UNIQUE|constraint/i,
+    'the end-state schema must refuse a duplicate receipt number'
+  );
 });
 
 // The same interleaving, but with allocation inside the INSERT — one atomic
@@ -298,12 +326,14 @@ test('H-9 migration: PART 1 applies twice with no error (idempotent)', () => {
 
 test('H-9 migration: PART 2 UNIQUE index would now hold, and would have caught the bug', async () => {
   const env = makeEnv();
-  // Apply the constraint the migration documents...
-  env.DB_COLLECTIONS._db.exec(
-    'CREATE UNIQUE INDEX uq_collections_year_sl_no ON collections (year, sl_no) WHERE sl_no IS NOT NULL'
-  );
-  // ...then hammer the fixed allocator. With the old read-then-write code this
-  // threw "UNIQUE constraint failed: collections.year, collections.sl_no".
+  // The constraint the migration documents is IN the schema now, so there is nothing to
+  // apply here — only to confirm, before hammering the fixed allocator through it. With
+  // the old read-then-write code this threw
+  // "UNIQUE constraint failed: collections.year, collections.sl_no".
+  const idx = env.DB_COLLECTIONS._db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='index' AND name = 'uq_collections_year_sl_no'"
+  ).get();
+  assert.ok(idx, 'the end-state schema should already carry uq_collections_year_sl_no');
   await Promise.all(Array.from({ length: 20 }, (_, i) =>
     saveRecord(env, 'COLLECTIONS', collectionPayload({ Name: `D${i}` }), SUPERADMIN)));
 
@@ -329,7 +359,14 @@ test('H-9 migration: the detection queries are present and runnable', () => {
   assert.deepEqual(dupUsers.all(), []);
   assert.deepEqual(dupColl.all(), []);
 
-  // Plant a duplicate and prove the query finds it.
-  env.DB_CORE._db.exec("INSERT INTO users (id_code, name) VALUES ('USER0009','a'),('USER0009','b')");
-  assert.deepEqual(dupUsers.all().map(r => ({ ...r })), [{ id_code: 'USER0009', copies: 2 }]);
+  // Plant a duplicate and prove the query finds it. On a pre-constraint database: the
+  // end-state schema refuses the duplicate, which is exactly what the detection query
+  // exists to check for BEFORE that constraint is applied to an older database.
+  const pre = makeD1(preConstraint('core.sql'));
+  pre._db.exec("INSERT INTO users (id_code, name) VALUES ('USER0009','a'),('USER0009','b')");
+  const dupPre = pre._db.prepare(
+    "SELECT id_code, COUNT(*) AS copies FROM users WHERE id_code IS NOT NULL AND id_code <> ''"
+    + ' GROUP BY id_code HAVING COUNT(*) > 1'
+  );
+  assert.deepEqual(dupPre.all().map(r => ({ ...r })), [{ id_code: 'USER0009', copies: 2 }]);
 });
