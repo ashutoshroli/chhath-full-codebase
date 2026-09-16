@@ -83,6 +83,33 @@ export const RETENTION = {
   // season plus margin. Without this the table grows forever, and the Mails view +
   // the cron poll read more rows over time (a rows_read drain on the free tier).
   emailDays: 180,
+
+  // ---- audit PR-48 additions ----
+  //
+  // A FAILED job's .docx bytes. This is the gap the original sweep left, and it is the
+  // worse half of the storage problem it was written to solve: `jobPayloadDays` above
+  // only blanks `status = 'done'`, so a job that failed kept its full base64 payload
+  // FOR EVER — and failed jobs are precisely the ones that accumulate.
+  //
+  // It could not simply be blanked with the done ones, because `retryQueueJob` resets
+  // `attempts = 0` and re-runs from `filled_base64`, so those bytes are the manual
+  // retry. THE TRADE, stated: after this window a manual retry of a failed job can no
+  // longer regenerate from the stored bytes and the collection has to be re-saved. A
+  // month is far longer than anyone waits to chase a missing receipt, and the
+  // alternative is paying storage for every failure the portal has ever had.
+  failedJobPayloadDays: 30,
+  // Terminal render_jobs rows (the offload dispatch ledger). Same reasoning as
+  // doneJobDays: interesting while someone might ask "did that run?".
+  renderJobDays: 30,
+  // Terminal ai_fixes rows. Longer, because this is the record of what an automated
+  // change did to the repository, which is worth being able to look back at.
+  aiFixDays: 180,
+  // OUTBOUND official mail only — see the sweep, which deliberately does not touch
+  // received mail. A year, because this is correspondence.
+  officialMailDays: 365,
+  // A push subscription with active = 0 is dead: the browser unsubscribed, or delivery
+  // failed permanently and push.js switched it off. Nothing ever reads it again.
+  inactivePushDays: 90,
 };
 
 // Bounded DELETE. Returns the number of rows removed (0 on any error).
@@ -104,17 +131,24 @@ async function boundedDelete(db, table, whereSql, binds, label, report) {
 }
 
 // Bounded UPDATE, used to blank filled_base64 without deleting the job row.
-async function boundedBlank(db, label, report) {
+//
+// `statuses` and `days` are parameters rather than hard-coded because the same
+// operation is needed for two different situations with two different windows: a
+// finished job's bytes are dead the next day, a failed job's are the manual retry and
+// have to survive longer. One function, two callers, so the bounded/idempotent shape
+// cannot drift between them.
+async function boundedBlank(db, { statuses, days }, label, report) {
   if (!db) return 0;
   try {
+    const placeholders = statuses.map(() => '?').join(', ');
     const res = await db.prepare(
       `UPDATE collection_jobs SET filled_base64 = ''
         WHERE id IN (
           SELECT id FROM collection_jobs
-           WHERE status = 'done' AND filled_base64 != '' AND finished_at IS NOT NULL
+           WHERE status IN (${placeholders}) AND filled_base64 != '' AND finished_at IS NOT NULL
              AND finished_at < ? LIMIT ${SWEEP_LIMIT}
         )`
-    ).bind(isoDaysAgo(RETENTION.jobPayloadDays)).run();
+    ).bind(...statuses, isoDaysAgo(days)).run();
     const n = (res && res.meta && res.meta.changes) || 0;
     if (n) report[label] = n;
     return n;
@@ -134,7 +168,18 @@ export async function runRetentionSweep(env) {
 
   // 1) The storage hog first — blank the payload before deleting the row, so even a
   //    job that stays around for its full 30 days stops costing megabytes after one.
-  await boundedBlank(env.DB_MISC, 'jobPayloadsBlanked', report);
+  await boundedBlank(
+    env.DB_MISC, { statuses: ['done'], days: RETENTION.jobPayloadDays },
+    'jobPayloadsBlanked', report
+  );
+
+  // 1b) PR-48 — the same bytes on a FAILED job, which nothing cleared at all. Kept
+  //     much longer than a finished job's because `retryQueueJob` regenerates from
+  //     them; see failedJobPayloadDays for the trade that window represents.
+  await boundedBlank(
+    env.DB_MISC, { statuses: ['failed'], days: RETENTION.failedJobPayloadDays },
+    'failedJobPayloadsBlanked', report
+  );
 
   // 2) Finished job rows.
   await boundedDelete(
@@ -182,6 +227,47 @@ export async function runRetentionSweep(env) {
     env.DB_WHATSAPP_INDEX, 'email_messages',
     "status IN ('sent', 'failed') AND sent_at IS NOT NULL AND sent_at < ?",
     [isoDaysAgo(RETENTION.emailDays)], 'email_messagesDeleted', report
+  );
+
+  // ---- audit PR-48: four tables that had no retention at all ----
+
+  // 7) The offload dispatch ledger. Only terminal rows: a 'pending' or 'dispatched'
+  //    row is what the reconciliation cron scans for, so pruning either would hide a
+  //    stuck job rather than clean up after a finished one.
+  await boundedDelete(
+    env.DB_MISC, 'render_jobs',
+    "status IN ('completed', 'failed') AND finished_at IS NOT NULL AND finished_at < ?",
+    [isoDaysAgo(RETENTION.renderJobDays)], 'renderJobsDeleted', report
+  );
+
+  // 8) AI fix history. Terminal states only, and `needs_manual_review` is deliberately
+  //    NOT among them — that status is a request for a human, and deleting it would
+  //    silently drop the request.
+  await boundedDelete(
+    env.DB_LOGS, 'ai_fixes',
+    "status IN ('merged', 'failed', 'ci_failed') AND updated_at IS NOT NULL AND updated_at < ?",
+    [isoDaysAgo(RETENTION.aiFixDays)], 'aiFixesDeleted', report
+  );
+
+  // 9) Official mailbox — OUTBOUND ONLY, and this is the important part of the rule.
+  //    `official_emails` holds both directions: 'sent'/'failed' are things we sent,
+  //    'received' is mail somebody sent to the committee. Pruning received mail would
+  //    be deleting correspondence nobody agreed to delete, so the status filter is an
+  //    allowlist of outbound terminal states rather than "anything old".
+  await boundedDelete(
+    env.DB_WHATSAPP_INDEX, 'official_emails',
+    "status IN ('sent', 'failed') AND created_at IS NOT NULL AND created_at < ?",
+    [isoDaysAgo(RETENTION.officialMailDays)], 'officialEmailsDeleted', report
+  );
+
+  // 10) Dead push subscriptions. `active = 0` means the browser unsubscribed or
+  //     delivery failed permanently — push.js never reads one again, and the row still
+  //     holds an endpoint handle. Deliberately keyed on `active`, not on age alone: an
+  //     old but ACTIVE subscription is a real subscriber.
+  await boundedDelete(
+    env.DB_CORE, 'push_subscriptions',
+    'active = 0 AND updated_at IS NOT NULL AND updated_at < ?',
+    [isoDaysAgo(RETENTION.inactivePushDays)], 'inactivePushDeleted', report
   );
 
   return report;

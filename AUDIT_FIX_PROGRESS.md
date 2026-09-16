@@ -6,10 +6,10 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status — against the plan's 48 PRs: 37.5 done · 10.5 remaining.**
-Separately, **49 GitHub PRs** have been merged for this effort (#311–#362). Those two numbers are not the same thing, and revisions of this file before #356 wrongly treated them as one — the header claimed "8 pending" while §3 below listed 14.5. Several merged PRs were docs/runbook updates (#340, #343, #346, #352), CI fix-ups (#330, #345), or carry-over items outside the 48 (#348, #356). Others, like this one, are a **slice** of a plan PR rather than a whole one. **The plan count is the one to read for progress.**
+**Status — against the plan's 48 PRs: 38 done · 10 remaining.**
+Separately, **50 GitHub PRs** have been merged for this effort (#311–#363). Those two numbers are not the same thing, and revisions of this file before #356 wrongly treated them as one — the header claimed "8 pending" while §3 below listed 14.5. Several merged PRs were docs/runbook updates (#340, #343, #346, #352), CI fix-ups (#330, #345), or carry-over items outside the 48 (#348, #356). Others, like this one, are a **slice** of a plan PR rather than a whole one. **The plan count is the one to read for progress.**
 
-Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-BE closed)** · **W3 7/7 (consent copy folded into PR-44)** · **W4 ✅ 3/3** · **W5 0.5/6** · W6 0/4 · **W7 1.5/3**
+Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-BE closed)** · **W3 7/7 (consent copy folded into PR-44)** · **W4 ✅ 3/3** · **W5 0.5/6** · W6 0/4 · **W7 2/3**
 
 ---
 
@@ -66,78 +66,68 @@ Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-
 | [#359](https://github.com/ashutoshroli/chhath-full-codebase/pull/359) | apply the constraints 07, 08 and 10 only described | PR-34 | Three migrations shipped their real work as **comments** (10 is 101 comment lines, 0 executable) because a UNIQUE index fails on a table holding a duplicate. #354’s report proved every precondition is 0, so there are **no repair scripts** — enforcement only: 3 partial unique indexes + **4** triggers. Migration 10 had `BEFORE INSERT` only; the UPDATE half is new. No `BEFORE DELETE` guard — it would abort `deleteLoan`’s own batch | Migrations **34/35/36**, one per database (§W8f) |
 | [#360](https://github.com/ashutoshroli/chhath-full-codebase/pull/360) | five migrations named a database that does not exist | PR-35 precondition | The "Apply with:" line an operator copy-pastes said `chhath_logs`, `chhath_core`, `chhath_collections`, `chhath_loans_expenses` — **underscores**, where every real database uses hyphens. One of the five was mine (#356), repeated in the runbook, so a **privacy remediation** was handed a command that could only fail and was reported as run. No test had ever read the one line a human acts on | No migration — comments only. **Verify migration 33 applied** (§W8e) |
 | [#361](https://github.com/ashutoshroli/chhath-full-codebase/pull/361) | a migration system that records what it did | PR-35 | Nobody could say which migrations were applied — which is how a privacy remediation got reported as applied when its command had failed. `schema_migrations` (one ledger per database, D1 has no cross-DB query) + `migrate.mjs` with `status`/`apply`/`adopt`/`verify`. `adopt` is what makes it usable on a deployment with 40+ migrations already applied by hand. Two of my own bugs caught by its tests: unrouted migrations were silently skipped, inert recipes were queued | Migration **37**, bootstrapped by the tool |
+| [#363](https://github.com/ashutoshroli/chhath-full-codebase/pull/363) | make the chat retention window real, and give the chat tables constraints | PR-32 | The retention policy was two commented-out DELETEs under *"OPTIONAL ... if you want to keep the free tier small"* — a privacy commitment framed as housekeeping, and never run, so every public question ever typed was still stored. Now code. Plus FK + CHECK via Postgres `NOT VALID` (the analogue of D1’s partial indexes), and `ON DELETE CASCADE`, which is what makes retention correct rather than tidy | `db/neon/02-constraints-and-retention.sql`; optional `CHAT_RETENTION_DAYS` |
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — the retention window was a comment, and the chat tables had no constraints (PR-32)
+## 2. This PR — the tables retention forgot, and the half-covered one (PR-48)
 
-**Audit ID:** Wave 3 **PR-32**, the remainder. TLS verification, the keyed rotating IP pseudonym and server-issued session ids shipped in #351.
+**Audit ID:** Wave 7 **PR-48**, the retention half.
 
-`db/neon/schema.sql` ended like this:
+The M-38 sweep already pruned logs, sessions, login attempts, and WhatsApp/email history. Four tables had **no retention at all** — and one had **half** of one, which is the interesting case.
+
+### The leak inside the sweep written to stop leaks
+
+`boundedBlank` cleared `collection_jobs.filled_base64` only where `status = 'done'`:
 
 ```sql
--- OPTIONAL retention helper (run manually or via a scheduled job if you want to
--- keep the free tier small): delete chat logs older than 90 days.
---   DELETE FROM chat_messages WHERE created_at < now() - INTERVAL '90 days';
---   DELETE FROM chat_sessions WHERE last_seen_at < now() - INTERVAL '90 days';
+WHERE status = 'done' AND filled_base64 != '' AND finished_at < ?
 ```
 
-Two things wrong with that. It framed a **privacy commitment** as optional housekeeping — *"if you want to keep the free tier small"* — and being a comment, nobody ran it. The same failure the D1 side had, where migration 10 was 101 comment lines and zero executable ones. Every public question anyone had ever typed was still stored, next to a pseudonym linking the conversation to a person.
+A job that **failed** kept its complete base64 `.docx` for ever. And failed jobs are precisely the ones that accumulate — a successful job's bytes are cleared the next day, a failure's were kept indefinitely.
 
-The same file also left two gaps in its own comments:
+retention.js's own header calls that column *"THE WORST BY FAR ... the fastest route to the 5 GB free-tier storage limit"*. It was leaking through the half of the condition it did not cover.
 
-```
-chat_messages.session_id   "FK-ish to chat_sessions.session_id (not enforced: logs, keep writes cheap)"
-role                        'user' | 'assistant'   — a comment, not a constraint
-```
+It could not simply be folded in with the done jobs, because `retryQueueJob` resets `attempts = 0` and re-runs **from those bytes** — they are the manual retry. So the two need different windows, and **the trade is stated rather than buried**: after 30 days a manual retry of a failed job can no longer regenerate from the stored bytes and the collection has to be re-saved. A month is far longer than anyone waits to chase a missing receipt; the alternative is paying storage for every failure the portal has ever had. A test asserts the two windows stay different, so that trade cannot be silently dropped by making them equal.
 
-### `NOT VALID` — the thing Postgres has that SQLite does not
+### Four tables that had nothing — and what each rule protects
 
-A plain `ADD CONSTRAINT` scans every existing row and **fails** if one violates it. On a log table that has been collecting unconstrained rows for months, that is a coin flip — and `orphan_messages > 0` is *expected* here, because a session row is written best-effort, so a message whose session insert failed is exactly the case the original comment predicted.
+The rules are more interesting than the windows. In every case, "delete anything old" would have been wrong:
 
-`NOT VALID` adds the constraint so it governs every **new** write immediately, without checking what is already stored: no scan, no lock held for a scan, no failure on legacy rows. It is the direct analogue of the partial unique indexes used on the D1 side in #359, for the same reason. `VALIDATE CONSTRAINT` is documented as the follow-up once the detection query reads zero.
+| table | rule | why not just age |
+|---|---|---|
+| `render_jobs` | terminal only (`completed`/`failed`) | a `dispatched` row is what the reconciliation cron scans for. Pruning it by age would **hide a stuck job** instead of cleaning up a finished one |
+| `ai_fixes` | `merged`/`failed`/`ci_failed` | **`needs_manual_review` is excluded.** That status is a request for a human — deleting it because it is old silently drops the request, and nobody knows the fix is still unreviewed |
+| `official_emails` | outbound `sent`/`failed` only | the table holds **both directions**. `received` is mail somebody sent the committee; pruning it is deleting correspondence nobody agreed to delete. The filter is an allowlist of outbound states, so a new inbound status cannot start being swept by accident |
+| `push_subscriptions` | `active = 0` | keyed on `active`, not age. Somebody who subscribed two years ago and never unsubscribed is a **real subscriber**, and deleting them silently stops their notifications |
 
-**`ON DELETE CASCADE` is what makes retention correct**, not merely tidy. Without it, deleting an expired session leaves its messages behind — the exact rows retention exists to remove, now unreachable because the thing that named them is gone.
-
-### The sweep, and why the order is the opposite of the old comment
-
-Messages first, **sessions last**. Deleting a session cascades to its messages, so:
-
-- sessions-only would keep old messages alive inside young, still-active conversations;
-- messages-only would leave empty session rows, each still carrying its `ip_hash`, for ever.
-
-Both statements are bounded (`ctid IN (SELECT … LIMIT 5000)` — Postgres has no `DELETE … LIMIT`), 20 passes per invocation, and hitting that ceiling is **reported** as `truncated` rather than looped away. An unbounded DELETE on a table nobody has ever pruned is how a retention sweep becomes an outage the first time it runs.
-
-Reachable two ways, because neither alone is enough: opportunistically at most once per UTC day per instance (fired without being awaited, so it never delays an answer — best-effort, since a Render free instance that has spun down may miss a day), and `POST /retention` with the shared secret, compared in constant time, which reports the counts.
-
-### The setting that would have switched itself off
-
-The obvious spelling is `parseInt(env, 10) || 0`. It is wrong here, because **0 means keep everything for ever**. `CHAT_RETENTION_DAYS=ninety` parses to `NaN`, falls to `0`, and retention silently stops while the deployment looks healthy — precisely the failure mode I have been removing all the way through this work.
-
-Unset takes the default; set-but-unparseable takes the default **and warns**. Keeping everything is still possible, it just has to be typed.
-
-**Migrations & setup:** `db/neon/02-constraints-and-retention.sql` — Neon SQL Editor or psql, PART 1 first. Optional `CHAT_RETENTION_DAYS` (default 90).
+**Migrations & setup:** none. Existing hourly cron, existing bounded-statement shape, four more statements.
 
 ## Verification
 
-**No Postgres exists in this environment**, so the database is an injected function and the SQL text is asserted rather than executed. That is the real limit of this suite and it is stated rather than glossed: PART 1 of the migration is written so an operator sees any constraint problem immediately, in a session where the error is in front of them.
+Every case is planted into the **committed** schema, so the statements are tested against real column names rather than a fixture agreeing with itself. That caught a fixture bug immediately (`render_jobs.kind` is `NOT NULL`).
 
-15 tests. Mutation-checked:
+Six mutations, six different tests:
 
 | mutation | caught by |
 |---|---|
-| sessions deleted first (cascade drops the wrong rows) | *the sweep issues them in that order, every pass* |
-| `days` interpolated into the SQL instead of bound | *a hostile day count cannot reach the interval* |
-| `truncated` not reported | *hitting the ceiling is REPORTED, not looped away* |
-| `days = 0` ignored | *0 days means keep everything, and is respected* |
-| `parseInt(...) \|\| 0` restored | *a misspelled CHAT_RETENTION_DAYS falls back to the default* |
+| the failed-blob sweep removed (the original leak) | *a failed job's bytes are cleared after their window* |
+| failed blobs blanked after one day (breaks manual retry) | same test |
+| `render_jobs` pruned by age, catching `dispatched` | *pending and dispatched are not* |
+| `ai_fixes` pruned by age, catching `needs_manual_review` | *needs_manual_review is kept* |
+| official mail pruned by age, catching `received` | *RECEIVED mail is never touched* |
+| push pruned by age, catching an active subscriber | *an old but ACTIVE subscriber is kept* |
+
+Also asserted: the report names only what it actually removed, no statement reports an `:error` (which would mean a column that does not exist in the committed schema), and a missing binding is survived rather than thrown — the cron must not break on a deployment that has not bound every database.
 
 ```
-mgmt/server-render: 181 passed (166 + 15)
+mgmt/backend: 933 passed (925 + 8)
 ```
 
-W3's last item, the chat consent/disclosure copy, is frontend text and belongs with **PR-44** (the privacy notice), which covers the same ground for chat, telemetry, push, cache, fonts and deletion — writing it twice in two places is how two privacy notices end up disagreeing.
+## What remains of PR-48
+
+The **telemetry** half — request/job ids, cache HIT/MISS, rows read, payload bytes, latency, queue depth, snapshot age, budget usage, and alerts. That is a cross-cutting change through the router, the cache layer and every D1 call, and it is where carry-over **C9** belongs: `verifyToken`'s revocation check fails open on an audit-DB error, which is the right availability trade (failing closed would log every admin out during a D1 blip) but is currently **invisible**. Making it observable is a telemetry change, not a security one, so it goes with that half rather than being bolted on here.
 
 ---
 
