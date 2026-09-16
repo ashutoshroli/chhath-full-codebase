@@ -6,10 +6,10 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status — against the plan's 48 PRs: 34 done · 14 remaining.**
-Separately, **43 GitHub PRs** have been merged for this effort (#311–#356). Those two numbers are not the same thing, and revisions of this file before #356 wrongly treated them as one — the header claimed "8 pending" while §3 below listed 14.5. Several merged PRs were docs/runbook updates (#340, #343, #346, #352), CI fix-ups (#330, #345), or carry-over items outside the 48 (#348, #356). Others, like this one, are a **slice** of a plan PR rather than a whole one. **The plan count is the one to read for progress.**
+**Status — against the plan's 48 PRs: 34.5 done · 13.5 remaining.**
+Separately, **44 GitHub PRs** have been merged for this effort (#311–#357). Those two numbers are not the same thing, and revisions of this file before #356 wrongly treated them as one — the header claimed "8 pending" while §3 below listed 14.5. Several merged PRs were docs/runbook updates (#340, #343, #346, #352), CI fix-ups (#330, #345), or carry-over items outside the 48 (#348, #356). Others, like this one, are a **slice** of a plan PR rather than a whole one. **The plan count is the one to read for progress.**
 
-Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-BE closed)** · **W3 6.5/7** · **W4 1/3** · **W5 0.5/6 (the viewport fix — this PR)** · W6 0/4 · **W7 1/3**
+Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-BE closed)** · **W3 6.5/7** · **W4 1/3** · **W5 0.5/6** · W6 0/4 · **W7 1.5/3**
 
 ---
 
@@ -61,60 +61,83 @@ Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-
 | [#354](https://github.com/ashutoshroli/chhath-full-codebase/pull/354) | find the broken data before anything tries to enforce it | W4 PR-33 | Every business key is an ordinary index, not a unique constraint: `main`’s committed schema accepts two Superadmin/Subadmin logins of one name, two identical `Ajay Verma`, two contributions printing receipt `NCS-2026-45`, and **two consents sharing one token**. Detection queries existed — as SQL *comments* (migration 10 is 101 comment lines, **0 executable**). Eleven checks now run in one Superadmin call, including two that span databases and so could never have been a SQL file at all | No migration — read-only action `getIntegrityReport`; runbook §W8 |
 | [#355](https://github.com/ashutoshroli/chhath-full-codebase/pull/355) | make three gates that were not gating actually gate | PR-46, C5 | The `H-6 … WITHOUT decoding` test asserted `ms < 250` — **3 failures in 6 runs** under load, blaming the code for something it never did. Now asserts the `atob` call count is 0: **0 failures in 12 runs**. Plus the first bundle budgets for the two SvelteKit apps (602 kB / 999 kB, both gates checked in *both* directions) and `--fail-on-warnings` for Public v6 | No migration — CI, one script, one test |
 | [#356](https://github.com/ashutoshroli/chhath-full-codebase/pull/356) | stop keeping visitor IP addresses, and clear the ones we kept | C12 | A public JS error stored the visitor’s address **three times** (the WHERE, the JSON context, the column) — permanently, in a table the committee reads. Now a keyed pseudonym from a **KV salt that rotates daily and expires**, so there is no operator step and yesterday’s rows become unlinkable to any address by anybody. Migration 33 clears what was already written | Migration **33** on `chhath_logs` (§W8e); no new secret |
+| [#357](https://github.com/ashutoshroli/chhath-full-codebase/pull/357) | let people zoom | PR-39 (slice) | `maximum-scale=1.0, user-scalable=no` disabled pinch-zoom on four app shells, including **both live mgmt frontends** — WCAG 1.4.4. The block came from the original public frontend and rode into three successive rewrites; it left the public side by accident, not decision. So the fix is four one-line changes and the point is the test, which scans every tracked shell in the tree | No migration |
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — nothing may stop a visitor zooming (slice of PR-39)
+## 2. This PR — CI was installing a known-vulnerable library, and the override that was supposed to stop it named the wrong package
 
-**Audit ID:** Wave 5 **PR-39**, the viewport half. WCAG 2.1 SC 1.4.4 (Resize Text).
+**Audit ID:** Wave 7 **PR-47** (dependency upgrades), the shipped-code half.
 
-```html
-<meta name="viewport" content="... maximum-scale=1.0, user-scalable=no">
+Both mgmt frontends declare an override redirecting the deprecated `xmldom` to `@xmldom/xmldom@^0.9.12`, and `.github/workflows/ci.yml` even carries a comment explaining that `npm ci` is used *precisely so that override is honoured*. It looked handled. Measured on `main`:
+
+```
+$ cd mgmt/frontend && npm ci && node -p "require('./node_modules/@xmldom/xmldom/package.json').version"
+0.9.11        # 11 advisories, severity high
 ```
 
-That disables pinch-zoom. On this portal it is not a styling preference: the people using it are committee members reading contribution tables and loan amounts on a phone, and the ones most likely to need to zoom are the least likely to know how to work around a page that refuses to.
+### Why the override missed it
 
-Four tracked app shells had it — including **both live mgmt frontends**:
+**Two different packages** pull this library in:
 
-| shell | |
-|---|---|
-| `mgmt/frontend-svelte/src/app.html` | live |
-| `mgmt/frontend/index.html` | live (the retained React SPA) |
-| `Public/frontend/index.html` | legacy |
-| `Public/frontend-v3/index.html` | legacy |
+| requires | range | the override rewrites it? |
+|---|---|---|
+| `docxtemplater` | `@xmldom/xmldom@^0.9.10` | **no** — different package name |
+| `docxtemplater-image-module-free` | `xmldom@^0.1.27` | yes |
 
-### The test is the point, not the fix
+The override only ever governed the *deprecated unscoped* name. `docxtemplater`'s dependency on the **scoped** name was never touched — and `^0.9.10` is satisfied by both `0.9.11` (vulnerable) and `0.9.12` (patched). So which one an app got came down to **when its lockfile happened to be generated**:
 
-The fix is four one-line changes. What matters is why it was still there: the block was in the **original** public frontend, and it was carried into `frontend-v3`, then into the mgmt React SPA, then into the mgmt SvelteKit app. It disappeared from the public side around the v4 rewrite **by accident, not decision** — `v4`, `v5` and `v6` are all clean, and nothing anywhere said it must not come back.
+```
+mgmt/frontend          locked 0.9.11    <- vulnerable
+mgmt/frontend-svelte   locked 0.9.12    <- patched, by luck
+```
 
-Every one of those shells is a hand-written `index.html`/`app.html`, and the next new app will be too. So the guarantee is now a test that scans **every tracked shell in the tree**, including ones that do not exist yet. It asks `git ls-files` rather than walking the tree, so generated copies under `build/` and `.svelte-kit/` are skipped — a generated copy of a fixed template is not a defect.
+The two apps differed by nothing but timing. Nothing errored, nothing warned, and `npm install --package-lock-only` will not correct it either — `0.9.11` does satisfy `^0.9.10`, so npm has no reason to move a pin that is already valid.
 
-Both spellings are checked, because they fail differently: `user-scalable=no` refuses the gesture, `maximum-scale=1` lets the gesture happen and caps the result. A `maximum-scale` of 2 or more is accepted, since that still permits the 200% zoom 1.4.4 requires.
+This is shipped, browser-side code: it parses the DOCX templates a Superadmin uploads, so the two quadratic-time advisories are reachable input, not theoretical.
 
-### A gap in my own test, found by mutating it
+### The part that changes how I'd think about overrides
 
-The "still declares a responsive viewport" assertion originally skipped files with no viewport tag — so **deleting the tag outright passed**, while the comment above it claimed to prevent exactly that. Removing a zoom block and accidentally removing the whole tag would be a worse mobile bug than the one being fixed. Every tracked shell has a viewport tag today, so there was nothing to grandfather: the assertion is now unconditional, and a new shell that forgets one fails.
+**npm does not record `overrides` in the lockfile at all** — verified, the root `packages[""]` entry has no `overrides` key in either app. So an override is a **resolution-time hint** that applies when `npm install` builds the tree. `npm ci` — what CI and every deploy runs — just installs the versions the lockfile already names.
 
-**Migrations & setup:** none. Four HTML attributes and one test.
+An override therefore **cannot enforce anything on the path that actually ships.** Only the pinned version can. That reframes the fix: adding `"@xmldom/xmldom": "^0.9.12"` to `overrides` stops a future `npm install` from re-introducing 0.9.11, but the thing that makes it *stay* fixed is a check on the lockfile.
+
+### So the fix is three things
+
+1. `overrides` gains the **scoped** name in both apps, so resolution can no longer pick 0.9.11.
+2. `mgmt/frontend`'s lockfile is regenerated — a **6-line** diff, no other package moved.
+3. `dependency-security-floors.test.mjs` asserts no lockfile in the repo pins below a declared floor, keyed on the **tarball** rather than the dependency name so an alias cannot hide a copy.
+
+The test deliberately does **not** run `npm audit`: that answer changes with the advisory database and would turn CI red on a day nobody touched anything. And it does not merely check "are overrides respected", because that would have **passed** here — the override that existed *was* respected; it just named the wrong package.
+
+### What this PR does not do, and why
+
+The remaining advisories are `vite` (high) and `vitest` (critical) and their chains. Every one is a **dev-server or test-runner** issue — dev-server path traversal, `server.fs.deny` bypass on Windows, the Vitest UI server. None of it is shipped to a browser. Fixing them means `vite 5 → 8` and `vitest 2 → 5`, majors, coordinated across three apps that share the toolchain.
+
+That is a real risk to take blind, and Vercel preview deployments are rate-limited for the next 24 hours, so it cannot be verified where it would actually break. It goes in its own PR. **`npm audit fix --force` was not run** — on this repo it proposes downgrades (`@sveltejs/kit@0.0.30`, `adapter-static@0.0.17`) that npm presents as "fixes", which is how #338 nearly shipped a miniflare 5.x alpha.
+
+`engines`/`packageManager` pins, also part of PR-47, are left with it.
+
+**Migrations & setup:** none.
 
 ## Verification
 
-| mutation | outcome |
-|---|---|
-| `user-scalable=no` returns | caught |
-| `maximum-scale=1.5` (blocks 200%) | caught |
-| `maximum-scale=5` (permits 200%) | **correctly allowed** |
-| viewport tag deleted entirely | caught |
-| `width=device-width` dropped | caught |
+| | `main` | this branch |
+|---|---|---|
+| `npm ci` in `mgmt/frontend` installs | **0.9.11** | 0.9.12 |
+| high/critical **production** advisories, `mgmt/frontend` | 1 high | **0** |
+| the floor guard | fails, naming the exact lockfile and path | passes |
 
-Against `main` the same test reports all eight offences (four files × both spellings). On this branch it passes.
+The guard's two assertions are genuinely distinct — against `main`, the floor check **fails** while the override check **passes**, which is precisely the finding: the override was honoured, it just governed the wrong package. (An earlier draft had the override check matching by tarball, so it failed too and looked like it was working for the wrong reason.)
 
 ```
-mgmt/backend: 886 passed (883 + 3)
+mgmt/frontend:         builds; main chunk 218.9 kB, within the 230 kB budget
+mgmt/frontend-svelte:  58 tests pass; 0 errors / 160 warnings (C7 unchanged); within budget
+mgmt/backend:          890 passed (886 + 4)
 ```
 
-Still open in PR-39: the contrast tokens (AA-verified per theme) and `:focus-visible` rings. Those are real design work across every skin, not a one-line change, so they stay with the rest of W5.
+The comparator that decides all of this is itself tested — string comparison would put `0.9.2` above `0.9.11`, and a prerelease has to sort below its release.
 
 ---
 
@@ -124,7 +147,7 @@ Still open in PR-39: the contrast tokens (AA-verified per theme) and `:focus-vis
 **W4 — Database (2 left):** ~~duplicate/orphan detection~~ *(this PR)* · **PR-34** repair + partial unique indexes + CHECKs + loan relations (insert **and update** triggers) — *needs a backup, a quiet window, and the output of this PR's report first* · **PR-35** `schema_migrations` ledger + transactional runner + checksums *(its precondition, the migration matrix, merged in #353)*
 **W5 — Accessibility (5.5 left):** dialog primitives (public + mgmt) · combobox/buttons · contrast + `:focus-visible` *(the zoom half shipped in this PR)* · live regions + labels · structure/motion
 **W6 — SEO / PWA / privacy / perf (4):** route metadata · manifest + update UX · privacy + same-origin push · lazy skins
-**W7 — Platform (1.5 left):** ~~CI gates~~ *(#353 migration matrix + this PR: C5, bundle budgets, fail-on-warning)* · **PR-47** dependency upgrades · **PR-48** observability + retention
+**W7 — Platform (1.5 left, of which PR-47 is part-done):** ~~CI gates~~ *(#353 migration matrix + this PR: C5, bundle budgets, fail-on-warning)* · **PR-47** dependency upgrades · **PR-48** observability + retention
 
 ---
 

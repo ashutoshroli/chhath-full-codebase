@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Chhath Puja Management Portal — SvelteKit + TypeScript migration of the React SPA. SAME design/layout (reuses styles.css). Consumes the UNCHANGED management API. Work-in-progress, phase-by-phase.",
+  "description": "Chhath Puja Management Portal \u2014 SvelteKit + TypeScript migration of the React SPA. SAME design/layout (reuses styles.css). Consumes the UNCHANGED management API. Work-in-progress, phase-by-phase.",
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
@@ -34,6 +34,7 @@
   },
   "comment:overrides": "SECURITY (audit S3): docxtemplater-image-module-free pulls in deprecated xmldom (0.1.x, CRITICAL advisories). Redirect to @xmldom/xmldom via override, same as the React app.",
   "overrides": {
+    "@xmldom/xmldom": "^0.9.12",
     "xmldom": "npm:@xmldom/xmldom@^0.9.12"
   }
 }
