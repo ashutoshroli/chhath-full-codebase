@@ -115,12 +115,48 @@ const SCHEMA_FOR_MIGRATION = {
   // folder that SEEDS ROWS: each INSERT is guarded by NOT EXISTS on its `type`, so a
   // re-run changes nothing and cannot overwrite text the committee has since edited.
   '32-consent-decline-templates.sql': 'loans_expenses.sql',
+  // C12 — clear the visitor IP addresses already written to error_log. The only
+  // migration in this folder that UPDATEs existing rows (see PREREQ_MIGRATIONS below
+  // for the other thing that makes it unusual).
+  '33-scrub-visitor-ips.sql': 'logs.sql',
+};
+
+// THE FIRST MIGRATION THAT DEPENDS ON ANOTHER ONE.
+//
+// 33 clears `error_log.client_ip`, but that column is not in the committed
+// logs.sql — it is added on top by migration 09 (the same pattern as users.photo and
+// the TOTP columns). So 33 cannot be applied to the committed schema alone: it fails
+// to parse, because the column it names does not exist yet.
+//
+// That ordering was previously the kind of thing you were expected to know. Writing
+// it down here makes it TESTED instead: the harness applies the prerequisites first,
+// so if somebody reorders or removes 09 this fails immediately rather than at
+// `wrangler d1 execute` time against a live database. It is also exactly the
+// information PR-35's migration ledger/runner needs in order to apply migrations in
+// a defensible order.
+const PREREQ_MIGRATIONS = {
+  '33-scrub-visitor-ips.sql': ['09-error-log-client-ip.sql'],
 };
 
 // Migrations that legitimately do more than CREATE INDEX. Keep this list as short
 // as possible: everything on it opts out of the "cannot drop, delete, update or
 // alter" guarantee that makes the rest safe to run unattended.
 const SCHEMA_ONLY_MIGRATIONS = new Set(['09-error-log-client-ip.sql', '22-login-users-totp.sql', '24-ai-providers-purpose.sql', '25-ai-providers-priority.sql', '26-ai-providers-data-mode.sql', '27-users-photo.sql']);
+
+// A THIRD category, and the narrowest of the three: a migration whose whole purpose
+// is to REMOVE data that should never have been stored.
+//
+// It could not go in SCHEMA_ONLY_MIGRATIONS. That list permits an UPDATE only as a
+// backfill of a column the same migration just ADDED, which is the right rule for a
+// schema change and the wrong one here — a scrub necessarily writes columns that
+// already exist and that it did not create. Widening that rule to fit would have
+// removed the guarantee for the six migrations relying on it.
+//
+// So this list has its own invariants, asserted below: a scrub may only ever CLEAR a
+// field (to '' or via json_remove), never write a value; every UPDATE must be bounded
+// by a WHERE; and unlike the schema-changers it must stay fully IDEMPOTENT, so it is
+// deliberately NOT excluded from the apply-twice check above.
+const DATA_SCRUB_MIGRATIONS = new Set(['33-scrub-visitor-ips.sql']);
 
 const DAY = 86400000;
 const isoAgo = (d) => new Date(Date.now() - d * DAY).toISOString();
@@ -135,6 +171,13 @@ test('H-10: every migration applies against the real schema, and is IDEMPOTENT',
     db.exec(schemaFor(schemaName));
     // migration/2026-09-02/01 adds collection_jobs to chhath-misc; schema/misc.sql
     // already contains it, so nothing extra is needed here.
+    for (const prereq of PREREQ_MIGRATIONS[file] || []) {
+      assert.ok(
+        SCHEMA_FOR_MIGRATION[prereq] === schemaName,
+        `${file} declares prerequisite ${prereq}, but they target different databases`
+      );
+      db.exec(readFileSync(new URL(prereq, MIGRATION_DIR), 'utf8'));
+    }
     const sql = readFileSync(new URL(file, MIGRATION_DIR), 'utf8');
     db.exec(sql);            // first run
     // SQLite has no `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, so a migration that
@@ -236,6 +279,7 @@ function sqlWithoutCommentsAndStrings(file) {
 test('H-10: no INDEX-ONLY migration drops anything or mutates a row', () => {
   for (const file of migrationFiles()) {
     if (SCHEMA_ONLY_MIGRATIONS.has(file)) continue; // asserted explicitly below
+    if (DATA_SCRUB_MIGRATIONS.has(file)) continue;  // ditto, with tighter rules
     const sql = sqlWithoutCommentsAndStrings(file);
     assert.ok(!/\bDROP\b/i.test(sql), `${file} must not DROP anything`);
     assert.ok(!/\bDELETE\b/i.test(sql), `${file} must not DELETE rows`);
@@ -414,6 +458,87 @@ test('M-38: the sweep window catches SWEEP_MINUTE and is bounded (< 1 hour so it
   // sweep somehow ran on several ticks per hour.
   const statements = 9; // blank + 8 deletes (incl. email_messages)
   assert.ok(24 * statements * 200 < 100000, 'worst-case sweep writes must fit the budget');
+});
+
+// C12 — a data-scrub migration may only ever take data AWAY.
+test('H-10: a data-scrub migration only clears fields, and stays idempotent', () => {
+  for (const file of DATA_SCRUB_MIGRATIONS) {
+    // NOT sqlWithoutCommentsAndStrings() here. That helper blanks every string
+    // literal to '', which is fine for the keyword checks it was written for but
+    // would make `SET client_ip = 'REDACTED'` indistinguishable from
+    // `SET client_ip = ''` — i.e. it would blind the one rule this test exists to
+    // enforce. Comments are still stripped, so prose in the header cannot trip it.
+    const sql = readFileSync(new URL(file, MIGRATION_DIR), 'utf8').replace(/--.*$/gm, '');
+    assert.ok(!/\bDROP\b/i.test(sql), `${file} must not DROP anything`);
+    assert.ok(!/\bDELETE\b/i.test(sql), `${file} must not DELETE rows`);
+    // A scrub removes a value from a row; it never removes the row, and it never
+    // changes the shape of the table.
+    assert.ok(!/\bALTER\b/i.test(sql), `${file} must not ALTER a table`);
+    assert.ok(!/\bINSERT\b/i.test(sql), `${file} must not INSERT`);
+
+    const updates = [...sql.matchAll(/UPDATE\s+(\w+)\s+SET\s+(\w+)\s*=\s*([^\n]+)/gi)];
+    assert.ok(updates.length > 0, `${file} is listed as a scrub but UPDATEs nothing`);
+    for (const m of updates) {
+      const [, table, column, value] = m;
+      // The one rule that makes this category safe to run unattended: the new value
+      // must be empty, NULL, or the same column with something removed from it. A
+      // scrub that can write an arbitrary value is just an unreviewed data edit.
+      assert.ok(
+        /^''\s*$/.test(value.trim()) ||
+        /^NULL\b/i.test(value.trim()) ||
+        new RegExp(`^json_remove\\s*\\(\\s*${column}\\b`, 'i').test(value.trim()),
+        `${file}: UPDATE ${table} SET ${column} must clear the field (got "${value.trim()}")`
+      );
+      assert.match(
+        sql.slice(sql.indexOf(m[0])), /WHERE/i,
+        `${file}: every UPDATE must be bounded by a WHERE`
+      );
+    }
+  }
+});
+
+test('C12: the scrub removes both copies of an address and leaves everything else', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec(schemaFor('logs.sql'));
+  db.exec(readFileSync(new URL('09-error-log-client-ip.sql', MIGRATION_DIR), 'utf8'));
+
+  const row = (id, ip, ctx) => db.prepare(
+    'INSERT INTO error_log (error_id, source, page, message, created_at, reported, client_ip, context) VALUES (?,?,?,?,?,0,?,?)'
+  ).run(id, 'public-frontend', '/p', 'boom', new Date().toISOString(), ip, ctx);
+
+  const PSEUDO = 'a'.repeat(32);                 // what the new code writes
+  row('E1', '203.0.113.47', '{"edgeIp":"203.0.113.47","screen":"390x844"}'); // IPv4, both copies
+  row('E2', '2001:db8::1', '{"edgeIp":"2001:db8::1"}');                     // IPv6
+  row('E3', 'unknown', '{}');            // the literal the older code substituted
+  row('E4', PSEUDO, '{"screen":"800x600"}');     // already pseudonymised — must survive
+  row('E5', '', 'not json at all');              // must not abort the statement
+
+  const sql = readFileSync(new URL('33-scrub-visitor-ips.sql', MIGRATION_DIR), 'utf8');
+  db.exec(sql);
+  db.exec(sql); // idempotent: a second run must not throw or change anything further
+
+  const all = db.prepare('SELECT error_id, client_ip, context FROM error_log ORDER BY error_id').all();
+  const get = (id) => all.find((r) => r.error_id === id);
+
+  // Not one raw address survives, in either column.
+  const dump = JSON.stringify(all);
+  assert.ok(!dump.includes('203.0.113.47'), `an IPv4 survived the scrub: ${dump}`);
+  assert.ok(!dump.includes('2001:db8::1'), `an IPv6 survived the scrub: ${dump}`);
+  // 'unknown' is not an address, but it is not a pseudonym either — the condition is
+  // "not a pseudonym" precisely so shapes nobody anticipated are still cleared.
+  assert.equal(get('E3').client_ip, '');
+
+  // The scrub is a privacy fix, not a data cull: the rest of the context stays.
+  assert.equal(JSON.parse(get('E1').context).screen, '390x844');
+  assert.equal(JSON.parse(get('E1').context).edgeIp, undefined);
+  // A real pseudonym is left alone.
+  assert.equal(get('E4').client_ip, PSEUDO);
+  assert.equal(JSON.parse(get('E4').context).screen, '800x600');
+  // A row whose context was never valid JSON is skipped, not corrupted — and its
+  // presence did not abort the UPDATE for the rows above.
+  assert.equal(get('E5').context, 'not json at all');
+
+  db.close();
 });
 
 // The escape hatch above must not become a blanket exemption: a migration that opts
