@@ -21,6 +21,7 @@
  * before) but computed entirely from real collection amounts.
  */
 import { parseAmt } from '$lib/utils/format';
+import { rowField } from './rowField';
 import { competitionRank, type Ranked } from '$lib/utils/ranking';
 import type {
   PortalData,
@@ -258,15 +259,15 @@ export function contributorsForYear(
     } else {
       byKey.set(id, {
         key: id,
-        name: (user?.Name ?? c.Name ?? id).toString(),
-        nameHindi: (user?.['Name (Hindi)'] ?? '').toString(),
+        name: (rowField(user, 'Name') || c.Name || id).toString(),
+        nameHindi: rowField(user, 'Name (Hindi)'),
         amount,
-        village: (user?.Village ?? c.Village ?? '').toString(),
-        villageHindi: (user?.['Village (Hindi)'] ?? '').toString(),
-        designation: (user?.Designation ?? '').toString(),
-        designationHindi: (user?.['Designation (Hindi)'] ?? '').toString(),
-        fatherName: (user?.["Father's Name"] ?? '').toString(),
-        fatherNameHindi: (user?.["Father's Name (Hindi)"] ?? '').toString(),
+        village: (rowField(user, 'Village') || c.Village || '').toString(),
+        villageHindi: rowField(user, 'Village (Hindi)'),
+        designation: rowField(user, 'Designation'),
+        designationHindi: rowField(user, 'Designation (Hindi)'),
+        fatherName: rowField(user, "Father's Name"),
+        fatherNameHindi: rowField(user, "Father's Name (Hindi)"),
         count: 1,
         order: seq++,
         hasMoney: isMoney,
