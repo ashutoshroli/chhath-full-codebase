@@ -932,7 +932,14 @@ test('rate limit window expires (old hits drop off)', () => {
   assert.equal(rateLimited(ip, t0 + 10 * 60 * 1000), false, 'after the window, the IP is fresh again');
 });
 
-test('clientIpFrom prefers the first X-Forwarded-For hop', () => {
-  assert.equal(clientIpFrom({ 'x-forwarded-for': '5.5.5.5, 10.0.0.1' }, '10.0.0.9'), '5.5.5.5');
+test('clientIpFrom reads the hop our proxy observed, not the one the caller claimed', () => {
+  // This test previously asserted the FIRST hop — i.e. it pinned the vulnerability
+  // (audit Render/offload #8). X-Forwarded-For is built by each proxy appending the address
+  // it received from, so the left-hand entries are client-supplied: a caller sending a
+  // different first hop per request got a different limiter key every time, and the per-IP
+  // window never filled. The rightmost entry is the one our own proxy added.
+  assert.equal(clientIpFrom({ 'x-forwarded-for': '5.5.5.5, 10.0.0.1' }, '10.0.0.9'), '10.0.0.1');
+  // A forged left-hand entry no longer changes the key.
+  assert.equal(clientIpFrom({ 'x-forwarded-for': 'anything-i-like, 10.0.0.1' }, '10.0.0.9'), '10.0.0.1');
   assert.equal(clientIpFrom({}, '10.0.0.9'), '10.0.0.9');
 });

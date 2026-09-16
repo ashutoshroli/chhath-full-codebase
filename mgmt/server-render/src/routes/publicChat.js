@@ -13,7 +13,15 @@ import { config } from '../config.js';
 import { getPortalData, buildContextForProvider } from '../lib/publicData.js';
 import { getPublicChatProviders } from '../lib/chatProvider.js';
 import { ensureChatSession, logChatMessage, hashIp } from '../lib/neon.js';
-import { isOriginAllowed, rateLimited, clientIpFrom } from '../lib/chatGuards.js';
+import {
+  isOriginAllowed,
+  rateLimited,
+  clientIpFrom,
+  acquireSlot,
+  releaseSlot,
+  tokenBudgetExceeded,
+  recordTokens,
+} from '../lib/chatGuards.js';
 
 export const publicChatRouter = express.Router();
 
@@ -134,10 +142,26 @@ publicChatRouter.post('/public-chat', async (req, res) => {
   if (!applyCors(req, res)) {
     return res.status(403).json({ ok: false, error: 'Origin not allowed.' });
   }
-  // 2) Rate limit.
+  // 2) Rate limit. `clientIp` now reads X-Forwarded-For from the RIGHT: the left-hand
+  // entries are client-supplied, so keying the window on the first hop meant a caller could
+  // send a different value each request and never be limited at all (audit Render/offload #8).
   const ip = clientIp(req);
   if (rateLimited(ip)) {
     return res.status(429).json({ ok: false, error: 'Too many requests — please wait a moment and try again.' });
+  }
+
+  // 3) Absolute ceilings. The per-IP window catches one greedy caller; these catch the
+  // total, because 200 different IPs each politely inside the window still bought 200 model
+  // calls on an anonymous endpoint where every request costs money.
+  //
+  // Refused FAST rather than queued: holding the request open would tie up memory and a
+  // connection while the caller waits for something that is already saturated, and a chatbot
+  // that says "busy, try again" is better than one that times out.
+  if (tokenBudgetExceeded()) {
+    return res.status(503).json({ ok: false, error: 'The chatbot has reached today’s usage limit. Please try again tomorrow.' });
+  }
+  if (!acquireSlot()) {
+    return res.status(503).json({ ok: false, error: 'The chatbot is busy right now — please try again in a moment.' });
   }
 
   const question = ((req.body && req.body.question) || '').toString().trim();
@@ -161,6 +185,9 @@ publicChatRouter.post('/public-chat', async (req, res) => {
     const { text, promptTokens, completionTokens, model } = await callChatModelChain(providers, data, question, lang);
     const answer = (text || 'Sorry, I could not find an answer.').slice(0, 4000);
 
+    // What this answer actually cost, against today's budget.
+    recordTokens(promptTokens, completionTokens);
+
     // Best-effort logging to Neon (never blocks / fails the response).
     const ipHash = hashIp(ip);
     ensureChatSession(sessionId, { lang, ipHash, userAgent: req.headers['user-agent'] }).catch(() => {});
@@ -173,5 +200,10 @@ publicChatRouter.post('/public-chat', async (req, res) => {
     // slice from callChatModel) so a recurring failure is diagnosable in the logs.
     console.error('[public-chat] failed:', (err && err.stack) || err);
     return res.status(502).json({ ok: false, error: 'The chatbot had trouble answering. Please try again.' });
+  } finally {
+    // Released on every path, including the throw above. A slot leaked on the error path
+    // would saturate the endpoint permanently after a handful of provider failures — which is
+    // exactly when it is most important that it still works.
+    releaseSlot();
   }
 });
