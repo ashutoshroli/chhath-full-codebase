@@ -318,6 +318,40 @@ That should print `{"version":"…","savedAt":"…","data":{…`. If it is empty
 | **C12** | Public visitor IPs are stored raw in `error_log.client_ip`. | Hashing needs a **salt secret** (`wrangler secret put`) to be worth anything — an unsalted IPv4 hash is 2³² to reverse. Deployment step + code, so it is its own PR. |
 | **C13** | `portalData` still materialises whole tables. | Bounding it means **paginating the public contract**, which changes every frontend — a product decision, not a fix. #337 logs any section over 20,000 rows so the trigger is visible rather than silent. |
 
+## W7. Wave 3 so far (#339, #341, #342) 🟡
+
+Three of Wave 3's seven PRs are merged. **These add no migrations either.** What they do add:
+
+### Deploys
+| Target | Needed by |
+|---|---|
+| **Render service** | #339 (per-route body limits + batch contract), #341 (provider DNS check), #342 (AI write allowlist) — auto-deploys from `main`; confirm the commit is live |
+| **mgmt Worker** | #339 (pre-dispatch batch splitting), #341 (provider URL policy at save + use), #342 (write allowlist) — `cd mgmt/backend && npm run deploy` |
+
+### Optional configuration 🟢
+```bash
+# BOTH the mgmt Worker [vars] and the Render service env. Unset = the shape rules alone
+# decide, which already refuses http://, localhost, 10.x, 169.254.169.254 and credentials
+# in the URL. Set it to pin the providers you actually use.
+AI_PROVIDER_HOST_ALLOWLIST = "api.openai.com,openrouter.ai"
+```
+
+Also worth doing, and it costs nothing: make the Render service's **`GITHUB_TOKEN` fine-grained without `workflows: write`**. #342 makes the code refuse to write a workflow file; a token that *cannot* is a second, independent boundary, and nothing legitimate needs it. The scopes actually required are in `mgmt/backend/wrangler.toml` — Contents R/W, Pull requests R/W, Actions: Read, Checks: Read.
+
+### One live-data check 🟡 — existing AI providers were never validated
+Rows saved before #341 went through only `/^https?:\/\//`, so a provider may hold a plain-HTTP or internal base URL. Such a row is now **refused at use time** — correctly, because it was sending your provider API key unencrypted — but it will look like "AI stopped working" unless you find it first:
+
+```bash
+wrangler d1 execute chhath-logs --remote --command \
+  "SELECT provider_id, name, base_url FROM ai_providers WHERE base_url NOT LIKE 'https://%';"
+```
+
+Any row returned must be re-saved in **AI Management** with an `https` URL. **Rotate that provider's API key too** — it has been travelling in clear.
+
+### Smoke-test 🟢
+- In **AI Management**, try to save a provider with `http://localhost/v1` → refused with a message about `https`.
+- Bulk-generate PDFs for a year with more than a handful of documents → completes via Render (#339) instead of falling back to in-Worker conversion. The mgmt Error Log should show no `pdf_convert_batch` dispatch failures.
+
 ## W6. Checklist
 
 - [ ] W1: confirm `users.photo`, `error_log.client_ip`, `public_data_version` (3 queries above)
@@ -325,3 +359,4 @@ That should print `{"version":"…","savedAt":"…","data":{…`. If it is empty
 - [ ] W3: set `ALLOWED_ORIGINS` on the **public** Worker + redeploy · (optional) `HEALTH_TOKEN`
 - [ ] W4: run the six smoke checks; confirm the KV snapshot exists
 - [ ] W5: schedule the consent-ACL dry run (**C11**) — the only security item still open from W0–W2
+- [ ] W7: deploy the Render service + mgmt Worker for #339/#341/#342 · (optional) `AI_PROVIDER_HOST_ALLOWLIST` and a `workflows:write`-less `GITHUB_TOKEN` · **run the `ai_providers` non-https query and rotate any key it finds**
