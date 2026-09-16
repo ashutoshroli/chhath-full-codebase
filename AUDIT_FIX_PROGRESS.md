@@ -6,8 +6,8 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status — against the plan's 48 PRs: 39 done · 9 remaining.**
-Separately, **51 GitHub PRs** have been merged for this effort (#311–#364). Those two numbers are not the same thing, and revisions of this file before #356 wrongly treated them as one — the header claimed "8 pending" while §3 below listed 14.5. Several merged PRs were docs/runbook updates (#340, #343, #346, #352), CI fix-ups (#330, #345), or carry-over items outside the 48 (#348, #356). Others, like this one, are a **slice** of a plan PR rather than a whole one. **The plan count is the one to read for progress.**
+**Status — against the plan's 48 PRs: 39 done · 9 remaining — all nine are frontend or toolchain. Every backend and database wave is complete.**
+Separately, **54 GitHub PRs** have been merged for this effort (#311–#367). Those two numbers are not the same thing, and revisions of this file before #356 wrongly treated them as one — the header claimed "8 pending" while §3 below listed 14.5. Several merged PRs were docs/runbook updates (#340, #343, #346, #352), CI fix-ups (#330, #345), or carry-over items outside the 48 (#348, #356). Others, like this one, are a **slice** of a plan PR rather than a whole one. **The plan count is the one to read for progress.**
 
 Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-BE closed)** · **W3 7/7 (consent copy folded into PR-44)** · **W4 ✅ 3/3** · **W5 0.5/6** · W6 0/4 · **W7 2.5/3**
 
@@ -68,71 +68,85 @@ Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-
 | [#361](https://github.com/ashutoshroli/chhath-full-codebase/pull/361) | a migration system that records what it did | PR-35 | Nobody could say which migrations were applied — which is how a privacy remediation got reported as applied when its command had failed. `schema_migrations` (one ledger per database, D1 has no cross-DB query) + `migrate.mjs` with `status`/`apply`/`adopt`/`verify`. `adopt` is what makes it usable on a deployment with 40+ migrations already applied by hand. Two of my own bugs caught by its tests: unrouted migrations were silently skipped, inert recipes were queued | Migration **37**, bootstrapped by the tool |
 | [#363](https://github.com/ashutoshroli/chhath-full-codebase/pull/363) | make the chat retention window real, and give the chat tables constraints | PR-32 | The retention policy was two commented-out DELETEs under *"OPTIONAL ... if you want to keep the free tier small"* — a privacy commitment framed as housekeeping, and never run, so every public question ever typed was still stored. Now code. Plus FK + CHECK via Postgres `NOT VALID` (the analogue of D1’s partial indexes), and `ON DELETE CASCADE`, which is what makes retention correct rather than tidy | `db/neon/02-constraints-and-retention.sql`; optional `CHAT_RETENTION_DAYS` |
 | [#364](https://github.com/ashutoshroli/chhath-full-codebase/pull/364) | retention for the tables it forgot, and the one it half-covered | PR-48 | `boundedBlank` cleared `filled_base64` only for `status = 'done'`, so a **failed** job kept its whole base64 `.docx` for ever — and failed jobs are the ones that accumulate. The sweep written because that column is "the fastest route to the 5 GB limit" was leaking through the half it did not cover. Plus `render_jobs`, `ai_fixes`, official mail and dead push subscriptions, each with a rule that age alone would have got wrong | No migration |
+| [#365](https://github.com/ashutoshroli/chhath-full-codebase/pull/365) | make the fail-open fallbacks audible | PR-48, C9 | `verifyToken` carries on with a cached session when the live-role read throws — the right trade, but **silent**: a deployment where it had thrown all day reported `status: 'ok'` while demoted and deleted accounts kept working. Counted in KV, surfaced by `?health=1`, **degraded** past a threshold. A log line was rejected: rare → lost in noise, frequent → floods the one place the committee looks | No migration |
+| [#366](https://github.com/ashutoshroli/chhath-full-codebase/pull/366) | the committed schema is the end state | — | **40 indexes and 10 columns** existed only in a migration, so a database built from the schema had no 2FA, no profile photos, no AI provider columns, and no loan-relation triggers. The drift ran the dangerous way: tests were **more permissive than production**. Also makes migrations 11/12/13 unnecessary — the schema already has the CHECKs and INTEGER types, so a recreate fixes M-33 with no rebuild | Rebuild: runbook §W8g |
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — the fail-open fallbacks are no longer silent (PR-48 telemetry, closes C9)
+## 2. This PR — how to rebuild the databases, and the two things that would have gone wrong
 
-**Audit ID:** Wave 7 **PR-48**, the telemetry half. Closes carry-over **C9**.
+**Audit ID:** the operator half of #366. Docs, plus one test that keeps them honest.
 
-This portal is built out of fail-open fallbacks, and almost all of them are the right call:
+#366 made the committed schema the end state. This is how to use it: the portal has not
+launched and everything in D1 is test data, so the cleanest starting point is nine
+databases built from `schema/*.sql`.
 
-- `verifyToken` re-reads the live role on every authenticated request and, if that read throws, carries on with the cached session — failing closed would log **every admin out** during a transient D1 blip;
-- the public rate limiters return `false` on a KV error, so a KV hiccup cannot take the portal down;
-- the retention sweep swallows a missing table, so an older deployment cannot break the cron.
+Writing the procedure turned up two things that would have made it quietly wrong.
 
-Every one is a considered availability trade. They share a property that was **not** considered: **when they trigger, nothing anywhere says so.**
+### Eight tables survive a schema re-apply
 
-C9 is the sharpest case, and it is why "fix C9" was never "fail closed". If that read has been throwing for a day, every **demoted or deleted** account is still operating on its cached role — and `?health=1` reported `status: 'ok'`, identical to a healthy deployment. The fix for C9 was to *say so*.
+Most tables begin with `DROP TABLE IF EXISTS`, so re-applying the schema recreates them
+empty. **Eight do not** — `CREATE TABLE IF NOT EXISTS` with no DROP — so their old rows
+stay: `loan_email_templates`, `ai_fixes`, `ai_providers`, `collection_jobs`,
+`render_jobs`, `email_message_templates`, `email_messages`, `official_emails`.
 
-### Why a counter in KV, not a log line
+"Just re-apply the schema to reset" would therefore have produced a **partial** reset that
+looks complete, which is worse than not resetting at all. §W8g step 1 drops them
+explicitly.
 
-A log line per event fails twice over. If the degradation is rare, the line is lost in the noise weeks before anyone reads it. If it is frequent — a D1 outage means *every* request logs — it floods `error_log`, which is the one place the committee looks when something is wrong, and buries the real cause.
+The `IF NOT EXISTS` is *right* for these — several arrived in a later migration and must
+not destroy data on a database that already has them. What was missing was anyone writing
+down the consequence. A test pins the list, so a table that changes category shows up as a
+named failure instead of as data that mysteriously survived.
 
-A counter is bounded, answers the question that matters (*is this happening, and how much*), and can be **read back** — which a log line cannot. Reading it back is the whole point: `?health=1` now reports degradations, so the uptime probe that already polls it finds out without anyone grepping anything. A daily key expires by itself, and *"37 revocation checks failed today"* is the sentence an operator wants.
+### The schema creates tables, not content
 
-### When it should actually alarm anybody
+Five migrations insert rows a fresh database has to have, and the schema has none of them:
 
-Only the security-relevant kind, and only past a threshold:
-
-| | |
+| migration | without it |
 |---|---|
-| a handful of revocation failures | reported, status stays **ok** — this is the transient blip the fallback exists for |
-| a sustained count (≥ 25/day) | status **degraded** — the check has effectively stopped running |
-| rate-limit / retention / data-version failures | reported, **never** degrade the status |
+| `08-public-data-version` | no version counter row — the public portal's cache/ETag has nothing to key on |
+| `28` / `29-journey-*` | the "10 Years of Chhath" page has no content |
+| `30-donation-settings` | donation settings unset |
+| `32-consent-decline-templates` | **a declined or rejected consent notifies nobody** (#349 reads these) |
 
-That last row is deliberate. A rate limiter that could not count is a cost problem; retention skipping a table is a storage problem. Both belong in the report. Neither should page anyone — a signal that cries wolf gets muted, which is how the property stops being watched at all. That is the same lesson as the flaky timing test removed in #355.
+That last one is the same failure #349 has already had once. All five are guarded by
+`WHERE NOT EXISTS`, so re-running changes nothing and a later committee edit survives.
 
-Three smaller decisions worth naming:
+### What the rebuild removes rather than fixes
 
-- **`recordDegradation` never throws and is never awaited by its caller.** It sits inside catch blocks whose entire job is to keep working when something is already broken; a telemetry write that could throw would make the fallback it observes *less* reliable than before.
-- **Kinds are an allowlist.** A typo'd kind would create a counter nobody ever reads — the exact failure mode this module exists to remove.
-- **"Could not check" is distinguished from "nothing wrong".** A health report that says all is well because it could not look is precisely what this was written about.
+- **Migrations 11, 12, 13** become permanently unnecessary. They are rebuild recipes for
+  CHECK constraints and `REAL→INTEGER`/`→TEXT`, and the schema already has all three — so
+  a rebuilt `collections.year` is an `INTEGER` and **M-33 is fixed by the recreate**, with
+  no rebuild at all. They stay on disk for a database that was *not* rebuilt.
+- **Migration 33** (the C12 IP scrub) — nothing old to scrub.
+- **§W8f** (34/35/36) — those constraints are in the schema now.
 
-**Migrations & setup:** none. One KV write per *degrading* request, not per request; KV read on the health path only.
+`migrate.mjs adopt` then records the history without running anything, which is correct
+here and also the only thing that works: running the six ADD-COLUMN migrations against the
+end-state schema fails on the duplicate column.
+
+Five confirmation queries close the section, checking the specific things that were missing
+before #366 — the five TOTP columns, `users.photo`, the three `ai_providers` columns, the
+five loan objects, and `year` being `INTEGER`.
+
+**Migrations & setup:** none added. This PR is the procedure for the ones that exist.
 
 ## Verification
 
-19 tests. Seven mutations, seven different tests:
-
-| mutation | caught by |
-|---|---|
-| C9 made silent again | *a failing role re-check keeps the session AND records the degradation* |
-| degradations dropped from the health report | two health tests |
-| a sustained failure no longer turns the status red | *a sustained revocation failure turns the deployment DEGRADED* |
-| alarm on a single blip (cry wolf) | *a few failures are the blip the fallback exists for* |
-| every kind reported as 0 | four tests, including *ABSENT, not zero* |
-| unknown kinds accepted | *an unknown kind is refused* |
-| `rows=0` dropped by truthiness | *a zero is reported, not dropped* |
-
-The C9 test reproduces the exact situation: a valid KV session, a live-role read that throws. It asserts **both** that the request still succeeds (the trade is intact) and that the degradation was recorded.
-
-One of my own test bugs, caught and fixed: the first draft's health env was not config-complete, so `healthCheck` returned `degraded` for missing config while looking like a threshold bug. There is now an explicit assertion that the suite's env is genuinely healthy, *"or nothing below means anything"*.
-
 ```
-mgmt/backend: 952 passed (933 + 19)
+mgmt/backend: 963 passed (961 + 2)
 ```
+
+The two new tests assert the eight-table list and that the number in the runbook matches
+the number in the schema. The count assertion was written saying "nine" and **failed on
+its first run** — which is what it is for — because a runbook whose number disagrees with its own
+list is how an operator drops seven and assumes they are done.
+
+**C11 is resolved by the owner deleting the archived Drive files by hand.** No ACL
+remediation is needed: the files are test data, so removal is simpler and more complete
+than fixing permissions on them.
 
 ---
 
@@ -160,7 +174,7 @@ mgmt/backend: 952 passed (933 + 19)
 | C7 | 160 `svelte-check` warnings in the mgmt SPA | Mostly label association — belongs with the a11y work, then fail-on-warning | PR-40 / PR-46 |
 | ~~C9~~ ✅ | `verifyToken` revocation check fails open on an audit-DB error | The trade was right — failing closed logs every admin out during a D1 blip — but it was **silent**: a deployment where the check had thrown all day reported `status: 'ok'`. Now counted and surfaced by `?health=1`, which turns **degraded** past a threshold (a handful is the blip the fallback exists for; a sustained count means demoted accounts are still working) | **Done** |
 | C10 | React mgmt main chunk at 218.3 kB vs 230 kB CI budget | Little headroom left; not a regression. The two SvelteKit apps had **no** budget at all until this PR — that gap is now closed (602 kB / 999 kB gated) | Reducing the React chunk itself is still open |
-| C11 | Consent photos/signatures already archived to Drive by earlier runs are still anonymously readable | Code no longer publishes them (#325), but existing files need a one-off ACL remediation | Operational step: dry-run report → apply, before the next archive |
+| C11 | Consent photos/signatures already archived to Drive by earlier runs are still anonymously readable | Code no longer publishes them (#325). The owner is deleting the existing files by hand, which resolves it — no ACL remediation needed, because the data is test data | **Operator, in hand** |
 | ~~C12~~ ✅ | Public visitor IPs stored raw in `error_log.client_ip`, `context.edgeIp` **and the KV rate-limit key** | #356 pseudonymised the first two and deliberately left the KV key, on the grounds that it expires in ~65s. That was the wrong call — a KV snapshot still lists everyone who has just visited — and #356’s own test contradicted it, passing only because the write is sampled 1-in-5. Closed properly in the follow-up: the limiter keys on the pseudonym too, salt cached per namespace so the hot path gains no KV read | **Done** |
 | C13 | `portalData` still materialises whole tables; the other seven sections still read `SELECT *` and filter in JS | Bounding the payload for real means PAGINATING the public contract, which changes all six frontends — a contract decision, not a fix. PR-24 makes the size visible (a section past 20k rows is logged) instead of pretending it is bounded. Truncating a transparency payload was rejected: hiding contributions is worse than a slow page | Contract decision, then its own PR; the row-count log is the trigger |
 | ~~C14~~ ✅ | **Consent `declined` / `rejected` sends nothing at all.** `respondConsent` notifies only on `accepted`; `setConsentVerification` notifies only on `verified`. So a loaner is never told his loan is blocked by a guarantor's refusal — he simply waits — the committee is not told either, and the remarks the decliner is *forced* to write (`'Remarks are required in order to Decline.'`) are visible only if someone opens the Consent Review screen. | New `consent_declined_*` / `consent_rejected_*` templates on the existing naming convention, WhatsApp + email. **Recipients (decided with the committee): the LOANER and the GROUP.** Remarks go to the group message; the loaner is told it was declined and by whom, without the raw remark text, which can be blunt — say so if that should change. **Needs a migration** (seed the new template rows) — the first migration since W0 — plus an operator pass to review the wording before it is used. | **Done — this PR** |

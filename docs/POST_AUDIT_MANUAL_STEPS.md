@@ -602,6 +602,132 @@ REAL→INTEGER conversion), and a guard against deleting a loan that still has c
 (that needs an application change first — `deleteLoan` currently deletes the loan
 before its children, so a guard would abort its own correct deletion).
 
+### W8g. Rebuild the databases from the schema, before launch 🟡
+
+The portal has not launched and everything in D1 today is test data, so the cleanest
+starting point is a database built from the committed schema — which, since #366, is the
+**end state**: it carries every index, column, constraint and trigger that used to exist
+only inside a migration.
+
+Doing it this way also **removes three problems rather than fixing them**. Migrations 11,
+12 and 13 are rebuild *recipes* that apply nothing (CHECK constraints, `REAL→INTEGER`,
+`→TEXT`), and the schema already has all three. That is why the live `year` reads `2024.0`
+and a rebuilt one will read `2024`: no rebuild, only a recreate.
+
+**This deletes everything in all nine databases.** Only do it while the data is
+disposable.
+
+#### 1. Drop the eight tables the schema does not drop
+
+`schema/*.sql` starts with `DROP TABLE IF EXISTS` for most tables — but **eight use
+`CREATE TABLE IF NOT EXISTS` with no DROP**, so applying the schema leaves their old rows
+in place, silently. A partial reset is worse than none, because it looks complete:
+
+```bash
+wrangler d1 execute chhath-loans-expenses --remote --command \
+  "DROP TABLE IF EXISTS loan_email_templates;"
+wrangler d1 execute chhath-logs --remote --command \
+  "DROP TABLE IF EXISTS ai_fixes; DROP TABLE IF EXISTS ai_providers;"
+wrangler d1 execute chhath-misc --remote --command \
+  "DROP TABLE IF EXISTS collection_jobs; DROP TABLE IF EXISTS render_jobs;"
+wrangler d1 execute chhath-whatsapp-index --remote --command \
+  "DROP TABLE IF EXISTS email_message_templates; DROP TABLE IF EXISTS email_messages; DROP TABLE IF EXISTS official_emails;"
+# And the ledger, so it is rebuilt alongside everything else.
+for DB in chhath-core chhath-collections chhath-loans-expenses chhath-file-index \
+          chhath-misc chhath-logs chhath-templates chhath-whatsapp-index chhath-audit; do
+  wrangler d1 execute $DB --remote --command "DROP TABLE IF EXISTS schema_migrations;"
+done
+```
+
+#### 2. Apply the schema
+
+```bash
+cd ~/chhath-full-codebase/mgmt/db/schema
+wrangler d1 execute chhath-core           --remote --file=./core.sql
+wrangler d1 execute chhath-collections    --remote --file=./collections.sql
+wrangler d1 execute chhath-loans-expenses --remote --file=./loans_expenses.sql
+wrangler d1 execute chhath-file-index     --remote --file=./file_index.sql
+wrangler d1 execute chhath-misc           --remote --file=./misc.sql
+wrangler d1 execute chhath-logs           --remote --file=./logs.sql
+wrangler d1 execute chhath-templates      --remote --file=./templates.sql
+wrangler d1 execute chhath-whatsapp-index --remote --file=./whatsapp_index.sql
+wrangler d1 execute chhath-audit          --remote --file=./audit.sql
+```
+
+#### 3. Apply the five migrations that SEED rows 🔴
+
+**The schema creates tables, not content.** Five migrations insert rows a fresh database
+has to have, and skipping them leaves features silently dead — this is the step most
+likely to be missed:
+
+```bash
+cd ~/chhath-full-codebase/mgmt/db/migration/2026-09-05
+wrangler d1 execute chhath-core           --remote --file=../2026-09-01/08-public-data-version.sql
+wrangler d1 execute chhath-core           --remote --file=./28-journey-content.sql
+wrangler d1 execute chhath-core           --remote --file=./29-journey-page-text.sql
+wrangler d1 execute chhath-core           --remote --file=./30-donation-settings.sql
+wrangler d1 execute chhath-loans-expenses --remote --file=./32-consent-decline-templates.sql
+```
+
+| migration | without it |
+|---|---|
+| `08-public-data-version` | no version counter row — the public portal's cache/ETag has nothing to key on |
+| `28` / `29-journey-*` | the public "10 Years of Chhath" page has no content |
+| `30-donation-settings` | the donation settings are unset |
+| `32-consent-decline-templates` | **a declined or rejected consent notifies nobody** (#349 reads these) |
+
+All five are guarded by `WHERE NOT EXISTS`, so re-running changes nothing and a committee
+edit made later survives.
+
+#### 4. Record the history, so the ledger is not empty
+
+```bash
+cd ~/chhath-full-codebase
+node mgmt/db/migrate.mjs adopt --dry-run     # read what it is about to claim
+node mgmt/db/migrate.mjs adopt               # then do it
+node mgmt/db/migrate.mjs status              # every database: 0 pending
+```
+
+`adopt` records the migrations as applied **without running them** — correct here,
+because the schema already contains their effect. Running them instead would fail on the
+six ADD-COLUMN ones.
+
+#### 5. Confirm the rebuild actually worked
+
+```bash
+# 2FA, profile photos, and the AI provider columns — all of which were MISSING from the
+# schema before #366, so this is the check that the fix is really in place.
+wrangler d1 execute chhath-core --remote --command \
+  "SELECT COUNT(*) AS totp FROM pragma_table_info('login_users') WHERE name LIKE 'totp%';"   # 5
+wrangler d1 execute chhath-core --remote --command \
+  "SELECT COUNT(*) AS photo FROM pragma_table_info('users') WHERE name='photo';"             # 1
+wrangler d1 execute chhath-logs --remote --command \
+  "SELECT COUNT(*) AS n FROM pragma_table_info('ai_providers') WHERE name IN ('purpose','priority','data_mode');"  # 3
+
+# The unique guards and the loan-relation triggers.
+wrangler d1 execute chhath-loans-expenses --remote --command \
+  "SELECT type, name FROM sqlite_master WHERE name LIKE 'uq_loans%' OR name LIKE 'trg_loan%';"  # 5 rows
+
+# And M-33, fixed by the rebuild rather than by a migration.
+wrangler d1 execute chhath-collections --remote --command \
+  "SELECT type FROM pragma_table_info('collections') WHERE name='year';"                     # INTEGER
+
+# The seeds landed.
+wrangler d1 execute chhath-core --remote --command \
+  "SELECT COUNT(*) AS years FROM journey_entries;"                                           # 10
+wrangler d1 execute chhath-loans-expenses --remote --command \
+  "SELECT COUNT(*) AS t FROM loan_message_templates WHERE type LIKE '%declin%' OR type LIKE '%reject%';"
+```
+
+#### After the rebuild
+
+Migrations **11, 12, 13** are now permanently unnecessary — their effect is in the schema.
+Leave them on disk: they exist for a database that was **not** rebuilt.
+
+Migration **33** (the C12 IP scrub) is also unnecessary on a rebuilt database — there are
+no old rows to scrub. And **§W8f** (34/35/36) is likewise already satisfied: those
+constraints are in the schema now.
+
 ## W9. Checklist — everything in §W, in order
 
 - [ ] W1: confirm `users.photo`, `error_log.client_ip`, `public_data_version` (3 queries above)
@@ -619,4 +745,5 @@ before its children, so a guard would abort its own correct deletion).
 - [ ] **W8c: if there are findings, work the three urgent ones first** — duplicate consent token (live credential) → duplicate login name (privilege) → orphan consents with live tokens (H-8)
 - [ ] W8d: only once the report is clean, schedule PR-34 with a **fresh backup and a quiet window** — it is the first change of this effort that modifies live data
 - [ ] **W8e: deploy the public Worker, then run the C12 dry-run query, then apply migration `33-scrub-visitor-ips.sql`** on `chhath-logs`, then confirm both counts are 0. No secret to set
-- [ ] **W8f: re-confirm the report is clean, then apply migrations `34` / `35` / `36`** — one per database (core, collections, loans-expenses); then check the five loan objects exist
+- [ ] **W8f: re-confirm the report is clean, then apply migrations `34` / `35` / `36`** — one per database (core, collections, loans-expenses); then check the five loan objects exist. *Skip if you did W8g: the schema already carries them*
+- [ ] **W8g (before launch): rebuild all nine databases from `schema/*.sql`** — drop the eight tables the schema does not drop, apply the schema, **apply the five SEED migrations**, `migrate.mjs adopt`, then run the five confirmations. This is also how M-33 (`year` as REAL) gets fixed
