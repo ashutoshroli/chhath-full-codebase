@@ -205,29 +205,45 @@ jobs:
         with:
           node-version: '22'
 
-      # Covered by the test suite (test/h10-m38-indexes-and-retention.test.mjs
-      # applies every file in db/migration/2026-09-05/ against the committed
-      # schema, twice). This job additionally fails when a NEW migration file is
-      # added without being registered there, which is the mistake that would
+      # This step scans EVERY migration folder, not just the newest one (carry-over C6:
+      # "migration CI only scans 2026-09-05/ — older folders have uncovered files, and
+      # widening it fails today"). Widening it did fail, on twelve files, and the reasons
+      # are now declared in test/migration-matrix.test.mjs:
+      #
+      #   * nine apply against one committed schema, twice;
+      #   * two carry indexes for THREE different D1 databases and cannot be applied as a
+      #     whole file at all — the matrix applies them section by section, as their own
+      #     headers instruct;
+      #   * one is already reflected in the committed schema, so a fresh apply can only fail
+      #     on the duplicate column — which the matrix asserts, so we know rather than guess.
+      #
+      # A NEW migration in ANY folder now fails here until someone has said which database it
+      # targets and what applying it is supposed to do. That is the mistake that would
       # otherwise let an unverified migration reach a live database.
-      - name: Every migration is covered by a test
+      - name: Every migration in every folder is covered by a test
         run: |
           set -e
           missing=0
-          for f in mgmt/db/migration/2026-09-05/*.sql; do
+          for f in mgmt/db/migration/*/*.sql; do
             base=$(basename "$f")
             if ! grep -q "$base" mgmt/backend/test/*.test.mjs; then
               echo "::error file=$f::$base is not referenced by any test."
-              echo "Add it to SCHEMA_FOR_MIGRATION in test/h10-m38-indexes-and-retention.test.mjs"
-              echo "so CI proves it applies against the committed schema and is idempotent."
+              echo "Declare it in test/migration-matrix.test.mjs (DECLARED) — or, for the"
+              echo "2026-09-05 folder, in SCHEMA_FOR_MIGRATION in"
+              echo "test/h10-m38-indexes-and-retention.test.mjs — so CI proves what applying"
+              echo "it does against the committed schema."
               missing=1
             fi
           done
-          [ "$missing" -eq 0 ] && echo "all migrations under 2026-09-05/ are covered"
+          [ "$missing" -eq 0 ] && echo "all migrations, in all $(ls -d mgmt/db/migration/*/ | wc -l) folders, are covered"
 
       - name: Run the migration tests
         working-directory: mgmt/backend
-        run: node --test test/h10-m38-indexes-and-retention.test.mjs test/h9-atomic-id-allocation.test.mjs
+        run: |
+          node --test \
+            test/migration-matrix.test.mjs \
+            test/h10-m38-indexes-and-retention.test.mjs \
+            test/h9-atomic-id-allocation.test.mjs
 
   public-frontend-v6:
     name: Public v6 — type-check, tests and static build

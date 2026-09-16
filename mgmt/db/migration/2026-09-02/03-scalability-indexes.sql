@@ -9,7 +9,10 @@
 --
 -- Additive, idempotent (CREATE INDEX IF NOT EXISTS). Nothing is dropped.
 --
--- ⚠️ Run each section against the DB named in its header:
+-- ⚠️ This migration spans THREE databases. Run EACH section against the DB named
+-- in its header, NOT all at once — a CREATE INDEX on a table that lives in another
+-- database FAILS rather than being skipped, so running the whole file applies the
+-- earlier sections and then breaks part-way through:
 --   Section A -> chhath-collections
 --   Section B -> chhath-loans-expenses
 --   Section C -> chhath-core
