@@ -6,7 +6,7 @@ import { logErrorAt } from './logger.js';
 import { consentPlaceholderFactory } from './consentPlaceholders.js';
 import { isTruthyFlag } from './flags.js';
 import { usersByIdCodes, loansByBorrower, loansByLoanIds, generatedFilesByRecordIds, consentsForPerson, consentsForLoanIds } from './lookups.js';
-import { base64ByteLength, base64ToBytes, MAX_DOCX_BYTES } from './base64.js';
+import { base64ByteLength, base64ToBytes, cleanBase64, MAX_DOCX_BYTES } from './base64.js';
 import { parseAmt } from './money.js'; // audit L-13: shared, was duplicated here
 
 // `receipt_work` is the receipt for a Service (Work) contribution — previously it
@@ -588,41 +588,98 @@ export async function dispatchBulkPdfBatch(env, docType, year, items, user, opts
 
   // Offload the whole batch to Render. The FULL payload (with base64) goes to
   // Render; the D1 row stores only metadata via opts.storePayload.
-  const recordIds = toConvert.map(it => it.recordId);
-  const dispatch = await createAndDispatchJob(
-    env, 'pdf_convert_batch',
-    { docType, year, force, items: toConvert },              // -> Render (big)
-    {
-      refId: `${docType}-${year}`,
-      createdBy: (user && user.name) || '',
-      storePayload: { docType, year, force, recordIds, count: toConvert.length }, // -> D1 (small)
-    }
-  );
+  // ---- PRE-DISPATCH: obey the byte contract instead of discovering it ----
+  //
+  // audit Render/offload #1. The whole of `toConvert` used to go out as ONE request. The
+  // Render service parsed with a 1 MB JSON limit, so any real bulk run was rejected by
+  // body-parser before its router ran — and the `!dispatch.success` branch below then
+  // converted the ENTIRE batch in this Worker, which is exactly the CPU and subrequest
+  // limit the offload exists to avoid. The bigger the batch, the more certain that was.
+  //
+  // `planBatches` splits by the same limits Render enforces on arrival, so a dispatch can
+  // no longer be the thing that breaks the contract, and a document that cannot fit in
+  // any batch is reported per record rather than sinking the run it is part of.
+  const { planBatches, MAX_BATCH_ITEMS } = await import('./renderContract.js');
+  const plan = planBatches(toConvert, (b64) => {
+    // A payload that cannot even be cleaned is treated as unbounded, so it lands in
+    // `rejected` with a reason instead of being sized as 0 and dispatched.
+    try { return base64ByteLength(cleanBase64(b64, 'Document')); } catch (e) { return Number.MAX_SAFE_INTEGER; }
+  });
 
-  if (!dispatch.success) {
-    // Could not reach Render — fall back to synchronous conversion.
-    const results = [...skipped];
-    for (const it of toConvert) {
-      try {
-        const r = await convertDocxToPdf(env, docType, year, it.recordId, it.base64, it.fileName, user, 'bulk', { force });
-        results.push({ recordId: it.recordId, ...r });
-      } catch (e) {
-        results.push({ recordId: it.recordId, success: false, error: (e && (e.userMessage || e.message)) || 'conversion failed' });
+  const oversized = plan.rejected.map(r => ({
+    recordId: r.item.recordId, success: false, error: r.error,
+  }));
+
+  if (!plan.batches.length) {
+    // Everything was refused by the contract. Nothing to dispatch, and every record has a
+    // concrete reason rather than a blank failure.
+    return {
+      success: true, dispatched: false, results: [...skipped, ...oversized],
+      engine: 'none', engineReason: 'all-items-over-contract-limit',
+      dispatchedCount: 0, skippedCount,
+    };
+  }
+
+  const dispatchedJobs = [];
+  const dispatchFailures = [];
+  for (const batch of plan.batches) {
+    const recordIds = batch.map(it => it.recordId);
+    const dispatch = await createAndDispatchJob(
+      env, 'pdf_convert_batch',
+      { docType, year, force, items: batch },                 // -> Render (big)
+      {
+        refId: `${docType}-${year}`,
+        createdBy: (user && user.name) || '',
+        storePayload: { docType, year, force, recordIds, count: batch.length }, // -> D1 (small)
+      }
+    );
+    if (dispatch.success) dispatchedJobs.push({ jobId: dispatch.jobId, count: batch.length });
+    else dispatchFailures.push(batch);
+  }
+
+  if (dispatchFailures.length) {
+    // Could not reach Render — fall back to synchronous conversion, for the batches that
+    // did not get through only. A batch that WAS accepted is already running there, and
+    // converting it here as well would produce the same file twice.
+    const results = [...skipped, ...oversized];
+    for (const batch of dispatchFailures) {
+      for (const it of batch) {
+        try {
+          const r = await convertDocxToPdf(env, docType, year, it.recordId, it.base64, it.fileName, user, 'bulk', { force });
+          results.push({ recordId: it.recordId, ...r });
+        } catch (e) {
+          results.push({ recordId: it.recordId, success: false, error: (e && (e.userMessage || e.message)) || 'conversion failed' });
+        }
       }
     }
+    const fallbackCount = dispatchFailures.reduce((n, b) => n + b.length, 0);
     return {
-      success: true, dispatched: false, results,
-      engine: 'worker', engineReason: 'render-unreachable',
-      dispatchedCount: toConvert.length, skippedCount,
+      success: true,
+      dispatched: dispatchedJobs.length > 0,
+      // Shape preserved for the existing bulk screen: `jobId` is the first job when there
+      // is one, and `jobIds` carries the rest.
+      ...(dispatchedJobs.length ? { jobId: dispatchedJobs[0].jobId, jobIds: dispatchedJobs.map(j => j.jobId), status: 'pending' } : {}),
+      results,
+      engine: dispatchedJobs.length ? 'mixed' : 'worker',
+      engineReason: 'render-unreachable',
+      dispatchedCount: toConvert.length - fallbackCount,
+      skippedCount,
+      batchLimit: MAX_BATCH_ITEMS,
     };
   }
 
   // Async: caller polls getRenderJobStatus(jobId). `preSkipped` lets the client
-  // account for records that were skipped before dispatch.
+  // account for records that were skipped before dispatch — now including any record the
+  // byte contract refused, so a partial run is never unexplained.
   return {
-    success: true, dispatched: true, jobId: dispatch.jobId, status: 'pending', preSkipped: skipped,
+    success: true, dispatched: true,
+    jobId: dispatchedJobs[0].jobId,
+    jobIds: dispatchedJobs.map(j => j.jobId),
+    status: 'pending',
+    preSkipped: [...skipped, ...oversized],
     engine: 'render', engineReason: null,
-    dispatchedCount: toConvert.length, skippedCount,
+    dispatchedCount: toConvert.length - oversized.length, skippedCount,
+    batchLimit: MAX_BATCH_ITEMS,
   };
 }
 
