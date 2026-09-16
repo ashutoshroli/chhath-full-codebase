@@ -536,6 +536,57 @@ lives in the public Worker's KV as `pub:ipsalt:<UTC date>` with a two-day TTL. *
 not copy those keys anywhere durable and do not raise the TTL** without deciding you
 want the linkability that buys.
 
+### W8f. Enforce the keys and the loan relations (PR-34) 🟡
+
+Three migrations, **one per database**. They are additive — one index or a few triggers
+each, no row is read, written or moved — and each is safe to re-run.
+
+**Re-run `getIntegrityReport` first** (§W8a). These were held back precisely because a
+`CREATE UNIQUE INDEX` fails outright if a duplicate exists, and a trigger begins
+rejecting writes to a row that is already broken. The report was clean on 2026-09-16;
+if time has passed, confirm it still is. You want `dup_user_id_code`,
+`dup_collection_sl_no`, `dup_loan_id`, `orphan_consent_loan` and
+`orphan_guarantor_loan` all at **0**.
+
+```bash
+cd ~/chhath-full-codebase/mgmt/db/migration/2026-09-05
+
+wrangler d1 execute chhath-core           --remote --file=./34-core-unique-id-code.sql
+wrangler d1 execute chhath-collections    --remote --file=./35-collections-unique-receipt-no.sql
+wrangler d1 execute chhath-loans-expenses --remote --file=./36-loans-keys-and-relations.sql
+```
+
+Confirm they landed:
+
+```bash
+wrangler d1 execute chhath-core --remote --command \
+ "SELECT name FROM sqlite_master WHERE name='uq_users_id_code';"
+wrangler d1 execute chhath-collections --remote --command \
+ "SELECT name FROM sqlite_master WHERE name='uq_collections_year_sl_no';"
+wrangler d1 execute chhath-loans-expenses --remote --command \
+ "SELECT type, name FROM sqlite_master WHERE name LIKE 'uq_loans%' OR name LIKE 'trg_loan%';"
+```
+
+The last one should list **five** objects: `uq_loans_loan_id` plus four triggers
+(`..._ins` and `..._upd` for both `loan_consents` and `loan_guarantors`).
+
+**If a `CREATE UNIQUE INDEX` fails** with a uniqueness error, a duplicate appeared after
+the report was taken. Nothing was applied by that file — resolve the duplicate using
+the report's `hint` for that check, then re-run the file.
+
+**What changes for you afterwards.** Nothing, in normal use. These reject writes that
+were already wrong: a second member with an existing `USER####` id, a second
+contribution on a receipt number already issued, a second loan on an existing Loan ID,
+and any consent or guarantor row pointing at a loan that is not there. If a screen
+starts refusing a save it was previously accepting, that save was creating one of those
+— send the error text rather than working around it.
+
+**Still not enforced, deliberately:** the real foreign key and the CHECK constraints
+(both need a full rebuild of the money tables, to be done together with the
+REAL→INTEGER conversion), and a guard against deleting a loan that still has consents
+(that needs an application change first — `deleteLoan` currently deletes the loan
+before its children, so a guard would abort its own correct deletion).
+
 ## W9. Checklist — everything in §W, in order
 
 - [ ] W1: confirm `users.photo`, `error_log.client_ip`, `public_data_version` (3 queries above)
@@ -553,3 +604,4 @@ want the linkability that buys.
 - [ ] **W8c: if there are findings, work the three urgent ones first** — duplicate consent token (live credential) → duplicate login name (privilege) → orphan consents with live tokens (H-8)
 - [ ] W8d: only once the report is clean, schedule PR-34 with a **fresh backup and a quiet window** — it is the first change of this effort that modifies live data
 - [ ] **W8e: deploy the public Worker, then run the C12 dry-run query, then apply migration `33-scrub-visitor-ips.sql`** on `chhath_logs`, then confirm both counts are 0. No secret to set
+- [ ] **W8f: re-confirm the report is clean, then apply migrations `34` / `35` / `36`** — one per database (core, collections, loans-expenses); then check the five loan objects exist

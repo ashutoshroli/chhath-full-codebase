@@ -6,10 +6,10 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status — against the plan's 48 PRs: 34.5 done · 13.5 remaining.**
-Separately, **44 GitHub PRs** have been merged for this effort (#311–#357). Those two numbers are not the same thing, and revisions of this file before #356 wrongly treated them as one — the header claimed "8 pending" while §3 below listed 14.5. Several merged PRs were docs/runbook updates (#340, #343, #346, #352), CI fix-ups (#330, #345), or carry-over items outside the 48 (#348, #356). Others, like this one, are a **slice** of a plan PR rather than a whole one. **The plan count is the one to read for progress.**
+**Status — against the plan's 48 PRs: 35.5 done · 12.5 remaining.**
+Separately, **45 GitHub PRs** have been merged for this effort (#311–#358). Those two numbers are not the same thing, and revisions of this file before #356 wrongly treated them as one — the header claimed "8 pending" while §3 below listed 14.5. Several merged PRs were docs/runbook updates (#340, #343, #346, #352), CI fix-ups (#330, #345), or carry-over items outside the 48 (#348, #356). Others, like this one, are a **slice** of a plan PR rather than a whole one. **The plan count is the one to read for progress.**
 
-Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-BE closed)** · **W3 6.5/7** · **W4 1/3** · **W5 0.5/6** · W6 0/4 · **W7 1.5/3**
+Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-BE closed)** · **W3 6.5/7** · **W4 2/3** · **W5 0.5/6** · W6 0/4 · **W7 1.5/3**
 
 ---
 
@@ -62,89 +62,83 @@ Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-
 | [#355](https://github.com/ashutoshroli/chhath-full-codebase/pull/355) | make three gates that were not gating actually gate | PR-46, C5 | The `H-6 … WITHOUT decoding` test asserted `ms < 250` — **3 failures in 6 runs** under load, blaming the code for something it never did. Now asserts the `atob` call count is 0: **0 failures in 12 runs**. Plus the first bundle budgets for the two SvelteKit apps (602 kB / 999 kB, both gates checked in *both* directions) and `--fail-on-warnings` for Public v6 | No migration — CI, one script, one test |
 | [#356](https://github.com/ashutoshroli/chhath-full-codebase/pull/356) | stop keeping visitor IP addresses, and clear the ones we kept | C12 | A public JS error stored the visitor’s address **three times** (the WHERE, the JSON context, the column) — permanently, in a table the committee reads. Now a keyed pseudonym from a **KV salt that rotates daily and expires**, so there is no operator step and yesterday’s rows become unlinkable to any address by anybody. Migration 33 clears what was already written | Migration **33** on `chhath_logs` (§W8e); no new secret |
 | [#357](https://github.com/ashutoshroli/chhath-full-codebase/pull/357) | let people zoom | PR-39 (slice) | `maximum-scale=1.0, user-scalable=no` disabled pinch-zoom on four app shells, including **both live mgmt frontends** — WCAG 1.4.4. The block came from the original public frontend and rode into three successive rewrites; it left the public side by accident, not decision. So the fix is four one-line changes and the point is the test, which scans every tracked shell in the tree | No migration |
+| [#358](https://github.com/ashutoshroli/chhath-full-codebase/pull/358) | CI was installing a vulnerable xmldom | PR-47 (part) | The override redirected the *deprecated* `xmldom`, but `docxtemplater` depends on the **scoped** `@xmldom/xmldom` — never rewritten. `^0.9.10` fits both 0.9.11 (11 advisories, high) and 0.9.12, so the two apps differed only by lockfile timing and `npm ci` installed the vulnerable one. Also: **npm never records `overrides` in a lockfile**, so an override cannot protect the path that ships | No migration |
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — CI was installing a known-vulnerable library, and the override that was supposed to stop it named the wrong package
+## 2. This PR — the constraints 07, 08 and 10 described but never applied (PR-34)
 
-**Audit ID:** Wave 7 **PR-47** (dependency upgrades), the shipped-code half.
+**Audit ID:** Wave 4 **PR-34** — H-9, M-8, M-34, H-8.
 
-Both mgmt frontends declare an override redirecting the deprecated `xmldom` to `@xmldom/xmldom@^0.9.12`, and `.github/workflows/ci.yml` even carries a comment explaining that `npm ci` is used *precisely so that override is honoured*. It looked handled. Measured on `main`:
+Three migrations shipped their real work as **SQL comments**. Migration 10 is the extreme case: *101 comment lines, zero executable ones*. The reason was sound — `CREATE UNIQUE INDEX` fails outright on a table that already holds a duplicate, and a trigger starts rejecting writes to a row that is already broken — so each one waited on a human running its detection query first. Nobody did, so nothing was enforced.
+
+**PR-33's report removed that risk by measuring.** Run against the live databases on 2026-09-16, every precondition came back **0**:
 
 ```
-$ cd mgmt/frontend && npm ci && node -p "require('./node_modules/@xmldom/xmldom/package.json').version"
-0.9.11        # 11 advisories, severity high
+dup_user_id_code        0        dup_loan_id             0
+dup_collection_sl_no    0        orphan_consent_loan     0   (the H-8 case)
+                                 orphan_guarantor_loan   0
 ```
 
-### Why the override missed it
+So there are **no repair scripts in this PR** — the plan allowed for them, and the data turned out not to need any. This is enforcement only.
 
-**Two different packages** pull this library in:
+Three files, one per database (the audit's per-DB requirement, and #353 showed why a multi-database file is a hazard):
 
-| requires | range | the override rewrites it? |
+| migration | database | what it adds |
 |---|---|---|
-| `docxtemplater` | `@xmldom/xmldom@^0.9.10` | **no** — different package name |
-| `docxtemplater-image-module-free` | `xmldom@^0.1.27` | yes |
+| `34-core-unique-id-code.sql` | `chhath-core` | partial `uq_users_id_code` |
+| `35-collections-unique-receipt-no.sql` | `chhath-collections` | partial `uq_collections_year_sl_no` |
+| `36-loans-keys-and-relations.sql` | `chhath-loans-expenses` | partial `uq_loans_loan_id` + **four** triggers |
 
-The override only ever governed the *deprecated unscoped* name. `docxtemplater`'s dependency on the **scoped** name was never touched — and `^0.9.10` is satisfied by both `0.9.11` (vulnerable) and `0.9.12` (patched). So which one an app got came down to **when its lockfile happened to be generated**:
+All partial, matching the recipes: rows with a NULL/blank key are exempt, so the constraints govern new writes without a backfill first.
 
-```
-mgmt/frontend          locked 0.9.11    <- vulnerable
-mgmt/frontend-svelte   locked 0.9.12    <- patched, by luck
-```
+### The half migration 10 was missing
 
-The two apps differed by nothing but timing. Nothing errored, nothing warned, and `npm install --package-lock-only` will not correct it either — `0.9.11` does satisfy `^0.9.10`, so npm has no reason to move a pin that is already valid.
+Its PART 2 is `BEFORE INSERT` only, which the audit flagged directly — *"proposed triggers omit update cases"*. An insert-only guard is **half a guard**: it stops a row being created against a missing loan, then allows the same row to be re-pointed at a missing loan a moment later. Same orphan H-8 produced, reached with a different verb. Both directions are covered now, on both child tables.
 
-This is shipped, browser-side code: it parses the DOCX templates a Superadmin uploads, so the two quadratic-time advisories are reachable input, not theoretical.
+Proven, not asserted: deleting the two `_upd` triggers (i.e. reverting to migration 10's behaviour) makes the re-point test fail.
 
-### The part that changes how I'd think about overrides
+### What is deliberately *not* here
 
-**npm does not record `overrides` in the lockfile at all** — verified, the root `packages[""]` entry has no `overrides` key in either app. So an override is a **resolution-time hint** that applies when `npm install` builds the tree. `npm ci` — what CI and every deploy runs — just installs the versions the lockfile already names.
+**A `BEFORE DELETE ON loans` guard** — the obvious way to prevent H-8, and it would **break loan deletion.** `deleteLoan` (`loans.js:398–415`) sends one D1 batch whose **first** statement is `DELETE FROM loans WHERE id = ?` and whose last two delete the guarantors and consents. A delete guard fires on that first statement, while the children still exist, and aborts the whole batch. The batch is atomic so the ordering is harmless today; reordering it to children-first is an application change and belongs with the code, not inside a migration.
 
-An override therefore **cannot enforce anything on the path that actually ships.** Only the pinned version can. That reframes the fix: adding `"@xmldom/xmldom": "^0.9.12"` to `overrides` stops a future `npm install` from re-introducing 0.9.11, but the thing that makes it *stay* fixed is a check on the lockfile.
+That is asserted rather than trusted: a test replays the app's exact statement order, and adding a delete guard makes it fail.
 
-### So the fix is three things
+**The real foreign key** (10's PART 3) and **the CHECK constraints** (migration 11) both need full table rebuilds on live, spreadsheet-sourced data. D1 does not persist `PRAGMA foreign_keys` across requests, so even after a rebuild the FK would be documentation and these triggers would still be what enforces it — the rebuild buys a self-describing schema, not enforcement. And 11 itself says to combine its CHECKs with the REAL→INTEGER rebuild in 12. That is one coordinated rebuild of the money tables, not a line in this file.
 
-1. `overrides` gains the **scoped** name in both apps, so resolution can no longer pick 0.9.11.
-2. `mgmt/frontend`'s lockfile is regenerated — a **6-line** diff, no other package moved.
-3. `dependency-security-floors.test.mjs` asserts no lockfile in the repo pins below a declared floor, keyed on the **tarball** rather than the dependency name so an alias cannot hide a copy.
+### A fourth category in the migration harness
 
-The test deliberately does **not** run `npm audit`: that answer changes with the advisory database and would turn CI red on a day nobody touched anything. And it does not merely check "are overrides respected", because that would have **passed** here — the override that existed *was* respected; it just named the wrong package.
+These are the first migrations that add a **constraint**, and they fit none of the existing lists. They are not index-only (a trigger is not an index), not ADD-COLUMN, not a scrub — and they trip the index-only rule for a pure false positive: `BEFORE UPDATE OF loan_id` contains the word UPDATE while writing nothing.
 
-### What this PR does not do, and why
+So `CONSTRAINT_MIGRATIONS` gets rules written against what matters — a constraint migration must be **additive**. `INSERT` and `UPDATE` are narrowed to the *statement* (`INSERT INTO`, `UPDATE … SET`) rather than the keyword, because a trigger declaration necessarily names the verb it fires on. `DELETE` is left broad on purpose, which also blocks delete triggers; the comment says so and points at migration 36's reasoning.
 
-The remaining advisories are `vite` (high) and `vitest` (critical) and their chains. Every one is a **dev-server or test-runner** issue — dev-server path traversal, `server.fs.deny` bypass on Windows, the Vitest UI server. None of it is shipped to a browser. Fixing them means `vite 5 → 8` and `vitest 2 → 5`, majors, coordinated across three apps that share the toolchain.
-
-That is a real risk to take blind, and Vercel preview deployments are rate-limited for the next 24 hours, so it cannot be verified where it would actually break. It goes in its own PR. **`npm audit fix --force` was not run** — on this repo it proposes downgrades (`@sveltejs/kit@0.0.30`, `adapter-static@0.0.17`) that npm presents as "fixes", which is how #338 nearly shipped a miniflare 5.x alpha.
-
-`engines`/`packageManager` pins, also part of PR-47, are left with it.
-
-**Migrations & setup:** none.
+**Migrations & setup:** three migrations, one per database — runbook §W8f. Nothing to deploy; no code changed.
 
 ## Verification
 
-| | `main` | this branch |
-|---|---|---|
-| `npm ci` in `mgmt/frontend` installs | **0.9.11** | 0.9.12 |
-| high/critical **production** advisories, `mgmt/frontend` | 1 high | **0** |
-| the floor guard | fails, naming the exact lockfile and path | passes |
+`pr34-enforced-keys-and-relations.test.mjs` — 11 tests. Mutation-checked:
 
-The guard's two assertions are genuinely distinct — against `main`, the floor check **fails** while the override check **passes**, which is precisely the finding: the override was honoured, it just governed the wrong package. (An earlier draft had the override check matching by tarball, so it failed too and looked like it was working for the wrong reason.)
+| mutation | caught by |
+|---|---|
+| the two `_upd` triggers removed (migration 10's behaviour) | *THE GAP IN MIGRATION 10: re-pointing…* |
+| a `BEFORE DELETE ON loans` guard added | *the application's own loan deletion still works* |
+| the unique index made plain | *a duplicate id_code is refused…* |
+
+Also pinned: blanks and NULLs stay exempt on every constraint; re-pointing at a loan that **does** exist still works; an update that does not touch `loan_id` is not second-guessed; each file applies twice cleanly; and `(2024.0, 45)` collides with `(2024.0, 45)` — because the live `year` column is still REAL (migration 12's REAL→INTEGER is a recipe that applies nothing), so the index has to work on the values that are actually there rather than the ones the committed schema hopes for.
 
 ```
-mgmt/frontend:         builds; main chunk 218.9 kB, within the 230 kB budget
-mgmt/frontend-svelte:  58 tests pass; 0 errors / 160 warnings (C7 unchanged); within budget
-mgmt/backend:          890 passed (886 + 4)
+mgmt/backend: 901 passed (890 + 11)
+migration gate: all 48 migrations in 4 folders covered
 ```
-
-The comparator that decides all of this is itself tested — string comparison would put `0.9.2` above `0.9.11`, and a prerelease has to sort below its release.
 
 ---
 
 ## 3. Pending
 
 **W3 — Render / AI / chat (1 left):** PR-32 remainder — Neon **schema**: FK/cascade, role CHECK, automated raw-content retention; consent/disclosure copy; **plus the shared rate/concurrency store deferred from #347 and the in-process job claim from #350**. (TLS verification, the keyed rotating IP pseudonym and server-issued session ids shipped in #351.)
-**W4 — Database (2 left):** ~~duplicate/orphan detection~~ *(this PR)* · **PR-34** repair + partial unique indexes + CHECKs + loan relations (insert **and update** triggers) — *needs a backup, a quiet window, and the output of this PR's report first* · **PR-35** `schema_migrations` ledger + transactional runner + checksums *(its precondition, the migration matrix, merged in #353)*
+**W4 — Database (1 left):** ~~duplicate/orphan detection (#354)~~ · ~~partial unique indexes + loan relations (this PR)~~ · **PR-35** `schema_migrations` ledger + transactional runner + checksums *(precondition merged in #353; the first prerequisite declaration landed in #356)*
+<sub>Still open from PR-34, deliberately: the real FK and the CHECK constraints, both of which need a full table rebuild of the money tables, to be done together with the REAL→INTEGER conversion in migration 12. And a `BEFORE DELETE ON loans` guard, which needs `deleteLoan` to delete children before the parent first — an application change.</sub>
 **W5 — Accessibility (5.5 left):** dialog primitives (public + mgmt) · combobox/buttons · contrast + `:focus-visible` *(the zoom half shipped in this PR)* · live regions + labels · structure/motion
 **W6 — SEO / PWA / privacy / perf (4):** route metadata · manifest + update UX · privacy + same-origin push · lazy skins
 **W7 — Platform (1.5 left, of which PR-47 is part-done):** ~~CI gates~~ *(#353 migration matrix + this PR: C5, bundle budgets, fail-on-warning)* · **PR-47** dependency upgrades · **PR-48** observability + retention
