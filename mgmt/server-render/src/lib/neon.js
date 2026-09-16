@@ -162,3 +162,23 @@ export async function logChatMessage({ sessionId, role, content, model, promptTo
     console.warn('[neon] logChatMessage failed (non-fatal):', e && e.message);
   }
 }
+
+
+/**
+ * Run one statement, or return null when Neon is not configured.
+ *
+ * Exposed so the retention sweep (chatRetention.js) can be handed a database rather
+ * than reaching for one, which is what makes its logic testable without a Postgres to
+ * point at. Unlike the logging helpers above this does NOT swallow errors: retention
+ * that fails silently is retention that is not happening, and the caller needs to know.
+ */
+export async function query(sql, params = []) {
+  const pool = await getPool();
+  if (!pool) return null;
+  return pool.query(sql, params);
+}
+
+/** True when a database is actually reachable — for the retention endpoint's report. */
+export async function isConfigured() {
+  return (await getPool()) !== null;
+}

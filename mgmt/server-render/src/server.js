@@ -7,6 +7,9 @@ import { config } from './config.js';
 import { jobsRouter } from './routes/jobs.js';
 import { publicChatRouter } from './routes/publicChat.js';
 import { MAX_REQUEST_BYTES, MAX_CHAT_REQUEST_BYTES } from './lib/batchContract.js';
+import { sweepChatRetention, shouldSweep, markSwept } from './lib/chatRetention.js';
+import { query as neonQuery, isConfigured as isNeonConfigured } from './lib/neon.js';
+import { timingSafeEqual } from 'node:crypto';
 
 const app = express();
 
@@ -45,6 +48,53 @@ app.use('/', chatBodyParser, publicChatRouter);
 
 // Job intake (auth-gated inside the router).
 app.use('/', jobsBodyParser, jobsRouter);
+
+// ============ CHAT LOG RETENTION (PR-32) ============
+//
+// What is stored is the visitor's own words plus a pseudonym linking a conversation to a
+// person. schema.sql described pruning it as "optional ... if you want to keep the free
+// tier small", in two commented-out DELETE statements — so the retention window existed
+// as an intention and nothing enforced it.
+//
+// Reachable two ways on purpose, because neither alone is enough:
+//
+//   * OPPORTUNISTICALLY, below, at most once per UTC day per instance. Fired without
+//     being awaited, so it never delays a response. Best-effort by nature: a Render free
+//     instance that has spun down may miss a day.
+//   * ON DEMAND via POST /retention, for a scheduled caller or a person who needs it to
+//     have definitely happened, and who wants to see the counts.
+app.use((req, res, next) => {
+  next(); // never let retention sit in front of a response
+  if (!shouldSweep()) return;
+  markSwept();
+  sweepChatRetention({ query: neonQuery })
+    .then((r) => { if (r.ran && (r.messages || r.sessions)) console.log('[retention] swept', r); })
+    .catch((e) => console.warn('[retention] sweep failed:', e && e.message));
+});
+
+// Authenticated, and reports what it did. Uses the same shared secret as the Worker
+// callbacks, compared in constant time — a retention trigger is a bulk delete, so an
+// anonymous caller must not be able to time-probe the comparison.
+app.post('/retention', async (req, res) => {
+  const presented = (req.get('X-Render-Signature') || '').toString();
+  const expected = config.renderWebhookSecret || '';
+  const ok = expected.length > 0
+    && presented.length === expected.length
+    && timingSafeEqual(Buffer.from(presented), Buffer.from(expected));
+  if (!ok) return res.status(403).json({ success: false, message: 'Forbidden' });
+
+  if (!(await isNeonConfigured())) {
+    // Distinguished from "nothing to delete": a report of zero from a service with no
+    // database is the kind of clean answer that hides a broken deployment.
+    return res.status(503).json({ success: false, message: 'No chat database configured', retention: null });
+  }
+  try {
+    const result = await sweepChatRetention({ query: neonQuery });
+    return res.json({ success: true, retention: result });
+  } catch (e) {
+    return res.status(500).json({ success: false, message: (e && e.message) || 'Retention sweep failed' });
+  }
+});
 
 // Fallback 404.
 app.use((req, res) => res.status(404).json({ success: false, message: 'Not found' }));
