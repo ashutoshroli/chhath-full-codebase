@@ -6,10 +6,10 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status — against the plan's 48 PRs: 36.5 done · 11.5 remaining.**
-Separately, **47 GitHub PRs** have been merged for this effort (#311–#360). Those two numbers are not the same thing, and revisions of this file before #356 wrongly treated them as one — the header claimed "8 pending" while §3 below listed 14.5. Several merged PRs were docs/runbook updates (#340, #343, #346, #352), CI fix-ups (#330, #345), or carry-over items outside the 48 (#348, #356). Others, like this one, are a **slice** of a plan PR rather than a whole one. **The plan count is the one to read for progress.**
+**Status — against the plan's 48 PRs: 37.5 done · 10.5 remaining.**
+Separately, **49 GitHub PRs** have been merged for this effort (#311–#362). Those two numbers are not the same thing, and revisions of this file before #356 wrongly treated them as one — the header claimed "8 pending" while §3 below listed 14.5. Several merged PRs were docs/runbook updates (#340, #343, #346, #352), CI fix-ups (#330, #345), or carry-over items outside the 48 (#348, #356). Others, like this one, are a **slice** of a plan PR rather than a whole one. **The plan count is the one to read for progress.**
 
-Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-BE closed)** · **W3 6.5/7** · **W4 ✅ 3/3** · **W5 0.5/6** · W6 0/4 · **W7 1.5/3**
+Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-BE closed)** · **W3 7/7 (consent copy folded into PR-44)** · **W4 ✅ 3/3** · **W5 0.5/6** · W6 0/4 · **W7 1.5/3**
 
 ---
 
@@ -65,76 +65,79 @@ Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-
 | [#358](https://github.com/ashutoshroli/chhath-full-codebase/pull/358) | CI was installing a vulnerable xmldom | PR-47 (part) | The override redirected the *deprecated* `xmldom`, but `docxtemplater` depends on the **scoped** `@xmldom/xmldom` — never rewritten. `^0.9.10` fits both 0.9.11 (11 advisories, high) and 0.9.12, so the two apps differed only by lockfile timing and `npm ci` installed the vulnerable one. Also: **npm never records `overrides` in a lockfile**, so an override cannot protect the path that ships | No migration |
 | [#359](https://github.com/ashutoshroli/chhath-full-codebase/pull/359) | apply the constraints 07, 08 and 10 only described | PR-34 | Three migrations shipped their real work as **comments** (10 is 101 comment lines, 0 executable) because a UNIQUE index fails on a table holding a duplicate. #354’s report proved every precondition is 0, so there are **no repair scripts** — enforcement only: 3 partial unique indexes + **4** triggers. Migration 10 had `BEFORE INSERT` only; the UPDATE half is new. No `BEFORE DELETE` guard — it would abort `deleteLoan`’s own batch | Migrations **34/35/36**, one per database (§W8f) |
 | [#360](https://github.com/ashutoshroli/chhath-full-codebase/pull/360) | five migrations named a database that does not exist | PR-35 precondition | The "Apply with:" line an operator copy-pastes said `chhath_logs`, `chhath_core`, `chhath_collections`, `chhath_loans_expenses` — **underscores**, where every real database uses hyphens. One of the five was mine (#356), repeated in the runbook, so a **privacy remediation** was handed a command that could only fail and was reported as run. No test had ever read the one line a human acts on | No migration — comments only. **Verify migration 33 applied** (§W8e) |
+| [#361](https://github.com/ashutoshroli/chhath-full-codebase/pull/361) | a migration system that records what it did | PR-35 | Nobody could say which migrations were applied — which is how a privacy remediation got reported as applied when its command had failed. `schema_migrations` (one ledger per database, D1 has no cross-DB query) + `migrate.mjs` with `status`/`apply`/`adopt`/`verify`. `adopt` is what makes it usable on a deployment with 40+ migrations already applied by hand. Two of my own bugs caught by its tests: unrouted migrations were silently skipped, inert recipes were queued | Migration **37**, bootstrapped by the tool |
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — a migration system that records what it did (PR-35, completes W4)
+## 2. This PR — the retention window was a comment, and the chat tables had no constraints (PR-32)
 
-**Audit ID:** Wave 4 **PR-35**. This completes W4.
+**Audit ID:** Wave 3 **PR-32**, the remainder. TLS verification, the keyed rotating IP pseudonym and server-issued session ids shipped in #351.
 
-Asked *"which migrations have you applied?"*, nobody could answer — not the operator, not the code, not CI. The only way to find out was to probe for artefacts (does this index exist? does that column?) and infer.
+`db/neon/schema.sql` ended like this:
 
-That is not an abstract gap. Two things in this repo happened **because** of it:
-
-- a privacy remediation was reported as applied when its command had failed, since a failed apply and a successful one look identical in a checklist (#360);
-- five migrations spent months telling people to run them against a database name that does not exist, and nothing noticed.
-
-### `schema_migrations`, one ledger per database
-
-Not one shared ledger. D1 has no cross-database query, so a central ledger could never be read alongside the schema it describes, and would drift the moment one database was restored from backup and another was not. Each database carries its own history, `filename` unique within it.
-
-The **checksum** is not tamper-proofing. It answers the question that comes up when a migration misbehaves: *is the file on disk still the file that was applied?* An edited migration is the one thing a ledger keyed only on a name cannot see — and editing an applied migration is a normal mistake.
-
-### `migrate.mjs` — the logic is pure, the database is one injected function
-
-```
-status              what is applied and what is pending, per database (reads only)
-apply  --db <name>  apply pending migrations in order, recording each
-adopt  --db <name>  record pending migrations as applied WITHOUT running them
-verify              re-checksum applied migrations; report files that changed
+```sql
+-- OPTIONAL retention helper (run manually or via a scheduled job if you want to
+-- keep the free tier small): delete chat logs older than 90 days.
+--   DELETE FROM chat_messages WHERE created_at < now() - INTERVAL '90 days';
+--   DELETE FROM chat_sessions WHERE last_seen_at < now() - INTERVAL '90 days';
 ```
 
-Everything that decides anything — what exists, what is pending, in what order, against which database, whether a checksum still matches — is a pure function over strings, and is tested. The only impure part shells out to wrangler and is injected. That is deliberate: a real D1 database is not reachable from where this was written, so the alternative was shipping untested branching around an untestable call.
+Two things wrong with that. It framed a **privacy commitment** as optional housekeeping — *"if you want to keep the free tier small"* — and being a comment, nobody ran it. The same failure the D1 side had, where migration 10 was 101 comment lines and zero executable ones. Every public question anyone had ever typed was still stored, next to a pseudonym linking the conversation to a person.
 
-**`adopt` is not a convenience — it is the only thing that makes this usable at all.** There are 40+ migrations already applied to the live databases by hand. Without it, `apply` would try to re-run all of them: most are idempotent and harmless, some (ADD COLUMN) would fail outright. So the first run on an existing deployment is `adopt`, which writes the history without touching the schema, and `--dry-run` prints exactly what it is about to claim so a wrong claim is visible *before* it is made.
+The same file also left two gaps in its own comments:
 
-Four things the runner refuses to guess at:
+```
+chat_messages.session_id   "FK-ish to chat_sessions.session_id (not enforced: logs, keep writes cheap)"
+role                        'user' | 'assistant'   — a comment, not a constraint
+```
 
-| | |
-|---|---|
-| a **multi-database** file | refused, not attempted — running the whole file applies the earlier sections then fails part-way (#353). It says which databases and stops |
-| an **inert** recipe (applies nothing) | never queued and never recorded. Running one is a harmless no-op, but the ledger row would claim something happened, and a ledger that overstates is worse than none |
-| a file **changed since applied** | reported, never auto-fixed — whether the edit was cosmetic is a human judgement |
-| a ledger row with **no file** | reported. Compared against the whole tree, so a migration moved between databases is not called deleted |
+### `NOT VALID` — the thing Postgres has that SQLite does not
 
-### Two real bugs my own tests caught
+A plain `ADD CONSTRAINT` scans every existing row and **fails** if one violates it. On a log table that has been collecting unconstrained rows for months, that is a coin flip — and `orphan_messages > 0` is *expected* here, because a session row is written best-effort, so a message whose session insert failed is exactly the case the original comment predicted.
 
-Worth naming, because both were exactly the failure mode I had just written a comment forbidding:
+`NOT VALID` adds the constraint so it governs every **new** write immediately, without checking what is already stored: no scan, no lock held for a scan, no failure on legacy rows. It is the direct analogue of the partial unique indexes used on the D1 side in #359, for the same reason. `VALIDATE CONSTRAINT` is documented as the follow-up once the detection query reads zero.
 
-1. **An unrouted migration was silently skipped.** `plan()` filtered on `database === db`; a migration naming no database has `database: null`, so it fell out of the comparison entirely and appeared nowhere. A runner quietly skipping a migration is the whole problem this tool exists to remove. Unrouted migrations now surface in **every** database's plan.
-2. **Inert recipes were queued for apply.** They *do* declare a database, so they passed the routing filter and landed in `pending` — which would have applied a no-op and then written a ledger row saying it had happened.
+**`ON DELETE CASCADE` is what makes retention correct**, not merely tidy. Without it, deleting an expired session leaves its messages behind — the exact rows retention exists to remove, now unreachable because the thing that named them is gone.
 
-**Migrations & setup:** migration **37** (the ledger), applied per database — but the tool bootstraps it, so there is no separate step. Runbook §W8g covers the first run.
+### The sweep, and why the order is the opposite of the old comment
+
+Messages first, **sessions last**. Deleting a session cascades to its messages, so:
+
+- sessions-only would keep old messages alive inside young, still-active conversations;
+- messages-only would leave empty session rows, each still carrying its `ip_hash`, for ever.
+
+Both statements are bounded (`ctid IN (SELECT … LIMIT 5000)` — Postgres has no `DELETE … LIMIT`), 20 passes per invocation, and hitting that ceiling is **reported** as `truncated` rather than looped away. An unbounded DELETE on a table nobody has ever pruned is how a retention sweep becomes an outage the first time it runs.
+
+Reachable two ways, because neither alone is enough: opportunistically at most once per UTC day per instance (fired without being awaited, so it never delays an answer — best-effort, since a Render free instance that has spun down may miss a day), and `POST /retention` with the shared secret, compared in constant time, which reports the counts.
+
+### The setting that would have switched itself off
+
+The obvious spelling is `parseInt(env, 10) || 0`. It is wrong here, because **0 means keep everything for ever**. `CHAT_RETENTION_DAYS=ninety` parses to `NaN`, falls to `0`, and retention silently stops while the deployment looks healthy — precisely the failure mode I have been removing all the way through this work.
+
+Unset takes the default; set-but-unparseable takes the default **and warns**. Keeping everything is still possible, it just has to be typed.
+
+**Migrations & setup:** `db/neon/02-constraints-and-retention.sql` — Neon SQL Editor or psql, PART 1 first. Optional `CHAT_RETENTION_DAYS` (default 90).
 
 ## Verification
 
-`pr35-migration-ledger.test.mjs` — 19 tests. Beyond the two bugs above:
+**No Postgres exists in this environment**, so the database is an injected function and the SQL text is asserted rather than executed. That is the real limit of this suite and it is stated rather than glossed: PART 1 of the migration is written so an operator sees any constraint problem immediately, in a session where the error is in front of them.
 
-- the ledger applies against **two unrelated schemas**, twice, and rejects a second row for the same migration;
-- a recorded row round-trips into a clean plan (recorded means done, not pending);
-- an operator named `O'Brien` does not break the INSERT — `recordSql` builds SQL for `wrangler d1 execute --command`, which takes no bound parameters, so escaping is the only thing between a name and a broken statement;
-- load order is folder-then-filename and *is* the intended order — asserted against the real tree, including that 07 precedes 34 and 09 precedes 33;
-- **a full `adopt` leaves nothing pending, nothing changed and nothing orphaned, in all nine databases** — if that were not true the tool would be unusable on the existing deployment;
-- `wrangler --json` is read in either shape it has come in across versions, and anything unparseable is an empty ledger rather than a crash;
-- an unknown `--db` and an unknown command both exit 1.
+15 tests. Mutation-checked:
+
+| mutation | caught by |
+|---|---|
+| sessions deleted first (cascade drops the wrong rows) | *the sweep issues them in that order, every pass* |
+| `days` interpolated into the SQL instead of bound | *a hostile day count cannot reach the interval* |
+| `truncated` not reported | *hitting the ceiling is REPORTED, not looped away* |
+| `days = 0` ignored | *0 days means keep everything, and is respected* |
+| `parseInt(...) \|\| 0` restored | *a misspelled CHAT_RETENTION_DAYS falls back to the default* |
 
 ```
-mgmt/backend: 925 passed (906 + 19)
-migration gate: all 49 migrations covered
+mgmt/server-render: 181 passed (166 + 15)
 ```
 
-Not included from PR-35's description: *"canonical schema = generated end-state"* and the *"bootstrap path env-guarded"* item. Both are about regenerating `db/schema/*.sql` from the migration sequence, which is a different concern from recording history — and doing it now would mean regenerating schema files that 900+ tests currently treat as the source of truth.
+W3's last item, the chat consent/disclosure copy, is frontend text and belongs with **PR-44** (the privacy notice), which covers the same ground for chat, telemetry, push, cache, fonts and deletion — writing it twice in two places is how two privacy notices end up disagreeing.
 
 ---
 

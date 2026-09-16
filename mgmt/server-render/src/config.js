@@ -14,6 +14,25 @@ function opt(name, fallback = '') {
   return v && v.toString().trim() ? v.toString() : fallback;
 }
 
+// Retention is the one setting where the safe fallback is NOT zero: 0 means "keep every
+// chat log for ever", so a value that does not parse must not quietly become that. An
+// unset variable takes the default; a set-but-unparseable one takes the default AND says
+// so, because that is a misconfiguration somebody needs to see.
+export const DEFAULT_CHAT_RETENTION_DAYS = 90;
+
+export function retentionDays(raw) {
+  if (raw === '' || raw === undefined || raw === null) return DEFAULT_CHAT_RETENTION_DAYS;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) {
+    console.warn(
+      `[config] CHAT_RETENTION_DAYS="${raw}" is not a number of days; ` +
+      `using the default of ${DEFAULT_CHAT_RETENTION_DAYS}. Set it to 0 to keep chat logs for ever.`
+    );
+    return DEFAULT_CHAT_RETENTION_DAYS;
+  }
+  return Math.floor(n);
+}
+
 export const config = {
   // Shared secrets (two DISTINCT values — see README).
   renderApiKey: req('RENDER_API_KEY'),               // incoming Worker->Render auth (X-Render-Api-Key)
@@ -61,6 +80,16 @@ export const config = {
   // window catches one greedy caller; these catch the total.
   chatMaxConcurrent: parseInt(opt('CHAT_MAX_CONCURRENT', '4'), 10) || 4,
   chatDailyTokenBudget: parseInt(opt('CHAT_DAILY_TOKEN_BUDGET', '200000'), 10) || 200000,
+  // How long a public chat log is kept. What is stored is the visitor's own words plus a
+  // pseudonym linking the conversation to a person, so this is a privacy commitment, not
+  // housekeeping — schema.sql used to describe it as "optional".
+  //
+  // NOT `parseInt(...) || 0`, which is the obvious spelling and the wrong one here: with
+  // it, a typo (`CHAT_RETENTION_DAYS=ninety`) parses to NaN, falls to 0, and 0 means KEEP
+  // EVERYTHING FOR EVER. A misspelling would silently switch retention off and look
+  // exactly like a working deployment. Keeping everything has to be typed deliberately,
+  // so an unparseable value falls back to the default and says so.
+  chatRetentionDays: retentionDays(opt('CHAT_RETENTION_DAYS', '')),
   // How many offload jobs may run at once on one instance, and how long any single job may
   // hold its slot. A free-tier instance has one CPU and 512 MB, and a provider that never
   // answers used to hold a job forever (audit Render/offload #3, #5).
