@@ -16,6 +16,8 @@
 // it only reports presence/absence, so it's safe to expose the boolean report.
 
 // D1 bindings the mgmt Worker cannot run without.
+import { degradationReport, degradationSeverity } from './telemetry.js'; // PR-48
+
 const REQUIRED_D1 = [
   'DB_CORE', 'DB_COLLECTIONS', 'DB_LOANS_EXPENSES', 'DB_TEMPLATES',
   'DB_FILE_INDEX', 'DB_WHATSAPP_INDEX', 'DB_LOGS', 'DB_MISC',
@@ -117,8 +119,22 @@ export async function healthCheck(env) {
     checks.kv_sessions = 'error: ' + (e && e.message ? e.message.slice(0, 120) : 'unknown');
   }
 
+  // PR-48 — today's degradations, i.e. the moments the portal knowingly did less than
+  // it promises. This is the whole point of the telemetry work: those fallbacks were
+  // invisible, so a deployment where the revocation check had been failing all day
+  // reported `status: 'ok'` and looked identical to a healthy one.
+  //
+  // A probe already reads this endpoint every few minutes, so putting the counts here
+  // means somebody finds out without anyone having to go looking.
+  const degradations = await degradationReport(env);
+  const degradedSeverity = degradationSeverity(degradations);
+
   const dependenciesOk = checks.d1_core === 'ok' && checks.kv_sessions === 'ok';
-  const status = cfg.ok && dependenciesOk ? 'ok' : 'degraded';
+  // A sustained revocation-check failure means demoted and deleted accounts are still
+  // operating on cached roles. That is a real security state, so it turns the whole
+  // report degraded — but only past a threshold: a handful is the transient blip the
+  // fallback exists for, and turning red for that would train everyone to ignore this.
+  const status = cfg.ok && dependenciesOk && degradedSeverity !== 'degraded' ? 'ok' : 'degraded';
   return {
     status,
     configOk: cfg.ok,
@@ -126,5 +142,8 @@ export async function healthCheck(env) {
     missing: cfg.missing,
     featureWarnings: cfg.featureWarnings,
     checks,
+    // Absent kinds mean "has not happened today", so an empty object is a clean bill of
+    // health and anything present is worth reading.
+    degradations,
   };
 }
