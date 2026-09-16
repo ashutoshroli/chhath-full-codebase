@@ -63,12 +63,13 @@
     saving = true;
     try {
       if (editing) {
+        // `Created By` is not sent: the server owns it and rejects it (see Home.svelte).
+        // Omitting it keeps the stored value — the UPDATE only sets the keys it receives.
         await api.updateRecord('COMMITEE MEMBERS', editing.__rowIndex, {
           Year: editing.Year,
           Name: form.Name,
           'View Role': form['View Role'],
-          'View Role (Hindi)': form['View Role (Hindi)'],
-          'Created By': editing['Created By']
+          'View Role (Hindi)': form['View Role (Hindi)']
         });
       } else {
         await api.saveRecord('COMMITEE MEMBERS', { Year: year === 'All' ? new Date().getFullYear() : year, ...form });

@@ -199,7 +199,12 @@
       if (editing) {
         genYear = editing.Year;
         savedRowIndex = editing.__rowIndex;
-        await api.updateRecord('COLLECTIONS', editing.__rowIndex, { Year: editing.Year, 'Sl. No.': editing['Sl. No.'], ...payload, 'Created By': editing['Created By'] });
+        // `Sl. No.` and `Created By` are NOT sent. The server owns both — the receipt
+        // number and who recorded the entry — and since #323 it REJECTS them, which is
+        // what broke every edit on this screen. Leaving them out is safe as well as
+        // required: updateRecord builds `SET` from the keys it receives, so a column that
+        // is not sent keeps its stored value.
+        await api.updateRecord('COLLECTIONS', editing.__rowIndex, { Year: editing.Year, ...payload });
       } else {
         genYear = year === 'All' ? new Date().getFullYear() : year;
         const res: any = await api.saveRecord('COLLECTIONS', { Year: genYear, ...payload });

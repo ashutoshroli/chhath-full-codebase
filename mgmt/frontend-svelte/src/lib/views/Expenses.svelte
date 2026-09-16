@@ -63,13 +63,13 @@
     saving = true;
     try {
       if (editing) {
+        // `Created By` is not sent: the server owns it and rejects it (see Home.svelte).
         await api.updateRecord('EXPENSES', editing.__rowIndex, {
           Year: editing.Year,
           Discription: form.Discription,
           'Discription (Hindi)': form['Discription (Hindi)'],
           Amount: form.Amount,
-          Category: form.Category,
-          'Created By': editing['Created By']
+          Category: form.Category
         });
       } else {
         await api.saveRecord('EXPENSES', { Year: year === 'All' ? new Date().getFullYear() : year, ...form });

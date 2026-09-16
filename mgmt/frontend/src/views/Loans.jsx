@@ -63,7 +63,11 @@ export default function Loans({ year, users, committee, role, editable }) {
       if (!form.Amount) return alert('Amount is required');
       setSaving(true);
       try {
-        await api.updateRecord('LOANS', editing.__rowIndex, { Year: editing.Year, Name: editing.Name, Amount: form.Amount, 'Intrest Rate': form.Rate, Tenure: form.Tenure, 'Final Repayment Date': form.FinalRepaymentDate, Status: form.Status, 'Created By': editing['Created By'] });
+        // `Created By` is not sent: the server owns it and REJECTS it. `Final Repayment
+        // Date` IS sent and must be — the operator types it, the create path has always
+        // written it and the consent document reads it back; #323 wrongly listed it as
+        // server-owned, which is now corrected.
+        await api.updateRecord('LOANS', editing.__rowIndex, { Year: editing.Year, Name: editing.Name, Amount: form.Amount, 'Intrest Rate': form.Rate, Tenure: form.Tenure, 'Final Repayment Date': form.FinalRepaymentDate, Status: form.Status });
         invalidate('loans:');
         closeModal();
         refresh();

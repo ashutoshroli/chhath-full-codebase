@@ -141,11 +141,15 @@
       if (!tenure.ok) { alert(tenure.message); return; }
       saving = true;
       try {
+        // `Created By` is not sent: the server owns it and rejects it (see Home.svelte).
+        // `Final Repayment Date` IS sent and must be — the operator types it here, the
+        // create path has always written it, and the consent document reads it back.
+        // #323 wrongly listed it as server-owned, so this edit was refused while the
+        // create was accepted; that classification has been corrected.
         await api.updateRecord('LOANS', editing.__rowIndex, {
           Year: editing.Year, Name: editing.Name, Amount: form.Amount,
           'Intrest Rate': form.Rate, Tenure: form.Tenure,
-          'Final Repayment Date': form.FinalRepaymentDate, Status: form.Status,
-          'Created By': editing['Created By']
+          'Final Repayment Date': form.FinalRepaymentDate, Status: form.Status
         });
         invalidate('loans:');
         closeModal();
