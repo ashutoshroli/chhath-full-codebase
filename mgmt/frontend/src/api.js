@@ -342,6 +342,9 @@ export const api = {
 
   getPortalSetting: (key) => call('getPortalSetting', { key }),
   setPortalSetting: (key, value) => call('setPortalSetting', { key, value }),
+  // carry-over C3: all-or-none. Use this, not a loop over setPortalSetting, whenever the
+  // values only make sense together — the donation details above all.
+  setPortalSettings: (settings) => call('setPortalSettings', { settings }),
 
   getDropdownList: (type) => call('getDropdownList', { type }),
   getAllDropdownLists: () => call('getAllDropdownLists'),

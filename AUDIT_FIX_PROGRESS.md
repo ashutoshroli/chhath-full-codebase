@@ -69,98 +69,99 @@ Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-
 | [#363](https://github.com/ashutoshroli/chhath-full-codebase/pull/363) | make the chat retention window real, and give the chat tables constraints | PR-32 | The retention policy was two commented-out DELETEs under *"OPTIONAL ... if you want to keep the free tier small"* — a privacy commitment framed as housekeeping, and never run, so every public question ever typed was still stored. Now code. Plus FK + CHECK via Postgres `NOT VALID` (the analogue of D1’s partial indexes), and `ON DELETE CASCADE`, which is what makes retention correct rather than tidy | `db/neon/02-constraints-and-retention.sql`; optional `CHAT_RETENTION_DAYS` |
 | [#364](https://github.com/ashutoshroli/chhath-full-codebase/pull/364) | retention for the tables it forgot, and the one it half-covered | PR-48 | `boundedBlank` cleared `filled_base64` only for `status = 'done'`, so a **failed** job kept its whole base64 `.docx` for ever — and failed jobs are the ones that accumulate. The sweep written because that column is "the fastest route to the 5 GB limit" was leaking through the half it did not cover. Plus `render_jobs`, `ai_fixes`, official mail and dead push subscriptions, each with a rule that age alone would have got wrong | No migration |
 | [#365](https://github.com/ashutoshroli/chhath-full-codebase/pull/365) | make the fail-open fallbacks audible | PR-48, C9 | `verifyToken` carries on with a cached session when the live-role read throws — the right trade, but **silent**: a deployment where it had thrown all day reported `status: 'ok'` while demoted and deleted accounts kept working. Counted in KV, surfaced by `?health=1`, **degraded** past a threshold. A log line was rejected: rare → lost in noise, frequent → floods the one place the committee looks | No migration |
+| [#368](https://github.com/ashutoshroli/chhath-full-codebase/pull/368) | stop writing visitors' addresses into the mgmt Worker's KV keys | C12 (mgmt half) | C12 had been called closed twice and was not: #362 named one mgmt function, and the mgmt Worker had **five** keys spelling out an address — the broadest being `rl:<action>:<ip>:<bucket>`, i.e. every rate-limited public action. A probe on `main` printed all five, populated. All five now key on an HMAC under a **daily-rotating salt** that expires after two days; no fallback to the address, and the salt is cached per namespace (a `WeakMap` on the binding, not a module global). The announce-PIN gate is the deliberate exception — it does not fail open, so with no salt it degrades to the **token-only** key rather than skipping a 6-digit PIN's only brake. `login_attempts.ip`, `user_sessions.ip`, the consent record and `loginfail:` keep the address: named staff accounts and legal evidence, not passers-by. The invariant is a KV **sweep** with one named exception, so a new leaking key fails without anyone adding a case | None — nothing reached D1, no secret |
 | [#367](https://github.com/ashutoshroli/chhath-full-codebase/pull/367) | how to rebuild the databases before launch, and the two traps in doing it | — (operator half of #366) | §W8g: the portal has not launched and D1 holds only test data, so the clean start is nine databases built from `schema/*.sql`. Two things would have made that quietly wrong: **eight** tables are `CREATE TABLE IF NOT EXISTS` with no `DROP` and survive a re-apply, so "re-apply to reset" gives a partial reset that looks complete; and the schema creates tables but not the **five** seed rows migrations insert — without `32-consent-decline-templates` a declined consent notifies nobody, the exact failure #349 already had once. Migrations 11/12/13, 33 and §W8f become unnecessary on a rebuilt DB; `migrate.mjs adopt` records history without running anything, which is also the only thing that works (the six ADD-COLUMN migrations fail on `duplicate column` against the end state). The test written for the runbook caught the runbook saying "nine" when the list has eight | Operator: §W8g, 5 confirmations |
 | [#366](https://github.com/ashutoshroli/chhath-full-codebase/pull/366) | the committed schema is the end state | — | **40 indexes and 10 columns** existed only in a migration, so a database built from the schema had no 2FA, no profile photos, no AI provider columns, and no loan-relation triggers. The drift ran the dangerous way: tests were **more permissive than production**. Also makes migrations 11/12/13 unnecessary — the schema already has the CHECKs and INTEGER types, so a recreate fixes M-33 with no rebuild | Rebuild: runbook §W8g |
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — the mgmt Worker was still writing visitors' addresses into KV
+## 2. This PR — the Donate page could show a half-published set of payment details
 
-**Audit ID:** carry-over **C12**, the mgmt half. No migration, no operator step.
+**Audit ID:** carry-over **C3**. No migration, no operator step.
 
-C12 has now been called closed twice and was not. #356 pseudonymised the public Worker's
-*persisted* copies of a visitor's address and left its KV rate-limit key alone, reasoning
-that the key expires in about a minute. #362 established that reasoning was wrong — a
-snapshot of KV at any moment still lists everyone who has just used the portal, and "it
-will be gone shortly" is not a reason to have written it down — fixed the public Worker,
-and marked C12 done.
+The seven `donation_*` settings **are** the page that tells people where to send money.
+Both mgmt frontends published them by calling the singular `setPortalSetting` seven times
+in a loop, and the server validated nothing at all.
 
-It named one mgmt function. **The mgmt Worker had five keys spelling out an address:**
+### What that did, proven on `main`
 
-| file | key | who that is |
-|---|---|---|
-| `index.js` | `rl:<action>:<ip>:<bucket>` | **every rate-limited public action** — the broad one |
-| `errorLog.js` | `rl:logError:<ip>:<bucket>` | `reportErrorPublic`, an unauthenticated endpoint |
-| `auth.js` | `loginip:<ip>:<bucket>` | the login-attempt limiter |
-| `twoFactor.js` | `twofa:rl:<ip>:<bucket>` | the 2FA attempt limiter |
-| `announcements.js` | `announcepinfail:<token>:<ip>` | the announce-PIN lockout — the link is WhatsApped around |
+A throwaway probe failed the 4th of the seven calls — a dropped connection on a phone,
+which is how this screen is actually used:
 
-A throwaway probe on `main` printed all five, populated, from one request each.
+```
+upi=pay@newbank  account=123456789012  ifsc=GOOD0001234
+```
 
-All five now key on `ipKey()`: an HMAC of the address under a **daily-rotating salt** that
-lives in KV and **expires after two days**, so once a day's salt is gone that day's keys
-cannot be tied back to an address by anybody. It costs nothing on the hot path — every one
-of these limiters already gave up without a KV binding, so the preconditions are identical,
-and the salt is cached per namespace, so after an isolate's first request there is no extra
-read. There is **no fallback to the address**: no pseudonym means no counting, because a
-limiter that quietly reverts to storing addresses is worse than one that stops.
+The **new** UPI id, live beside the **old** account number and the **old** IFSC. A bank
+transfer made from the public Donate page in that state reaches an account the committee
+has left. The Svelte view's own comment said as much and named the fix it could not make:
+the remaining risk "cannot be removed from the client — it needs a single atomic settings
+action on the backend".
 
-### The one place that must not stop counting
+The same probe also stored `donation_upi_id = "not a upi id at all"`. `money.ts` validates
+in the **browser**; the retained React app (the rollback target, which has no tests)
+validated **nothing**, so a typo'd UPI id or account number went live from there, and from
+any scripted call.
 
-The announce-PIN lockout is not a rate limiter and does not fail open. Skipping it would
-leave a 6-digit PIN open to unlimited guessing, so with no salt it degrades to the
-**token-only** key — the pre-H-17 behaviour, which locks out more people than necessary but
-never fewer. Neither branch falls back to the address. The four limiters and this one
-therefore differ deliberately, and both branches are tested.
+### The fix
 
-### What this deliberately leaves alone
+`setPortalSettings(env, settings, user)` — Superadmin, validate **everything before writing
+anything**, then one `DB_CORE.batch()`. D1's `batch` is a single implicit transaction, so a
+failure on any statement rolls the whole set back and the Donate page is never left showing
+a mix. Both frontends now make one call instead of seven, and the Svelte view's
+"N of 7 fields were already published" error message is gone because that state no longer
+exists.
 
-`login_attempts.ip`, `user_sessions.ip`, the consent record in `loans.js`, and the
-`loginfail:<name>:<ip>` lockout key keep the address. Those are not passers-by: they are
-**named staff accounts**, where "which address logged in" is the audit trail that makes a
-compromised account detectable, and the consent address is evidence attached to a legally
-binding document. `getLockedAccounts` parses the address back out of that key to show it on
-the Locked Accounts screen and `revokeLock` rebuilds the key from it, so pseudonymising it
-would blank out that screen while `login_attempts` went on recording the same addresses in
-plain text for the same events — privacy theatre at the cost of an operational tool.
+Validating on the server is what fixes **both** frontends, including the one nothing else
+guards. The singular action format-checks a donation field too, since the React app's other
+callers still use it.
+
+### The cross-field rule only works in the plural action
+
+An account number with no IFSC — or the reverse — publishes a transfer nobody can complete.
+That rule is enforced on the **set** and deliberately **not** per key: a loop writing seven
+keys one at a time *necessarily* passes through "account set, IFSC not yet", so applying it
+per key would reject the committee's own legitimate save half-way through. It is enforceable
+only when the whole set arrives together, which is the second reason the action exists.
+
+### Two things found on the way
+
+- `setPortalSetting` was a `SELECT`-then-`INSERT`-or-`UPDATE`. Two admins saving at once
+  both saw "no such row" and both inserted; the winner was whichever the UNIQUE index did
+  not reject. Both paths are now one `ON CONFLICT` upsert.
+- Omitting a new write action from `EXPECTED_MUTATING_ACTIONS` is **not** just a failed
+  drift test: that is the set the CSRF double-submit check consults, so the action would
+  have been **unprotected on a cookie session**. A test now pins the membership *and* that
+  the CSRF gate still reads that set, so the reasoning cannot go stale silently.
+
+Changing the donation details now writes an activity-log row (keys only, not values) — the
+singular action logged nothing, and "who changed where the money goes, and when" is exactly
+what someone will later need to trace.
 
 ## Verification
 
 ```
-mgmt/backend        985 passed (963 + 22)
-Public/backend      159 unit + 25 integration passed
-mgmt/server-render  181 passed
-lint:errors         clean
+mgmt/backend            1011 passed (985 + 26)
+Public/backend          159 unit + 25 integration passed
+mgmt/server-render      181 passed
+svelte-check            0 errors (160 warnings, pre-existing — C7)
+both mgmt frontends     build; React main chunk 218.36 kB vs the 230 kB budget
+lint:errors             clean
 ```
 
-The invariant is asserted as a **sweep of every KV key** with that one exception named in a
-regex, not site by site — so a *new* key that embeds an address fails this file without
-anyone remembering to add a case for it. That is the check that would have caught #362's
-undercount.
+**Eight mutations of the fix all fail the suite**: `batch` replaced by sequential writes
+(the old behaviour); validating *after* writing; the pair rule dropped; the singular action
+skipping its format check; the upsert replaced by a plain `INSERT`; `requireSuperadmin`
+removed; the server's UPI pattern made more permissive than `money.ts`; and object values
+accepted.
 
-**Nothing to scrub.** Unlike the public half, none of these addresses were persisted to D1;
-the keys expire on their own. No migration, and no secret — the salt is created on first
-use, so the fix cannot sit un-deployed waiting for an operator.
-
-### Two things the tests caught in themselves
-
-- The login-cap test first asserted the reply said "too many". It does not, and must not:
-  `auth.js` returns the same `Invalid credentials` for the throttle **deliberately**, so the
-  cap reveals nothing. The assertion could never have failed for the right reason. It now
-  asserts the audit row `auth.js` writes with `reason = 'ip_rate_limited'`, which is also
-  the thing that makes the cap visible to a Superadmin.
-- H-17's "brute force costs at most 5 KV writes" tracked one running total. C12 adds a
-  second writer to that path, and a single number would have let a *per-request* salt write
-  hide inside a raised bound. It now tallies by key prefix and pins both: 5 counter writes,
-  and exactly 1 salt write for 25 attempts.
-
-Eight mutations of the fix were checked against these tests — returning the raw address,
-returning an unsalted `sha256` (2³² guesses for an IPv4), falling back to the address on
-failure, dropping the salt's TTL, an undated salt key, a module-global salt cache instead of
-the per-namespace `WeakMap`, and the address as the announce fallback. All eight fail the
-suite. On `main` (with only the new module added, so the imports resolve) 5 of the 22 new
-tests fail; the other 17 are regression guards and are meant to pass on both sides.
+The new test file cannot run against `main` — `setPortalSettings` does not exist there — so
+the defect proof is the standalone probe quoted above rather than a red run of this file.
+One test compares the four validation patterns extracted from `money.ts` and `settings.js`
+and fails if they differ: they cannot share a module (TypeScript in Vite vs workerd), so the
+drift is guarded rather than prevented, and the dangerous direction is the **server** being
+the more permissive of the two.
 
 ---
 
@@ -184,7 +185,7 @@ tests fail; the other 17 are regression guards and are meant to pass on both sid
 |---|---|---|---|
 | C1 | Session token still in Web Storage (both frontends) | Cookie-only auth is a rollout with a back-compat window, not a one-file change | Own PR after W1; groundwork already in #318/#319 |
 | C2 | Retained React app: no auth-expiry handling, no tests | No test harness there; it is the rollback target, so changes need their own verification | PR-47 (retained-app hardening) |
-| C3 | Donation settings not truly atomic | Needs a single backend settings action | Folded into W2 backend work |
+| ~~C3~~ ✅ | Donation settings published **one key at a time**, with no server-side validation | The seven `donation_*` keys ARE the page telling people where to send money. Proven on `main`: a failure on call 4 of 7 left the NEW UPI id live beside the OLD account number and OLD IFSC — a transfer from that page reaches a bank the committee has left. And the server validated nothing: `money.ts` checks in the browser, and the retained React app checked **nothing at all**, so a typo'd account number went live from there. One atomic `setPortalSettings` (a D1 `batch`, so all-or-none), validated before any write, wired in both frontends | **Done** |
 | C4 | Collection DOCX still rendered client-side | Server-side rendering is a feature change, not a fix | Post-W3 |
 | ~~C5~~ ✅ | `H-6 … WITHOUT decoding` test flake (asserted `ms < 250`) | Reproduced on `main`: **3 failures in 6 runs** under load, with a message that falsely blamed the code. Now asserts the `atob` call count is 0 — the property the title always claimed — plus a control assertion so a mis-wired spy cannot pass. **0 failures in 12 runs** under the same load | **Done — this PR** |
 | ~~C6~~ ✅ | Migration CI only scans `mgmt/db/migration/2026-09-05/` | Widening it did fail, on twelve files — nine appliable, two that span THREE databases and cannot be run whole, one already in the schema. All now declared in `migration-matrix.test.mjs`; CI scans all four folders | **Done — this PR** |

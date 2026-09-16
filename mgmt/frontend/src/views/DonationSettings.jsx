@@ -85,14 +85,24 @@ export default function DonationSettings() {
     setError('');
     setNotice('');
     try {
-      // Persist each field to its portal_settings key.
+      // carry-over C3. This used to write the seven keys ONE AT A TIME, so a failure on
+      // call 4 of 7 left the public Donate page showing the new UPI id beside the old
+      // account number — money sent by transfer went to an account the committee had
+      // left. One atomic action now: all seven or none.
+      //
+      // This app also validated NOTHING (unlike the Svelte view, which checks in
+      // `money.ts`), so a typo'd account number went live from here. The server now
+      // validates, which is why this file needs no check of its own — deliberate, since
+      // this app is the rollback target and has no tests.
+      const settings = {};
       for (const [key, field] of Object.entries(FIELDS)) {
-        await api.setPortalSetting(key, str(form[field]).trim());
+        settings[key] = str(form[field]).trim();
       }
+      await api.setPortalSettings(settings);
       setNotice('Donation settings saved. The public Donate Now page updates within a minute.');
       await load();
     } catch (err) {
-      setError(err.message || 'Failed to save donation settings.');
+      setError(`${err.message || 'Failed to save donation settings.'} — nothing was changed.`);
       reportClientError('DonationSettings', 'Failed to save donation settings', err);
     } finally {
       setSaving(false);
