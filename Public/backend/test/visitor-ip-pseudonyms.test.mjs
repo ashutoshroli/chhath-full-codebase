@@ -109,8 +109,31 @@ beforeEach(() => { statements = []; kvPuts = []; });
 
 describe('the visitor address never reaches storage', () => {
   test('the raw IP appears in NO statement and NO KV write', async () => {
-    const res = await worker.fetch(report(IP), makeEnv(), ctx);
+    // FORCE the rate limiter's sampled write. It fires on `Math.random() < 1/5`, so
+    // for four runs in five this assertion never saw the rate-limit KV key at all —
+    // which is exactly why the version of this test shipped in #356 passed while the
+    // key it was supposed to be checking still contained the raw address. It failed
+    // roughly one run in four, and was luck-dependent rather than wrong.
+    const realRandom = Math.random;
+    Math.random = () => 0;
+    let res;
+    try {
+      res = await worker.fetch(report(IP), makeEnv(), ctx);
+    } finally {
+      Math.random = realRandom;
+    }
     assert.equal(res.status, 200);
+    // The forcing has to actually have worked, or this is back to testing nothing.
+    const rl = kvPuts.find((p) => p.key.startsWith('pub:rl:'));
+    assert.ok(rl, 'the rate-limit write did not happen, so its key was never checked');
+
+    // And the key it WRITES must be the key it would READ. A limiter that writes one
+    // key and reads another stops limiting, and the only symptom is an endpoint that
+    // is quietly unprotected — so the exact shape is pinned, against the same
+    // pseudonym that reached client_ip.
+    const { row } = insertRow();
+    const bucket = Math.floor(Date.now() / 60000);
+    assert.equal(rl.key, `pub:rl:logError:${row.client_ip}:${bucket}`);
 
     // The single assertion that matters most. Not "client_ip is a hash" — the
     // address must not appear ANYWHERE: not in a bind, not in a WHERE, not folded
@@ -186,6 +209,36 @@ describe('the flood cap still works', () => {
     const b = insertRow().row.client_ip;
 
     assert.notEqual(a, b, 'distinct visitors sharing a pseudonym would cap each other');
+  });
+
+  test('the KV limiter still limits, under its pseudonymised key', async () => {
+    // The functional risk of pseudonymising that key: if the limiter now WRITES one
+    // key and READS another, it silently stops limiting and the only symptom is an
+    // unprotected endpoint. Nothing covered this path before, so it is covered now.
+    //
+    // The expected key is derived here the same way the Worker derives it — from a
+    // salt seeded to a known value — so this asserts the wiring, not a copy of it.
+    const day = new Date().toISOString().slice(0, 10);
+    const salt = 'c'.repeat(64);
+    const key = await crypto.subtle.importKey(
+      'raw', new TextEncoder().encode(salt), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+    );
+    const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(IP));
+    const pseudonym = [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 32);
+
+    const bucket = Math.floor(Date.now() / 60000);          // PUB_RL_WINDOW_SECONDS
+    const env = makeEnv({
+      KV_PUBLIC: kv({
+        [`pub:ipsalt:${day}`]: salt,
+        [`pub:rl:logError:${pseudonym}:${bucket}`]: '60',    // PUB_RL_MAX
+      }),
+    });
+
+    const res = await worker.fetch(report(IP), env, ctx);
+    assert.equal(res.status, 429, 'the KV limiter should refuse at the cap');
+    assert.match((await res.json()).message, /Too many requests/);
+    // Refused before any database work.
+    assert.deepEqual(statements, []);
   });
 
   test('over the cap, the write is refused with 429', async () => {
