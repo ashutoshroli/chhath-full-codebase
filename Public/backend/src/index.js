@@ -271,6 +271,37 @@ function toHex(buf) {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+// The salt, cached for the life of the isolate.
+//
+// Without this, pseudonymising the rate-limit key below would add a KV read to EVERY
+// request — the limiter is on the hot path, unlike error logging. Keyed on the period
+// so a rollover invalidates it by itself rather than needing an expiry of its own.
+// Keyed on the KV namespace OBJECT, not module-global. In production there is one
+// binding per isolate so the behaviour is identical; the difference is that the cache
+// cannot outlive the namespace it describes. A plain module-level variable made the
+// salt leak between unrelated callers — which showed up immediately as tests sharing a
+// salt across separate fake namespaces, and would have been a real bug the moment this
+// Worker ever bound two.
+const saltCache = new WeakMap(); // kv -> { period, salt }
+
+async function dailySalt(kv) {
+  const saltKey = ipSaltKey();
+  const hit = saltCache.get(kv);
+  if (hit && hit.period === saltKey && hit.salt) return hit.salt;
+  let salt = await kv.get(saltKey);
+  if (!salt) {
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    salt = toHex(bytes);
+    // Two isolates can race here on the first request of a day and write different
+    // salts; the loser's rows simply stop matching, which costs at most one counting
+    // window. Worth strictly less than a lock.
+    await kv.put(saltKey, salt, { expirationTtl: IP_SALT_TTL_SECONDS });
+  }
+  saltCache.set(kv, { period: saltKey, salt });
+  return salt;
+}
+
 /**
  * A keyed, daily-rotating pseudonym for a visitor address, or '' when one cannot be
  * produced. Never returns the address itself.
@@ -281,17 +312,7 @@ async function visitorPseudonym(env, ip) {
   const kv = pubKv(env);
   if (!kv) return '';
   try {
-    const saltKey = ipSaltKey();
-    let salt = await kv.get(saltKey);
-    if (!salt) {
-      const bytes = new Uint8Array(32);
-      crypto.getRandomValues(bytes);
-      salt = toHex(bytes);
-      // Two isolates can race here on the first request of a day and write
-      // different salts; the loser's rows simply stop matching, which costs at most
-      // one 60-second counting window. Worth strictly less than a lock.
-      await kv.put(saltKey, salt, { expirationTtl: IP_SALT_TTL_SECONDS });
-    }
+    const salt = await dailySalt(kv);
     const key = await crypto.subtle.importKey(
       'raw', new TextEncoder().encode(salt), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
     );
@@ -360,8 +381,25 @@ async function pubRateLimited(env, ip, action) {
   try {
     const kv = pubKv(env);
     if (!kv || !ip) return false;
+    // carry-over C12, second half. This key used to be
+    // `pub:rl:<action>:203.0.113.47:<bucket>` — a visitor's address, in storage, on
+    // every request that reached the limiter.
+    //
+    // #356 left it alone on the grounds that it expires in about a minute. That was
+    // the wrong call: a snapshot of KV at any moment still lists the addresses of
+    // everyone who has just visited, and "it will be gone shortly" is not a reason to
+    // have written it down. The test added in #356 asserted the address appears
+    // NOWHERE, which contradicted that decision — and only passed because the write
+    // below is sampled 1-in-5, so it missed the key four times out of five.
+    //
+    // The pseudonym costs nothing here. The limiter already gives up when there is no
+    // KV, and the pseudonym needs the same KV, so the two have identical
+    // preconditions — and the salt is cached per isolate, so this adds no read to the
+    // hot path after the first request.
+    const idKey = await visitorPseudonym(env, ip);
+    if (!idKey) return false; // no pseudonym means no counting — never fall back to the address
     const bucket = Math.floor(Date.now() / (PUB_RL_WINDOW_SECONDS * 1000));
-    const key = `pub:rl:${action}:${ip}:${bucket}`;
+    const key = `pub:rl:${action}:${idKey}:${bucket}`;
     const cur = parseInt((await kv.get(key)) || '0', 10) || 0;
     if (cur >= PUB_RL_MAX) return true;
     // Sampled write: on average one write per RL_SAMPLE requests, each adding
