@@ -6,9 +6,9 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status: 34 of 48 PRs merged · 1 open (this one) · 13 pending**
+**Status: 35 of 48 PRs merged · 1 open (this one) · 12 pending**
 
-Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 ✅ done (8/8 — every PUB-BE finding is closed)** · **W3 6/7 in progress** · W4–W7 not started
+Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 ✅ done (8/8 — every PUB-BE finding is closed)** · **W3 7/7 — only PR-32 (chat privacy + Neon) left of the section** · W4–W7 not started
 
 ---
 
@@ -52,76 +52,77 @@ Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is c
 | [#346](https://github.com/ashutoshroli/chhath-full-codebase/pull/346) | record three committee-reported items | — | C14 (a declined/rejected consent notifies nobody — loaner + group, decided with the committee), C15 (no father's name in the contributor picker), C16 (the public portal never shows a father's name, for anyone — a trailing-space key mismatch) | C14 needs the first migration of the effort |
 | [#347](https://github.com/ashutoshroli/chhath-full-codebase/pull/347) | make the public chat's limits actually limit | Render #8 | The per-IP limiter was keyed on the FIRST `X-Forwarded-For` hop, which the caller writes — measured on `main`: 200 forged requests, **0 limited**, against a 15/min ceiling. The IP is now read from the right; a global concurrency cap and a daily token budget answer a fast `503` before any provider work; the slot is released in `finally`. An existing test that PINNED the vulnerability is corrected | The shared (cross-instance) counter → PR-32, which is already opening Neon |
 | [#348](https://github.com/ashutoshroli/chhath-full-codebase/pull/348) | show the father's name where it was supposed to be | C15, C16 | The contributor picker showed only name + village, so two same-name people in one village were indistinguishable — when a contribution gets recorded against the wrong person. Father's name now sits beside the name and is searchable, via one shared helper. And the public portal never showed a father's name **for anyone**: the Worker emits the key with a trailing space and the frontend read it without one; fixed on the read side so the wire key stays stable for every other reader | No migration — frontend only |
+| [#349](https://github.com/ashutoshroli/chhath-full-codebase/pull/349) | tell somebody when a consent is declined or rejected | C14 | `respondConsent` notified only on `accepted` and `setConsentVerification` only on `verified`, so a refusal told **nobody** — a loaner was never informed his loan had stopped, and the remarks the decliner is *forced* to write were discarded. One notifier for both outcomes → loaner + group + email mirror | **The first migration of this effort** — 32-consent-decline-templates.sql, idempotent and guarded so committee edits survive; then reword the text in Templates |
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — a declined or rejected consent now tells somebody (C14)
+## 2. This PR — a job runs once, and not forever
 
-Reported by the committee from live use. **This is the first migration of the entire effort.**
+**Audit IDs:** Render/offload #3 and #5. **Last W3 PR** — this closes Wave 3.
 
-```js
-// respondConsent
-if (decision === 'accepted') {
-  await recomputeLoanStatus(...);
-  await notifyConsentAccepted(...);
-}
-return { success: true, status: decision };      // declined: just returns
-```
-
-`setConsentVerification` had the same shape — only `verified` notified.
-
-The consequence is not a missing nicety. **A loaner was never told his loan had stopped**, so he waited on a process that was already over. The committee got no message either. And the remarks the decliner is *forced* to write —
+`/jobs` accepted a job, answered `202`, and fire-and-forgot it, recording nothing:
 
 ```js
-if (!declineRemarks?.trim()) throw ValidationError('Remarks are required in order to Decline.');
+res.status(202).json({ accepted: true, jobId });
+(async () => { const result = await handler(payload); await postResult(...); })();
 ```
 
-— went nowhere a person sees, unless someone happened to open the Consent Review screen. The system demanded a reason and then discarded it.
+The Worker's reconciler re-dispatches a row stuck in `dispatched` after ten minutes — and **"stuck" means "we have not heard back", not "it stopped"**. A slow Claude call or a large Drive batch is still running. So the redispatch ran the whole job **again, alongside the original**: for `ai_pr_create` that is *two GitHub pull requests*; for the PDF paths, two Drive conversions and two R2 objects.
+
+#344 fixed the Worker side — the callback claims before applying, and non-reconstructable kinds are not retried at all. But the AI kinds **are** still re-dispatched, by design, because they usually should be. The missing half had to be here: the second dispatch must recognise the first is in flight and do nothing.
+
+Measured on `main`:
+
+```
+claim/dedupe present:       false
+any deadline on the work:   false
+any concurrency ceiling:    false
+the unbounded call:         PRESENT — a redispatch runs the job again
+```
 
 Done:
 
-- **One notifier for both ways a consent closes a loan.** A declined consent and a rejected verification are the same event to everyone waiting — the loan has stopped — so they share `notifyConsentClosed` and differ only in which template pair they pick.
-- **Recipients: the loaner and the group**, as decided with the committee. Plus the email mirror the accepted path already has, so a loaner with an email address but no WhatsApp number is still told.
-- **The group message carries the reason; the loaner's does not.** That judgement call is in the *template text*, not the code, and is asserted by a test rather than left to a reader of the SQL: a decline remark can be blunt about the person it concerns, and forwarding it to him verbatim should be a deliberate edit. `{DeclineRemarks}` **is** supplied to both, so adding it to the loaner template is a one-line change in the Templates screen.
-- **A failed notification cannot roll back the decision.** Wrapped in `trySend` like every other notifier: the decline is the user's, and failing to announce it is ours.
-- `DeclineRemarks` is always present in the placeholder set, so a template referencing it can never render the literal `{DeclineRemarks}` — the failure `notificationData`'s own comment was written about.
+- **A claim, taken before the `202`.** A duplicate `jobId` is answered `202 { duplicate: true, state }` — not an error, because the Worker asked for this job and it *is* running; a 4xx/5xx would make it park a perfectly healthy job. A recently *finished* job reports its outcome instead of starting again, because the Worker may have had the callback in flight when it decided to re-dispatch.
+- **A hard deadline per job**, set just **under** the Worker's ten-minute reconcile window — so a job that is going to fail says so *before* the Worker decides to re-dispatch it, rather than racing it.
+- **Bounded concurrency**, answering `503` at capacity so the Worker's dispatch fails cleanly and falls back, which it already knows how to do. A free-tier instance has one CPU and 512 MB and had no ceiling at all.
+- Finished claims are **swept**, so the map cannot grow without bound.
 
-### Migrations & setup 🟡 — the first one in this effort
+**What this deliberately does not claim.** The deadline bounds how long we *wait* and how long a slot is held. It does **not** cancel the work: stopping an in-flight Drive upload or GitHub commit would mean threading an `AbortSignal` through every provider call in every job, and a half-cancelled irreversible operation is worse than a slow one. The failure message says so — *"it may still be running… re-running it could duplicate work — check the outcome first"* — because telling an operator that is the truth, and "cancelled" would not be.
 
-`mgmt/db/migration/2026-09-05/32-consent-decline-templates.sql`
+**Migrations & setup:** **no migration.** Two optional variables whose defaults are the intended posture:
 
 ```
-wrangler d1 execute chhath-loans-expenses --remote --file=./migration/2026-09-05/32-consent-decline-templates.sql
+JOBS_MAX_CONCURRENT = 3
+JOB_DEADLINE_MS     = 570000     # 9.5 min — just under the Worker's 10-minute reconcile
 ```
 
-It seeds six template rows (4 WhatsApp + 2 email) and creates `loan_email_templates` if absent, so it is self-sufficient on a fresh database. **Every INSERT is guarded by `NOT EXISTS` on its `type`**, so a re-run changes nothing — and, importantly, cannot revert wording the committee has since edited. It drops nothing, deletes nothing, and modifies no existing row.
-
-**Then do this:** the shipped text is a *starting point* in Hindi. Open mgmt → WhatsApp/Email Templates and reword it in the committee's own voice before the next loan cycle. The notifier guards on the template existing, so nothing sends until the migration is applied — which is why the migration is not optional here.
+**Stated limitation:** the claim is **in-process**, so two dispatches landing on different instances would still both run. What makes that acceptable here rather than a fig leaf is that the Worker only re-dispatches after ten minutes of silence, and the practical case — a redispatch reaching the same warm instance that is still working — is exactly what this catches. The exact version needs the shared store PR-32 is already opening Neon for.
 
 ## Verification
 
-`mgmt/backend/test/consent-decline-notifications.test.mjs` — 13 tests, **6 of which fail on `main`** (the seven migration-content tests cannot run there at all, since the file does not exist):
+`mgmt/server-render/test/jobClaims.test.mjs` — 18 tests:
 
 | | on `main` | on this branch |
 |---|---|---|
-| a guarantor declines | nobody is told | group + loaner + email |
-| the committee rejects a verification | nobody is told | group + loaner + email |
-| the remarks the decliner was forced to write | discarded | in the group message |
-| the loaner's message | — | ships without the raw remark, by design |
+| a redispatch of a running job | **runs it again** (a second pull request) | refused as a duplicate, with the running state |
+| a duplicate just after completion | runs again | reports the outcome |
+| a provider that never answers | holds the job forever | fails at the deadline, slot freed |
+| the 3rd concurrent job on a 1-CPU instance | accepted | `503`, so the Worker falls back |
 
-Also pinned: all four template types the notifier builds are seeded (a missing row is a silent no-op, since the notifier guards on it); every INSERT is guarded; the migration drops/deletes/updates nothing; and **every `{placeholder}` used in the text is one `notificationData` actually supplies** — `notificationData`'s own comment records that real recipients once received literal `{Guarantor1}` text.
+Also pinned: a *failed* job reports its error to a duplicate rather than re-running; finished claims are forgotten after an hour so ids are not retained forever; a real failure is passed through rather than masked as a timeout; releasing an unknown id is harmless; and the deadline is asserted to sit **under** the Worker's reconcile window and **over** five minutes.
 
 ```
-mgmt/backend: npm test -> 839 passed (826 + 13) · lint:errors clean
-              the migration applies against the committed schema and is idempotent
+mgmt/server-render: npm test -> 152 passed (134 + 18)
 ```
+
+**Wave 3 is complete with this PR.** Render/offload #1, #2, #3, #5, #6, #7, #8 and #11 are closed. What remains of that section is PR-32 (chat privacy + Neon, which also carries the shared rate/concurrency store deferred from #347) and #10, the Render lockfile.
 
 ---
 
 ## 3. Pending
 
-**W3 — Render / AI / chat (2 left):** durable idempotent jobs (deadlines, bounded concurrency, cancellation) · chat privacy + Neon (incl. the SHARED rate/concurrency store deferred from PR-31)
+**W3 — Render / AI / chat (1 left):** chat privacy + Neon — consent/disclosure, raw-content retention, server-generated session ids, rotating HMAC IP hash, verified TLS, Neon FK/CHECK, **plus the shared rate/concurrency store deferred from #347 and the in-process job claim from #350**
 **W4 — Database (3):** duplicate/orphan detection · enforce keys & relations · migration ledger
 **W5 — Accessibility (6):** dialog primitives (public + mgmt) · combobox/buttons · contrast/focus/zoom · live regions + labels · structure/motion
 **W6 — SEO / PWA / privacy / perf (4):** route metadata · manifest + update UX · privacy + same-origin push · lazy skins

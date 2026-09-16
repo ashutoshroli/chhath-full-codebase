@@ -61,6 +61,13 @@ export const config = {
   // window catches one greedy caller; these catch the total.
   chatMaxConcurrent: parseInt(opt('CHAT_MAX_CONCURRENT', '4'), 10) || 4,
   chatDailyTokenBudget: parseInt(opt('CHAT_DAILY_TOKEN_BUDGET', '200000'), 10) || 200000,
+  // How many offload jobs may run at once on one instance, and how long any single job may
+  // hold its slot. A free-tier instance has one CPU and 512 MB, and a provider that never
+  // answers used to hold a job forever (audit Render/offload #3, #5).
+  jobsMaxConcurrent: parseInt(opt('JOBS_MAX_CONCURRENT', '3'), 10) || 3,
+  // 10 minutes: deliberately just UNDER the Worker's own ten-minute reconcile window, so a
+  // job that is going to fail says so before the Worker decides to re-dispatch it.
+  jobDeadlineMs: parseInt(opt('JOB_DEADLINE_MS', '570000'), 10) || 570000,
   // Neon Postgres connection string for chat logs. OPTIONAL — if unset, the
   // chatbot still answers and just skips logging.
   databaseUrl: opt('DATABASE_URL', ''),
