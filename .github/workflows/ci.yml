@@ -272,6 +272,36 @@ jobs:
         working-directory: Public/frontend-v6
         run: npm run build
 
+      # This is the PUBLIC portal — opened by every visitor, most of them on a phone
+      # over rural mobile data, so its JavaScript weight is a real cost to real
+      # people. The mgmt SPA has had a budget since the audit; these two SvelteKit
+      # apps had none, so nothing stopped either from growing.
+      #
+      # The metric is TOTAL client JS, not the entry chunk. SvelteKit splits per
+      # route, so an entry-chunk budget can stay green while the app doubles in a
+      # dozen route chunks — measuring the total is the honest version of the same
+      # question. The figure is reported to the run summary either way, so a review
+      # can see the direction of travel and not just pass/fail.
+      #
+      # NOTE: 602 kB is what it is TODAY, not what it should be. This budget only
+      # stops it getting worse; bringing it down is W6/PR-45 (lazy skins).
+      - name: Bound the client bundle
+        working-directory: Public/frontend-v6
+        run: |
+          set -e
+          BYTES=$(find build/_app/immutable -name '*.js' -type f -printf '%s\n' | awk '{t+=$1} END {print t+0}')
+          KB=$(awk -v b="$BYTES" 'BEGIN { printf "%.1f", b / 1000 }')
+          BIGGEST=$(find build/_app/immutable -name '*.js' -type f -printf '%s %p\n' | sort -rn | head -1)
+          echo "total client JS: ${KB} kB (${BYTES} bytes); largest chunk: ${BIGGEST}"
+          echo "### Public v6 client JS: ${KB} kB (largest chunk: ${BIGGEST%% *} B)" >> "$GITHUB_STEP_SUMMARY"
+          # ~16% headroom over today's 602,293 B — a regression threshold, not a target.
+          LIMIT_BYTES=700000
+          if [ "$BYTES" -gt "$LIMIT_BYTES" ]; then
+            echo "::error::Public v6 client JS is ${KB} kB, over the ${LIMIT_BYTES} byte budget."
+            echo "Every public visitor downloads this. Check what stopped being lazily imported."
+            exit 1
+          fi
+
   mgmt-frontend-svelte:
     name: mgmt SvelteKit — type-check, tests and static build
     runs-on: ubuntu-latest
@@ -300,6 +330,31 @@ jobs:
         # VITE_API_URL is required at build for import.meta.env; a placeholder is
         # fine here — the real value comes from Vercel env at deploy time.
         run: VITE_API_URL="https://example.invalid" npm run build
+
+      # Same reasoning as the Public v6 budget above, different audience: this one is
+      # staff-only, so the weight matters less per visitor — but it is also the app
+      # that keeps growing, and it is already 1.66x the public portal.
+      #
+      # Its type-check is NOT yet fail-on-warning, unlike Public v6's: there are ~160
+      # pre-existing svelte-check warnings here, mostly unassociated labels. Silencing
+      # them is the accessibility work in W5, not something to bulk-suppress to turn a
+      # gate on (carry-over C7).
+      - name: Bound the client bundle
+        working-directory: mgmt/frontend-svelte
+        run: |
+          set -e
+          BYTES=$(find build/_app/immutable -name '*.js' -type f -printf '%s\n' | awk '{t+=$1} END {print t+0}')
+          KB=$(awk -v b="$BYTES" 'BEGIN { printf "%.1f", b / 1000 }')
+          BIGGEST=$(find build/_app/immutable -name '*.js' -type f -printf '%s %p\n' | sort -rn | head -1)
+          echo "total client JS: ${KB} kB (${BYTES} bytes); largest chunk: ${BIGGEST}"
+          echo "### mgmt SvelteKit client JS: ${KB} kB (largest chunk: ${BIGGEST%% *} B)" >> "$GITHUB_STEP_SUMMARY"
+          # ~15% headroom over today's 999,841 B — a regression threshold, not a target.
+          LIMIT_BYTES=1150000
+          if [ "$BYTES" -gt "$LIMIT_BYTES" ]; then
+            echo "::error::mgmt SvelteKit client JS is ${KB} kB, over the ${LIMIT_BYTES} byte budget."
+            echo "Check what stopped being lazily imported."
+            exit 1
+          fi
 
   secrets:
     name: No real data or credentials committed

@@ -56,11 +56,38 @@ test('H-6: the size check happens WITHOUT decoding (no memory spike to reject)',
   // must not first materialise 40 MB of bytes.
   const huge = b64OfBytes(40 * 1024 * 1024);
   assert.ok(base64ByteLength(cleanBase64(huge)) >= 40 * 1024 * 1024, 'the fixture really is ~40 MB');
-  const t0 = process.hrtime.bigint();
-  assert.throws(() => base64ToBytes(huge, { label: 'Photo', maxBytes: MAX_CONSENT_IMAGE_BYTES }), /too large/);
-  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
-  // Decoding 40 MB takes far longer than this; rejecting on arithmetic is ~instant.
-  assert.ok(ms < 250, `rejection took ${ms.toFixed(1)}ms — it looks like it decoded first`);
+
+  // WHY THIS IS NO LONGER TIMED (carry-over C5).
+  //
+  // This assertion used to be `ms < 250`, using the wall clock as a PROXY for "it
+  // did not decode". On a loaded runner that budget is simply not available:
+  // measured here, with the box busy, it failed 3 runs out of 6 at 251-271 ms. And
+  // it failed with the message "it looks like it decoded first" — which was FALSE.
+  // The code was correct every time; the machine was busy. A test that accuses
+  // correct code of a bug it does not have gets muted or deleted, and then the real
+  // property stops being checked at all.
+  //
+  // The proxy was never needed, because decoding is not a duration — it is one
+  // observable call. base64ToBytes() decodes with the global atob(), so the honest
+  // statement of this test's own title is: atob is NEVER REACHED. No clock, nothing
+  // to tune, and it fails if and only if the code actually decodes first.
+  const realAtob = globalThis.atob;
+  let atobCalls = 0;
+  globalThis.atob = (s) => { atobCalls++; return realAtob(s); };
+  try {
+    assert.throws(() => base64ToBytes(huge, { label: 'Photo', maxBytes: MAX_CONSENT_IMAGE_BYTES }), /too large/);
+    assert.equal(atobCalls, 0, 'the 40 MB payload was decoded BEFORE being rejected for size');
+
+    // Control. Without this, a spy that was never wired up correctly would also
+    // report zero calls and this test would pass while checking nothing.
+    atobCalls = 0;
+    const smallB64 = b64OfBytes(64);
+    const small = base64ToBytes(smallB64, { label: 'Photo', maxBytes: MAX_CONSENT_IMAGE_BYTES });
+    assert.equal(small.length, base64ByteLength(smallB64)); // b64OfBytes rounds up to a whole group
+    assert.equal(atobCalls, 1, 'the spy does observe a real decode, so 0 above means "not reached"');
+  } finally {
+    globalThis.atob = realAtob;
+  }
 });
 
 test('H-6: a data-URL prefix and whitespace are still stripped before measuring', () => {
