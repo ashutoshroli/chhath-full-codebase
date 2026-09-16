@@ -6,9 +6,9 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status: 23 of 48 PRs merged · 1 open (this one) · 24 pending**
+**Status: 24 of 48 PRs merged · 1 open (this one) · 23 pending**
 
-Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 6/8 in progress** · W3–W7 not started
+Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 7/8 in progress** · W3–W7 not started
 
 ---
 
@@ -39,63 +39,68 @@ Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is c
 | [#331](https://github.com/ashutoshroli/chhath-full-codebase/pull/331) | let a scheduled popup expire on time | PUB-BE-04 | Cache identity for `activePopups` is (data version, 60 s time bucket) instead of `immutable` per version, so a scheduled popup is no longer cached for a year outside its window and a stale ETag cannot answer `304`; a malformed schedule stamp fails closed; the `popups` scan is pre-filtered in SQL and slides are read only for eligible popups | Single-flight for a concurrent miss → PR-24 |
 | [#334](https://github.com/ashutoshroli/chhath-full-codebase/pull/334) | make the public users projection an allowlist | PUB-BE-05 | `USERS_PUBLIC_COLS` drives both the `SELECT` and the emitted row, iterating the allowlist rather than the DB row, so `created_by` stops leaking and a future column fails closed; `id` is ordered by without being returned; `__rowIndex` is opt-in and only `collections` (whose QR record id is built from it) asks | Explicit SQL for the other seven sections → PR-24 |
 | [#335](https://github.com/ashutoshroli/chhath-full-codebase/pull/335) | require an approved origin, JSON and a shape on the two writes | PUB-BE-06 | The two anonymous writes now need an approved `Origin`, `application/json` (which forces the preflight CORS alone never triggered), a hard body cap measured on the bytes read, and a per-action shape check — all before any D1 work; the push endpoint is parsed with `new URL` instead of a `^https://` regex; `415`/`403`/`413`/`400`/`429`/`503` replace a blanket `200`/`400`; five frontends now declare JSON | Challenge/nonce judged not worth a round-trip + KV write; IP hashing → C12 |
+| [#336](https://github.com/ashutoshroli/chhath-full-codebase/pull/336) | make the snapshot atomic and stop inventing a data version | PUB-BE-07 (observations) | The last-known-good copy is ONE KV value `{version, savedAt, data}` instead of a two-key pair that could be half-written and never corrected; the size guard measures UTF-8 bytes rather than UTF-16 code units (3x under-count on Devanagari); a failed write is logged; an unreadable version is `null` and answers `503 {unavailable}` instead of a cacheable `v=0` | Paginating the payload itself → PR-24 |
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — the safety net and the version it is keyed on
+## 2. This PR — how one build is paid for
 
-**Audit ID:** PUB-BE-07's additional observations — the snapshot write and *"version failures collapse to a valid-looking version `0`"*. Sixth W2 PR.
+**Audit ID:** PUB-BE-07. Seventh W2 PR.
 
-Two defects in the same area, both of which stay invisible until the moment they matter.
+Three defects that all surface at the same moment: the second after a version bump, when every cache key in existence has just been invalidated.
 
-### The snapshot could be half-written
+### The twelve sections were read one after another
 
-The last-known-good copy lived in **two** KV keys — the body, and "which version the body is for" — written together with `Promise.all` inside `ctx.waitUntil`, so nothing ever observed the result. KV has no transactions. If the *version* write landed and the *body* write did not, the pair is left asserting that the previous version's body is current; and because the writer skips whenever the recorded version already matches, **it would never be corrected**. The safety net would hold the wrong data permanently, and this would be discovered during the D1 outage it exists for — serving stale data labelled as the current version.
+They are independent — no section's query depends on another's result — so the build took the **sum** of twelve round-trips across four databases while doing nothing in between. That latency is paid by the visitor who caused the miss, and paid while holding up every other concurrent visitor. They now run together, so a build is bounded by the slowest section rather than by their total. It is the same queries in the same number: only the wall-clock shape changes, so the D1 row cost is identical.
 
-It is now **one key** holding `{ version, savedAt, data }`. A single KV put either lands or it does not, so there is no partial state to land in, and the extra read the meta key needed is gone. The v1 pair is still *read* (never written), so a deployment carrying an older snapshot keeps its safety net until the next data change replaces it.
+The failure semantics are deliberately unchanged — still all-or-nothing. A section that cannot be read is still a failed build that falls back to the saved copy, because concurrency must not quietly turn "we could not read the contributions" into "there are no contributions".
 
-`savedAt` now comes from the snapshot itself, which is the value #328 shows as the age of a saved copy — previously it could only be inferred.
+### Nothing collapsed concurrent misses
 
-### Its size guard counted the wrong unit
+The cache entry is written at the **end** of a build, so every request that arrived during one found no entry and started its own full build — nine table scans across four databases, each.
 
-The guard compared `body.length` — UTF-16 **code units** — against a limit expressed in **bytes**. This payload is full of Devanagari (`name_hindi`, `village_hindi`, `designation_hindi`, `discription_hindi`), which is three UTF-8 bytes per single code unit, so the check under-counted by up to **3x on exactly the data it was written to protect**: a string measuring a "safe" 20 MB can be over 50 MB of UTF-8, past KV's 25 MB hard cap. The put would then fail — silently, inside `waitUntil`, under a bare `catch`. It now measures with `TextEncoder`, and **a failed write is logged** rather than vanishing, because the whole point of this value is to exist before it is needed.
+That is the worst possible moment for it, because the misses are **correlated by construction**: a version bump invalidates every key at once, so the requests in the following second are exactly the ones that all miss together. The same happens after a deploy, after an eviction, and under a link-preview crawl. Ten simultaneous visitors meant ten identical builds against a D1 daily row quota **shared with the management API** — the thundering herd this Worker's own budget guard exists to notice after the fact.
 
-### A version that could not be read is not a version
+An isolate-local map of in-flight builds fixes it: the first miss builds, everyone else awaits that same promise. This is **not** a distributed lock and does not pretend to be one — a Worker runs in many isolates, so the guarantee is "one build per isolate per version", which turns N concurrent builds into roughly the number of isolates. A KV- or DO-backed global lock would cost a round-trip on the hot path and a write against the ~1,000/day KV budget, to save a build the edge cache is about to make unnecessary anyway. A failed build is removed from the map, so a transient error is not remembered as a permanent one.
 
-`getDataVersion` answered `'0'` for three different situations: the counter row genuinely does not exist yet, the binding is missing, and *the read failed*. Only the first is a version — `'0'` is a perfectly usable version string, and this Worker builds its entire caching identity out of it. So a D1 hiccup meant the payload built during the failure (possibly empty, since the section reads were failing too) was cached under the key `v=0` with an ETag of `…-v0`, and **every later failure produced that same identity**, serving the one bad build back as a cache hit, indefinitely, to everyone.
+### A build could be cached under a version it no longer matched
 
-An unreadable version is now `null`, and every caller that needs one to answer safely says so instead: `portalData` serves the saved copy if there is one, otherwise an explicit `503 { unavailable: true }` with `no-store` and no ETag. Nothing cacheable is ever keyed on a version we do not have. An absent counter row is still `'0'` — a fresh deployment the mgmt Worker has never bumped really is at version zero, and that case must not be confused with a failure.
+The version is read *before* the build and the key is derived from it, but the build takes time and an admin write can land inside that window. The payload was then stored under the **previous** version's key — where it sits until the next bump, and where a caller passing `?v=<old>` is handed it with `max-age=31536000, immutable`. A cache entry that is wrong the moment it is written, for a year.
+
+One row is re-read after assembly. When the version moved we still **return** the body — it is fresh data and the visitor asked for data — but it is neither cached nor marked immutable, and the next request rebuilds cleanly under the new version.
+
+### And the payload's size is now visible before it is fatal
+
+`portalData` still materialises whole tables. A section past 20,000 rows is **logged** to `error_log`, naming the section and its row count, because the KV snapshot that backs the outage fallback is capped at 25 MB — **the portal loses its safety net before it loses the ability to serve**, and finding that out during an outage is exactly the failure mode this whole wave is about.
+
+Deliberately **not** a truncation: silently dropping rows from a *transparency* portal — hiding contributions or expenses — would be a worse failure than a slow payload, and invisible to the visitor. Bounding the payload for real means paginating the contract, which changes every frontend; that is a contract decision, recorded as **C13** rather than taken here.
 
 ## Verification
 
-New `Public/backend/test/snapshot-and-version.test.mjs` — 16 tests, **12 of which fail on `main`**:
+New `Public/backend/test/assembly-and-single-flight.test.mjs` — 13 tests, **5 of which fail on `main`**:
 
 | | on `main` | on this branch |
 |---|---|---|
-| a snapshot write | two KV puts, no transaction, result unobserved | one put carrying its own version |
-| a failed snapshot put | silent — the safety net just stops existing | logged with the KV error |
-| 8M Devanagari characters (24 MB of UTF-8) | inside the 20 MB guard, put fails at KV's 25 MB cap | refused before the put |
-| `portalData` while D1 is down, with a saved copy | payload built and cached under `v=0` | the saved copy, `stale: true`, `savedAt` |
-| the same with no saved copy | a `v=0` payload, cached at the edge | `503 { unavailable: true }`, nothing cached |
-| `dataVersion` / `summary` / `activePopups` while D1 is down | `v=0` | `503`, unavailable |
+| a build with 40 ms sections | the sum of twelve round-trips | bounded by the slowest |
+| ten simultaneous cache misses | **10 full builds** | 1 |
+| a version bump inside the build window, `?v=` request | cached under the stale key, served `immutable` | not cached, not immutable, data still returned |
+| the same for `summary` | cached under the stale key | not cached |
+| a 20,001-row section | invisible until the snapshot silently stops fitting | logged, and every row still served |
 
-Also pinned: a second request at the same version does not write again (the ~1,000/day KV write budget is shared); a genuinely absent counter row is still version `0` and still works; a v1 pair is still read when there is no v2 value; a v2 value wins over a v1 pair; and a corrupt snapshot value is ignored rather than served.
+Also pinned: the same eight tables are still read exactly once each (so the D1 cost is unchanged), the payload keys and `__rowIndex` are unchanged, a failing required section still serves the saved copy rather than a partial payload, all five sharers of one build get identical bytes, a transient build failure is retried rather than remembered, two different versions are not collapsed into one build, and with the version steady the fast path is still `immutable` and still cached under exactly `portalData?v=9`.
 
-Two existing mgmt assertions are updated in the same commit. `h4-kv-isolation-and-session-keys.test.mjs` pinned the snapshot key constants **by name**, so it now matches them by shape — the namespace rule has to hold for whatever they are called next — and its H-5 guard test additionally asserts the guard measures bytes.
-
-Verification: `Public/backend` `npm test` **132/132** (116 + 16) · `mgmt/backend` **714/714** · `npm run lint:errors` clean · `node --check` on all 51 Worker files.
+Verification: `Public/backend` `npm test` **145/145** (132 + 13) · `mgmt/backend` **714/714** · `npm run lint:errors` clean · `node --check` on all 51 Worker files.
 
 ---
 
 ## 3. Pending
 
-**W2 — Public backend (2 left):**
+**W2 — Public backend (1 left):**
 
 | PR | Branch | What |
 |---|---|---|
-| 24 | `perf/public-assembly` | Parallel section reads + single-flight cache fill + post-assembly version re-check |
-| 25 | `test/public-backend-harness` | Lockfile + a Miniflare/workerd harness covering every action (extends the tests added in PR-18/19/20/21/22/23) |
+| 25 | `test/public-backend-harness` | Lockfile + a Miniflare/workerd harness covering every action (extends the tests added in PR-18 through PR-24) |
 
 **W3 — Render / AI / chat (7):** payload size contract · durable idempotent jobs · callback outbox + version bump · provider SSRF policy · AI write allowlist · chat abuse controls · chat privacy + Neon
 **W4 — Database (3):** duplicate/orphan detection · enforce keys & relations · migration ledger
@@ -121,3 +126,4 @@ Verification: `Public/backend` `npm test` **132/132** (116 + 16) · `mgmt/backen
 | C10 | React mgmt main chunk at 218.3 kB vs 230 kB CI budget | Little headroom left; not a regression | PR-46 bundle budgets |
 | C11 | Consent photos/signatures already archived to Drive by earlier runs are still anonymously readable | Code no longer publishes them (#325), but existing files need a one-off ACL remediation | Operational step: dry-run report → apply, before the next archive |
 | C12 | Public visitor IPs are stored raw in `error_log.client_ip` (and in `context.edgeIp`) | Hashing them needs a salt SECRET to be worth anything — an unsalted hash of an IPv4 is 2^32 to reverse — so it is a deployment step (`wrangler secret put`) plus a fallback path, not a code-only change. Split out of PR-22 to keep the authenticity fix reviewable | Own PR, with the retention window, before W3 |
+| C13 | `portalData` still materialises whole tables; the other seven sections still read `SELECT *` and filter in JS | Bounding the payload for real means PAGINATING the public contract, which changes all six frontends — a contract decision, not a fix. PR-24 makes the size visible (a section past 20k rows is logged) instead of pretending it is bounded. Truncating a transparency payload was rejected: hiding contributions is worse than a slow page | Contract decision, then its own PR; the row-count log is the trigger |
