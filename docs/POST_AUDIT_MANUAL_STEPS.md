@@ -38,7 +38,7 @@ sequenced and marked with its risk. Do them in order; **A first** (deploy), then
 >
 > The 2026-09-15 audit's W0/W1/W2 are merged: all eleven P0 findings and PUB-BE-01…08.
 > **Those add no migrations at all** — they are deploys, one new variable, and one
-> security backlog item. They have their own section: **[§W below](#w-waves-02-311338--what-an-operator-must-do)** (W1–W5 for Waves 0–2, W7 for Wave 3 and the committee-reported items, W8 is the checklist).
+> security backlog item. They have their own section: **[§W below](#w-waves-02-311338--what-an-operator-must-do)** (W1–W5 for Waves 0–2, W7 for Wave 3 and the committee-reported items, W8 for Wave 4, W9 is the checklist).
 >
 > Sections A–D are the *earlier* audit's remainder and are unchanged.
 
@@ -410,7 +410,96 @@ provider's API key**, because it has been travelling in clear.
 - **Public site** → open any contributor: the *Father's Name* row now appears (#348). It never did before, for anyone.
 - **Decline a consent** on a test loan → the group and the loaner both get a message; the group's carries the reason (#349). Requires W7a.
 
-## W8. Checklist — everything in §W, in order
+## W8. Wave 4: run the integrity report — before anything is repaired 🟡
+
+**Nothing to install and nothing to deploy beyond the mgmt Worker.** #354 adds a read-only
+report; this section is how to use it, and why you should use it *before* the next PR lands.
+
+### W8a. Run it
+
+Superadmin only. Every statement it issues is a `SELECT` — it repairs nothing, deletes
+nothing and adds no constraint.
+
+The mgmt Worker takes every action as a **POST with a JSON body** — a plain `GET` is only
+the liveness/health path, so there is no `?action=` form here. `token` is your Superadmin
+session token (the body-token path, which needs no CSRF header):
+
+```bash
+MGMT=https://<mgmt-worker>
+TOKEN=<your Superadmin session token>
+
+curl -sS "$MGMT/" -X POST -H 'Content-Type: application/json' \
+  --data "{\"action\":\"getIntegrityReport\",\"token\":\"$TOKEN\"}" \
+  | jq '.summary, (.checks[] | select(.status != "clean"))'
+```
+
+To re-run a single check while you are fixing it:
+
+```bash
+curl -sS "$MGMT/" -X POST -H 'Content-Type: application/json' \
+  --data "{\"action\":\"getIntegrityReport\",\"token\":\"$TOKEN\",\"only\":[\"dup_login_name\"]}" | jq .
+```
+
+The check ids are `dup_login_name`, `dup_user_id_code`, `dup_person`,
+`dup_collection_sl_no`, `dup_loan_id`, `dup_consent_id`, `dup_consent_token`,
+`orphan_consent_loan`, `orphan_guarantor_loan`, `orphan_person_ref`,
+`orphan_generated_file`. An unknown id is rejected rather than silently ignored.
+
+Each finding echoes back the `sql` that produced it. Findings are capped at 50 per check
+(`truncated: true` tells you there are more) because a single Worker invocation on the D1
+free plan may make only 50 subrequests and every query counts as one — so for exact
+counts, run the echoed SQL against that one database by hand.
+
+### W8b. How to read it
+
+`ok: true` means **no invariant is violated and every check ran.** Two things it does
+*not* mean:
+
+- `summary.needsReview` can be non-empty while `ok` is true. That is only `dup_person`
+  — possible duplicate people. Two members genuinely can share a name, a father's name
+  and a village, so this is a list for a human, never a defect, and it must never be
+  enforced with a unique index.
+- `summary.notRun` must be **empty**. A check that could not run reports `unavailable`
+  or `error`, never `clean` — but if you are reading only the `ok` flag you would miss
+  which one. A missing binding in `wrangler.toml` is the usual cause.
+
+### W8c. Deal with these in this order 🔴
+
+If the report finds anything, some findings are more urgent than the migration they block:
+
+1. **`dup_consent_token` — treat as a live credential.** The token *is* the whole
+   authorization on the public consent page. Two rows sharing one means the link opens
+   an arbitrary one of the two, so somebody can be shown, and can sign, another
+   person's consent. Revoke **both** rows' tokens and re-send; do not just delete one row.
+2. **`dup_login_name` — treat as a privilege question.** Sign-in and the per-request
+   role re-check both use `WHERE name = ? LIMIT 1`, so with two rows of one name the
+   password that works *and the role the request runs with* are whichever row D1
+   returns. Check the reported `roles`: a pair spanning Superadmin and Subadmin means
+   somebody may be operating at the wrong level right now.
+3. **`orphan_consent_loan` — audit H-8.** The loan is gone; the consent row, and its
+   token, are not. Revoke any still-live token **first**, then delete or re-point.
+   Do not blind-delete by status.
+4. Everything else — `dup_user_id_code`, `dup_collection_sl_no` (which is the same
+   thing as a duplicate receipt number `NCS-<year>-<Sl. No.>`), `dup_loan_id`,
+   `dup_consent_id`, `orphan_guarantor_loan`, `orphan_person_ref`,
+   `orphan_generated_file`. Each finding's `hint` names the migration it blocks.
+
+### W8d. Why this must happen before PR-34
+
+PR-34 adds the partial UNIQUE indexes and the loan-relation triggers. Both fail on the
+data as it stands:
+
+- `CREATE UNIQUE INDEX` on a populated table **fails outright** while the duplicates are
+  still there — migrations 07, 08 and 10 PART 3 cannot be applied until the
+  corresponding check returns zero.
+- Migration 10's PART 2 triggers would start **aborting legitimate writes** to a
+  `loan_id` that already has orphan rows attached.
+
+So the sequence is fixed: run this report → repair by hand, deciding row by row → then
+enforce. PR-34 also needs a **fresh backup and a quiet window**, because unlike
+everything merged so far it modifies live data.
+
+## W9. Checklist — everything in §W, in order
 
 - [ ] W1: confirm `users.photo`, `error_log.client_ip`, `public_data_version` (3 queries above)
 - [ ] W2: deploy in order — **public frontend first**, then public Worker, then mgmt Worker, then the mgmt frontends, then confirm Render
@@ -422,3 +511,7 @@ provider's API key**, because it has been travelling in clear.
 - [ ] W7c: deploy the Render service, the mgmt Worker, and both Vercel frontends
 - [ ] W7d: **run the `ai_providers` non-https query and rotate any key it finds**
 - [ ] W7e: the five smoke checks (provider refusal · bulk PDF via Render · picker shows the father's name · public contributor shows it too · decline reaches the group and the loaner)
+- [ ] **W8a: run `getIntegrityReport`** — read-only, repairs nothing
+- [ ] W8b: confirm `summary.notRun` is **empty** (a check that could not run is not a pass)
+- [ ] **W8c: if there are findings, work the three urgent ones first** — duplicate consent token (live credential) → duplicate login name (privilege) → orphan consents with live tokens (H-8)
+- [ ] W8d: only once the report is clean, schedule PR-34 with a **fresh backup and a quiet window** — it is the first change of this effort that modifies live data
