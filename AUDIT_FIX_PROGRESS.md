@@ -51,55 +51,21 @@ Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is c
 
 ---
 
-## 2. This PR — the callback claims the row before it acts
+## 2. This PR — three items reported by the committee, recorded before they are lost
 
-**Audit IDs:** MGMT-BE-02, MGMT-BE-03 and MGMT-BE-04 — three HIGH findings in one handler. Fourth W3 PR.
+Not a code change. Three things were reported from use of the live portal, verified against the code, and added to §4 as **C14–C16** so they are tracked rather than remembered.
 
-### The idempotency check was a SELECT (MGMT-BE-02)
+**C14 — a declined or rejected consent notifies nobody.** `respondConsent` calls `notifyConsentAccepted` only on `accepted`; the `declined` branch writes `decline_remarks` and returns. `setConsentVerification` likewise notifies only on `verified`. The consequence is not a missing nicety: **a loaner is never told his loan is blocked**, so he waits on a process that has already stopped. The committee is not told either, and the remarks the decliner is *required* to write go nowhere a person will see.
 
-```js
-const row = await SELECT ...;
-if (row.status === 'completed' || row.status === 'failed') return;   // the check
-await applyResultSideEffect(...);                                    // R2, GitHub
-await UPDATE ... SET status='completed';                             // the write
-```
+The recipients were decided with the committee: **the loaner and the group.** One judgement call is recorded with it rather than made silently — the raw remark text goes to the *group* message, and the loaner is told that it was declined and by whom, because a decline remark can be blunt and forwarding it verbatim to the person it is about is a decision someone should take deliberately, not inherit from an implementation.
 
-Everything expensive happened *between* the check and the write. Two callbacks arriving together — Render retrying, a webhook delivered twice, a reconcile racing a late reply — both read `dispatched`, both pass, and **both run the side effect**. For `pdf_convert` that writes the PDF to R2 and inserts into `generated_files` twice; for `ai_pr_create` it opens a **second pull request**. Sequential idempotency is not idempotency.
+This is the **first item in this whole effort that needs a migration** (seeding the new template rows), so it gets its own PR.
 
-The claim is now the **UPDATE**: `SET status='applying@<iso>' WHERE job_id=? AND status IN ('pending','dispatched')`, and `meta.changes` says whether it was us. The loser returns without touching anything — and still acks, because a webhook that is not acked is retried forever.
+**C15 — the contributor picker shows no father's name.** The data is on the row and unused. What makes it worth doing is the failure it prevents: village distinguishes the two *Ajay Verma* entries in the reported screenshot, but two people with the same name in the *same* village are identical in that list — and that is precisely when a contribution is recorded against the wrong person.
 
-A claim that dies mid-side-effect is **failed, never re-dispatched**: we cannot know how far it got, and re-running is exactly the duplicate write the claim exists to prevent. The operator gets *"it was NOT retried automatically, because part of the work may already have been done"* — a human reading that is the right outcome; a silent retry is not.
+**C16 — found while checking C15: the public portal never shows a father's name, for anyone.** The public Worker emits `"Father's Name "` with a trailing space (inherited from the original sheet headers) and the public frontend reads it without one, so the field is always empty and its row never renders. mgmt is unaffected — its alias is exact, and `tableRegistry.js:75` already documents the trailing-space hazard for inbound lookups. The fix belongs on the read side: changing the wire key would break any other reader.
 
-### Retrying a job whose payload was never stored (MGMT-BE-03)
-
-Reconciliation re-dispatched with the **stored** payload. For `pdf_convert_batch` and `provider_test` that is metadata only — the base64 documents and the provider API key are deliberately not persisted (a D1 row is ~1 MB, and a key must not be at rest in a job row). The retry could not succeed; it could only fail slowly or half-run, while the original attempt may still be doing irreversible Drive work. Those two kinds now time out with a reason instead. Every other kind stores its full reference payload and is still retried.
-
-### A generated document never reached the public portal (MGMT-BE-04)
-
-The router bumps `public_data_version` at **dispatch**, but the `generated_files` index the public portal reads is written when the **callback** arrives — minutes later. So the public payload cached against the dispatch-time version does not contain the document that was just generated, and stays that way until some unrelated edit moves the counter. A visitor following a QR code is told a receipt that exists does not.
-
-The bump now happens after the row is finalised, for the two file-index kinds only. Failures are swallowed deliberately: a version that did not move is a stale portal, while a throw would turn a completed job into a failed one and re-run the side effect on retry.
-
-**Migrations & setup:** **none.** `status` is plain `TEXT` with no `CHECK`, so the `applying@<iso>` marker needs no schema change — and a new column would have meant reckoning with `render_jobs` existing only in migration 23 and not in the canonical schema, which is real but is W4's, and coupling them would make both harder to review. Nothing to configure; nothing to run.
-
-## Verification
-
-`mgmt/backend/test/render-callback-claim.test.mjs` — 15 tests, **7 of which fail on `main`**:
-
-| | on `main` | on this branch |
-|---|---|---|
-| two concurrent callbacks for one job | **both** apply the side effect | exactly one; the loser acks |
-| a callback for a row already being applied | applies again | refused |
-| a claim stuck for 30 minutes | invisible | failed, with an actionable message |
-| `pdf_convert_batch` / `provider_test` stuck with retries left | **re-dispatched** with a payload missing its essentials | timed out, nothing re-sent |
-| a completed `pdf_convert` | version unchanged — portal stays stale | version bumped |
-
-Also pinned: a *recent* `applying` row is left alone (a side effect in progress must not be interrupted); the claim marker is reported to a client as plain `applying`, never with its timestamp; a reconstructable kind **is** still re-dispatched; an `ai_fix_generate` does **not** bump the version; and a bump failure leaves the job completed.
-
-```
-mgmt/backend:       npm test -> 826 passed (811 + 15) · lint:errors clean
-mgmt/server-render: npm test -> 119 passed (unaffected)
-```
+No status counters move — none of these is a plan PR.
 
 ---
 
@@ -129,3 +95,6 @@ mgmt/server-render: npm test -> 119 passed (unaffected)
 | C11 | Consent photos/signatures already archived to Drive by earlier runs are still anonymously readable | Code no longer publishes them (#325), but existing files need a one-off ACL remediation | Operational step: dry-run report → apply, before the next archive |
 | C12 | Public visitor IPs are stored raw in `error_log.client_ip` (and in `context.edgeIp`) | Hashing them needs a salt SECRET to be worth anything — an unsalted hash of an IPv4 is 2^32 to reverse — so it is a deployment step (`wrangler secret put`) plus a fallback path, not a code-only change. Split out of PR-22 to keep the authenticity fix reviewable | Own PR, with the retention window, before W3 |
 | C13 | `portalData` still materialises whole tables; the other seven sections still read `SELECT *` and filter in JS | Bounding the payload for real means PAGINATING the public contract, which changes all six frontends — a contract decision, not a fix. PR-24 makes the size visible (a section past 20k rows is logged) instead of pretending it is bounded. Truncating a transparency payload was rejected: hiding contributions is worse than a slow page | Contract decision, then its own PR; the row-count log is the trigger |
+| C14 | **Consent `declined` / `rejected` sends nothing at all.** `respondConsent` notifies only on `accepted`; `setConsentVerification` notifies only on `verified`. So a loaner is never told his loan is blocked by a guarantor's refusal — he simply waits — the committee is not told either, and the remarks the decliner is *forced* to write (`'Remarks are required in order to Decline.'`) are visible only if someone opens the Consent Review screen. | New `consent_declined_*` / `consent_rejected_*` templates on the existing naming convention, WhatsApp + email. **Recipients (decided with the committee): the LOANER and the GROUP.** Remarks go to the group message; the loaner is told it was declined and by whom, without the raw remark text, which can be blunt — say so if that should change. **Needs a migration** (seed the new template rows) — the first migration since W0 — plus an operator pass to review the wording before it is used. | Own PR, after W3 |
+| C15 | **The contributor picker shows no father's name.** `Home.svelte` builds `{ value: ID, label: Name, sub: Village }`; `u["Father's Name"]` is on the row and unused. Village separates the two *Ajay Verma* rows in the reported screenshot (Gardih / Shaharpura) but **two same-name people in the same village are indistinguishable** — which is exactly when the wrong contributor is picked and money is recorded against the wrong person. | Add father's name to the option and to the search text, in every picker sharing `SearchableSelect`. No migration, no setup. | Own PR with C16 |
+| C16 | **The public portal never shows a father's name — for anyone.** The public Worker emits the key with a TRAILING SPACE (`fathers_name: "Father's Name "`, inherited from the original sheet headers) and `Public/frontend-v6/src/lib/api/derive.ts:268` reads `"Father's Name"` without it, so `fatherName` is always `''` and `ContributorDetail.svelte`'s `{#if displayFather}` never renders. Found while checking C15; mgmt is unaffected (its alias is exact and its inbound lookup already normalises — see the note at `tableRegistry.js:75`). | Normalise the header lookup on the READ side, not the wire key: changing the key would break any other reader. No migration, no setup. | Own PR with C15 |
