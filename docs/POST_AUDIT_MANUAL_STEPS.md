@@ -38,7 +38,7 @@ sequenced and marked with its risk. Do them in order; **A first** (deploy), then
 >
 > The 2026-09-15 audit's W0/W1/W2 are merged: all eleven P0 findings and PUB-BE-01…08.
 > **Those add no migrations at all** — they are deploys, one new variable, and one
-> security backlog item. They have their own section: **[§W below](#w-waves-02-311338--what-an-operator-must-do)**.
+> security backlog item. They have their own section: **[§W below](#w-waves-02-311338--what-an-operator-must-do)** (W1–W5 for Waves 0–2, W7 for Wave 3 and the committee-reported items, W8 is the checklist).
 >
 > Sections A–D are the *earlier* audit's remainder and are unchanged.
 
@@ -318,45 +318,107 @@ That should print `{"version":"…","savedAt":"…","data":{…`. If it is empty
 | **C12** | Public visitor IPs are stored raw in `error_log.client_ip`. | Hashing needs a **salt secret** (`wrangler secret put`) to be worth anything — an unsalted IPv4 hash is 2³² to reverse. Deployment step + code, so it is its own PR. |
 | **C13** | `portalData` still materialises whole tables. | Bounding it means **paginating the public contract**, which changes every frontend — a product decision, not a fix. #337 logs any section over 20,000 rows so the trigger is visible rather than silent. |
 
-## W7. Wave 3 so far (#339, #341, #342) 🟡
+## W7. Wave 3 and the committee-reported items 🟡
 
-Three of Wave 3's seven PRs are merged. **These add no migrations either.** What they do add:
+Wave 3 is now complete except PR-32's Neon schema half. **One migration must be applied** — the
+first in this whole effort — and one feature does nothing until it is.
 
-### Deploys
-| Target | Needed by |
-|---|---|
-| **Render service** | #339 (per-route body limits + batch contract), #341 (provider DNS check), #342 (AI write allowlist) — auto-deploys from `main`; confirm the commit is live |
-| **mgmt Worker** | #339 (pre-dispatch batch splitting), #341 (provider URL policy at save + use), #342 (write allowlist) — `cd mgmt/backend && npm run deploy` |
+### W7a. THE MIGRATION 🟡 — apply this, or #349 silently does nothing
 
-### Optional configuration 🟢
 ```bash
-# BOTH the mgmt Worker [vars] and the Render service env. Unset = the shape rules alone
-# decide, which already refuses http://, localhost, 10.x, 169.254.169.254 and credentials
-# in the URL. Set it to pin the providers you actually use.
-AI_PROVIDER_HOST_ALLOWLIST = "api.openai.com,openrouter.ai"
+wrangler d1 execute chhath-loans-expenses --remote \
+  --file=./mgmt/db/migration/2026-09-05/32-consent-decline-templates.sql
 ```
 
-Also worth doing, and it costs nothing: make the Render service's **`GITHUB_TOKEN` fine-grained without `workflows: write`**. #342 makes the code refuse to write a workflow file; a token that *cannot* is a second, independent boundary, and nothing legitimate needs it. The scopes actually required are in `mgmt/backend/wrangler.toml` — Contents R/W, Pull requests R/W, Actions: Read, Checks: Read.
+It seeds six notification templates (4 WhatsApp + 2 email) for a **declined or rejected loan
+consent**. Until #349, neither told anybody: a loaner was never informed that his loan had
+stopped, and the remarks the decliner is *forced* to write were discarded.
 
-### One live-data check 🟡 — existing AI providers were never validated
-Rows saved before #341 went through only `/^https?:\/\//`, so a provider may hold a plain-HTTP or internal base URL. Such a row is now **refused at use time** — correctly, because it was sending your provider API key unencrypted — but it will look like "AI stopped working" unless you find it first:
+Safe by construction — every `INSERT` is guarded by `NOT EXISTS` on its `type`, so re-running
+changes nothing and **cannot revert wording you have since edited**. It drops nothing, deletes
+nothing, and modifies no existing row.
+
+**Then reword the text.** What ships is a starting point in Hindi. Open **mgmt → WhatsApp
+Templates** and **Email Templates**, find the four `consent_declined_*` / `consent_rejected_*`
+entries, and put them in the committee's own voice before the next loan cycle.
+
+One deliberate choice to be aware of: the **group** message carries the decline reason, the
+**loaner's** does not. A decline remark can be blunt about the person it concerns. `{DeclineRemarks}`
+*is* available in both templates, so adding it to the loaner's is a one-line edit if you want it.
+
+### W7b. Secrets and variables 🟡
+
+**Worth setting** (on the Render service, in the dashboard → Environment):
+
+```
+CHAT_IP_HASH_SECRET = <any strong random string>
+```
+
+Chat logs store a pseudonym of the visitor's IP. Until #351 that was an unsalted `sha256`, which
+for IPv4 is 2³² candidates — minutes of a laptop's time to reverse. It is now a keyed HMAC that
+rotates monthly. **With this unset, no pseudonym is stored at all** — deliberately, because
+storing something that looks protected and is not is worse than storing nothing.
+
+**Leave unset** (both are escape hatches named for what they are):
+
+```
+NEON_ALLOW_UNVERIFIED_TLS      # #351 turned Neon TLS VERIFICATION on; this turns it back off
+AI_PROVIDER_HOST_ALLOWLIST     # optional; unset already refuses http://, localhost, 10.x, 169.254.x
+```
+
+**Defaults are already the intended posture** — set them only to tune:
+
+```
+CHAT_TRUSTED_PROXY_HOPS = 1        CHAT_MAX_CONCURRENT     = 4
+CHAT_DAILY_TOKEN_BUDGET = 200000   JOBS_MAX_CONCURRENT     = 3
+JOB_DEADLINE_MS         = 570000   # 9.5 min — must stay UNDER the Worker's 10-minute reconcile
+```
+
+Also worth doing, and free: make the Render service's **`GITHUB_TOKEN` fine-grained without
+`workflows: write`**. #342 makes the code refuse to write a workflow file; a token that *cannot*
+is a second, independent boundary. Scopes actually needed are in `mgmt/backend/wrangler.toml`.
+
+### W7c. Deploys 🟢
+
+| Target | Needed by |
+|---|---|
+| **Render service** | #339, #341, #342, #347, #350, #351 — auto-deploys from `main`; confirm the commit is live |
+| **mgmt Worker** | #339, #341, #342, #344, #349 — `cd mgmt/backend && npm run deploy` |
+| **mgmt frontend (SvelteKit)** | #348 (father's name in the contributor picker) — Vercel auto-deploy |
+| **public frontend v6** | #348 (the public father's-name fix) — Vercel auto-deploy |
+
+### W7d. One live-data check 🟡 — existing AI providers were never validated
+
+Rows saved before #341 went through only `/^https?:\/\//`, so a provider may hold a plain-HTTP
+or internal base URL. Such a row is now **refused at use time** — correctly, since it was sending
+your provider API key unencrypted — but it will present as *"AI stopped working"* unless you find
+it first:
 
 ```bash
 wrangler d1 execute chhath-logs --remote --command \
   "SELECT provider_id, name, base_url FROM ai_providers WHERE base_url NOT LIKE 'https://%';"
 ```
 
-Any row returned must be re-saved in **AI Management** with an `https` URL. **Rotate that provider's API key too** — it has been travelling in clear.
+Any row returned must be re-saved in **AI Management** with an `https` URL — **and rotate that
+provider's API key**, because it has been travelling in clear.
 
-### Smoke-test 🟢
-- In **AI Management**, try to save a provider with `http://localhost/v1` → refused with a message about `https`.
-- Bulk-generate PDFs for a year with more than a handful of documents → completes via Render (#339) instead of falling back to in-Worker conversion. The mgmt Error Log should show no `pdf_convert_batch` dispatch failures.
+### W7e. Smoke-test 🟢
 
-## W6. Checklist
+- **AI Management** → try to save a provider with `http://localhost/v1` → refused, with a message about `https`.
+- **Bulk PDF** for a year with more than a handful of documents → completes via Render (#339) instead of falling back to in-Worker conversion. The mgmt Error Log should show no `pdf_convert_batch` dispatch failures.
+- **Add Collection** → the contributor dropdown shows `Name (Father's Name)`, and typing a father's name finds his sons (#348).
+- **Public site** → open any contributor: the *Father's Name* row now appears (#348). It never did before, for anyone.
+- **Decline a consent** on a test loan → the group and the loaner both get a message; the group's carries the reason (#349). Requires W7a.
+
+## W8. Checklist — everything in §W, in order
 
 - [ ] W1: confirm `users.photo`, `error_log.client_ip`, `public_data_version` (3 queries above)
 - [ ] W2: deploy in order — **public frontend first**, then public Worker, then mgmt Worker, then the mgmt frontends, then confirm Render
 - [ ] W3: set `ALLOWED_ORIGINS` on the **public** Worker + redeploy · (optional) `HEALTH_TOKEN`
 - [ ] W4: run the six smoke checks; confirm the KV snapshot exists
 - [ ] W5: schedule the consent-ACL dry run (**C11**) — the only security item still open from W0–W2
-- [ ] W7: deploy the Render service + mgmt Worker for #339/#341/#342 · (optional) `AI_PROVIDER_HOST_ALLOWLIST` and a `workflows:write`-less `GITHUB_TOKEN` · **run the `ai_providers` non-https query and rotate any key it finds**
+- [ ] **W7a: apply migration `32-consent-decline-templates.sql`** — the first migration of this effort; #349 does nothing without it. Then reword the six templates in mgmt → Templates
+- [ ] W7b: set `CHAT_IP_HASH_SECRET` on Render · leave `NEON_ALLOW_UNVERIFIED_TLS` unset · (optional) a `workflows:write`-less `GITHUB_TOKEN`
+- [ ] W7c: deploy the Render service, the mgmt Worker, and both Vercel frontends
+- [ ] W7d: **run the `ai_providers` non-https query and rotate any key it finds**
+- [ ] W7e: the five smoke checks (provider refusal · bulk PDF via Render · picker shows the father's name · public contributor shows it too · decline reaches the group and the loaner)
