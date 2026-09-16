@@ -327,9 +327,15 @@
     -webkit-tap-highlight-color: transparent;
   }
 
-  /* Comfortable, consistent focus ring for keyboard users. */
+  /* Comfortable, consistent focus ring for keyboard users.
+   *
+   * audit PR-39: this was `ring-brand-500`, which is #F27A1A — 2.77:1 against white. WCAG
+   * 1.4.11 asks 3:1 of a non-text indicator, so on every light theme the ring was there and
+   * still too faint to find. brand-600 (#D3630F) is the one step on the ramp that clears 3:1
+   * against BOTH offsets: 3.77 on white and 5.01 on the dark ink. Measured, not eyeballed —
+   * see mgmt/frontend-svelte/src/lib/a11y/contrast.ts for the arithmetic. */
   :where(a, button, input, select, [tabindex]):focus-visible {
-    @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-white dark:ring-offset-ink rounded-lg;
+    @apply outline-none ring-2 ring-brand-600 ring-offset-2 ring-offset-white dark:ring-offset-ink rounded-lg;
   }
 }
 
