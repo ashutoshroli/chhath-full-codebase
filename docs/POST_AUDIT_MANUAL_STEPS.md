@@ -501,6 +501,21 @@ everything merged so far it modifies live data.
 
 ### W8e. Clear the visitor IP addresses already stored (C12) 🔴
 
+> **⚠️ If you ran this step before 2026-09-16, it FAILED and you may not have noticed.**
+> The commands below used to say `chhath_logs` — with an underscore — and no such
+> database exists; the real name is `chhath-logs`. `wrangler` would have answered with a
+> "couldn't find DB" error rather than applying anything. Four other migrations had the
+> same wrong name (07, 08, 09, 10). **Verify before assuming it is done:**
+>
+> ```bash
+> wrangler d1 execute chhath-logs --remote --command "
+>   SELECT COUNT(*) AS still_raw FROM error_log
+>    WHERE client_ip <> '' AND (LENGTH(client_ip) <> 32 OR client_ip GLOB '*[^0-9a-f]*');"
+> ```
+>
+> `still_raw > 0` means the scrub has not run. Re-run it with the corrected command below.
+
+
 The public Worker no longer stores a visitor's address — it stores a keyed pseudonym,
 or nothing. **No secret to set**: the key is a random salt the Worker keeps in KV,
 which rotates daily and expires on its own.
@@ -509,7 +524,7 @@ That stops new rows. The addresses already in `error_log` need clearing:
 
 ```bash
 # 1. DRY RUN first — how many rows, and how far back does this go?
-wrangler d1 execute chhath_logs --remote --command "
+wrangler d1 execute chhath-logs --remote --command "
   SELECT
     SUM(CASE WHEN client_ip <> '' AND (LENGTH(client_ip) <> 32
                                        OR client_ip GLOB '*[^0-9a-f]*')
@@ -522,7 +537,7 @@ wrangler d1 execute chhath_logs --remote --command "
 
 # 2. Apply. Only ever CLEARS two fields — deletes no row, and keeps the rest of
 #    each JSON context. Safe to re-run (a second run matches nothing).
-wrangler d1 execute chhath_logs --remote \
+wrangler d1 execute chhath-logs --remote \
   --file=./mgmt/db/migration/2026-09-05/33-scrub-visitor-ips.sql
 
 # 3. Re-run the query from step 1 — both counts must now be 0.
@@ -603,5 +618,5 @@ before its children, so a guard would abort its own correct deletion).
 - [ ] W8b: confirm `summary.notRun` is **empty** (a check that could not run is not a pass)
 - [ ] **W8c: if there are findings, work the three urgent ones first** — duplicate consent token (live credential) → duplicate login name (privilege) → orphan consents with live tokens (H-8)
 - [ ] W8d: only once the report is clean, schedule PR-34 with a **fresh backup and a quiet window** — it is the first change of this effort that modifies live data
-- [ ] **W8e: deploy the public Worker, then run the C12 dry-run query, then apply migration `33-scrub-visitor-ips.sql`** on `chhath_logs`, then confirm both counts are 0. No secret to set
+- [ ] **W8e: deploy the public Worker, then run the C12 dry-run query, then apply migration `33-scrub-visitor-ips.sql`** on `chhath-logs`, then confirm both counts are 0. No secret to set
 - [ ] **W8f: re-confirm the report is clean, then apply migrations `34` / `35` / `36`** — one per database (core, collections, loans-expenses); then check the five loan objects exist

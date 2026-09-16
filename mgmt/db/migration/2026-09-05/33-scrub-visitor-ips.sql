@@ -1,6 +1,6 @@
 -- ============================================================================
 -- audit carry-over C12 — remove the visitor IP addresses already stored
--- Database: chhath_logs
+-- Database: chhath-logs
 --
 -- The public Worker used to write a visitor's raw IP address into error_log TWICE
 -- for every JavaScript error their browser reported: once into the indexed
@@ -22,7 +22,7 @@
 -- IDEMPOTENT: both statements are written so a second run matches zero rows.
 --
 -- Apply with:
---   wrangler d1 execute chhath_logs --remote --file=./33-scrub-visitor-ips.sql
+--   wrangler d1 execute chhath-logs --remote --file=./33-scrub-visitor-ips.sql
 -- ============================================================================
 
 

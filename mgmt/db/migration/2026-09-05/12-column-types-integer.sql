@@ -36,21 +36,21 @@
 -- If any of these return rows, decide what the value should be BEFORE rebuilding
 -- (a CAST(... AS INTEGER) truncates 3.7 -> 3, which may not be what you want).
 --
---   -- collections (chhath_collections)
+--   -- collections (chhath-collections)
 --   SELECT id, year, sl_no, contribution_type, announcedcount FROM collections
 --    WHERE (year IS NOT NULL           AND CAST(year AS INTEGER)            <> year)
 --       OR (sl_no IS NOT NULL          AND CAST(sl_no AS INTEGER)           <> sl_no)
 --       OR (contribution_type IS NOT NULL AND CAST(contribution_type AS INTEGER) <> contribution_type)
 --       OR (announcedcount IS NOT NULL AND CAST(announcedcount AS INTEGER)  <> announcedcount);
 --
---   -- loans / expenses / loan_consents (chhath_loans_expenses)
+--   -- loans / expenses / loan_consents (chhath-loans-expenses)
 --   SELECT id, year, tenure FROM loans
 --    WHERE (year IS NOT NULL AND CAST(year AS INTEGER) <> year)
 --       OR (tenure IS NOT NULL AND CAST(tenure AS INTEGER) <> tenure);
 --   SELECT id, year FROM expenses WHERE year IS NOT NULL AND CAST(year AS INTEGER) <> year;
 --   SELECT id, send_count FROM loan_consents WHERE send_count IS NOT NULL AND CAST(send_count AS INTEGER) <> send_count;
 --
---   -- core DB (chhath_core)
+--   -- core DB (chhath-core)
 --   SELECT id, year FROM committee_members WHERE year IS NOT NULL AND CAST(year AS INTEGER) <> year;
 --   SELECT id, year FROM festival_dates    WHERE year IS NOT NULL AND CAST(year AS INTEGER) <> year;
 --   SELECT id, sort_order FROM dropdown_lists WHERE sort_order IS NOT NULL AND CAST(sort_order AS INTEGER) <> sort_order;
@@ -61,7 +61,7 @@
 -- ============================================================================
 -- SQLite has no ALTER COLUMN TYPE. Rebuild each table in ONE `wrangler d1 execute`
 -- so the steps share an implicit transaction. Example for `collections`
--- (chhath_collections) — the same shape applies to every table above:
+-- (chhath-collections) — the same shape applies to every table above:
 --
 --   CREATE TABLE collections_new (
 --     id INTEGER PRIMARY KEY AUTOINCREMENT,

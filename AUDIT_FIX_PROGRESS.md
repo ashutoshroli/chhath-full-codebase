@@ -6,8 +6,8 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status — against the plan's 48 PRs: 35.5 done · 12.5 remaining.**
-Separately, **45 GitHub PRs** have been merged for this effort (#311–#358). Those two numbers are not the same thing, and revisions of this file before #356 wrongly treated them as one — the header claimed "8 pending" while §3 below listed 14.5. Several merged PRs were docs/runbook updates (#340, #343, #346, #352), CI fix-ups (#330, #345), or carry-over items outside the 48 (#348, #356). Others, like this one, are a **slice** of a plan PR rather than a whole one. **The plan count is the one to read for progress.**
+**Status — against the plan's 48 PRs: 35.5 done · 12.5 remaining.** *(this PR is a precondition for PR-35, not one of the 48)*
+Separately, **46 GitHub PRs** have been merged for this effort (#311–#359). Those two numbers are not the same thing, and revisions of this file before #356 wrongly treated them as one — the header claimed "8 pending" while §3 below listed 14.5. Several merged PRs were docs/runbook updates (#340, #343, #346, #352), CI fix-ups (#330, #345), or carry-over items outside the 48 (#348, #356). Others, like this one, are a **slice** of a plan PR rather than a whole one. **The plan count is the one to read for progress.**
 
 Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-BE closed)** · **W3 6.5/7** · **W4 2/3** · **W5 0.5/6** · W6 0/4 · **W7 1.5/3**
 
@@ -63,74 +63,66 @@ Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-
 | [#356](https://github.com/ashutoshroli/chhath-full-codebase/pull/356) | stop keeping visitor IP addresses, and clear the ones we kept | C12 | A public JS error stored the visitor’s address **three times** (the WHERE, the JSON context, the column) — permanently, in a table the committee reads. Now a keyed pseudonym from a **KV salt that rotates daily and expires**, so there is no operator step and yesterday’s rows become unlinkable to any address by anybody. Migration 33 clears what was already written | Migration **33** on `chhath_logs` (§W8e); no new secret |
 | [#357](https://github.com/ashutoshroli/chhath-full-codebase/pull/357) | let people zoom | PR-39 (slice) | `maximum-scale=1.0, user-scalable=no` disabled pinch-zoom on four app shells, including **both live mgmt frontends** — WCAG 1.4.4. The block came from the original public frontend and rode into three successive rewrites; it left the public side by accident, not decision. So the fix is four one-line changes and the point is the test, which scans every tracked shell in the tree | No migration |
 | [#358](https://github.com/ashutoshroli/chhath-full-codebase/pull/358) | CI was installing a vulnerable xmldom | PR-47 (part) | The override redirected the *deprecated* `xmldom`, but `docxtemplater` depends on the **scoped** `@xmldom/xmldom` — never rewritten. `^0.9.10` fits both 0.9.11 (11 advisories, high) and 0.9.12, so the two apps differed only by lockfile timing and `npm ci` installed the vulnerable one. Also: **npm never records `overrides` in a lockfile**, so an override cannot protect the path that ships | No migration |
+| [#359](https://github.com/ashutoshroli/chhath-full-codebase/pull/359) | apply the constraints 07, 08 and 10 only described | PR-34 | Three migrations shipped their real work as **comments** (10 is 101 comment lines, 0 executable) because a UNIQUE index fails on a table holding a duplicate. #354’s report proved every precondition is 0, so there are **no repair scripts** — enforcement only: 3 partial unique indexes + **4** triggers. Migration 10 had `BEFORE INSERT` only; the UPDATE half is new. No `BEFORE DELETE` guard — it would abort `deleteLoan`’s own batch | Migrations **34/35/36**, one per database (§W8f) |
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — the constraints 07, 08 and 10 described but never applied (PR-34)
+## 2. This PR — five migrations told the operator to use a database that does not exist
 
-**Audit ID:** Wave 4 **PR-34** — H-9, M-8, M-34, H-8.
+**Audit ID:** precondition for **PR-35** (the migration ledger). A runner cannot route a migration to a database until the name it declares is trustworthy.
 
-Three migrations shipped their real work as **SQL comments**. Migration 10 is the extreme case: *101 comment lines, zero executable ones*. The reason was sound — `CREATE UNIQUE INDEX` fails outright on a table that already holds a duplicate, and a trigger starts rejecting writes to a row that is already broken — so each one waited on a human running its detection query first. Nobody did, so nothing was enforced.
-
-**PR-33's report removed that risk by measuring.** Run against the live databases on 2026-09-16, every precondition came back **0**:
+Every migration carries an "Apply with:" line that a human copy-pastes:
 
 ```
-dup_user_id_code        0        dup_loan_id             0
-dup_collection_sl_no    0        orphan_consent_loan     0   (the H-8 case)
-                                 orphan_guarantor_loan   0
+--   wrangler d1 execute chhath-logs --remote --file=./33-scrub-visitor-ips.sql
 ```
 
-So there are **no repair scripts in this PR** — the plan allowed for them, and the data turned out not to need any. This is enforcement only.
+**Five of them named a database that does not exist** — `chhath_core`, `chhath_collections`, `chhath_logs`, `chhath_loans_expenses`, with **underscores**, while every real database in `wrangler.toml` uses **hyphens**:
 
-Three files, one per database (the audit's per-DB requirement, and #353 showed why a multi-database file is a hazard):
-
-| migration | database | what it adds |
+| migration | said | real name |
 |---|---|---|
-| `34-core-unique-id-code.sql` | `chhath-core` | partial `uq_users_id_code` |
-| `35-collections-unique-receipt-no.sql` | `chhath-collections` | partial `uq_collections_year_sl_no` |
-| `36-loans-keys-and-relations.sql` | `chhath-loans-expenses` | partial `uq_loans_loan_id` + **four** triggers |
+| `07-core-id-uniqueness` | `chhath_core` | `chhath-core` |
+| `08-collections-sl-no-uniqueness` | `chhath_collections` | `chhath-collections` |
+| `09-error-log-client-ip` | `chhath_logs` | `chhath-logs` |
+| `10-loans-referential-integrity` | `chhath_loans_expenses` | `chhath-loans-expenses` |
+| **`33-scrub-visitor-ips`** | `chhath_logs` | `chhath-logs` |
 
-All partial, matching the recipes: rows with a NULL/blank key are exempt, so the constraints govern new writes without a backfill first.
+**The last one is mine.** I added it in #356 by copying the header of migration 09, and then repeated the wrong name in the runbook — so the operator was handed a command that could only fail, for a **privacy remediation**. It was reported as run. It may not have been. §W8e now opens with a verification query for exactly that, because "I ran it" and "it applied" are not the same thing when the command errors.
 
-### The half migration 10 was missing
+### Why nothing caught it
 
-Its PART 2 is `BEFORE INSERT` only, which the audit flagged directly — *"proposed triggers omit update cases"*. An insert-only guard is **half a guard**: it stops a row being created against a missing loan, then allows the same row to be re-pointed at a missing loan a moment later. Same orphan H-8 produced, reached with a different verb. Both directions are covered now, on both child tables.
+The SQL is valid. The files are registered in the migration matrix. All 901 tests passed. **No test had ever read the one line a human actually acts on** — the instruction was prose, so it was not checked.
 
-Proven, not asserted: deleting the two `_upd` triggers (i.e. reverting to migration 10's behaviour) makes the re-point test fail.
+It is now, by two rules derived from the tree rather than from a list kept in step by hand:
 
-### What is deliberately *not* here
+1. the database a migration names must appear as a `database_name` in `mgmt/backend/wrangler.toml` — the only place D1 names are real;
+2. a migration that **has executable SQL** must name one at all. A comment-only recipe legitimately does not, and that exemption is computed from the file's own content, so a recipe that later grows real statements stops being exempt by itself.
 
-**A `BEFORE DELETE ON loans` guard** — the obvious way to prevent H-8, and it would **break loan deletion.** `deleteLoan` (`loans.js:398–415`) sends one D1 batch whose **first** statement is `DELETE FROM loans WHERE id = ?` and whose last two delete the guarantors and consents. A delete guard fires on that first statement, while the children still exist, and aborts the whole batch. The batch is atomic so the ordering is harmless today; reordering it to children-first is an application change and belongs with the code, not inside a migration.
+### A test that checked nothing, caught by mutating it
 
-That is asserted rather than trusted: a test replays the app's exact statement order, and adding a delete guard makes it fail.
+The first version read only the `wrangler d1 execute` form. But the two multi-database files (`02-perf-indexes`, `03-scalability-indexes`) name their databases **exclusively** in the other two forms — `Section A -> <db>` and `Section A — DB: <db>`. So the guard silently validated nothing on precisely the files where getting a database wrong is most damaging.
 
-**The real foreign key** (10's PART 3) and **the CHECK constraints** (migration 11) both need full table rebuilds on live, spreadsheet-sourced data. D1 does not persist `PRAGMA foreign_keys` across requests, so even after a rebuild the FK would be documentation and these triggers would still be what enforces it — the rebuild buys a self-describing schema, not enforcement. And 11 itself says to combine its CHECKs with the REAL→INTEGER rebuild in 12. That is one coordinated rebuild of the money tables, not a line in this file.
+All three forms are read now. Mutating a *section header* to an underscore name is caught; before, it was not.
 
-### A fourth category in the migration harness
-
-These are the first migrations that add a **constraint**, and they fit none of the existing lists. They are not index-only (a trigger is not an index), not ADD-COLUMN, not a scrub — and they trip the index-only rule for a pure false positive: `BEFORE UPDATE OF loan_id` contains the word UPDATE while writing nothing.
-
-So `CONSTRAINT_MIGRATIONS` gets rules written against what matters — a constraint migration must be **additive**. `INSERT` and `UPDATE` are narrowed to the *statement* (`INSERT INTO`, `UPDATE … SET`) rather than the keyword, because a trigger declaration necessarily names the verb it fires on. `DELETE` is left broad on purpose, which also blocks delete triggers; the comment says so and points at migration 36's reasoning.
-
-**Migrations & setup:** three migrations, one per database — runbook §W8f. Nothing to deploy; no code changed.
+**Migrations & setup:** none — comment lines only. But **verify migration 33 actually applied** (§W8e).
 
 ## Verification
 
-`pr34-enforced-keys-and-relations.test.mjs` — 11 tests. Mutation-checked:
-
 | mutation | caught by |
 |---|---|
-| the two `_upd` triggers removed (migration 10's behaviour) | *THE GAP IN MIGRATION 10: re-pointing…* |
-| a `BEFORE DELETE ON loans` guard added | *the application's own loan deletion still works* |
-| the unique index made plain | *a duplicate id_code is refused…* |
+| the underscore name restored (the real bug) | *no migration names a database that does not exist* |
+| a typo'd name (`chhath-logz`) | same |
+| the "Apply with" line deleted | *a migration with executable SQL says where to apply it* |
+| a **section header** given a bad name | the name check **and** the multi-database list |
 
-Also pinned: blanks and NULLs stay exempt on every constraint; re-pointing at a loan that **does** exist still works; an update that does not touch `loan_id` is not second-guessed; each file applies twice cleanly; and `(2024.0, 45)` collides with `(2024.0, 45)` — because the live `year` column is still REAL (migration 12's REAL→INTEGER is a recipe that applies nothing), so the index has to work on the values that are actually there rather than the ones the committed schema hopes for.
+Against `main` the guard reports all five offenders by file and name. Also pinned: the set of six files that apply nothing, and the two that span databases — so a migration quietly becoming a no-op, or a new multi-database file, both surface.
 
 ```
-mgmt/backend: 901 passed (890 + 11)
-migration gate: all 48 migrations in 4 folders covered
+mgmt/backend: 906 passed (901 + 5)
 ```
+
+Next, on top of this: **PR-35** — the `schema_migrations` ledger and runner, which needs exactly this mapping to be reliable.
 
 ---
 

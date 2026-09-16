@@ -13,8 +13,8 @@
 -- for a legitimate write — they only stop a future bug or a raw manual edit from
 -- introducing bad data silently.
 --
--- Databases touched: chhath_loans_expenses (loans, loan_consents) and
--- chhath_collections (collections). Run the relevant PARTs against each DB.
+-- Databases touched: chhath-loans-expenses (loans, loan_consents) and
+-- chhath-collections (collections). Run the relevant PARTs against each DB.
 -- Idempotent (entirely comments).
 -- ============================================================================
 
@@ -28,8 +28,8 @@
 --    WHERE role IS NOT NULL AND role NOT IN ('loaner','guarantor');
 --
 -- 1b. negative money (should never happen):
---   SELECT loan_id, amount FROM loans    WHERE amount IS NOT NULL AND amount < 0;   -- chhath_loans_expenses
---   SELECT sl_no, amount   FROM collections WHERE amount IS NOT NULL AND amount < 0; -- chhath_collections
+--   SELECT loan_id, amount FROM loans    WHERE amount IS NOT NULL AND amount < 0;   -- chhath-loans-expenses
+--   SELECT sl_no, amount   FROM collections WHERE amount IS NOT NULL AND amount < 0; -- chhath-collections
 --
 -- 1c. collections.contribution_type outside the known set (1 cash, 2 material,
 --     3 receipt/certificate) — legacy blanks are allowed:
@@ -41,7 +41,7 @@
 -- ============================================================================
 -- PART 2 — ENFORCE GOING FORWARD (triggers; apply per-rule after PART 1 is clean)
 -- ============================================================================
--- chhath_loans_expenses:
+-- chhath-loans-expenses:
 --
 -- CREATE TRIGGER IF NOT EXISTS trg_loan_consents_role_ins
 -- BEFORE INSERT ON loan_consents
@@ -53,7 +53,7 @@
 -- FOR EACH ROW WHEN NEW.amount IS NOT NULL AND NEW.amount < 0
 -- BEGIN SELECT RAISE(ABORT, 'loans.amount must be >= 0'); END;
 --
--- chhath_collections:
+-- chhath-collections:
 --
 -- CREATE TRIGGER IF NOT EXISTS trg_collections_amount_nonneg_ins
 -- BEFORE INSERT ON collections
