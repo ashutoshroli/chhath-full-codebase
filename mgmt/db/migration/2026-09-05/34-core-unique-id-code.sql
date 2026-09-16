@@ -1,0 +1,43 @@
+-- ============================================================================
+-- audit H-9 / PR-34 — make users.id_code actually unique
+-- Database: chhath-core
+--
+-- migration 07 shipped this as a COMMENTED recipe rather than applying it, for one
+-- good reason: `CREATE UNIQUE INDEX` FAILS OUTRIGHT if the table already contains a
+-- duplicate, so applying it blind on live data either works or breaks the migration
+-- half-way with nothing to tell you which. 07 therefore applied only the plain index
+-- and left the constraint to a human who had first run the detection query.
+--
+-- That human step has now happened. `getIntegrityReport` (PR-33) ran against the live
+-- databases on 2026-09-16 and `dup_user_id_code` returned **0 findings**, so the
+-- index below can be created. RE-RUN THAT CHECK IF THIS FILE HAS BEEN SITTING
+-- UNAPPLIED FOR A WHILE — a duplicate created in the meantime makes it fail.
+--
+-- Detection query, if you want it inline instead (read-only):
+--
+--   SELECT id_code, COUNT(*) AS copies FROM users
+--    WHERE id_code IS NOT NULL AND id_code <> ''
+--    GROUP BY id_code HAVING COUNT(*) > 1;
+--
+-- WHY THIS MATTERS. id_code is the value every other database refers to a person BY:
+-- collections.name, loans.name, loan_consents.person_id, loan_guarantors.loaner /
+-- .guarantor and committee_members.name all hold it. Two members sharing one id_code
+-- makes "who contributed this?" unanswerable, and the allocation race that produced
+-- exactly that (see the H-9 comment in crud.js) went unnoticed *because* nothing
+-- enforced it: "Nothing detected it — there was no unique constraint."
+--
+-- After this, a regression in the allocation code stops being silent — the second
+-- writer gets an error instead of a duplicate row.
+--
+-- PARTIAL on purpose: the WHERE clause exempts legacy rows carrying a NULL or blank
+-- id, so the constraint governs new writes without needing a backfill of historical
+-- data first.
+--
+-- Idempotent (IF NOT EXISTS). Additive: creates an index, changes no row.
+--
+-- Apply with:
+--   wrangler d1 execute chhath-core --remote --file=./34-core-unique-id-code.sql
+-- ============================================================================
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_users_id_code
+  ON users (id_code) WHERE id_code IS NOT NULL AND id_code <> '';

@@ -1,0 +1,43 @@
+-- ============================================================================
+-- audit M-8 / PR-34 — one receipt number, one contribution
+-- Database: chhath-collections
+--
+-- migration 08 shipped this as a COMMENTED recipe for the same reason as 07: a
+-- UNIQUE index fails outright on a table that already holds a duplicate, so it
+-- needed a human to run the detection query first.
+--
+-- That has now happened. `getIntegrityReport` (PR-33) ran against the live databases
+-- on 2026-09-16 and `dup_collection_sl_no` returned **0 findings**. RE-RUN IT IF THIS
+-- FILE HAS BEEN SITTING UNAPPLIED — a duplicate added since makes this fail.
+--
+-- Detection query, inline (read-only):
+--
+--   SELECT year, sl_no, 'NCS-' || year || '-' || sl_no AS receipt_no, COUNT(*) AS copies
+--     FROM collections WHERE year IS NOT NULL AND sl_no IS NOT NULL
+--    GROUP BY year, sl_no HAVING COUNT(*) > 1;
+--
+-- WHAT A DUPLICATE ACTUALLY MEANS. A receipt number is not a stored column:
+-- templates.js builds it as `NCS-<year>-<Sl. No.>`, and the samaan number as
+-- `NCS-SAMAAN-<year>-<Sl. No.>`. So two rows sharing (year, sl_no) are two DIFFERENT
+-- contributions — possibly different people and different amounts — printing the
+-- same receipt id. They also collide in `generated_files` (chhath-file-index), whose
+-- key is (doc_type, year, record_id) and IS unique, so one row's PDF silently
+-- overwrites the other's.
+--
+-- PARTIAL on `sl_no IS NOT NULL`, matching 08's recipe: imported/legacy rows with no
+-- sequence number are exempt, so no backfill is needed first.
+--
+-- NOTE ON `year`. In the live database `year` is still REAL (values read back as
+-- `2024.0`) — the REAL->INTEGER conversion in migration 12 is a documented rebuild
+-- RECIPE that applies nothing, by design. That does not affect this index: it is
+-- built on whatever the stored values are, and equality between two REALs works the
+-- same way. Worth knowing so `2024.0` in a query result is not mistaken for a fault.
+--
+-- Idempotent (IF NOT EXISTS). Additive: creates an index, changes no row.
+--
+-- Apply with:
+--   wrangler d1 execute chhath-collections --remote --file=./35-collections-unique-receipt-no.sql
+-- ============================================================================
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_collections_year_sl_no
+  ON collections (year, sl_no) WHERE sl_no IS NOT NULL;

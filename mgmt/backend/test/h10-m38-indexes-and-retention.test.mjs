@@ -119,7 +119,31 @@ const SCHEMA_FOR_MIGRATION = {
   // migration in this folder that UPDATEs existing rows (see PREREQ_MIGRATIONS below
   // for the other thing that makes it unusual).
   '33-scrub-visitor-ips.sql': 'logs.sql',
+  // PR-34 — the constraints migrations 07/08/10 shipped as commented recipes, now
+  // executable because PR-33's report proved every precondition is zero. One file per
+  // database, per the audit's "per-DB" requirement.
+  '34-core-unique-id-code.sql': 'core.sql',
+  '35-collections-unique-receipt-no.sql': 'collections.sql',
+  '36-loans-keys-and-relations.sql': 'loans_expenses.sql',
 };
+
+// A FOURTH category: migrations that ADD A CONSTRAINT — a unique index or a trigger.
+//
+// These could not go in any existing list. They are not index-only (a trigger is not
+// an index), they are not schema-changing in the ADD-COLUMN sense, and they are not
+// scrubs. And they trip the index-only rule for a reason that is pure false positive:
+// a `BEFORE UPDATE OF loan_id` trigger contains the word UPDATE, while writing nothing.
+//
+// So the rule here is written against what actually matters — a constraint migration
+// must be ADDITIVE. It may create guarded indexes and triggers; it may not write,
+// move or delete a single row. The UPDATE check is narrowed to a real update
+// STATEMENT (`UPDATE <table> SET`) rather than the keyword, which is the distinction
+// the index-only test could not make.
+const CONSTRAINT_MIGRATIONS = new Set([
+  '34-core-unique-id-code.sql',
+  '35-collections-unique-receipt-no.sql',
+  '36-loans-keys-and-relations.sql',
+]);
 
 // THE FIRST MIGRATION THAT DEPENDS ON ANOTHER ONE.
 //
@@ -280,6 +304,7 @@ test('H-10: no INDEX-ONLY migration drops anything or mutates a row', () => {
   for (const file of migrationFiles()) {
     if (SCHEMA_ONLY_MIGRATIONS.has(file)) continue; // asserted explicitly below
     if (DATA_SCRUB_MIGRATIONS.has(file)) continue;  // ditto, with tighter rules
+    if (CONSTRAINT_MIGRATIONS.has(file)) continue;  // ditto — triggers, so "UPDATE" appears
     const sql = sqlWithoutCommentsAndStrings(file);
     assert.ok(!/\bDROP\b/i.test(sql), `${file} must not DROP anything`);
     assert.ok(!/\bDELETE\b/i.test(sql), `${file} must not DELETE rows`);
@@ -458,6 +483,46 @@ test('M-38: the sweep window catches SWEEP_MINUTE and is bounded (< 1 hour so it
   // sweep somehow ran on several ticks per hour.
   const statements = 9; // blank + 8 deletes (incl. email_messages)
   assert.ok(24 * statements * 200 < 100000, 'worst-case sweep writes must fit the budget');
+});
+
+// PR-34 — a constraint migration may add guards, but must not touch a single row.
+test('H-10: a constraint migration is purely additive', () => {
+  for (const file of CONSTRAINT_MIGRATIONS) {
+    const sql = sqlWithoutCommentsAndStrings(file);
+    assert.ok(!/\bDROP\b/i.test(sql), `${file} must not DROP anything`);
+    // DELETE is left BROAD on purpose, unlike INSERT and UPDATE below. It rejects a
+    // `DELETE FROM` statement and also a `BEFORE DELETE` trigger — and this repo has
+    // decided against both: migration 36 explains at length why a delete guard on
+    // `loans` would abort the application's own batched deletion. If a delete trigger
+    // is ever genuinely wanted, narrow this to `DELETE\s+FROM` *deliberately*, having
+    // re-read that reasoning.
+    assert.ok(!/\bDELETE\b/i.test(sql), `${file} must not DELETE (and see the note: no delete triggers either)`);
+    assert.ok(!/\bALTER\b/i.test(sql), `${file} must not ALTER a table`);
+    // BOTH of these are narrowed to the STATEMENT, not the keyword, because a trigger
+    // declaration necessarily names the verb it fires on: `BEFORE INSERT ON x`,
+    // `BEFORE UPDATE OF col ON x`. Matching the bare keyword would make it impossible
+    // to write a trigger migration at all — which is exactly what the index-only test
+    // could not distinguish, and why this category exists.
+    assert.ok(
+      !/\bINSERT\s+INTO\b/i.test(sql),
+      `${file} must not contain an INSERT INTO statement`
+    );
+    assert.ok(
+      !/\bUPDATE\s+\w+\s+SET\b/i.test(sql),
+      `${file} must not contain an UPDATE ... SET statement`
+    );
+    // Everything it creates has to be re-runnable.
+    for (const m of sql.matchAll(/CREATE\s+(?:UNIQUE\s+)?INDEX\s+(IF NOT EXISTS\s+)?/gi)) {
+      assert.ok(m[1], `${file} has a CREATE INDEX without IF NOT EXISTS`);
+    }
+    for (const m of sql.matchAll(/CREATE\s+TRIGGER\s+(IF NOT EXISTS\s+)?/gi)) {
+      assert.ok(m[1], `${file} has a CREATE TRIGGER without IF NOT EXISTS`);
+    }
+    // A trigger that does not ABORT is not enforcing anything.
+    if (/CREATE\s+TRIGGER/i.test(sql)) {
+      assert.match(sql, /RAISE\s*\(\s*ABORT/i, `${file} defines a trigger that never aborts`);
+    }
+  }
 });
 
 // C12 — a data-scrub migration may only ever take data AWAY.
