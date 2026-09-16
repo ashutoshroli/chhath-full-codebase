@@ -6,9 +6,9 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status: 36 of 48 PRs merged · 1 open (this one) · 11 pending**
+**Status: 37 of 48 PRs merged · 1 open (this one) · 10 pending**
 
-Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 ✅ done (8/8 — every PUB-BE finding is closed)** · **W3 7/7 — PR-32 half done (security in, Neon schema + retention left)** · W4–W7 not started
+Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 ✅ done (8/8 — every PUB-BE finding is closed)** · **W3 7/7 — PR-32 half done (security in, Neon schema + retention left)** · W4–W6 not started · **W7 1/3 (CI gates part-done)**
 
 ---
 
@@ -54,73 +54,45 @@ Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is c
 | [#348](https://github.com/ashutoshroli/chhath-full-codebase/pull/348) | show the father's name where it was supposed to be | C15, C16 | The contributor picker showed only name + village, so two same-name people in one village were indistinguishable — when a contribution gets recorded against the wrong person. Father's name now sits beside the name and is searchable, via one shared helper. And the public portal never showed a father's name **for anyone**: the Worker emits the key with a trailing space and the frontend read it without one; fixed on the read side so the wire key stays stable for every other reader | No migration — frontend only |
 | [#349](https://github.com/ashutoshroli/chhath-full-codebase/pull/349) | tell somebody when a consent is declined or rejected | C14 | `respondConsent` notified only on `accepted` and `setConsentVerification` only on `verified`, so a refusal told **nobody** — a loaner was never informed his loan had stopped, and the remarks the decliner is *forced* to write were discarded. One notifier for both outcomes → loaner + group + email mirror | **The first migration of this effort** — 32-consent-decline-templates.sql, idempotent and guarded so committee edits survive; then reword the text in Templates |
 | [#350](https://github.com/ashutoshroli/chhath-full-codebase/pull/350) | claim a job before running it, and bound how long it may run | Render #3, #5 | `/jobs` answered `202` and fire-and-forgot, recording nothing — so the Worker's ten-minute redispatch of a job that was merely SLOW ran it a second time, opening a second GitHub pull request. Adds a claim taken before the ack (a duplicate is answered `202` with the running state), a per-job deadline just under the Worker's reconcile window, and bounded concurrency answering `503` so the Worker falls back | No migration; `JOBS_MAX_CONCURRENT`, `JOB_DEADLINE_MS` optional. The claim is in-process — exact version needs PR-32's Neon store |
+| [#351](https://github.com/ashutoshroli/chhath-full-codebase/pull/351) | verify Neon TLS, key the IP pseudonym, issue session ids server-side | Render #9 | TLS verification was OFF, so the connection carrying every chat question and the visitor pseudonyms was encrypted but **unauthenticated**; the IP "hash" was an unsalted `sha256` (2³² to reverse for IPv4) and is now a keyed HMAC rotating monthly, storing **nothing** when no secret is set; the session id was read from the request body, so a caller could append to somebody else's conversation | Setup: `CHAT_IP_HASH_SECRET`; leave `NEON_ALLOW_UNVERIFIED_TLS` unset |
+| [#352](https://github.com/ashutoshroli/chhath-full-codebase/pull/352) | operator steps for Wave 3 and the committee items | — | Runbook §W7: the first migration of this effort (without which #349 silently does nothing), the secret worth setting, the two escape hatches to leave unset, the `ai_providers` non-https check whose key needs rotating, deploys per PR, five smoke checks | — |
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — the chat's privacy claims are now true
+## 2. This PR — every migration in every folder is declared (closes C6)
 
-**Audit ID:** Render/offload #9, the security half. First part of PR-32.
+**Audit ID:** part of PR-46 (CI gates). Carry-over **C6** closed.
 
-Three things that looked like protections and were not.
+C6 said: *"Migration CI only scans `mgmt/db/migration/2026-09-05/` — older folders have uncovered files, and widening it fails today."*
 
-### TLS verification was off
+Widening it does fail, and the reasons turn out to be worth knowing. **Twelve files** in the three older folders were covered by nothing at all, and they are not the same kind of thing:
 
-```js
-ssl: { rejectUnauthorized: false }, // Neon requires TLS; managed cert
-```
+- **nine** apply cleanly and idempotently against one committed schema;
+- **two** — `2026-09-02/02-perf-indexes.sql` and `03-scalability-indexes.sql` — **cannot be applied as a whole file to any single database.** They carry indexes for **three** different D1 databases. A `CREATE INDEX` on a table that lives in another database does not skip, it **fails** — so running one of these whole applies the earlier sections and then breaks part-way through, leaving the operator to work out how far it got;
+- **one** — `2026-09-01/03-whatsapp_index.sql` — is already fully reflected in the committed schema, so against a fresh schema its `ALTER` can only fail with `duplicate column`.
 
-The comment is a true statement that does not justify the code. **Requiring TLS and verifying it are different things.** With verification off the connection is encrypted but *unauthenticated*: anything that can get into the path presents its own certificate and reads — and rewrites — everything crossing it. What crosses it is every public chat question and answer, plus the visitor IP pseudonyms.
+So the new test does not ask *"does every file apply"*. It asks a better question: **is every file's relationship to the committed schema declared?** A migration nobody has classified is the one that reaches a live database unverified.
 
-Neon serves a publicly-trusted certificate, so there was nothing to work around. Verification is now on, with an escape hatch that is opt-in and **named for what it is** (`NEON_ALLOW_UNVERIFIED_TLS`) so nobody turns it off by accident or leaves it off without having typed the reason.
+Done:
 
-### The IP "hash" was reversible
+- **`test/migration-matrix.test.mjs`** — 21 tests. Every file in every folder must appear in a `DECLARED` map as one of: a single schema (applied twice), a **multi-database** file (each `-- Section X — DB: <name>` block applied against the schema for the DB it names), or **already-in-schema** with a written reason. A new migration in any folder fails until it is declared, and a declaration for a file that no longer exists fails too.
+- **The whole-file failure is asserted**, not assumed: if someone ever merges those sections into one applicable file, the test fails and must be deleted deliberately — rather than the header's warning quietly outliving the reason for it.
+- **The CI step now scans `migration/*/*.sql`** — all four folders, 44 files.
+- The 2026-09-05 folder stays delegated to `h10-m38`'s existing per-file list rather than being duplicated into a second list to keep in step; a test asserts that delegation is real, so this suite cannot silently become the only coverage while believing otherwise.
 
-`sha256(ip)` with no secret. An unsalted hash of an IPv4 address is **2³² candidates** — a few minutes of a laptop's time to build the entire lookup table. The stored value was the visitor's address with extra steps, kept in Neon indefinitely.
+**Two header corrections, found by the test.** Both multi-database files said they span **"TWO databases"** while having **three** sections. A header that undercounts is exactly how an operator misses a database and leaves an index unapplied on the one they skipped. `03-scalability-indexes.sql` did not state a count at all, and now says what happens if you run it whole.
 
-It is now an **HMAC keyed on a secret**, with a **monthly rotating period** in the message so one visitor does not carry a stable identifier for ever — linkability across months is what turns *"these requests came together"* into a person's history.
-
-And **with no secret configured it stores nothing at all**, rather than falling back to the reversible hash. That is the important choice: an unset secret must not silently mean *"store a value that looks protected and is not"*. Chat logging is best-effort and never blocks an answer, so the cost is a missing column, not a broken chatbot.
-
-### The session id came from the caller
-
-```js
-const sessionId = ((req.body && req.body.sessionId) || '').toString().slice(0, 80);
-```
-
-That value is the key that groups a conversation in Neon. So any caller could send **somebody else's** session id and have their questions appended to that conversation — or send one arbitrary string per request and shard the table.
-
-The id is now issued by the server as `<uuid>.<hmac>`, signed with a secret this service already holds, and verified on the way back in with a constant-time comparison. A client may keep using the id it was **given** — that is what a session is — but it cannot invent one. A new id is returned only when one was issued, so the widget keeps working without ever choosing its own.
-
-**Migrations & setup:** **no migration.** One secret worth setting, and one variable that should stay unset:
-
-```
-CHAT_IP_HASH_SECRET      = <any strong random string>   # unset ⇒ no IP pseudonym is stored
-CHAT_SESSION_SECRET      = <optional>                    # falls back to RENDER_WEBHOOK_SECRET
-NEON_ALLOW_UNVERIFIED_TLS                                # leave UNSET
-```
-
-The session signing works out of the box: it falls back to `CHAT_IP_HASH_SECRET` and then to the `RENDER_WEBHOOK_SECRET` this service already has, so the protection is on by default rather than waiting for configuration.
+**Migrations & setup:** none. This PR adds no migration and changes no SQL that runs — only two header comments, one new test, and the CI scan's glob.
 
 ## Verification
 
-`mgmt/server-render/test/chatPrivacy.test.mjs` — 14 tests:
-
-| | on `main` | on this branch |
-|---|---|---|
-| Neon TLS | any certificate accepted | verified; the override is off by default |
-| the stored IP value | `sha256(ip)` — 2³² to reverse | HMAC, keyed, rotating monthly |
-| with no secret configured | a reversible hash is stored | nothing is stored |
-| a borrowed or forged session id | **accepted and written to** | replaced with a fresh signed one |
-
-Also pinned: the pseudonym is stable *within* a period so correlation still works where it is needed; different addresses do not collide; the signature comparison is constant-time; and the route no longer reads the id out of the body.
-
 ```
-mgmt/server-render: npm test -> 166 passed (152 + 14)
-mgmt/backend:       npm test -> 839 passed (unaffected)
+mgmt/backend: npm test -> 860 passed (839 + 21)
+the widened gate, run locally: all 44 migrations in 4 folders are covered
 ```
 
-What remains of PR-32: the Neon **schema** work — FK/cascade, a role CHECK, and an automated retention job for raw question/answer content — plus the shared rate/concurrency store deferred from #347 and the in-process job claim from #350. Those all need the migration this PR deliberately does not carry, so that the security fixes above could ship without waiting on a schema change.
+This is also the **precondition for PR-35** (the migration ledger): a runner that applies migrations in order cannot be built until every file's target and expected outcome is written down. It now is.
 
 ---
 
@@ -130,7 +102,7 @@ What remains of PR-32: the Neon **schema** work — FK/cascade, a role CHECK, an
 **W4 — Database (3):** duplicate/orphan detection · enforce keys & relations · migration ledger
 **W5 — Accessibility (6):** dialog primitives (public + mgmt) · combobox/buttons · contrast/focus/zoom · live regions + labels · structure/motion
 **W6 — SEO / PWA / privacy / perf (4):** route metadata · manifest + update UX · privacy + same-origin push · lazy skins
-**W7 — Platform (3):** CI gates · dependency upgrades · observability + retention
+**W7 — Platform (2.5 left):** CI gates *(migration matrix done — route↔view wiring, bundle budgets and fail-on-warning gates remain)* · dependency upgrades · observability + retention
 
 ---
 
@@ -143,7 +115,7 @@ What remains of PR-32: the Neon **schema** work — FK/cascade, a role CHECK, an
 | C3 | Donation settings not truly atomic | Needs a single backend settings action | Folded into W2 backend work |
 | C4 | Collection DOCX still rendered client-side | Server-side rendering is a feature change, not a fix | Post-W3 |
 | C5 | `H-6 … WITHOUT decoding` test flake (asserts `ms < 250`) | Pre-existing; timing-based, passes in isolation, fails under full-suite load | PR-46 (CI gates). **The same defect shape was introduced by me in #337 and removed in #345** — that assertion now counts concurrency instead of milliseconds, which is what it was really asking |
-| C6 | Migration CI only scans `mgmt/db/migration/2026-09-05/` | Older folders have uncovered files; widening it fails today | PR-46 |
+| ~~C6~~ ✅ | Migration CI only scans `mgmt/db/migration/2026-09-05/` | Widening it did fail, on twelve files — nine appliable, two that span THREE databases and cannot be run whole, one already in the schema. All now declared in `migration-matrix.test.mjs`; CI scans all four folders | **Done — this PR** |
 | C7 | 160 `svelte-check` warnings in the mgmt SPA | Mostly label association — belongs with the a11y work, then fail-on-warning | PR-40 / PR-46 |
 | C9 | `verifyToken` revocation check still fails open on an audit-DB error | Availability trade-off; KV deletion (#319) is now the authoritative revocation | Revisit with W4 observability |
 | C10 | React mgmt main chunk at 218.3 kB vs 230 kB CI budget | Little headroom left; not a regression | PR-46 bundle budgets |

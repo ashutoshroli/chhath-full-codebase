@@ -14,7 +14,7 @@
 -- These are additive CREATE INDEX IF NOT EXISTS statements — nothing is dropped
 -- or modified, and they are safe to run more than once.
 --
--- ⚠️ This migration spans TWO databases. Run EACH section against the DB named
+-- ⚠️ This migration spans THREE databases. Run EACH section against the DB named
 -- in its header, NOT all at once:
 --
 --   Section A -> chhath-loans-expenses
