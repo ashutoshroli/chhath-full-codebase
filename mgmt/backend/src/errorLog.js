@@ -3,6 +3,7 @@ import { queuePersonMessageDirect } from './whatsapp.js';
 import { logError, logErrorAt, logWarn } from './logger.js';
 import { waNumber } from './phone.js';
 import { isTruthyFlag } from './flags.js';
+import { ipKey } from './ipPseudonym.js'; // C12
 
 // The actual INSERT now lives in logger.js so that whatsapp.js / docxTemplates.js /
 // index.js can all use the SAME writer (they each had their own, and two of the
@@ -64,8 +65,12 @@ const LOG_ERROR_RATE_WINDOW_SECONDS = 60;
 export async function isLogErrorRateLimited(env, ip) {
   if (!env || !env.KV_SESSIONS || !ip) return false;
   try {
+    // carry-over C12: the counter is keyed on a daily-rotating PSEUDONYM, never the
+    // address. No pseudonym means no counting — never a fallback to the raw value.
+    const idKey = await ipKey(env, ip);
+    if (!idKey) return false;
     const bucket = Math.floor(Date.now() / (LOG_ERROR_RATE_WINDOW_SECONDS * 1000));
-    const key = `rl:logError:${ip}:${bucket}`;
+    const key = `rl:logError:${idKey}:${bucket}`;
     const current = parseInt((await env.KV_SESSIONS.get(key)) || '0', 10) || 0;
     if (current >= LOG_ERROR_RATE_LIMIT) return true;
     await env.KV_SESSIONS.put(key, String(current + 1), { expirationTtl: LOG_ERROR_RATE_WINDOW_SECONDS + 5 });

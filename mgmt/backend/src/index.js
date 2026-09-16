@@ -29,6 +29,7 @@ import * as email from './email.js';
 import * as officialMail from './officialMail.js';
 import { cleanupData, cleanupPreview } from './cleanup.js';
 import { runIntegrityReport } from './integrity.js';
+import { ipKey } from './ipPseudonym.js'; // C12: rate-limit keys carry a pseudonym, not an address
 import { generateAiFix, getAiFixes, getAiFix, getLatestAiFixForError, createAiFixPr } from './aiFix.js';
 import { verifyGithubSignature, handleCheckSuiteEvent } from './aiFixCi.js';
 import { getAiProviders, saveAiProvider, deleteAiProvider, setDefaultAiProvider, reorderAiProviders, testAiProvider } from './aiConfig.js';
@@ -304,8 +305,14 @@ async function isRateLimited(env, ip, action) {
     ctxWaitLog(env, 'backend', 'isRateLimited', 'KV_SESSIONS binding missing — public rate limiting is DISABLED (failing open).');
     return false;
   }
+  // carry-over C12. This is the BROAD one — it covers every rate-limited public action,
+  // not just error reporting, so it was the largest source of visitor addresses in KV.
+  // Keyed on a daily-rotating pseudonym now; no pseudonym means no counting, never a
+  // fallback to the address.
+  const idKey = await ipKey(env, ip);
+  if (!idKey) return false;
   const bucket = Math.floor(Date.now() / (RATE_LIMIT_WINDOW_SECONDS * 1000));
-  const key = `rl:${action}:${ip}:${bucket}`;
+  const key = `rl:${action}:${idKey}:${bucket}`;
   const current = parseInt((await env.KV_SESSIONS.get(key)) || '0', 10) || 0;
   if (current >= RATE_LIMIT_MAX) return true;
   // TTL slightly longer than the window so the key self-expires.

@@ -5,6 +5,7 @@
 
 import { newCsrfToken } from './cookies.js'; // audit H-12: CSRF token minted with each session
 import { recordDegradation, DEGRADATIONS } from './telemetry.js'; // PR-48 / C9: fail-open must be audible
+import { ipKey } from './ipPseudonym.js'; // C12: rate-limit keys carry a pseudonym, not an address
 import { beginLoginChallenge } from './twoFactor.js'; // 2FA login challenge (Superadmin TOTP)
 
 const SESSION_SHORT_MS = 8 * 60 * 60 * 1000;      // 8 hours (not "remember me") — matches Code.js exactly
@@ -52,8 +53,12 @@ function backoffDelayFor(fails) {
 async function isLoginIpRateLimited(env, ip) {
   if (!env || !env.KV_SESSIONS || !ip) return false;
   try {
+    // carry-over C12: the counter is keyed on a daily-rotating PSEUDONYM, never the
+    // address. No pseudonym means no counting — never a fallback to the raw value.
+    const idKey = await ipKey(env, ip);
+    if (!idKey) return false;
     const bucket = Math.floor(Date.now() / (LOGIN_IP_RATE_WINDOW_SECONDS * 1000));
-    const key = `loginip:${ip}:${bucket}`;
+    const key = `loginip:${idKey}:${bucket}`;
     const current = parseInt((await env.KV_SESSIONS.get(key)) || '0', 10) || 0;
     if (current >= LOGIN_IP_RATE_MAX) return true;
     await env.KV_SESSIONS.put(key, String(current + 1), { expirationTtl: LOGIN_IP_RATE_WINDOW_SECONDS + 5 });
