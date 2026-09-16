@@ -7,6 +7,10 @@
   import TwoFactorInput from './TwoFactorInput.svelte';
   import ForgotPassword from './ForgotPassword.svelte';
   import type { SessionUser } from '$lib/api';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   interface Props {
     onLogin: (u: SessionUser) => void;
@@ -166,14 +170,14 @@
           {resetDone}
         </div>
       {/if}
-      {#if error}<div class="error-banner">{error}</div>{/if}
+      {#if error}<div role="alert" class="error-banner">{error}</div>{/if}
       <div class="form-group">
-        <label>Username / Mobile / Email</label>
-        <input bind:value={name} autocomplete="username" placeholder="Username, Mobile, or Email" />
+        <label for={`${uid}-f1`}>Username / Mobile / Email</label>
+        <input id={`${uid}-f1`} bind:value={name} autocomplete="username" placeholder="Username, Mobile, or Email" />
       </div>
       <div class="form-group">
-        <label>Password</label>
-        <input type="password" bind:value={password} autocomplete="current-password" />
+        <label for={`${uid}-f2`}>Password</label>
+        <input id={`${uid}-f2`} type="password" bind:value={password} autocomplete="current-password" />
       </div>
       <div class="form-group">
         <label style="display:flex; align-items:center; gap:6px;">

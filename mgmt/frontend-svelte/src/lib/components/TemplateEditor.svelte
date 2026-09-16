@@ -146,7 +146,7 @@
 </script>
 
 <h2 style="margin-bottom:15px;">{heading}</h2>
-{#if error}<div class="error-banner">{error}</div>{/if}
+{#if error}<div role="alert" class="error-banner">{error}</div>{/if}
 
 <div class="glass-card" style="padding:15px; margin-bottom:15px;">
   <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">

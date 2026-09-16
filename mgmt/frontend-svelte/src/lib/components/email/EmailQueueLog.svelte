@@ -26,7 +26,7 @@
 <div style="font-size:0.85rem; color:var(--text-muted); margin:4px 0 12px;">
   Emails queued but not yet delivered in the last 30 minutes. Sent emails leave the queue; a long-stuck list means <code>RESEND_API_KEY</code> is missing or invalid, or the sending domain is not verified.
 </div>
-{#if error}<div class="error-banner">{error}</div>{/if}
+{#if error}<div role="alert" class="error-banner">{error}</div>{/if}
 {#if emails.length === 0}<div class="glass-card" style="text-align:center; padding:20px;">No stuck emails — the queue is healthy.</div>{/if}
 {#each emails as m, i (m.message_id || i)}
   <div class="glass-card" style="padding:15px; margin-bottom:10px;">

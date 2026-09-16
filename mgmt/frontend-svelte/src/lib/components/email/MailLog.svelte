@@ -37,7 +37,7 @@
 {/if}
 
 {#if loading}<div class="inline-spinner">Loading emails...</div>{/if}
-{#if error}<div class="error-banner">{error}</div>{/if}
+{#if error}<div role="alert" class="error-banner">{error}</div>{/if}
 {#if !loading && !error && (!rows || rows.length === 0)}
   <div class="glass-card" style="text-align:center; padding:20px;">No emails have been sent yet.</div>
 {/if}

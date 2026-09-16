@@ -6,6 +6,10 @@
   import Modal from './Modal.svelte';
   import SearchableSelect from './SearchableSelect.svelte';
   import { isSuperadmin, isAdminOrAbove } from '$lib/permissions';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   interface Props {
     loan: any;
@@ -119,7 +123,7 @@
       Loan ID: {loanId} — <strong>{loan['Loan Status'] || 'Created'}</strong>
     </p>
 
-    {#if error}<div class="error-banner" style="margin-bottom:10px;">{error}</div>{/if}
+    {#if error}<div role="alert" class="error-banner" style="margin-bottom:10px;">{error}</div>{/if}
     {#if loading}<div class="inline-spinner">Loading...</div>{/if}
 
     {#if !loading}
@@ -159,8 +163,8 @@
 
           {#if replacingId === c.consent_id}
             <div style="margin-top:10px; background:#f9fafb; padding:10px; border-radius:8px;">
-              <label style="font-size:0.8rem; display:block; margin-bottom:6px;">New Guarantor</label>
-              <SearchableSelect options={contributorOptions || []} value={newGuarantor} onChange={(v) => (newGuarantor = v)} />
+              <label for={`${uid}-guarantor1`} style="font-size:0.8rem; display:block; margin-bottom:6px;">New Guarantor</label>
+              <SearchableSelect id={`${uid}-guarantor1`} options={contributorOptions || []} value={newGuarantor} onChange={(v) => (newGuarantor = v)} />
               <div style="display:flex; gap:8px; margin-top:8px;">
                 <button type="button" class="btn-submit" style="width:auto; padding:6px 12px; font-size:0.8rem;" onclick={() => confirmReplace(c.consent_id)} disabled={busyId === c.consent_id}>Confirm</button>
                 <button type="button" class="btn-submit" style="width:auto; padding:6px 12px; font-size:0.8rem; background:#e5e7eb; color:#111;" onclick={() => (replacingId = null)}>Cancel</button>
@@ -182,10 +186,10 @@
         <p style="font-size:0.85rem; margin-top:0; margin-bottom:8px;">
           Sanctioned loan amount: <strong>₹{loanAmount}</strong> — Cash + Online must add up to exactly this.
         </p>
-        <label style="font-size:0.8rem;">Cash Amount (₹)</label>
-        <input type="number" min="0" class="input-field" bind:value={cashAmount} placeholder="0" />
-        <label style="font-size:0.8rem; margin-top:8px; display:block;">Online Amount (₹)</label>
-        <input type="number" min="0" class="input-field" bind:value={onlineAmount} placeholder="0" />
+        <label for={`${uid}-f1`} style="font-size:0.8rem;">Cash Amount (₹)</label>
+        <input id={`${uid}-f1`} type="number" min="0" class="input-field" bind:value={cashAmount} placeholder="0" />
+        <label for={`${uid}-f2`} style="font-size:0.8rem; margin-top:8px; display:block;">Online Amount (₹)</label>
+        <input id={`${uid}-f2`} type="number" min="0" class="input-field" bind:value={onlineAmount} placeholder="0" />
         <p style="font-size:0.8rem; margin-top:6px; color:{disburseMatches ? 'var(--text-main)' : 'var(--danger)'};">
           Total: ₹{disburseTotal}{disburseMatches ? ' ✓' : ` — must equal ₹${loanAmount}`}
         </p>

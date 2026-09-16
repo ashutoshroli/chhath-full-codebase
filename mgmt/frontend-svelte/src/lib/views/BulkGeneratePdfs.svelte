@@ -6,6 +6,10 @@
   import { api, reportClientError } from '$lib/api';
   import { fillDocxTemplateFromRow, getLastRenderReport } from '$lib/docxFill';
   import { generateQrDataUrl, publicRecordUrl } from '$lib/qrCode';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   const RETRY_ATTEMPTS = 3;
   const BASE_BACKOFF_MS = 1500;
@@ -268,12 +272,12 @@
 </script>
 
 <h2 style="margin-bottom:15px;">Generate PDFs (Bulk)</h2>
-{#if error}<div class="error-banner">{error}</div>{/if}
+{#if error}<div role="alert" class="error-banner">{error}</div>{/if}
 
 <div class="glass-card" style="padding:20px;">
   <div class="form-group">
-    <label>Year</label>
-    <select bind:value={year} disabled={running}>
+    <label for={`${uid}-f1`}>Year</label>
+    <select id={`${uid}-f1`} bind:value={year} disabled={running}>
       {#each years as y (y)}<option value={y}>{y}</option>{/each}
     </select>
   </div>

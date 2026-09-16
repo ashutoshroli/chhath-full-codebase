@@ -7,6 +7,10 @@
   import { startPolling } from '$lib/polling';
   import ReportErrorButton from '$lib/components/ReportErrorButton.svelte';
   import AnnounceBox from '$lib/components/announce/AnnounceBox.svelte';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   const STATUS_OPTIONS: [string, string][] = [['All', 'All'], ['Not Announced', 'Not Announced'], ['Announced', 'Announced']];
   const TYPE_OPTIONS: [string, string][] = [['All', 'All'], ['Paisa', 'Cash'], ['Kaam', 'Service'], ['Saman', 'Material'], ['Resell', 'Resell'], ['Custom', 'Custom']];
@@ -221,16 +225,16 @@
     <div style={pageStyle}>
       <div class="glass-card" style="padding:24px; max-width:380px; margin:60px auto;">
         <h3 style="margin-bottom:15px; text-align:center;">Announcement Portal</h3>
-        {#if pinError}<div class="error-banner">{pinError}</div>{/if}
+        {#if pinError}<div role="alert" class="error-banner">{pinError}</div>{/if}
         {#if sessionPersistWarning}
           <div style="background:#FEF3C7; color:#92400E; border-radius:8px; padding:8px 12px; font-size:0.8rem; margin-bottom:10px;">
             ⚠️ Your browser is unable to save the session (private/incognito mode). You will need to enter the PIN again after refreshing the page.
           </div>
         {/if}
         <div class="form-group">
-          <label>Enter PIN</label>
+          <label for={`${uid}-f1`}>Enter PIN</label>
           <!-- svelte-ignore a11y_autofocus -->
-          <input
+          <input id={`${uid}-f1`}
             type="password" inputmode="numeric" bind:value={pin} autofocus
             onkeydown={(e) => e.key === 'Enter' && submitPin()}
             style="font-size:1.2rem; text-align:center; letter-spacing:0.2em;"
@@ -264,7 +268,7 @@
     </div>
 
     <div style="max-width:900px; margin:0 auto;">
-      {#if error}<div class="error-banner">{error}</div>{/if}
+      {#if error}<div role="alert" class="error-banner">{error}</div>{/if}
 
       {#if priorityPointer >= 0}
         <div style="background:#FEF3C7; color:#92400E; padding:8px 14px; border-radius:8px; margin-bottom:10px; font-weight:700; font-size:0.85rem;">

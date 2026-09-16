@@ -4,6 +4,10 @@
   import { api } from '$lib/api';
   import Modal from '$lib/components/Modal.svelte';
   import { isTruthyFlag } from '$lib/flags';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   const CONTRIBUTION_TYPES: [string, string][] = [['1', 'Cash (Money)'], ['2', 'Material (Item)'], ['3', 'Service (Work)']];
   const DOC_SUB_TYPES: [string, string][] = [['', 'Both (Receipt + Certificate)'], ['Receipt', 'Receipt Only'], ['Certificate', 'Certificate Only']];
@@ -110,7 +114,7 @@
 {#if loading}
   <div class="inline-spinner">Loading email templates...</div>
 {:else if error}
-  <div class="error-banner">{error}</div>
+  <div role="alert" class="error-banner">{error}</div>
 {:else}
   <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">{hint}</div>
 
@@ -163,30 +167,30 @@
     <h3 id="dlg-emailtemplatelist-164-title" style="margin-bottom:15px;">{editing ? 'Edit' : 'New'} Email Template</h3>
     <form onsubmit={submit}>
       <div class="form-group">
-        <label>Subject</label>
-        <input bind:value={subject} placeholder="e.g. Thank you {'{Name}'} — receipt for {'{Year}'}" style="width:100%;" />
+        <label for={`${uid}-f1`}>Subject</label>
+        <input id={`${uid}-f1`} bind:value={subject} placeholder="e.g. Thank you {'{Name}'} — receipt for {'{Year}'}" style="width:100%;" />
       </div>
       <div class="form-group">
-        <label>Email Body</label>
-        <textarea rows={6} bind:value={text} placeholder={hint} style="width:100%; padding:10px; border-radius:8px; border:1px solid #ddd;"></textarea>
+        <label for={`${uid}-f2`}>Email Body</label>
+        <textarea id={`${uid}-f2`} rows={6} bind:value={text} placeholder={hint} style="width:100%; padding:10px; border-radius:8px; border:1px solid #ddd;"></textarea>
       </div>
       <div class="form-group">
-        <label>Message Type</label>
-        <select bind:value={messageType}>
+        <label for={`${uid}-f3`}>Message Type</label>
+        <select id={`${uid}-f3`} bind:value={messageType}>
           <option value="normal">Normal</option>
           <option value="priority">Priority</option>
         </select>
       </div>
       <div class="form-group">
-        <label>Contribution Type</label>
-        <select value={contributionType} onchange={(e) => onContributionChange((e.currentTarget as HTMLSelectElement).value)}>
+        <label for={`${uid}-f4`}>Contribution Type</label>
+        <select id={`${uid}-f4`} value={contributionType} onchange={(e) => onContributionChange((e.currentTarget as HTMLSelectElement).value)}>
           {#each CONTRIBUTION_TYPES as [val, lbl] (val)}<option value={val}>{lbl}</option>{/each}
         </select>
       </div>
       {#if contributionType === '3'}
         <div class="form-group">
-          <label>Document Type</label>
-          <select value={docSubType} onchange={(e) => onDocSubChange((e.currentTarget as HTMLSelectElement).value)}>
+          <label for={`${uid}-f5`}>Document Type</label>
+          <select id={`${uid}-f5`} value={docSubType} onchange={(e) => onDocSubChange((e.currentTarget as HTMLSelectElement).value)}>
             {#each DOC_SUB_TYPES as [val, lbl] (val)}<option value={val}>{lbl}</option>{/each}
           </select>
         </div>
@@ -197,8 +201,8 @@
       </label>
       {#if hasFile}
         <div class="form-group">
-          <label>Document to Attach</label>
-          <select bind:value={fileDocType}>
+          <label for={`${uid}-f6`}>Document to Attach</label>
+          <select id={`${uid}-f6`} bind:value={fileDocType}>
             {#each FILE_DOC_TYPE_OPTIONS as [val, lbl] (val)}<option value={val}>{lbl}</option>{/each}
           </select>
           <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">

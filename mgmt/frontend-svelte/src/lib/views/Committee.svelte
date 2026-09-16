@@ -8,6 +8,10 @@
   import RowActions from '$lib/components/RowActions.svelte';
   import TransliterateInput from '$lib/components/TransliterateInput.svelte';
   import { canAddView } from '$lib/permissions';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   interface Props {
     year: string;
@@ -21,7 +25,15 @@
   const BLANK = { Name: '', 'View Role': '', 'View Role (Hindi)': '' };
 
   // Re-create the year-scoped view whenever `year` changes (matches useViewData deps).
+  // audit PR-40: deliberate one-time capture. This is EDITABLE local state seeded from a
+  // prop; making it `$derived` would discard whatever the operator has typed every time the
+  // parent re-rendered. The prop is re-read where it genuinely needs to be (see the $effect).
+  // svelte-ignore state_referenced_locally
   let view = $state<ViewData<any[]>>(createViewData(`committee:${year}`, () => api.getCommittee(year)));
+  // audit PR-40: deliberate one-time capture. This is EDITABLE local state seeded from a
+  // prop; making it `$derived` would discard whatever the operator has typed every time the
+  // parent re-rendered. The prop is re-read where it genuinely needs to be (see the $effect).
+  // svelte-ignore state_referenced_locally
   let lastYear = year;
   $effect(() => {
     if (year !== lastYear) {
@@ -99,7 +111,7 @@
 {#if vs.loading}
   <div class="inline-spinner">Loading committee...</div>
 {:else if vs.error}
-  <div class="error-banner">{vs.error}</div>
+  <div role="alert" class="error-banner">{vs.error}</div>
 {:else}
   <h2 style="margin-bottom:15px;">Active Committee</h2>
   {#if !vs.data || vs.data.length === 0}
@@ -135,8 +147,8 @@
     <h3 id="dlg-committee-134-title" style="margin-bottom:15px;">{editing ? 'Edit Committee Member' : 'Add Committee Member'}</h3>
     <form onsubmit={submit}>
       <div class="form-group">
-        <label>User</label>
-        <select bind:value={form.Name}>
+        <label for={`${uid}-f1`}>User</label>
+        <select id={`${uid}-f1`} bind:value={form.Name}>
           <option value="" disabled>-- Select --</option>
           {#each users || [] as u (u.ID)}
             <option value={u.ID}>{u.Name}</option>

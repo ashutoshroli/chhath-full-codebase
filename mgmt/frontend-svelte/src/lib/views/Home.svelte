@@ -16,6 +16,10 @@
   import { isTruthyFlag } from '$lib/flags';
   import { checkMoney } from '$lib/money';
   import { personOptions } from '$lib/personOption';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   interface Props {
     year: string;
@@ -52,7 +56,15 @@
   });
 
   // Year-scoped home view.
+  // audit PR-40: deliberate one-time capture. This is EDITABLE local state seeded from a
+  // prop; making it `$derived` would discard whatever the operator has typed every time the
+  // parent re-rendered. The prop is re-read where it genuinely needs to be (see the $effect).
+  // svelte-ignore state_referenced_locally
   let view = $state<ViewData<any>>(createViewData(`home:${year}`, () => api.getHome(year)));
+  // audit PR-40: deliberate one-time capture. This is EDITABLE local state seeded from a
+  // prop; making it `$derived` would discard whatever the operator has typed every time the
+  // parent re-rendered. The prop is re-read where it genuinely needs to be (see the $effect).
+  // svelte-ignore state_referenced_locally
   let lastYear = year;
   $effect(() => {
     if (year !== lastYear) {
@@ -308,7 +320,7 @@
 {#if vs.loading}
   <div class="inline-spinner">Loading budget...</div>
 {:else if vs.error}
-  <div class="error-banner">{vs.error}</div>
+  <div role="alert" class="error-banner">{vs.error}</div>
 {:else if !vs.data}
   <div class="inline-spinner">Loading budget...</div>
 {:else}
@@ -407,8 +419,8 @@
     <h3 id="dlg-home-407-title" style="margin-bottom:15px;">{editing ? 'Edit Collection' : 'Add Collection'}</h3>
     <form onsubmit={submit}>
       <div class="form-group">
-        <label>Contribution Type</label>
-        <select
+        <label for={`${uid}-f1`}>Contribution Type</label>
+        <select id={`${uid}-f1`}
           value={form['Contribution Type']}
           onchange={(e) => {
             const v = (e.currentTarget as HTMLSelectElement).value;
@@ -425,24 +437,24 @@
         <div class="form-group" style="display:flex; align-items:center; gap:8px;">
           <input
             type="checkbox"
-            id="isResell"
+            id={`${uid}-isresell`}
             checked={!!form['Is Resell']}
             onchange={(e) => (form = { ...form, 'Is Resell': (e.currentTarget as HTMLInputElement).checked, Name: '' })}
             style="width:auto;"
           />
-          <label for="isResell" style="margin:0;">This is an entry for a resold item (no contributor)</label>
+          <label for={`${uid}-isresell`} style="margin:0;">This is an entry for a resold item (no contributor)</label>
         </div>
       {/if}
 
       {#if form['Contribution Type'] === '1' && form['Is Resell']}
         <div class="form-group">
-          <label>Resold Item Name</label>
-          <input value={form.Detail} oninput={(e) => (form = { ...form, Detail: (e.currentTarget as HTMLInputElement).value })} placeholder="e.g. Old utensils, clothes, etc." />
+          <label for={`${uid}-f2`}>Resold Item Name</label>
+          <input id={`${uid}-f2`} value={form.Detail} oninput={(e) => (form = { ...form, Detail: (e.currentTarget as HTMLInputElement).value })} placeholder="e.g. Old utensils, clothes, etc." />
         </div>
       {:else}
         <div class="form-group">
-          <label>Contributor</label>
-          <SearchableSelect
+          <label for={`${uid}-contributor1`}>Contributor</label>
+          <SearchableSelect id={`${uid}-contributor1`}
             options={userOptions}
             value={form.Name}
             onChange={(id) => (form = { ...form, Name: id })}
@@ -454,7 +466,7 @@
 
       {#if form.Name && !form['Is Resell']}
         <div class="form-group" style="background:#f9fafb; border-radius:8px; padding:10px 12px;">
-          <label style="margin-bottom:6px;">Last 5 Years Contribution</label>
+          <p class="form-label" style="margin-bottom:6px; font-weight:600;">Last 5 Years Contribution</p>
           {#if historyLoading}<div style="font-size:0.85rem; color:var(--text-muted);">Loading...</div>{/if}
           {#if !historyLoading && (!history || history.length === 0)}<div style="font-size:0.85rem; color:var(--text-muted);">No prior contributions</div>{/if}
           {#if !historyLoading && history}
@@ -474,20 +486,20 @@
 
       {#if form['Contribution Type'] === '1'}
         <div class="form-group">
-          <label>Amount</label>
-          <input type="number" min="0.01" step="0.01" value={form.Amount} oninput={(e) => (form = { ...form, Amount: (e.currentTarget as HTMLInputElement).value })} />
+          <label for={`${uid}-f3`}>Amount</label>
+          <input id={`${uid}-f3`} type="number" min="0.01" step="0.01" value={form.Amount} oninput={(e) => (form = { ...form, Amount: (e.currentTarget as HTMLInputElement).value })} />
         </div>
       {:else}
         <div class="form-group">
-          <label>{form['Contribution Type'] === '2' ? 'What was given (Item Detail)' : 'What work was done (Work Detail)'}</label>
-          <textarea rows={2} value={form.Detail} oninput={(e) => (form = { ...form, Detail: (e.currentTarget as HTMLTextAreaElement).value })} style="width:100%; padding:8px; border-radius:8px; border:1px solid #ddd;"></textarea>
+          <label for={`${uid}-f4`}>{form['Contribution Type'] === '2' ? 'What was given (Item Detail)' : 'What work was done (Work Detail)'}</label>
+          <textarea id={`${uid}-f4`} rows={2} value={form.Detail} oninput={(e) => (form = { ...form, Detail: (e.currentTarget as HTMLTextAreaElement).value })} style="width:100%; padding:8px; border-radius:8px; border:1px solid #ddd;"></textarea>
         </div>
       {/if}
 
       {#if form['Contribution Type'] === '3'}
         <div class="form-group">
-          <label>Document Type</label>
-          <select value={form['Certificate Or Receipt']} onchange={(e) => (form = { ...form, 'Certificate Or Receipt': (e.currentTarget as HTMLSelectElement).value })}>
+          <label for={`${uid}-f5`}>Document Type</label>
+          <select id={`${uid}-f5`} value={form['Certificate Or Receipt']} onchange={(e) => (form = { ...form, 'Certificate Or Receipt': (e.currentTarget as HTMLSelectElement).value })}>
             <option value="Receipt">Receipt</option>
             <option value="Certificate">Certificate</option>
           </select>
@@ -496,8 +508,8 @@
 
       {#if form['Contribution Type'] === '1'}
         <div class="form-group">
-          <label>Payment Mode</label>
-          <select value={form['Payment Mode']} onchange={(e) => (form = { ...form, 'Payment Mode': (e.currentTarget as HTMLSelectElement).value })}>
+          <label for={`${uid}-f6`}>Payment Mode</label>
+          <select id={`${uid}-f6`} value={form['Payment Mode']} onchange={(e) => (form = { ...form, 'Payment Mode': (e.currentTarget as HTMLSelectElement).value })}>
             {#each paymentModeOptions as p (p['English Value'])}
               <option value={p['English Value']}>
                 {p['English Value']}{p['Hindi Label'] ? ` (${p['Hindi Label']})` : ''}
@@ -509,14 +521,14 @@
 
       {#if form['Contribution Type'] === '1' && (form['Payment Mode'] === 'UPI' || form['Payment Mode'] === 'Online')}
         <div class="form-group">
-          <label>UTR / Transaction ID</label>
-          <input value={form.UTR} oninput={(e) => (form = { ...form, UTR: (e.currentTarget as HTMLInputElement).value })} placeholder="UPI/Bank UTR number" />
+          <label for={`${uid}-f7`}>UTR / Transaction ID</label>
+          <input id={`${uid}-f7`} value={form.UTR} oninput={(e) => (form = { ...form, UTR: (e.currentTarget as HTMLInputElement).value })} placeholder="UPI/Bank UTR number" />
         </div>
       {/if}
 
       <div class="form-group">
-        <label>Date</label>
-        <input type="date" value={form.Date} oninput={(e) => (form = { ...form, Date: (e.currentTarget as HTMLInputElement).value })} />
+        <label for={`${uid}-f8`}>Date</label>
+        <input id={`${uid}-f8`} type="date" value={form.Date} oninput={(e) => (form = { ...form, Date: (e.currentTarget as HTMLInputElement).value })} />
       </div>
       <button class="btn-submit" disabled={saving}>{saving ? (savingStep || 'Saving...') : 'Save'}</button>
     </form>

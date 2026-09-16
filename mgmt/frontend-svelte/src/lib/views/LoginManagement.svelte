@@ -6,6 +6,10 @@
   import { invalidate } from '$lib/cache';
   import Modal from '$lib/components/Modal.svelte';
   import RowActions from '$lib/components/RowActions.svelte';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   interface Props {
     users: any[];
@@ -23,6 +27,10 @@
   $effect(() => view.subscribe((v) => (vs = v as any)));
 
   let showAdd = $state(false);
+  // audit PR-40: deliberate one-time capture. This is EDITABLE local state seeded from a
+  // prop; making it `$derived` would discard whatever the operator has typed every time the
+  // parent re-rendered. The prop is re-read where it genuinely needs to be (see the $effect).
+  // svelte-ignore state_referenced_locally
   let form = $state<any>(role === 'Superadmin' ? { ...BLANK } : { ...BLANK, role: 'Subadmin' });
   let saving = $state(false);
   let editing = $state<any>(null);
@@ -84,7 +92,7 @@
 {#if vs.loading}
   <div class="inline-spinner">Loading...</div>
 {:else if vs.error}
-  <div class="error-banner">{vs.error}</div>
+  <div role="alert" class="error-banner">{vs.error}</div>
 {:else}
   <h2 style="margin-bottom:5px;">Login Management</h2>
   <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:15px;">
@@ -113,8 +121,8 @@
     <h3 id="dlg-loginmanagement-112-title" style="margin-bottom:15px;">{editing ? 'Edit Login' : (isSuperadmin ? 'Add Login' : 'Add Subadmin Login')}</h3>
     <form onsubmit={submit}>
       <div class="form-group">
-        <label>User</label>
-        <select value={form.userId} disabled={!!editing} onchange={(e) => selectUser((e.currentTarget as HTMLSelectElement).value)}>
+        <label for={`${uid}-f1`}>User</label>
+        <select id={`${uid}-f1`} value={form.userId} disabled={!!editing} onchange={(e) => selectUser((e.currentTarget as HTMLSelectElement).value)}>
           <option value="" disabled>-- Select --</option>
           {#each users || [] as u (u.ID)}
             <option value={u.ID} disabled={!editing && usedIds.has(u.ID)}>{u.Name}</option>
@@ -122,17 +130,17 @@
         </select>
       </div>
       <div class="form-group">
-        <label>Mobile</label>
-        <input value={form.mobile} oninput={(e) => (form = { ...form, mobile: (e.currentTarget as HTMLInputElement).value.replace(/\D/g, '').slice(0, 10) })} placeholder="10 digit mobile" />
+        <label for={`${uid}-f2`}>Mobile</label>
+        <input id={`${uid}-f2`} value={form.mobile} oninput={(e) => (form = { ...form, mobile: (e.currentTarget as HTMLInputElement).value.replace(/\D/g, '').slice(0, 10) })} placeholder="10 digit mobile" />
       </div>
       <div class="form-group">
-        <label>Email</label>
-        <input type="email" value={form.email} oninput={(e) => (form = { ...form, email: (e.currentTarget as HTMLInputElement).value })} placeholder="name@example.com" />
+        <label for={`${uid}-f3`}>Email</label>
+        <input id={`${uid}-f3`} type="email" value={form.email} oninput={(e) => (form = { ...form, email: (e.currentTarget as HTMLInputElement).value })} placeholder="name@example.com" />
       </div>
       <div class="form-group">
-        <label>Role</label>
+        <label for={`${uid}-f4`}>Role</label>
         {#if isSuperadmin}
-          <select value={form.role} onchange={(e) => (form = { ...form, role: (e.currentTarget as HTMLSelectElement).value })}>
+          <select id={`${uid}-f4`} value={form.role} onchange={(e) => (form = { ...form, role: (e.currentTarget as HTMLSelectElement).value })}>
             <option value="" disabled>-- Select --</option>
             {#each ROLES as r (r)}<option value={r}>{r}</option>{/each}
           </select>
@@ -141,8 +149,8 @@
         {/if}
       </div>
       <div class="form-group">
-        <label>Password{editing ? ' — leave blank to keep unchanged' : ''}</label>
-        <input type="password" value={form.password} oninput={(e) => (form = { ...form, password: (e.currentTarget as HTMLInputElement).value })} />
+        <label for={`${uid}-f5`}>Password{editing ? ' — leave blank to keep unchanged' : ''}</label>
+        <input id={`${uid}-f5`} type="password" value={form.password} oninput={(e) => (form = { ...form, password: (e.currentTarget as HTMLInputElement).value })} />
       </div>
       <button class="btn-submit" disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
     </form>

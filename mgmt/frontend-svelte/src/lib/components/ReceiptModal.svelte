@@ -178,7 +178,7 @@
 <Modal {open} {onClose} labelledBy="dlg-receiptmodal-178-title">
   <h3 id="dlg-receiptmodal-178-title" style="margin-bottom:15px;">{cfg.label}</h3>
   {#if loading}<div class="inline-spinner">Loading...</div>{/if}
-  {#if error}<div class="error-banner">{error}</div>{/if}
+  {#if error}<div role="alert" class="error-banner">{error}</div>{/if}
   {#if warning}
     <div style="background:#FEF3C7; color:#92400E; border-radius:8px; padding:8px 12px; font-size:0.8rem; margin-bottom:10px;">
       ⚠️ {warning}

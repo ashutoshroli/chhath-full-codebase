@@ -114,7 +114,7 @@
     {notice}
   </div>
 {/if}
-{#if error}<div class="error-banner">{error}</div>{/if}
+{#if error}<div role="alert" class="error-banner">{error}</div>{/if}
 {#if loading && !data}<div class="inline-spinner">Loading...</div>{/if}
 
 {#if data}

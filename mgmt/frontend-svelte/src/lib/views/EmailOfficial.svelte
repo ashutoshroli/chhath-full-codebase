@@ -5,6 +5,10 @@
   import { api } from '$lib/api';
   import { startPolling } from '$lib/polling';
   import Modal from '$lib/components/Modal.svelte';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   function fmtDate(s: string): string {
     if (!s) return '';
@@ -127,7 +131,7 @@
     <button class="subtab-btn {box === 'sent' ? 'active' : ''}" onclick={() => { box = 'sent'; openMsg = null; }}>Sent</button>
   </div>
 
-  {#if error}<div class="error-banner">{error}</div>{/if}
+  {#if error}<div role="alert" class="error-banner">{error}</div>{/if}
   {#if loading}<div class="inline-spinner">Loading mailbox...</div>{/if}
 
   {#if !loading && !error && (rows || []).length === 0}
@@ -196,21 +200,21 @@
     <form onsubmit={submitSend}>
       {#if !replyTo}
         <div class="form-group">
-          <label>To</label>
-          <input type="email" bind:value={form.to} placeholder="recipient@example.com" />
+          <label for={`${uid}-f1`}>To</label>
+          <input id={`${uid}-f1`} type="email" bind:value={form.to} placeholder="recipient@example.com" />
         </div>
         <div class="form-group">
-          <label>Cc (optional)</label>
-          <input type="email" bind:value={form.cc} placeholder="optional" />
+          <label for={`${uid}-f2`}>Cc (optional)</label>
+          <input id={`${uid}-f2`} type="email" bind:value={form.cc} placeholder="optional" />
         </div>
         <div class="form-group">
-          <label>Subject</label>
-          <input bind:value={form.subject} />
+          <label for={`${uid}-f3`}>Subject</label>
+          <input id={`${uid}-f3`} bind:value={form.subject} />
         </div>
       {/if}
       <div class="form-group">
-        <label>Message</label>
-        <textarea rows={8} bind:value={form.body} style="width:100%; padding:10px; border-radius:8px; border:1px solid #ddd;"></textarea>
+        <label for={`${uid}-f4`}>Message</label>
+        <textarea id={`${uid}-f4`} rows={8} bind:value={form.body} style="width:100%; padding:10px; border-radius:8px; border:1px solid #ddd;"></textarea>
       </div>
       <div class="form-group">
         <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer;">

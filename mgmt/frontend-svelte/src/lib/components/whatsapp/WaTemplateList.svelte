@@ -5,6 +5,10 @@
   import { api } from '$lib/api';
   import Modal from '$lib/components/Modal.svelte';
   import { isTruthyFlag } from '$lib/flags';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   interface Props {
     kind: 'person' | 'group' | 'loan';
@@ -176,7 +180,7 @@
 {#if loading}
   <div class="inline-spinner">Loading templates...</div>
 {:else if error}
-  <div class="error-banner">{error}</div>
+  <div role="alert" class="error-banner">{error}</div>
 {:else}
   <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">{hint}</div>
 
@@ -229,31 +233,31 @@
     <h3 id="dlg-watemplatelist-230-title" style="margin-bottom:15px;">{editing ? 'Edit' : 'New'} {defaultTitle} Template</h3>
     <form onsubmit={submit}>
       <div class="form-group">
-        <label>Message Text</label>
-        <textarea rows={5} bind:value={text} placeholder={contributionType === '4' ? RESELL_PLACEHOLDER_HINT : hint} style="width:100%; padding:10px; border-radius:8px; border:1px solid #ddd;"></textarea>
+        <label for={`${uid}-f1`}>Message Text</label>
+        <textarea id={`${uid}-f1`} rows={5} bind:value={text} placeholder={contributionType === '4' ? RESELL_PLACEHOLDER_HINT : hint} style="width:100%; padding:10px; border-radius:8px; border:1px solid #ddd;"></textarea>
       </div>
       {#if hasContributionType && contributionType === '4'}
         <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:8px;">{RESELL_PLACEHOLDER_HINT}</div>
       {/if}
       <div class="form-group">
-        <label>Message Type</label>
-        <select bind:value={messageType}>
+        <label for={`${uid}-f2`}>Message Type</label>
+        <select id={`${uid}-f2`} bind:value={messageType}>
           <option value="normal">Normal</option>
           <option value="priority">Priority</option>
         </select>
       </div>
       {#if hasContributionType}
         <div class="form-group">
-          <label>Contribution Type</label>
-          <select value={contributionType} onchange={(e) => onContributionChange((e.currentTarget as HTMLSelectElement).value)}>
+          <label for={`${uid}-f3`}>Contribution Type</label>
+          <select id={`${uid}-f3`} value={contributionType} onchange={(e) => onContributionChange((e.currentTarget as HTMLSelectElement).value)}>
             {#each contributionTypeOptions as [val, lbl] (val)}<option value={val}>{lbl}</option>{/each}
           </select>
         </div>
       {/if}
       {#if hasContributionType && contributionType === '3'}
         <div class="form-group">
-          <label>Document Type</label>
-          <select value={docSubType} onchange={(e) => onDocSubChange((e.currentTarget as HTMLSelectElement).value)}>
+          <label for={`${uid}-f4`}>Document Type</label>
+          <select id={`${uid}-f4`} value={docSubType} onchange={(e) => onDocSubChange((e.currentTarget as HTMLSelectElement).value)}>
             {#each DOC_SUB_TYPES as [val, lbl] (val)}<option value={val}>{lbl}</option>{/each}
           </select>
         </div>
@@ -265,8 +269,8 @@
       {#if hasFile}
         {#if hasContributionType}
           <div class="form-group">
-            <label>File to Attach</label>
-            <select bind:value={fileDocType}>
+            <label for={`${uid}-f5`}>File to Attach</label>
+            <select id={`${uid}-f5`} bind:value={fileDocType}>
               {#each FILE_DOC_TYPE_OPTIONS as [val, lbl] (val)}<option value={val}>{lbl}</option>{/each}
             </select>
             <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">
@@ -275,8 +279,8 @@
           </div>
         {:else}
           <div class="form-group">
-            <label>File Link (public download URL)</label>
-            <input bind:value={fileLink} placeholder="https://drive.google.com/... or any public link" />
+            <label for={`${uid}-f6`}>File Link (public download URL)</label>
+            <input id={`${uid}-f6`} bind:value={fileLink} placeholder="https://drive.google.com/... or any public link" />
           </div>
         {/if}
       {/if}

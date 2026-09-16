@@ -3,6 +3,10 @@
   // everyone who opted in on the PUBLIC portal. Subscriptions are created by the
   // public worker; this only sends.
   import { api, reportClientError } from '$lib/api';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   let title = $state('');
   let body = $state('');
@@ -84,14 +88,14 @@
         Subscribers: <strong>{stats.active}</strong> active{stats.total !== stats.active ? ` (${stats.total} total)` : ''}
       </div>
 
-      <label style={labelStyle}>Title</label>
-      <input style={inputStyle} maxlength="120" bind:value={title} placeholder="Chhath Puja 2026" />
+      <label for={`${uid}-f1`} style={labelStyle}>Title</label>
+      <input id={`${uid}-f1`} style={inputStyle} maxlength="120" bind:value={title} placeholder="Chhath Puja 2026" />
 
-      <label style={labelStyle}>Message</label>
-      <textarea style="{inputStyle} min-height:90px;" maxlength="500" bind:value={body} placeholder="Nahay Khay kal hai. Sabhi shraddhalu samay par ghat par pahunchein."></textarea>
+      <label for={`${uid}-f2`} style={labelStyle}>Message</label>
+      <textarea id={`${uid}-f2`} style="{inputStyle} min-height:90px;" maxlength="500" bind:value={body} placeholder="Nahay Khay kal hai. Sabhi shraddhalu samay par ghat par pahunchein."></textarea>
 
-      <label style={labelStyle}>Open this page when tapped</label>
-      <input style={inputStyle} bind:value={url} placeholder="/" />
+      <label for={`${uid}-f3`} style={labelStyle}>Open this page when tapped</label>
+      <input id={`${uid}-f3`} style={inputStyle} bind:value={url} placeholder="/" />
 
       <button style={btn('var(--primary-saffron, #F97316)')} onclick={send} disabled={sending || stats.active === 0}>
         {sending ? 'Sending...' : 'Send Notification'}

@@ -2,6 +2,10 @@
   // Ported from React ForgotPassword.jsx — request code -> reset flow, same
   // error codes (NOT_FOUND / NO_EMAIL / RATE_LIMITED) and copy.
   import { api } from '$lib/api';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   interface Props {
     initialName?: string;
@@ -11,6 +15,10 @@
   let { initialName = '', onCancel, onDone }: Props = $props();
 
   let step = $state<'request' | 'reset'>('request');
+  // audit PR-40: deliberate one-time capture. This is EDITABLE local state seeded from a
+  // prop; making it `$derived` would discard whatever the operator has typed every time the
+  // parent re-rendered. The prop is re-read where it genuinely needs to be (see the $effect).
+  // svelte-ignore state_referenced_locally
   let name = $state(initialName);
   let code = $state('');
   let newPassword = $state('');
@@ -66,7 +74,7 @@
 
 <div class="glass-card">
   <h3 style="margin-top:0;">Reset your password</h3>
-  {#if error}<div class="error-banner">{error}</div>{/if}
+  {#if error}<div role="alert" class="error-banner">{error}</div>{/if}
   {#if info && step === 'reset'}
     <div style="background:rgba(22,163,74,0.08); border:1px solid #16a34a33; border-radius:8px; padding:8px 10px; font-size:0.82rem; margin-bottom:12px;">
       {info}
@@ -76,9 +84,9 @@
   {#if step === 'request'}
     <form onsubmit={requestCode}>
       <div class="form-group">
-        <label>Username / Mobile / Email</label>
+        <label for={`${uid}-f1`}>Username / Mobile / Email</label>
         <!-- svelte-ignore a11y_autofocus -->
-        <input bind:value={name} autocomplete="username" placeholder="Username, Mobile, or Email" autofocus />
+        <input id={`${uid}-f1`} bind:value={name} autocomplete="username" placeholder="Username, Mobile, or Email" autofocus />
       </div>
       <p style="font-size:0.78rem; color:var(--text-muted); margin:0 0 12px;">
         We'll email a 6-digit reset code to the address on your account. If you have no email on file, contact a committee admin.
@@ -88,9 +96,9 @@
   {:else}
     <form onsubmit={doReset}>
       <div class="form-group">
-        <label>6-digit code</label>
+        <label for={`${uid}-f2`}>6-digit code</label>
         <!-- svelte-ignore a11y_autofocus -->
-        <input
+        <input id={`${uid}-f2`}
           value={code}
           oninput={(e) => (code = (e.currentTarget as HTMLInputElement).value.replace(/\D/g, '').slice(0, 6))}
           inputmode="numeric"
@@ -102,12 +110,12 @@
         />
       </div>
       <div class="form-group">
-        <label>New password</label>
-        <input type="password" bind:value={newPassword} autocomplete="new-password" />
+        <label for={`${uid}-f3`}>New password</label>
+        <input id={`${uid}-f3`} type="password" bind:value={newPassword} autocomplete="new-password" />
       </div>
       <div class="form-group">
-        <label>Confirm new password</label>
-        <input type="password" bind:value={confirm} autocomplete="new-password" />
+        <label for={`${uid}-f4`}>Confirm new password</label>
+        <input id={`${uid}-f4`} type="password" bind:value={confirm} autocomplete="new-password" />
       </div>
       <p style="font-size:0.75rem; color:var(--text-muted); margin:0 0 12px;">
         Use at least 8 characters. Superadmin accounts need 12+ with an uppercase letter, a lowercase letter and a number.

@@ -4,6 +4,10 @@
   import { api, clearSession } from '$lib/api';
   import Modal from './Modal.svelte';
   import TwoFactorSettings from './TwoFactorSettings.svelte';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   interface Props {
     open: boolean;
@@ -127,7 +131,7 @@
 
 <Modal {open} {onClose} title="Settings">
   {#if loadError}
-    <div class="error-banner">
+    <div role="alert" class="error-banner">
       Profile failed to load: {loadError} — please refresh the page before saving,
       otherwise your mobile/email/WhatsApp may be lost.
     </div>
@@ -138,16 +142,16 @@
   {#if !loading}
     <form onsubmit={saveProfile} style="margin-bottom:28px;">
       <div class="form-group">
-        <label>Mobile</label>
-        <input value={profile.Mobile} maxlength={10} inputmode="numeric" placeholder="10 digit number" oninput={(e) => (profile = { ...profile, Mobile: (e.currentTarget as HTMLInputElement).value.replace(/\D/g, '').slice(0, 10) })} />
+        <label for={`${uid}-f1`}>Mobile</label>
+        <input id={`${uid}-f1`} value={profile.Mobile} maxlength={10} inputmode="numeric" placeholder="10 digit number" oninput={(e) => (profile = { ...profile, Mobile: (e.currentTarget as HTMLInputElement).value.replace(/\D/g, '').slice(0, 10) })} />
       </div>
       <div class="form-group">
-        <label>Email</label>
-        <input type="email" value={profile.Email} oninput={(e) => (profile = { ...profile, Email: (e.currentTarget as HTMLInputElement).value })} />
+        <label for={`${uid}-f2`}>Email</label>
+        <input id={`${uid}-f2`} type="email" value={profile.Email} oninput={(e) => (profile = { ...profile, Email: (e.currentTarget as HTMLInputElement).value })} />
       </div>
       <div class="form-group">
-        <label>WhatsApp</label>
-        <input value={profile.WhatsApp} maxlength={10} inputmode="numeric" placeholder="10 digit number" oninput={(e) => (profile = { ...profile, WhatsApp: (e.currentTarget as HTMLInputElement).value.replace(/\D/g, '').slice(0, 10) })} />
+        <label for={`${uid}-f3`}>WhatsApp</label>
+        <input id={`${uid}-f3`} value={profile.WhatsApp} maxlength={10} inputmode="numeric" placeholder="10 digit number" oninput={(e) => (profile = { ...profile, WhatsApp: (e.currentTarget as HTMLInputElement).value.replace(/\D/g, '').slice(0, 10) })} />
       </div>
       <button class="btn-submit" disabled={saving}>{saving ? 'Saving...' : 'Save Contact Info'}</button>
     </form>
@@ -155,16 +159,16 @@
     <h4 style="margin-bottom:10px;">Change Password</h4>
     <form onsubmit={savePassword}>
       <div class="form-group">
-        <label>Current Password</label>
-        <input type="password" value={pwForm.current} oninput={(e) => setPw({ current: (e.currentTarget as HTMLInputElement).value })} />
+        <label for={`${uid}-f4`}>Current Password</label>
+        <input id={`${uid}-f4`} type="password" value={pwForm.current} oninput={(e) => setPw({ current: (e.currentTarget as HTMLInputElement).value })} />
       </div>
       <div class="form-group">
-        <label>New Password</label>
-        <input type="password" value={pwForm.next} oninput={(e) => setPw({ next: (e.currentTarget as HTMLInputElement).value })} />
+        <label for={`${uid}-f5`}>New Password</label>
+        <input id={`${uid}-f5`} type="password" value={pwForm.next} oninput={(e) => setPw({ next: (e.currentTarget as HTMLInputElement).value })} />
       </div>
       <div class="form-group">
-        <label>Confirm New Password</label>
-        <input type="password" value={pwForm.confirm} oninput={(e) => setPw({ confirm: (e.currentTarget as HTMLInputElement).value })} />
+        <label for={`${uid}-f6`}>Confirm New Password</label>
+        <input id={`${uid}-f6`} type="password" value={pwForm.confirm} oninput={(e) => setPw({ confirm: (e.currentTarget as HTMLInputElement).value })} />
       </div>
       {#if pwError}<div style="color:#b91c1c; font-size:0.82rem; margin-bottom:10px;" role="alert">{pwError}</div>{/if}
       {#if pwMsg}<div style="color:#166534; font-size:0.82rem; margin-bottom:10px;" role="status">{pwMsg}</div>{/if}
@@ -177,7 +181,7 @@
     <p style="font-size:0.82rem; color:var(--text-muted); margin-bottom:10px;">
       Everywhere you are currently logged in. Log out any device you don't recognise.
     </p>
-    {#if sessError}<div class="error-banner" style="margin-bottom:10px;">Could not load devices: {sessError}</div>{/if}
+    {#if sessError}<div role="alert" class="error-banner" style="margin-bottom:10px;">Could not load devices: {sessError}</div>{/if}
     {#if sessLoading}<div class="inline-spinner">Loading...</div>{/if}
     {#if !sessLoading && sessions.length === 0 && !sessError}
       <div style="font-size:0.85rem; color:var(--text-muted);">No active devices found.</div>

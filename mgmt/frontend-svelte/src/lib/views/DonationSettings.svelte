@@ -7,6 +7,10 @@
   import { api, reportClientError } from '$lib/api';
   import { prepareImageForUpload } from '$lib/imagePrep';
   import { checkDonationDetails } from '$lib/money';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   const str = (v: unknown) => (v === undefined || v === null ? '' : v.toString());
 
@@ -153,11 +157,11 @@
     <div class="glass-card" style="margin-bottom:18px; padding:16px;">
       <h3 style="margin-bottom:12px;">Online (UPI)</h3>
 
-      <label style={labelStyle}>UPI ID</label>
-      <input style={inputStyle} value={form.upiId} oninput={(e) => set({ upiId: (e.currentTarget as HTMLInputElement).value })} placeholder="example@okbank" />
+      <label for={`${uid}-f1`} style={labelStyle}>UPI ID</label>
+      <input id={`${uid}-f1`} style={inputStyle} value={form.upiId} oninput={(e) => set({ upiId: (e.currentTarget as HTMLInputElement).value })} placeholder="example@okbank" />
 
-      <label style={labelStyle}>UPI QR image</label>
-      <input type="file" accept="image/*" onchange={(e) => uploadQr((e.currentTarget as HTMLInputElement).files?.[0])} disabled={uploading} style="margin-bottom:12px;" />
+      <label for={`${uid}-f2`} style={labelStyle}>UPI QR image</label>
+      <input id={`${uid}-f2`} type="file" accept="image/*" onchange={(e) => uploadQr((e.currentTarget as HTMLInputElement).files?.[0])} disabled={uploading} style="margin-bottom:12px;" />
       {#if uploading}<div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">Uploading...</div>{/if}
       {#if form.qrUrl}
         <div style="margin-bottom:12px;">
@@ -173,23 +177,23 @@
     <div class="glass-card" style="margin-bottom:18px; padding:16px;">
       <h3 style="margin-bottom:12px;">Bank Transfer</h3>
 
-      <label style={labelStyle}>Account Name</label>
-      <input style={inputStyle} value={form.bankAccountName} oninput={(e) => set({ bankAccountName: (e.currentTarget as HTMLInputElement).value })} placeholder="Navyuvak Chhath Puja Samiti" />
+      <label for={`${uid}-f3`} style={labelStyle}>Account Name</label>
+      <input id={`${uid}-f3`} style={inputStyle} value={form.bankAccountName} oninput={(e) => set({ bankAccountName: (e.currentTarget as HTMLInputElement).value })} placeholder="Navyuvak Chhath Puja Samiti" />
 
-      <label style={labelStyle}>Bank</label>
-      <input style={inputStyle} value={form.bankName} oninput={(e) => set({ bankName: (e.currentTarget as HTMLInputElement).value })} placeholder="State Bank of India" />
+      <label for={`${uid}-f4`} style={labelStyle}>Bank</label>
+      <input id={`${uid}-f4`} style={inputStyle} value={form.bankName} oninput={(e) => set({ bankName: (e.currentTarget as HTMLInputElement).value })} placeholder="State Bank of India" />
 
-      <label style={labelStyle}>A/C No.</label>
-      <input style={inputStyle} value={form.accountNumber} oninput={(e) => set({ accountNumber: (e.currentTarget as HTMLInputElement).value })} placeholder="00000000000" />
+      <label for={`${uid}-f5`} style={labelStyle}>A/C No.</label>
+      <input id={`${uid}-f5`} style={inputStyle} value={form.accountNumber} oninput={(e) => set({ accountNumber: (e.currentTarget as HTMLInputElement).value })} placeholder="00000000000" />
 
-      <label style={labelStyle}>IFSC</label>
-      <input style={inputStyle} value={form.ifsc} oninput={(e) => set({ ifsc: (e.currentTarget as HTMLInputElement).value })} placeholder="SBIN0000000" />
+      <label for={`${uid}-f6`} style={labelStyle}>IFSC</label>
+      <input id={`${uid}-f6`} style={inputStyle} value={form.ifsc} oninput={(e) => set({ ifsc: (e.currentTarget as HTMLInputElement).value })} placeholder="SBIN0000000" />
     </div>
 
     <div class="glass-card" style="margin-bottom:18px; padding:16px;">
       <h3 style="margin-bottom:12px;">Payment Proof</h3>
-      <label style={labelStyle}>WhatsApp number (for sending payment screenshot / UTR)</label>
-      <input style={inputStyle} value={form.whatsapp} oninput={(e) => set({ whatsapp: (e.currentTarget as HTMLInputElement).value })} placeholder="+91 90000 00000" />
+      <label for={`${uid}-f7`} style={labelStyle}>WhatsApp number (for sending payment screenshot / UTR)</label>
+      <input id={`${uid}-f7`} style={inputStyle} value={form.whatsapp} oninput={(e) => set({ whatsapp: (e.currentTarget as HTMLInputElement).value })} placeholder="+91 90000 00000" />
     </div>
 
     <div style="display:flex; gap:10px; align-items:center;">

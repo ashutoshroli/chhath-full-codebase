@@ -3,6 +3,10 @@
   // announcement links per year and manage custom announcements per year.
   import { api } from '$lib/api';
   import { isTruthyFlag } from '$lib/flags';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   interface Props {
     years: string[];
@@ -14,6 +18,10 @@
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
+  // audit PR-40: deliberate one-time capture. This is EDITABLE local state seeded from a
+  // prop; making it `$derived` would discard whatever the operator has typed every time the
+  // parent re-rendered. The prop is re-read where it genuinely needs to be (see the $effect).
+  // svelte-ignore state_referenced_locally
   let year = $state((years && years[0]) || '');
   let pin = $state('');
   let neverExpires = $state(true);
@@ -24,6 +32,10 @@
   let error = $state('');
 
   let customs = $state<any[]>([]);
+  // audit PR-40: deliberate one-time capture. This is EDITABLE local state seeded from a
+  // prop; making it `$derived` would discard whatever the operator has typed every time the
+  // parent re-rendered. The prop is re-read where it genuinely needs to be (see the $effect).
+  // svelte-ignore state_referenced_locally
   let customYear = $state((years && years[0]) || '');
   let textHindi = $state('');
   let textEnglish = $state('');
@@ -132,19 +144,19 @@
 </script>
 
 <h2 style="margin-bottom:15px;">Announcement Portal</h2>
-{#if error}<div class="error-banner">{error}</div>{/if}
+{#if error}<div role="alert" class="error-banner">{error}</div>{/if}
 
 <div class="glass-card" style="padding:15px;">
   <strong style="display:block; margin-bottom:10px;">Generate New Link</strong>
   <div class="form-group">
-    <label>Year</label>
-    <select bind:value={year}>
+    <label for={`${uid}-f1`}>Year</label>
+    <select id={`${uid}-f1`} bind:value={year}>
       {#each years || [] as y (y)}<option value={y}>{y}</option>{/each}
     </select>
   </div>
   <div class="form-group">
-    <label>PIN (minimum 4 digits)</label>
-    <input type="text" inputmode="numeric" bind:value={pin} placeholder="e.g. 4821" />
+    <label for={`${uid}-f2`}>PIN (minimum 4 digits)</label>
+    <input id={`${uid}-f2`} type="text" inputmode="numeric" bind:value={pin} placeholder="e.g. 4821" />
   </div>
   <div class="form-group">
     <label style="display:flex; align-items:center; gap:8px;">
@@ -154,8 +166,8 @@
   </div>
   {#if !neverExpires}
     <div class="form-group">
-      <label>Expiry Date/Time</label>
-      <input type="datetime-local" bind:value={expiresAt} />
+      <label for={`${uid}-f3`}>Expiry Date/Time</label>
+      <input id={`${uid}-f3`} type="datetime-local" bind:value={expiresAt} />
     </div>
   {/if}
   <button class="btn-submit" onclick={generate} disabled={generating}>
@@ -193,18 +205,18 @@
 <div class="glass-card" style="padding:15px;">
   <strong style="display:block; margin-bottom:10px;">Custom Announcements</strong>
   <div class="form-group">
-    <label>Year</label>
-    <select bind:value={customYear}>
+    <label for={`${uid}-f4`}>Year</label>
+    <select id={`${uid}-f4`} bind:value={customYear}>
       {#each years || [] as y (y)}<option value={y}>{y}</option>{/each}
     </select>
   </div>
   <div class="form-group">
-    <label>Text (Hindi)</label>
-    <textarea rows={2} bind:value={textHindi} style="width:100%; padding:10px; border-radius:8px; border:1px solid #ddd;"></textarea>
+    <label for={`${uid}-f5`}>Text (Hindi)</label>
+    <textarea id={`${uid}-f5`} rows={2} bind:value={textHindi} style="width:100%; padding:10px; border-radius:8px; border:1px solid #ddd;"></textarea>
   </div>
   <div class="form-group">
-    <label>Text (English)</label>
-    <textarea rows={2} bind:value={textEnglish} style="width:100%; padding:10px; border-radius:8px; border:1px solid #ddd;"></textarea>
+    <label for={`${uid}-f6`}>Text (English)</label>
+    <textarea id={`${uid}-f6`} rows={2} bind:value={textEnglish} style="width:100%; padding:10px; border-radius:8px; border:1px solid #ddd;"></textarea>
   </div>
   <div class="form-group">
     <label style="display:flex; align-items:center; gap:8px;">

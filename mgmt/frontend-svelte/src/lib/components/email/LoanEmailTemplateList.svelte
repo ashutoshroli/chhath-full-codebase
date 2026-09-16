@@ -4,6 +4,10 @@
   import { api } from '$lib/api';
   import Modal from '$lib/components/Modal.svelte';
   import { isTruthyFlag } from '$lib/flags';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   interface Props {
     loanType: string;
@@ -93,7 +97,7 @@
 {#if loading}
   <div class="inline-spinner">Loading loan email templates...</div>
 {:else if error}
-  <div class="error-banner">{error}</div>
+  <div role="alert" class="error-banner">{error}</div>
 {:else}
   <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">{hint}</div>
   {#if !rows || rows.length === 0}<div class="glass-card" style="text-align:center; padding:20px;">No loan email templates yet for this type.</div>{/if}
@@ -133,16 +137,16 @@
     <h3 id="dlg-loanemailtemplatelist-134-title" style="margin-bottom:15px;">{editing ? 'Edit' : 'New'} Loan Email Template</h3>
     <form onsubmit={submit}>
       <div class="form-group">
-        <label>Subject</label>
-        <input bind:value={subject} placeholder="e.g. Loan consent for {'{LoanerName}'}" style="width:100%;" />
+        <label for={`${uid}-f1`}>Subject</label>
+        <input id={`${uid}-f1`} bind:value={subject} placeholder="e.g. Loan consent for {'{LoanerName}'}" style="width:100%;" />
       </div>
       <div class="form-group">
-        <label>Email Body</label>
-        <textarea rows={6} bind:value={text} placeholder={hint} style="width:100%; padding:10px; border-radius:8px; border:1px solid #ddd;"></textarea>
+        <label for={`${uid}-f2`}>Email Body</label>
+        <textarea id={`${uid}-f2`} rows={6} bind:value={text} placeholder={hint} style="width:100%; padding:10px; border-radius:8px; border:1px solid #ddd;"></textarea>
       </div>
       <div class="form-group">
-        <label>Message Type</label>
-        <select bind:value={messageType}>
+        <label for={`${uid}-f3`}>Message Type</label>
+        <select id={`${uid}-f3`} bind:value={messageType}>
           <option value="normal">Normal</option>
           <option value="priority">Priority</option>
         </select>
@@ -153,8 +157,8 @@
       </label>
       {#if hasFile}
         <div class="form-group">
-          <label>File Link (public URL)</label>
-          <input bind:value={fileLink} placeholder="https://... any public link" />
+          <label for={`${uid}-f4`}>File Link (public URL)</label>
+          <input id={`${uid}-f4`} bind:value={fileLink} placeholder="https://... any public link" />
         </div>
       {/if}
       <button class="btn-submit" disabled={saving}>{saving ? 'Saving...' : (editing ? 'Update' : 'Save')}</button>

@@ -3,13 +3,14 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Chhath Puja Management Portal — SvelteKit + TypeScript migration of the React SPA. SAME design/layout (reuses styles.css). Consumes the UNCHANGED management API. Work-in-progress, phase-by-phase.",
+  "description": "Chhath Puja Management Portal \u2014 SvelteKit + TypeScript migration of the React SPA. SAME design/layout (reuses styles.css). Consumes the UNCHANGED management API. Work-in-progress, phase-by-phase.",
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "test": "vitest run"
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+    "test": "vitest run",
+    "comment:check": "audit PR-40 / carry-over C7. This app carried 160 svelte-check warnings, 142 of them 'a form label must be associated with a control'. They are all fixed, so the gate is now closed: --fail-on-warnings means the next one fails CI instead of joining a pile nobody reads. Public/frontend-v6 has had this flag from the start."
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.6",

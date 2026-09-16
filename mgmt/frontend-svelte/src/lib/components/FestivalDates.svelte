@@ -2,12 +2,20 @@
   // Ported from React FestivalDates.jsx — per-year festival dates used in loan
   // consent placeholders (Diwali next day, Nahay-Khay, Chhath morning arghya).
   import { api } from '$lib/api';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   interface Props {
     years: string[] | null;
   }
   let { years }: Props = $props();
 
+  // audit PR-40: deliberate one-time capture. This is EDITABLE local state seeded from a
+  // prop; making it `$derived` would discard whatever the operator has typed every time the
+  // parent re-rendered. The prop is re-read where it genuinely needs to be (see the $effect).
+  // svelte-ignore state_referenced_locally
   let year = $state<string | number>((years && years[0]) || new Date().getFullYear());
   let dates = $state({ diwali: '', nahayKhay: '', chhathArghya: '' });
   let loading = $state(true);
@@ -49,11 +57,11 @@
   <p style="font-size:0.8rem; color:var(--text-muted); margin:2px 0 10px;">
     These change every year — please set them here before the new fund-year begins.
   </p>
-  {#if error}<div class="error-banner" style="margin-bottom:10px;">{error}</div>{/if}
+  {#if error}<div role="alert" class="error-banner" style="margin-bottom:10px;">{error}</div>{/if}
 
   <div class="form-group">
-    <label>Year</label>
-    <select bind:value={year}>
+    <label for={`${uid}-f1`}>Year</label>
+    <select id={`${uid}-f1`} bind:value={year}>
       {#each (years || [year]) as y (y)}<option value={y}>{y}</option>{/each}
     </select>
   </div>
@@ -62,16 +70,16 @@
     <div class="inline-spinner">Loading...</div>
   {:else}
     <div class="form-group">
-      <label>Day After Diwali</label>
-      <input type="date" value={dates.diwali} oninput={(e) => (dates = { ...dates, diwali: (e.currentTarget as HTMLInputElement).value })} />
+      <label for={`${uid}-f2`}>Day After Diwali</label>
+      <input id={`${uid}-f2`} type="date" value={dates.diwali} oninput={(e) => (dates = { ...dates, diwali: (e.currentTarget as HTMLInputElement).value })} />
     </div>
     <div class="form-group">
-      <label>Nahay-Khay Date</label>
-      <input type="date" value={dates.nahayKhay} oninput={(e) => (dates = { ...dates, nahayKhay: (e.currentTarget as HTMLInputElement).value })} />
+      <label for={`${uid}-f3`}>Nahay-Khay Date</label>
+      <input id={`${uid}-f3`} type="date" value={dates.nahayKhay} oninput={(e) => (dates = { ...dates, nahayKhay: (e.currentTarget as HTMLInputElement).value })} />
     </div>
     <div class="form-group">
-      <label>Chhath Morning Arghya Date</label>
-      <input type="date" value={dates.chhathArghya} oninput={(e) => (dates = { ...dates, chhathArghya: (e.currentTarget as HTMLInputElement).value })} />
+      <label for={`${uid}-f4`}>Chhath Morning Arghya Date</label>
+      <input id={`${uid}-f4`} type="date" value={dates.chhathArghya} oninput={(e) => (dates = { ...dates, chhathArghya: (e.currentTarget as HTMLInputElement).value })} />
     </div>
     <button class="btn-submit" style="width:auto;" onclick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
   {/if}

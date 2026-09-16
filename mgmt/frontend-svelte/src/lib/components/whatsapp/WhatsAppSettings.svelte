@@ -36,7 +36,7 @@
   <p style="font-size:0.8rem; color:var(--text-muted); margin:4px 0 10px;">
     Loan OTP and Consent-related messages will be sent "from" this number (10-digit number). This does not apply to any other message types.
   </p>
-  {#if error}<div class="error-banner" style="margin-bottom:10px;">{error}</div>{/if}
+  {#if error}<div role="alert" class="error-banner" style="margin-bottom:10px;">{error}</div>{/if}
   {#if loading}
     <div class="inline-spinner">Loading...</div>
   {:else}

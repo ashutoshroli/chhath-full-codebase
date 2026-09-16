@@ -9,6 +9,10 @@
   import TransliterateInput from '$lib/components/TransliterateInput.svelte';
   import UserProfileModal from '$lib/components/UserProfileModal.svelte';
   import { canAddView } from '$lib/permissions';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   interface Props {
     users: any[];
@@ -130,7 +134,7 @@
 {#if loading}
   <div class="inline-spinner">Loading users...</div>
 {:else if error}
-  <div class="error-banner">{error}</div>
+  <div role="alert" class="error-banner">{error}</div>
 {:else}
   <h2 style="margin-bottom:15px;">Registered Users</h2>
   <input placeholder="Search by name or ID..." style="margin-bottom:15px;" bind:value={search} />
@@ -169,8 +173,8 @@
           </div>
         {/if}
         <div>
-          <label style="display:block; margin-bottom:4px;">Profile Photo</label>
-          <input type="file" accept="image/*" onchange={onPickPhoto} disabled={uploadingPhoto} />
+          <label for={`${uid}-f1`} style="display:block; margin-bottom:4px;">Profile Photo</label>
+          <input id={`${uid}-f1`} type="file" accept="image/*" onchange={onPickPhoto} disabled={uploadingPhoto} />
           {#if uploadingPhoto}<span style="font-size:0.8rem; color:var(--text-muted); margin-left:8px;">Uploading...</span>{/if}
           {#if form.Photo && !uploadingPhoto}
             <button type="button" class="btn-link" style="margin-left:8px; font-size:0.8rem;" onclick={() => (form = { ...form, Photo: '' })}>Remove</button>
@@ -185,8 +189,8 @@
       />
 
       <div class="form-group">
-        <label>Village</label>
-        <VillageInput
+        <label for={`${uid}-village1`}>Village</label>
+        <VillageInput id={`${uid}-village1`}
           value={form.Village}
           hiValue={form['Village (Hindi)']}
           onChange={(en, hi) => (form = { ...form, Village: en, 'Village (Hindi)': hi })}
@@ -200,8 +204,8 @@
       />
 
       <div class="form-group">
-        <label>Mobile</label>
-        <input
+        <label for={`${uid}-f2`}>Mobile</label>
+        <input id={`${uid}-f2`}
           value={form.Mobile}
           maxlength={10}
           inputmode="numeric"
@@ -217,13 +221,13 @@
       />
 
       <div class="form-group">
-        <label>Email</label>
-        <input value={form.Email} oninput={(e) => (form = { ...form, Email: (e.currentTarget as HTMLInputElement).value })} />
+        <label for={`${uid}-f3`}>Email</label>
+        <input id={`${uid}-f3`} value={form.Email} oninput={(e) => (form = { ...form, Email: (e.currentTarget as HTMLInputElement).value })} />
       </div>
 
       <div class="form-group">
-        <label>WhatsApp</label>
-        <input
+        <label for={`${uid}-f4`}>WhatsApp</label>
+        <input id={`${uid}-f4`}
           value={form.WhatsApp}
           maxlength={10}
           inputmode="numeric"

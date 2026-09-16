@@ -50,7 +50,7 @@
 </script>
 
 <h2 style="margin-bottom:15px;">Consent Review</h2>
-{#if error}<div class="error-banner">{error}</div>{/if}
+{#if error}<div role="alert" class="error-banner">{error}</div>{/if}
 
 <div class="subtabs" style="margin-bottom:15px;">
   {#each [['all', 'All'], ['accepted', 'Accepted'], ['declined', 'Declined']] as [val, lbl] (val)}
@@ -89,7 +89,7 @@
             <div>
               <div style="font-size:0.7rem; color:var(--text-muted); margin-bottom:4px;">Photo</div>
               <a href={r.photo_url} target="_blank" rel="noreferrer">
-                <img src={driveImageUrl(r.photo_url, 400)} onerror={driveImgOnError(r.photo_url, 400)} alt="Photo" style="width:100px; height:100px; object-fit:cover; border-radius:8px; border:1px solid #eee;" />
+                <img src={driveImageUrl(r.photo_url, 400)} onerror={driveImgOnError(r.photo_url, 400)} alt="The consenting person, captured at the moment of signing" style="width:100px; height:100px; object-fit:cover; border-radius:8px; border:1px solid #eee;" />
               </a>
             </div>
           {/if}

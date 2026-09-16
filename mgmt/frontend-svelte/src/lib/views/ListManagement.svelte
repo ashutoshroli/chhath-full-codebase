@@ -93,7 +93,7 @@
 
 <h2 style="margin-bottom:15px;">List Management</h2>
 
-{#if yearsError}<div class="error-banner">Years failed to load: {yearsError}</div>{/if}
+{#if yearsError}<div role="alert" class="error-banner">Years failed to load: {yearsError}</div>{/if}
 <FestivalDates {years} />
 
 <div style="display:flex; gap:8px; margin-bottom:15px; flex-wrap:wrap;">

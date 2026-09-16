@@ -4,6 +4,10 @@
   // per-year entries (journey_entries). Parity with the React JourneyContent.jsx.
   import { api } from '$lib/api';
   import Modal from '$lib/components/Modal.svelte';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   interface Entry {
     id: number; year: number | string; title_en: string; title_hi: string;
@@ -219,12 +223,12 @@
   <h3 style="margin-bottom:10px;">Tagline</h3>
   <form onsubmit={saveTagline}>
     <div class="form-group">
-      <label>Tagline (English)</label>
-      <input bind:value={taglineEn} placeholder="A decade of faith, unity and service" />
+      <label for={`${uid}-f1`}>Tagline (English)</label>
+      <input id={`${uid}-f1`} bind:value={taglineEn} placeholder="A decade of faith, unity and service" />
     </div>
     <div class="form-group">
-      <label>Tagline (Hindi)</label>
-      <input bind:value={taglineHi} placeholder="आस्था, एकता और सेवा का एक दशक" />
+      <label for={`${uid}-f2`}>Tagline (Hindi)</label>
+      <input id={`${uid}-f2`} bind:value={taglineHi} placeholder="आस्था, एकता और सेवा का एक दशक" />
     </div>
     <button class="btn-submit" disabled={taglineSaving}>{taglineSaving ? 'Saving...' : 'Save Tagline'}</button>
     {#if taglineMsg}<span style="margin-left:10px; color:var(--success); font-size:0.85rem;">{taglineMsg}</span>{/if}
@@ -250,11 +254,11 @@
         <div style="margin-top:8px;">
           {#each g.fields as f (f.key)}
             <div class="form-group">
-              <label>{f.label}</label>
+              <label for={`${uid}-jf-${f.key}`}>{f.label}</label>
               {#if f.area}
-                <textarea rows={3} value={textVal(f.key)} oninput={(e) => setTextVal(f.key, (e.currentTarget as HTMLTextAreaElement).value)}></textarea>
+                <textarea id={`${uid}-jf-${f.key}`} rows={3} value={textVal(f.key)} oninput={(e) => setTextVal(f.key, (e.currentTarget as HTMLTextAreaElement).value)}></textarea>
               {:else}
-                <input value={textVal(f.key)} oninput={(e) => setTextVal(f.key, (e.currentTarget as HTMLInputElement).value)} />
+                <input id={`${uid}-jf-${f.key}`} value={textVal(f.key)} oninput={(e) => setTextVal(f.key, (e.currentTarget as HTMLInputElement).value)} />
               {/if}
             </div>
           {/each}
@@ -271,7 +275,7 @@
 {#if loading}
   <div class="inline-spinner">Loading journey entries...</div>
 {:else if error}
-  <div class="error-banner">{error}</div>
+  <div role="alert" class="error-banner">{error}</div>
 {:else}
   <div class="glass-card">
     {#if entries.length === 0}
@@ -308,25 +312,25 @@
   <h3 id="dlg-journeycontent-307-title" style="margin-bottom:15px;">{form.id ? 'Edit Entry' : 'Add Entry'}</h3>
   <form onsubmit={save}>
     <div class="form-group">
-      <label>Year</label>
-      <input value={form.year} inputmode="numeric" maxlength={4}
+      <label for={`${uid}-f3`}>Year</label>
+      <input id={`${uid}-f3`} value={form.year} inputmode="numeric" maxlength={4}
         oninput={(e) => (form = { ...form, year: (e.currentTarget as HTMLInputElement).value.replace(/\D/g, '').slice(0, 4) })} />
     </div>
     <div class="form-group">
-      <label>Title (English)</label>
-      <input value={form.title_en} oninput={(e) => (form = { ...form, title_en: (e.currentTarget as HTMLInputElement).value })} placeholder="2017 — A New Beginning" />
+      <label for={`${uid}-f4`}>Title (English)</label>
+      <input id={`${uid}-f4`} value={form.title_en} oninput={(e) => (form = { ...form, title_en: (e.currentTarget as HTMLInputElement).value })} placeholder="2017 — A New Beginning" />
     </div>
     <div class="form-group">
-      <label>Title (Hindi)</label>
-      <input value={form.title_hi} oninput={(e) => (form = { ...form, title_hi: (e.currentTarget as HTMLInputElement).value })} placeholder="2017 — एक नई शुरुआत" />
+      <label for={`${uid}-f5`}>Title (Hindi)</label>
+      <input id={`${uid}-f5`} value={form.title_hi} oninput={(e) => (form = { ...form, title_hi: (e.currentTarget as HTMLInputElement).value })} placeholder="2017 — एक नई शुरुआत" />
     </div>
     <div class="form-group">
-      <label>Content (English)</label>
-      <textarea rows={4} value={form.content_en} oninput={(e) => (form = { ...form, content_en: (e.currentTarget as HTMLTextAreaElement).value })}></textarea>
+      <label for={`${uid}-f6`}>Content (English)</label>
+      <textarea id={`${uid}-f6`} rows={4} value={form.content_en} oninput={(e) => (form = { ...form, content_en: (e.currentTarget as HTMLTextAreaElement).value })}></textarea>
     </div>
     <div class="form-group">
-      <label>Content (Hindi)</label>
-      <textarea rows={4} value={form.content_hi} oninput={(e) => (form = { ...form, content_hi: (e.currentTarget as HTMLTextAreaElement).value })}></textarea>
+      <label for={`${uid}-f7`}>Content (Hindi)</label>
+      <textarea id={`${uid}-f7`} rows={4} value={form.content_hi} oninput={(e) => (form = { ...form, content_hi: (e.currentTarget as HTMLTextAreaElement).value })}></textarea>
     </div>
     <div style="display:flex; gap:10px;">
       <button type="button" class="btn-secondary" onclick={closeForm}>Cancel</button>

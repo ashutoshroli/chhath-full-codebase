@@ -55,7 +55,7 @@
 </script>
 
 <h2 style="margin-bottom:15px;">Consent Templates</h2>
-{#if error}<div class="error-banner">{error}</div>{/if}
+{#if error}<div role="alert" class="error-banner">{error}</div>{/if}
 
 <div style="display:flex; gap:8px; margin-bottom:15px;">
   {#each TYPES as [val, lbl] (val)}

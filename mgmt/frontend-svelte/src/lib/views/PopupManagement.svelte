@@ -8,6 +8,10 @@
   import Modal from '$lib/components/Modal.svelte';
   import PopupSlideshow from '$lib/components/PopupSlideshow.svelte';
   import { driveImageUrl, driveImgOnError } from '$lib/driveUrl';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   const ROLES = ['Superadmin', 'Admin', 'Subadmin', 'Public'];
   const DEFAULT_DURATION_MS = 5000;
@@ -208,17 +212,17 @@
 
 {#if editingId}
   <h2 style="margin-bottom:15px;">{editingId === 'new' ? 'New Popup' : 'Edit Popup'}</h2>
-  {#if error}<div class="error-banner">{error}</div>{/if}
+  {#if error}<div role="alert" class="error-banner">{error}</div>{/if}
 
   <div class="glass-card" style="padding:15px; margin-bottom:15px;">
     <div class="form-group">
-      <label>Title (for Superadmin reference only, not shown to viewers)</label>
-      <input value={form.title} oninput={(e) => (form = { ...form, title: (e.currentTarget as HTMLInputElement).value })} />
+      <label for={`${uid}-f1`}>Title (for Superadmin reference only, not shown to viewers)</label>
+      <input id={`${uid}-f1`} value={form.title} oninput={(e) => (form = { ...form, title: (e.currentTarget as HTMLInputElement).value })} />
     </div>
 
     <div class="form-group">
-      <label>Visible to which roles</label>
-      <div style="display:flex; gap:12px; flex-wrap:wrap;">
+      <span id={`${uid}-roles-label`} class="form-label">Visible to which roles</span>
+      <div role="group" aria-labelledby={`${uid}-roles-label`} style="display:flex; gap:12px; flex-wrap:wrap;">
         {#each ROLES as role (role)}
           <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
             <input type="checkbox" checked={form.roles.includes(role)} onchange={() => toggleRole(role)} />
@@ -237,12 +241,12 @@
     </label>
 
     <div class="form-group">
-      <label>Start Date &amp; Time</label>
-      <input type="datetime-local" value={form.startAt} oninput={(e) => (form = { ...form, startAt: (e.currentTarget as HTMLInputElement).value })} />
+      <label for={`${uid}-f2`}>Start Date &amp; Time</label>
+      <input id={`${uid}-f2`} type="datetime-local" value={form.startAt} oninput={(e) => (form = { ...form, startAt: (e.currentTarget as HTMLInputElement).value })} />
     </div>
     <div class="form-group">
-      <label>End Date &amp; Time</label>
-      <input type="datetime-local" value={form.endAt} oninput={(e) => (form = { ...form, endAt: (e.currentTarget as HTMLInputElement).value })} />
+      <label for={`${uid}-f3`}>End Date &amp; Time</label>
+      <input id={`${uid}-f3`} type="datetime-local" value={form.endAt} oninput={(e) => (form = { ...form, endAt: (e.currentTarget as HTMLInputElement).value })} />
       <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">
         You can leave both empty — the popup will then run with no time limit.
         The time is in your phone's local time ({localTz}).
@@ -276,8 +280,8 @@
         </div>
 
         <div class="form-group">
-          <label style="font-size:0.8rem;">Image (optional)</label>
-          <input type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif" onchange={(e) => { const f = (e.currentTarget as HTMLInputElement).files?.[0]; if (f) uploadSlideImage(i, f); }} />
+          <label for={`${uid}-slide-img-${i}`} style="font-size:0.8rem;">Image (optional)</label>
+          <input id={`${uid}-slide-img-${i}`} type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif" onchange={(e) => { const f = (e.currentTarget as HTMLInputElement).files?.[0]; if (f) uploadSlideImage(i, f); }} />
           {#if uploadingSlide === i}<div class="inline-spinner">Uploading...</div>{/if}
 
           {#if slide.imageError}
@@ -319,24 +323,25 @@
         </div>
 
         <div class="form-group">
-          <label style="font-size:0.8rem;">Text (optional)</label>
-          <textarea rows={3} value={slide.text} oninput={(e) => updateSlide(i, { text: (e.currentTarget as HTMLTextAreaElement).value })} style="width:100%; padding:8px; border-radius:8px; border:1px solid #ddd;"></textarea>
+          <label for={`${uid}-slide-text-${i}`} style="font-size:0.8rem;">Text (optional)</label>
+          <textarea id={`${uid}-slide-text-${i}`} rows={3} value={slide.text} oninput={(e) => updateSlide(i, { text: (e.currentTarget as HTMLTextAreaElement).value })} style="width:100%; padding:8px; border-radius:8px; border:1px solid #ddd;"></textarea>
         </div>
 
         <div class="form-group">
-          <label style="font-size:0.8rem;">Link URL (optional)</label>
-          <input value={slide.linkUrl} oninput={(e) => updateSlide(i, { linkUrl: (e.currentTarget as HTMLInputElement).value })} placeholder="https://..." />
+          <label for={`${uid}-slide-url-${i}`} style="font-size:0.8rem;">Link URL (optional)</label>
+          <input id={`${uid}-slide-url-${i}`} value={slide.linkUrl} oninput={(e) => updateSlide(i, { linkUrl: (e.currentTarget as HTMLInputElement).value })} placeholder="https://..." />
         </div>
         {#if slide.linkUrl}
           <div class="form-group">
-            <label style="font-size:0.8rem;">Link Text</label>
-            <input value={slide.linkText} oninput={(e) => updateSlide(i, { linkText: (e.currentTarget as HTMLInputElement).value })} placeholder="e.g. More Info" />
+            <label for={`${uid}-slide-linktext-${i}`} style="font-size:0.8rem;">Link Text</label>
+            <input id={`${uid}-slide-linktext-${i}`} value={slide.linkText} oninput={(e) => updateSlide(i, { linkText: (e.currentTarget as HTMLInputElement).value })} placeholder="e.g. More Info" />
           </div>
         {/if}
 
         <div class="form-group">
-          <label style="font-size:0.8rem;">Auto-play duration (seconds)</label>
+          <label for={`${uid}-slide-dur-${i}`} style="font-size:0.8rem;">Auto-play duration (seconds)</label>
           <input
+            id={`${uid}-slide-dur-${i}`}
             type="number"
             min={MIN_DURATION_MS / 1000}
             max={MAX_DURATION_MS / 1000}
@@ -387,7 +392,7 @@
   <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:12px;">
     Popups are independent of the year — the year selector above does not apply to them.
   </p>
-  {#if error}<div class="error-banner">{error}</div>{/if}
+  {#if error}<div role="alert" class="error-banner">{error}</div>{/if}
 
   {#if preview}
     <div class="glass-card" style="padding:15px; margin-bottom:15px;">

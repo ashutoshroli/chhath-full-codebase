@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
   // Ported from React TwoFactorInput.jsx — 6-digit OTP boxes + backup-code mode.
   interface Props {
     onSubmit: (code: string) => void;
@@ -85,11 +89,11 @@
 
 {#if useBackup}
   <form onsubmit={submitBackup} style="margin-top:8px;">
-    {#if error}<div class="error-banner">{error}</div>{/if}
+    {#if error}<div role="alert" class="error-banner">{error}</div>{/if}
     <div class="form-group">
-      <label>Backup code</label>
+      <label for={`${uid}-f1`}>Backup code</label>
       <!-- svelte-ignore a11y_autofocus -->
-      <input
+      <input id={`${uid}-f1`}
         bind:value={backup}
         placeholder="XXXXX-XXXXX"
         autocomplete="one-time-code"
@@ -112,13 +116,13 @@
 {:else}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div style="margin-top:8px;">
-    {#if error}<div class="error-banner">{error}</div>{/if}
-    <label style="display:block; margin-bottom:8px; font-size:0.9rem;">
+    {#if error}<div role="alert" class="error-banner">{error}</div>{/if}
+    <label for={`${uid}-f2`} style="display:block; margin-bottom:8px; font-size:0.9rem;">
       Enter the 6-digit code from your authenticator app
     </label>
     <div style="display:flex; gap:8px; justify-content:center;" onpaste={handlePaste}>
       {#each digits as d, i (i)}
-        <input
+        <input id={`${uid}-f2`}
           bind:this={inputs[i]}
           value={d}
           oninput={(e) => handleChange(i, (e.currentTarget as HTMLInputElement).value)}

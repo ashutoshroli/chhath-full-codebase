@@ -8,14 +8,20 @@
     value?: string;
     hiValue?: string;
     onChange: (en: string, hi?: string) => void;
+    /** Forwarded to the <select> so a caller's <label for=...> can name it (PR-40). */
+    id?: string;
   }
-  let { value = '', hiValue = '', onChange }: Props = $props();
+  let { value = '', hiValue = '', onChange, id }: Props = $props();
 
   const villageList = createDropdownList('Village');
   let villageNames = $state<string[]>([]);
   const unsub = villageList.subscribe((s) => (villageNames = s.options.map((o) => o['English Value'])));
   $effect(() => () => unsub());
 
+  // audit PR-40: deliberate one-time capture. This is EDITABLE local state seeded from a
+  // prop; making it `$derived` would discard whatever the operator has typed every time the
+  // parent re-rendered. The prop is re-read where it genuinely needs to be (see the $effect).
+  // svelte-ignore state_referenced_locally
   let customMode = $state(Boolean(value) && !villageList.current().some((o) => o['English Value'] === value));
 
   $effect(() => {
@@ -25,6 +31,7 @@
 </script>
 
 <select
+  {id}
   value={customMode ? 'Other' : value || ''}
   onchange={(e) => {
     const v = (e.currentTarget as HTMLSelectElement).value;

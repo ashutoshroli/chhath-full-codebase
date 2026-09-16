@@ -46,7 +46,7 @@
 {/if}
 
 {#if loading}<div class="inline-spinner">Loading messages...</div>{/if}
-{#if error}<div class="error-banner">{error}</div>{/if}
+{#if error}<div role="alert" class="error-banner">{error}</div>{/if}
 
 {#if !loading && !error && filtered.length === 0}
   <div class="glass-card" style="text-align:center; padding:20px;">No message records found.</div>

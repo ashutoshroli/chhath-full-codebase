@@ -3,6 +3,10 @@
   // old or all records from a target table (used by Email + WhatsApp logs).
   import { api } from '$lib/api';
   import { isSuperadmin } from '$lib/permissions';
+  import { newUid } from '$lib/a11y/uid';
+  // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
+  // component is mounted more than once on a screen.
+  const uid = newUid();
 
   interface Props {
     target: string;
@@ -54,10 +58,10 @@
 {#if isSuperadmin(role)}
   <div class="glass-card" style="padding:14px; margin-top:12px; border:1px solid #fde68a; background:#fffbeb;">
     <strong style="display:block; margin-bottom:8px;">🧹 Clean up {label}</strong>
-    {#if error}<div class="error-banner" style="margin-bottom:8px;">{error}</div>{/if}
+    {#if error}<div role="alert" class="error-banner" style="margin-bottom:8px;">{error}</div>{/if}
     <div class="form-group" style="margin-bottom:8px;">
-      <label style="font-size:0.8rem;">What to delete</label>
-      <select value={mode} onchange={(e) => { mode = (e.currentTarget as HTMLSelectElement).value; count = null; }}>
+      <label for={`${uid}-f1`} style="font-size:0.8rem;">What to delete</label>
+      <select id={`${uid}-f1`} value={mode} onchange={(e) => { mode = (e.currentTarget as HTMLSelectElement).value; count = null; }}>
         <option value="olderThan">Keep last N days (delete older)</option>
         {#if hasStatus}<option value="sent">Only Sent</option>{/if}
         {#if hasStatus}<option value="failed">Only Failed</option>{/if}
@@ -66,8 +70,8 @@
     </div>
     {#if mode === 'olderThan'}
       <div class="form-group" style="margin-bottom:8px;">
-        <label style="font-size:0.8rem;">Keep last (days)</label>
-        <input type="number" min="0" value={days} oninput={(e) => { days = (e.currentTarget as HTMLInputElement).value; count = null; }} style="width:120px;" />
+        <label for={`${uid}-f2`} style="font-size:0.8rem;">Keep last (days)</label>
+        <input id={`${uid}-f2`} type="number" min="0" value={days} oninput={(e) => { days = (e.currentTarget as HTMLInputElement).value; count = null; }} style="width:120px;" />
       </div>
     {/if}
     <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
