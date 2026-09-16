@@ -6,9 +6,9 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status: 26 of 48 PRs merged · 1 open (this one) · 21 pending**
+**Status: 28 of 48 PRs merged · 1 open (this one) · 19 pending**
 
-Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 ✅ done (8/8 — every PUB-BE finding is closed)** · **W3 1/7 in progress** · W4–W7 not started
+Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 ✅ done (8/8 — every PUB-BE finding is closed)** · **W3 3/7 in progress** · W4–W7 not started
 
 ---
 
@@ -42,68 +42,71 @@ Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is c
 | [#336](https://github.com/ashutoshroli/chhath-full-codebase/pull/336) | make the snapshot atomic and stop inventing a data version | PUB-BE-07 (observations) | The last-known-good copy is ONE KV value `{version, savedAt, data}` instead of a two-key pair that could be half-written and never corrected; the size guard measures UTF-8 bytes rather than UTF-16 code units (3x under-count on Devanagari); a failed write is logged; an unreadable version is `null` and answers `503 {unavailable}` instead of a cacheable `v=0` | Paginating the payload itself → PR-24 |
 | [#337](https://github.com/ashutoshroli/chhath-full-codebase/pull/337) | read the sections together, build once, verify the version after | PUB-BE-07 | Twelve sequential section reads become concurrent (same queries, same D1 cost); concurrent misses share one build per isolate per version instead of each running nine table scans; the version is re-checked after assembly so a payload is never cached under a version it no longer matches; a section past 20k rows is logged before the 25 MB snapshot cap silently removes the outage fallback | Paginating the contract = C13 |
 | [#338](https://github.com/ashutoshroli/chhath-full-codebase/pull/338) | a lockfile, and the Worker running for real in CI | PUB-BE-08 | First lockfile for `Public/backend`; `miniflare` pinned exactly (it ships workerd, the thing under test); a harness booting the real Worker on D1 built from the committed schema + real KV + real Cache API; 25 integration tests over every action; a separate CI job so `npm test` stays dependency-free. Two documented `overrides` take miniflare's tree to 0 advisories | Every action's contract, not every branch — the unit suites keep that |
+| [#339](https://github.com/ashutoshroli/chhath-full-codebase/pull/339) | one byte contract for the PDF batch, enforced at every hop | Render #1, #2, #11 | The 1 MB parser limit made a real bulk run fall back to converting in the Worker — the very limit the offload avoids; per-route limits now DERIVE from a shared contract (the anonymous chat route drops 1 MB → 16 KB); pre-dispatch splitting; ZIP-magic + file-name validation before Drive; an output budget that stops conversion instead of building a callback the Worker rejects. CI runs the service's 89 tests for the first time | Its lockfile (#10) stays with its own PR |
+| [#340](https://github.com/ashutoshroli/chhath-full-codebase/pull/340) | operator steps for Waves 0–2 | — | `docs/POST_AUDIT_MANUAL_STEPS.md` §W: W0–W2 add **no migrations**; a deploy ORDER (frontend before Worker, since #335 requires `application/json` on writes); the one new setting (`ALLOWED_ORIGINS` on the PUBLIC Worker); three prerequisite-migration checks; six smoke tests | C11 consent-ACL pass still needs a human |
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — one byte contract for the PDF batch, enforced at every hop
+## 2. This PR — where a provider API key is allowed to be sent
 
-**Audit ID:** Render/offload #1 and #2 (plus #11, brought forward — see below). **First W3 PR.**
+**Audit ID:** Render/offload #6. Second W3 PR.
 
-`pdf_convert_batch` is the one render job that carries real bytes: up to twenty filled `.docx` files out, the same number of PDFs back. Nothing agreed on how many bytes that was allowed to be, and the disagreement was load-bearing in four separate places.
+An `openai-compatible` AI provider is configured by a Superadmin with a base URL, validated by exactly this:
 
-### The 1 MB parser limit made the offload counter-productive
+```js
+if (type === 'openai-compatible' && !/^https?:\/\//.test(baseUrl)) reject
+```
 
-`server.js` parsed **every** request with `express.json({ limit: '1mb' })`, under a comment stating that payloads "carry references + small text (error/diff), never big blobs". That is true of the AI jobs and simply false of this one.
+That field is not just a request target. Two things happen to the URL it holds:
 
-A real bulk run of twenty documents is over 1 MB once base64 has added its third, so body-parser rejected it **before the router ran**. `createAndDispatchJob` saw a failed dispatch, and the Worker's `!dispatch.success` branch then converted **the entire batch itself** — which is precisely the CPU and subrequest limit this offload service exists to stay under.
+1. **The provider's API key is sent to it as a `Bearer` token.** So the field really asks *"which host would you like this credential handed to?"* `http://` also puts the key on the wire in clear.
+2. **Both the Worker (`aiFix.js`) and the Render service fetch it server-side**, from inside the deployment's own network position. `http://169.254.169.254/…` is the cloud metadata service; `http://10.x` and `http://127.0.0.1` are whatever else is reachable from there — and the response is returned to the caller as *"the model's answer"*.
 
-The shape of the failure is what makes it worth naming: **small batches worked**, so the endpoint looked healthy, and only the large runs fell into the path most likely to take the Worker down.
+Every one of these was **accepted** on `main`:
 
-### Nothing capped the batch, the item, or the result
+```
+ACCEPTED  http://169.254.169.254/latest/meta-data/
+ACCEPTED  http://localhost:8787/v1
+ACCEPTED  http://10.0.0.1/v1
+ACCEPTED  http://127.0.0.1/v1
+ACCEPTED  https://user:pw@evil.example/v1
+```
 
-Measured on `main`, with Drive stubbed:
+Done — two layers, because they catch different things:
 
-| | on `main` | on this branch |
-|---|---|---|
-| a PDF submitted as a `.docx`, named `../../escape.docx` | **`ok: true`** — uploaded to Drive, converted, stored under that name | refused, **0** Drive calls |
-| 100 items in one batch (documented limit: "~20") | all 100 accepted, **100** Drive conversions | refused before any Drive call |
-| ten records producing 2 MB PDFs | callback body **26.7 MB** — rejected by the Worker's 10 MB cap, so all ten conversions are thrown away | **8.0 MB**, three records kept, `truncated: true`, and only 3 conversions spent |
+- **Shape** (both deployments, synchronous): `https` only, no credentials in the URL, no IP literal in any private / loopback / link-local / CGNAT / multicast range (IPv4, IPv6, and IPv4-mapped IPv6 like `::ffff:127.0.0.1`), no `localhost` / `.local` / `.internal` / `.lan`, no single-label host, no known metadata hostname, and an **optional operator allow-list**. This is the only check a Cloudflare Worker *can* do — workerd has no DNS resolver, and the Worker copy deliberately does not pretend otherwise.
+- **Resolution** (Render only): `dns.promises.lookup(..., { all: true })` before every provider call. Shape rules are defeated by one DNS record — `evil.example` satisfies every syntactic check and can have an A record of `127.0.0.1`. **Every** returned address is checked, not just the first: a name with both a public and a private record would otherwise pass whenever the resolver happened to order them favourably, which is the same class of bug as trusting the first `X-Forwarded-For` entry. A resolution *failure* is a refusal — if we cannot tell where a request is going, we do not send a credential there.
+- **`redirect: 'error'` on every provider fetch.** Without it an allowed public host answers `302 Location: http://169.254.169.254/…` and the runtime follows it **with the `Authorization` header still attached**, every check above having passed. A model API has no reason to redirect.
+- **Checked at USE time, not only at save time.** A row saved before this existed can still hold `http://10.0.0.1`, and a save-time-only check would trust it forever. The two places the key actually leaves a process are the last places that can refuse, so both do.
+- The **normalised** URL is what gets stored, not the raw input.
 
-`Buffer.from(x, 'base64')` **silently discards** anything that is not base64, so garbage decoded to shorter garbage and was uploaded to Drive as a document. And every PDF was accumulated in memory and serialised into one callback, which is how a batch could succeed here, cost twenty Drive conversions, and be discarded on arrival.
+**Migrations & setup:** none required. One optional variable, `AI_PROVIDER_HOST_ALLOWLIST` (comma-separated hostnames, on **both** the Worker and the Render service) — unset means the shape rules alone decide, which already refuses everything above. **One operator check is worth doing once**, because existing rows were never validated:
 
-Done:
+```sql
+SELECT provider_id, name, base_url FROM ai_providers WHERE base_url NOT LIKE 'https://%';
+```
 
-- **One contract, stated in bytes** (`renderContract.js` / `batchContract.js`): items per batch, bytes per item, bytes per batch, the wire limit, and per-item and per-batch **output** budgets. The output total is chosen so a full batch's PDFs, base64-expanded, fit inside the Worker's own 10 MB body cap with room for the JSON around them.
-- **The Express limits are derived from it, per route.** One global parser was also the wrong shape: it forced the same allowance on an authenticated job intake that legitimately carries megabytes and on an anonymous browser endpoint carrying one short question. The chat route is now capped at **16 KB — tighter than the old 1 MB** — and the job intake gets what its contract needs.
-- **Pre-dispatch splitting.** `planBatches` splits by the same limits Render enforces on arrival, so a dispatch can no longer be the thing that breaks the contract. A document too big for *any* batch is reported per record rather than sinking the run it is part of, and a batch that *was* accepted is no longer also converted locally — that would have produced the same file twice.
-- **Items are validated before Drive is touched:** base64 alphabet, the ZIP local-file-header magic (`PK\x03\x04` — a `.docx` is a ZIP; `PK\x05\x06` and `PK\x07\x08` are an empty and a spanned archive and are refused), and a file name that cannot escape its directory, since that name reaches Drive and comes back as the stored PDF name the Worker turns into an R2 key.
-- **Conversion STOPS when the output budget is spent**, rather than continuing to spend Drive quota on bytes that cannot be delivered. The remaining records come back with a reason, and `truncated: true` tells the bulk screen why a run was partial.
-
-### CI now runs the Render service's tests
-
-Audit Render/offload **#11**: the service has had 89 tests and CI has never run them, so nothing stopped a change to the Worker/Render contract from breaking a service that deploys separately and auto-deploys. The plan assigns this to PR-46, but half of this contract is enforced *there* — a test nobody runs is documentation, so the job is brought forward. Its lockfile (#10) is a separate finding and stays with its own PR; the job uses `npm install`, which is what Render itself resolves today.
+Any row that comes back is now refused at use time and must be re-saved with an `https` URL.
 
 ## Verification
 
-- `mgmt/server-render/test/batchContract.test.mjs` — 17 tests.
-- `mgmt/backend/test/render-batch-contract.test.mjs` — 11 tests, including a **drift guard**: the contract block is delimited by markers and must be byte-identical in both copies. The two deployments share no code by design, so duplication is the pattern (as with the public Worker's column maps) and the test is what makes it safe. It also asserts the `'1mb'` literal is gone from the *code* — comments are stripped first, so deleting the explanation cannot satisfy it.
-- One existing fixture was corrected: `pdfConvertBatch.test.mjs` used `base64: 'UEsDBok'`, which decodes to `PK\x03\x06` — not a ZIP header at all. It now uses real `.docx` magic. Its intent (per-record failure isolation) is unchanged.
+- `mgmt/backend/test/provider-url-policy.test.mjs` — **44 tests**, including a marker-delimited **drift guard** (the policy block must be byte-identical in both copies), and an assertion that the Worker copy does **not** reference `dns` (a check that silently does nothing is worse than an absent one).
+- `mgmt/server-render/test/providerUrl.test.mjs` — **13 tests** for the DNS half: an A record of `127.0.0.1` or `169.254.169.254`, a mixed public/private answer in either order, IPv6 unique-local, IPv4-mapped loopback, an unresolvable name, an empty answer, and that the refusal message does **not** echo the resolved address back (it is the answer to a DNS query the caller controls, in a log the caller can often read).
+- Also pinned: a *public* literal like `8.8.8.8` is still allowed (being wrong in that direction would break a legitimate self-hosted endpoint), a lookalike domain does not pass as a subdomain of an allow-listed one, and the allow-list **cannot re-permit** an internal host.
+- Four existing Render suites gained a DNS stub (`test/helpers/dnsStub.mjs`): their fixtures use `.test` hostnames, and `.test` is a reserved TLD that never resolves. Refusing an unresolvable host is correct production behaviour, so the **fixtures** get a resolver rather than the policy getting an escape hatch.
 
 ```
-mgmt/backend:       npm test -> 725 passed (714 + 11) · lint:errors clean
-mgmt/server-render: npm test -> 106 passed (89 + 17)
+mgmt/backend:       npm test -> 769 passed (725 + 44) · lint:errors clean
+mgmt/server-render: npm test -> 119 passed (106 + 13)
 Public/backend:     npm test -> 145 passed (unaffected)
-node --check        -> OK across both Workers and the Render service
 ```
-
-Left for later in W3: the durable/idempotent job store, deadlines and bounded concurrency are PR-27; the `dispatched → applying` claim and the callback outbox are PR-28. This PR deliberately changes only how many bytes move, not when or how often.
 
 ---
 
 ## 3. Pending
 
-**W3 — Render / AI / chat (6 left):** durable idempotent jobs · callback outbox + version bump · provider SSRF policy · AI write allowlist · chat abuse controls · chat privacy + Neon
+**W3 — Render / AI / chat (4 left):** durable idempotent jobs · callback outbox + version bump · AI write allowlist · chat abuse controls · chat privacy + Neon
 **W4 — Database (3):** duplicate/orphan detection · enforce keys & relations · migration ledger
 **W5 — Accessibility (6):** dialog primitives (public + mgmt) · combobox/buttons · contrast/focus/zoom · live regions + labels · structure/motion
 **W6 — SEO / PWA / privacy / perf (4):** route metadata · manifest + update UX · privacy + same-origin push · lazy skins

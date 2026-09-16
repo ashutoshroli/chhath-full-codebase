@@ -21,6 +21,7 @@
 
 import { requireSuperadmin, ValidationError, InternalError } from './auth.js';
 import { randomId } from './random.js';
+import { assertProviderUrl, PROVIDER_FETCH_OPTS } from './providerUrl.js';
 import { logErrorAt, logWarn } from './logger.js';
 // diffApply (applyUnifiedDiff/pathsInDiff) is no longer used here — the PR-create
 // path that applied diffs is offloaded to Render. The CI-retry loop (aiFixCi.js)
@@ -226,11 +227,19 @@ async function callAnthropic(provider, sys, userMsg) {
 
 // --- OpenAI-compatible protocol (OpenAI, OpenRouter, Groq, DeepSeek, Together,
 //     Gemini's OpenAI endpoint, local vLLM, ...) --------------------------------
-async function callOpenAiCompatible(provider, sys, userMsg) {
-  const base = (provider.baseUrl || '').replace(/\/+$/, '');
+async function callOpenAiCompatible(env, provider, sys, userMsg) {
+  // Checked HERE, not only where the provider was saved (audit Render/offload #6). A row
+  // written before that check existed can still hold `http://10.0.0.1`, and this line is
+  // where the API key actually leaves the Worker — so this is the last place that can
+  // refuse. workerd has no DNS resolver, so the Worker enforces the shape rules and the
+  // Render service additionally resolves the name.
+  const base = assertProviderUrl(provider.baseUrl, env);
   const url = `${base}/chat/completions`;
   const resp = await fetch(url, {
     method: 'POST',
+    // `redirect: 'error'`: without it an allowed host can answer `302 Location:
+    // http://169.254.169.254/…` and the runtime follows it WITH the Authorization header.
+    ...PROVIDER_FETCH_OPTS,
     headers: {
       Authorization: `Bearer ${provider.apiKey}`,
       'Content-Type': 'application/json',
@@ -265,7 +274,7 @@ export async function callAiModel(env, { errorRow, files, extraContext }) {
   }
   const userMsg = buildUserMsg({ errorRow, files, extraContext });
   const raw = provider.type === 'openai-compatible'
-    ? await callOpenAiCompatible(provider, AI_SYS_PROMPT, userMsg)
+    ? await callOpenAiCompatible(env, provider, AI_SYS_PROMPT, userMsg)
     : await callAnthropic(provider, AI_SYS_PROMPT, userMsg);
   const { diff, reasoning } = parseModelJson(raw.text, provider.sourceLabel);
   return {
