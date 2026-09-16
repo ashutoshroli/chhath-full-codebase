@@ -161,8 +161,8 @@
 
   <button class="fab" onclick={() => { editing = null; resetForm(); showAdd = true; }}><span class="material-icons-round">add</span></button>
 
-  <Modal open={showAdd} onClose={closeModal}>
-    <h3 style="margin-bottom:15px;">{editing ? 'Edit' : 'New'} Email Template</h3>
+  <Modal open={showAdd} onClose={closeModal} labelledBy="dlg-emailtemplatelist-164-title">
+    <h3 id="dlg-emailtemplatelist-164-title" style="margin-bottom:15px;">{editing ? 'Edit' : 'New'} Email Template</h3>
     <form onsubmit={submit}>
       <div class="form-group">
         <label>Subject</label>

@@ -67,7 +67,7 @@
 </script>
 
 {#if valid && slide}
-  <Modal open={true} onClose={goNextPopup}>
+  <Modal open={true} onClose={goNextPopup} title="Notice">
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       style="text-align:center;"

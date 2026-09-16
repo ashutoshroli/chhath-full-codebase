@@ -34,8 +34,8 @@
   }
 </script>
 
-<Modal {open} onClose={onClose}>
-  <h3 style="margin-bottom:15px;">Quick Add User</h3>
+<Modal {open} onClose={onClose} labelledBy="dlg-quickadduser-37-title">
+  <h3 id="dlg-quickadduser-37-title" style="margin-bottom:15px;">Quick Add User</h3>
   <form onsubmit={submit}>
     <div class="form-group">
       <label>Name</label>

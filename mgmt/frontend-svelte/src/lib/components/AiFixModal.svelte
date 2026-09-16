@@ -171,8 +171,8 @@
   }
 </script>
 
-<Modal open {onClose}>
-  <h3 style="margin-top:0; margin-bottom:4px;">Fix using AI</h3>
+<Modal open {onClose} labelledBy="dlg-aifixmodal-174-title">
+  <h3 id="dlg-aifixmodal-174-title" style="margin-top:0; margin-bottom:4px;">Fix using AI</h3>
   <p style="font-size:0.75rem; color:var(--text-muted); margin-top:0; margin-bottom:12px;">
     Error Ref: {error.error_id} · {error.source} · {error.page || '-'}
   </p>

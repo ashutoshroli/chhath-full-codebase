@@ -365,8 +365,8 @@
   </div>
 
   {#if showLivePreview}
-    <Modal open onClose={() => (showLivePreview = false)}>
-      <h3 style="margin-top:0; margin-bottom:6px;">Live Preview</h3>
+    <Modal open onClose={() => (showLivePreview = false)} labelledBy="dlg-popupmanagement-368-title">
+      <h3 id="dlg-popupmanagement-368-title" style="margin-top:0; margin-bottom:6px;">Live Preview</h3>
       <p style="font-size:0.75rem; color:var(--text-muted); margin-top:0; margin-bottom:14px;">
         Bilkul waisa hi jaisa public portal par dikhega — auto-play + loop chal raha hai; mouse le jaane par ruk jaata hai.
       </p>

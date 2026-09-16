@@ -125,7 +125,7 @@
   let otherSessionsCount = $derived(sessions.filter((s) => !s.isCurrent).length);
 </script>
 
-<Modal {open} {onClose}>
+<Modal {open} {onClose} title="Settings">
   {#if loadError}
     <div class="error-banner">
       Profile failed to load: {loadError} — please refresh the page before saving,

@@ -227,8 +227,8 @@
 
   <button class="fab" onclick={() => { editing = null; resetForm(); showAdd = true; }}><span class="material-icons-round">add</span></button>
 
-  <Modal open={showAdd} onClose={closeModal}>
-    <h3 style="margin-bottom:15px;">{editing ? 'Edit' : 'New'} {defaultTitle} Template</h3>
+  <Modal open={showAdd} onClose={closeModal} labelledBy="dlg-watemplatelist-230-title">
+    <h3 id="dlg-watemplatelist-230-title" style="margin-bottom:15px;">{editing ? 'Edit' : 'New'} {defaultTitle} Template</h3>
     <form onsubmit={submit}>
       <div class="form-group">
         <label>Message Text</label>

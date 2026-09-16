@@ -89,8 +89,8 @@
 
   <button class="fab" onclick={() => (showAdd = true)}><span class="material-icons-round">add</span></button>
 
-  <Modal open={showAdd} onClose={closeModal}>
-    <h3 style="margin-bottom:15px;">{editing ? 'Edit Group' : 'New Group'}</h3>
+  <Modal open={showAdd} onClose={closeModal} labelledBy="dlg-groupinfolist-92-title">
+    <h3 id="dlg-groupinfolist-92-title" style="margin-bottom:15px;">{editing ? 'Edit Group' : 'New Group'}</h3>
     <form onsubmit={submit}>
       <div class="form-group">
         <label>Group Name</label>

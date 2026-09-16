@@ -282,8 +282,8 @@
     <button class="fab" onclick={() => (showAdd = true)}><span class="material-icons-round">add</span></button>
   {/if}
 
-  <Modal open={showAdd} onClose={closeModal}>
-    <h3 style="margin-bottom:5px;">{editing ? 'Edit Loan Terms' : 'Issue Loan'}</h3>
+  <Modal open={showAdd} onClose={closeModal} labelledBy="dlg-loans-285-title">
+    <h3 id="dlg-loans-285-title" style="margin-bottom:5px;">{editing ? 'Edit Loan Terms' : 'Issue Loan'}</h3>
     {#if !editing}
       <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:15px;">
         Receiver and Guarantors can only be selected from {year === 'All' ? new Date().getFullYear() : year}'s contributors.

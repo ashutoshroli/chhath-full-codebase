@@ -304,8 +304,8 @@
 
 <button class="fab" onclick={startNew}><span class="material-icons-round">add</span></button>
 
-<Modal open={editingOpen} onClose={closeForm}>
-  <h3 style="margin-bottom:15px;">{form.id ? 'Edit Entry' : 'Add Entry'}</h3>
+<Modal open={editingOpen} onClose={closeForm} labelledBy="dlg-journeycontent-307-title">
+  <h3 id="dlg-journeycontent-307-title" style="margin-bottom:15px;">{form.id ? 'Edit Entry' : 'Add Entry'}</h3>
   <form onsubmit={save}>
     <div class="form-group">
       <label>Year</label>
