@@ -34,6 +34,14 @@ sequenced and marked with its risk. Do them in order; **A first** (deploy), then
 > `ALLOWED_ORIGINS`/`VITE_GTM_ID`/uptime §B, (3) FK triggers §C3 if not already
 > applied. §C5/§C4 rebuilds and §D are NOT needed for a fresh test-data deploy.**
 
+> ## ⚡ UPDATE — after Waves 0–2 of the 2026-09-15 audit (#311–#338)
+>
+> The 2026-09-15 audit's W0/W1/W2 are merged: all eleven P0 findings and PUB-BE-01…08.
+> **Those add no migrations at all** — they are deploys, one new variable, and one
+> security backlog item. They have their own section: **[§W below](#w-waves-02-311338--what-an-operator-must-do)**.
+>
+> Sections A–D are the *earlier* audit's remainder and are unchanged.
+
 > Legend: 🟢 safe / routine · 🟡 verify before/after · 🔴 destructive on live data (take a backup first)
 
 ---
@@ -153,3 +161,167 @@ the remaining half. It needs `cf-cache-status: HIT` verified on the deployed
 - [ ] C3/C4/C5: run PART 1 detection for 10/11/12/13; then triggers; then (optional) combined rebuilds
 - [ ] C6: confirm `2026-09-01/08` applied (check Error Log)
 - [ ] D: schedule cookie/CORS (CORS_COOKIE_MIGRATION.md) + public payload split when there's a window
+- [ ] **W: Waves 0–2 (#311–#338) — see §W. No migrations; deploy order matters; set the PUBLIC `ALLOWED_ORIGINS`**
+
+---
+
+# W. Waves 0–2 (#311–#338) — what an operator must do
+
+Everything from the 2026-09-15 audit's **W0, W1 and W2** (PRs #311–#338: all eleven P0
+findings, plus PUB-BE-01…08 on the public Worker). Sections A–D above are the *earlier*
+audit's remainder and still stand on their own.
+
+> ## 🟢 The short version
+>
+> **There are no new migrations.** Every PR in #311–#338 was code-only — verified with
+> `git diff --stat 3166e23..HEAD -- mgmt/db/` (nothing but a cleanup runbook comment).
+>
+> So the work is: **(1) deploy, in the order in W2 · (2) set ONE new variable, W3 ·
+> (3) smoke-test, W4.** One security backlog item (W5, consent ACLs) is not a deploy and
+> can be scheduled.
+
+## W1. Migrations — none new, but check these prerequisites 🟡
+
+No W0–W2 PR adds a migration. Several *do* assume migrations that already exist. None of
+them break if the migration is missing — each takes a documented fallback — but the
+fallback is always the worse path, so it is worth confirming once:
+
+| Existing migration | What in W0–W2 depends on it | If it is missing |
+|---|---|---|
+| `2026-09-05/27-users-photo.sql` | #334's explicit `users` projection | falls back to `SELECT *` (still allowlisted on the way out — the leak stays closed, the read is just wider) |
+| `2026-09-05/09-error-log-client-ip.sql` | the public `logError` per-IP limiter | falls back to a leading-wildcard `LIKE` scan of `error_log` — on an anonymous endpoint |
+| `2026-09-01/08-public-data-version.sql` | the whole W2 cache identity (key + ETag) | `bumpDataVersion` takes a lossy path; already §C6 above |
+| `2026-09-05/31-push-subscriptions.sql` | `savePushSubscription` (#335) | the write fails; opt-in silently does nothing |
+| `2026-09-01/05-popups-active.sql`, `2026-09-05/19-popup-slide-duration.sql` | the popup payload (#331) | popups do not appear / slide timing defaults |
+| `2026-09-05/28`, `29`, `30` | `journeyEntries` / `journeyPageText` / `donation` sections | those sections degrade to empty |
+
+**Check them in one go** (read-only):
+
+```bash
+# does users.photo exist?
+wrangler d1 execute chhath-core --remote --command \
+  "SELECT COUNT(*) AS has_photo FROM pragma_table_info('users') WHERE name='photo';"
+
+# does error_log.client_ip exist?
+wrangler d1 execute chhath-logs --remote --command \
+  "SELECT COUNT(*) AS has_client_ip FROM pragma_table_info('error_log') WHERE name='client_ip';"
+
+# is the version counter row there?
+wrangler d1 execute chhath-core --remote --command \
+  "SELECT value FROM portal_settings WHERE \"key\"='public_data_version';"
+```
+
+Each should return `1` / `1` / a number. Anything returning `0` → apply that file per §C.
+
+## W2. Deploy, in this order 🟢
+
+**The order matters for one reason.** #335 makes the public Worker require
+`Content-Type: application/json` on its two write endpoints. The frontends now send it;
+the *old* frontends did not (`fetch` sent `text/plain`). An old frontend against the new
+Worker gets `415` on error reporting — so **deploy the frontend first**. The old Worker
+accepts the new frontend's header happily (it simply did not check), so frontend-first is
+safe in both directions.
+
+| # | Target | Why | How |
+|---|---|---|---|
+| 1 | **public frontend v6** (Vercel) | #335 `Content-Type`, #327 verify verdicts, #328 live-vs-saved | Vercel auto-deploys on merge to `main`; confirm the deployment finished |
+| 2 | **public Worker** | all eight W2 PRs | `cd Public/backend && npm run deploy` |
+| 3 | **mgmt Worker** | W1 (P0-01…P0-11) and #339's batch dispatch | `cd mgmt/backend && npm run deploy` |
+| 4 | **mgmt frontend (SvelteKit)** (Vercel) | #320 cache scoping, #321 session expiry, #324 money validation | Vercel auto-deploy; confirm |
+| 5 | **mgmt frontend (retained React)** (Vercel) | #320 `purgeCache()` on sign-out | Vercel auto-deploy; confirm |
+| 6 | **Render service** | #339 body limits + batch contract | auto-deploys from `main`; confirm in the Render dashboard that the new commit is live |
+
+`Public/frontend`, `frontend-v3`, `frontend-v4` and `frontend-v5` also received the
+`Content-Type` fix. **Deploy only the ones actually serving traffic** — if v6 is the only
+live public frontend, the others need nothing.
+
+## W3. The one new setting: `ALLOWED_ORIGINS` on the PUBLIC Worker 🟡
+
+Until #335 this variable only controlled which origins got a CORS reflection on **reads**,
+and leaving it unset was reasonable for a public read-only portal. **It is now also the
+authenticity check on the two anonymous writes** (`logError`, `savePushSubscription`).
+
+With it unset, a write must still carry *some* `Origin` and declare JSON — which stops the
+trivial scripted flood, but does **not** stop a real browser on any other site. Set it:
+
+```toml
+# Public/backend/wrangler.toml — [vars]. Exact origin(s), comma-separated, no trailing path.
+ALLOWED_ORIGINS = "https://chhath.shaharpura.com"
+```
+
+Then `cd Public/backend && npm run deploy`.
+
+> ⚠️ Include **every** origin the public site is served from — the custom domain *and* any
+> Vercel preview domain you actually use. An origin missing from this list can no longer
+> report a JS error or register for notifications.
+
+The mgmt Worker's `ALLOWED_ORIGINS` is already set (§B1 is done); this is the public one,
+which was commented out.
+
+**Optional, recommended:** `HEALTH_TOKEN` on the public Worker — see §B3. Without it the
+readiness probe still reports every dependency's *state*; only the D1 error text is
+withheld (it goes to `error_log`).
+
+## W4. Smoke-test what W2 actually changed 🟢
+
+```bash
+PUB="https://<public-worker>"
+ORIGIN="https://chhath.shaharpura.com"   # an origin on your ALLOWED_ORIGINS list
+
+# 1. Liveness — must be instant and do no database work (PUB-BE-03)
+curl -s "$PUB/?health=1" | jq '{check, healthy, missingRequired}'
+#    -> {"check":"liveness","healthy":true,"missingRequired":[]}
+
+# 2. Readiness — every dependency, edge-cached 60s. Add -H "X-Health-Token: ..." for detail.
+curl -s "$PUB/?health=1&deep=1" | jq '{check, ready, degraded}'
+
+# 3. A read action is GET-only; the Cache API cannot key a POST (PUB-BE-02)
+curl -s -o /dev/null -w '%{http_code} %header{Allow}\n' -X POST "$PUB/?action=portalData"
+#    -> 405 GET, OPTIONS
+
+# 4. Popups must NOT be immutable — they expire by the clock (PUB-BE-04)
+curl -s -D- -o /dev/null "$PUB/?action=activePopups" | grep -i cache-control
+#    -> cache-control: public, max-age=<1..60>     (no "immutable")
+
+# 5. The users payload must not carry internal fields (PUB-BE-05)
+curl -s "$PUB/?action=portalData" | jq '.users[0] | keys'
+#    -> no "Created By", no "Email", no "WhatsApp", no "__rowIndex"
+
+# 6. Writes: wrong media type, no origin, then a correct one (PUB-BE-06)
+curl -s -o /dev/null -w '415? %{http_code}\n' -X POST "$PUB/?action=logError" \
+  -H "Content-Type: text/plain" -H "Origin: $ORIGIN" -d '{"message":"x"}'
+curl -s -o /dev/null -w '403? %{http_code}\n' -X POST "$PUB/?action=logError" \
+  -H "Content-Type: application/json" -d '{"message":"x"}'
+curl -s -o /dev/null -w '200? %{http_code}\n' -X POST "$PUB/?action=logError" \
+  -H "Content-Type: application/json" -H "Origin: $ORIGIN" \
+  -d '{"page":"/smoke","message":"post-deploy smoke test"}'
+```
+
+Then, in the app: open the public site (data loads, a popup shows if one is scheduled),
+open **Verify** on a real document, and in mgmt save one record and sign out (the next
+account must not see the previous one's cached views).
+
+Finally, confirm the outage fallback exists **before** it is needed:
+
+```bash
+wrangler kv key get --binding KV_PUBLIC "pub:snapshot:portalData:v2" | head -c 200
+```
+
+That should print `{"version":"…","savedAt":"…","data":{…`. If it is empty, load
+`?action=portalData` once and check again (#336 writes it on a version change).
+
+## W5. Security backlog from W0–W2 — not a deploy 🔴
+
+| | What | Why it needs a human |
+|---|---|---|
+| **C11** | Consent photos and signatures **already archived to Google Drive** by earlier runs are still anonymously readable. #325 stopped the code publishing them; the existing files were not touched. | Needs a one-off ACL pass over the archived objects: **dry-run report first**, then apply, before the next archive run. Deleting or re-permissioning consent evidence is not something to script blind. |
+| **C12** | Public visitor IPs are stored raw in `error_log.client_ip`. | Hashing needs a **salt secret** (`wrangler secret put`) to be worth anything — an unsalted IPv4 hash is 2³² to reverse. Deployment step + code, so it is its own PR. |
+| **C13** | `portalData` still materialises whole tables. | Bounding it means **paginating the public contract**, which changes every frontend — a product decision, not a fix. #337 logs any section over 20,000 rows so the trigger is visible rather than silent. |
+
+## W6. Checklist
+
+- [ ] W1: confirm `users.photo`, `error_log.client_ip`, `public_data_version` (3 queries above)
+- [ ] W2: deploy in order — **public frontend first**, then public Worker, then mgmt Worker, then the mgmt frontends, then confirm Render
+- [ ] W3: set `ALLOWED_ORIGINS` on the **public** Worker + redeploy · (optional) `HEALTH_TOKEN`
+- [ ] W4: run the six smoke checks; confirm the KV snapshot exists
+- [ ] W5: schedule the consent-ACL dry run (**C11**) — the only security item still open from W0–W2
