@@ -226,6 +226,84 @@ function pubKv(env) {
   return (env && env.KV_PUBLIC) || (env && env.KV_SESSIONS) || null;
 }
 
+// ============ VISITOR PSEUDONYMS (audit carry-over C12) ============
+//
+// Public visitor IP addresses were stored RAW, and permanently: in
+// `error_log.client_ip` and again inside the JSON `context` column as `edgeIp`.
+// Every visitor whose browser threw a JavaScript error — which is not a thing they
+// did, chose, or could see — left their home address in a table the committee reads,
+// with no retention limit. Nothing in this portal needs to know a visitor's address.
+// The per-IP flood cap needs to know only whether two requests came from the SAME
+// visitor, which is a much weaker question.
+//
+// WHY NOT JUST HASH IT. `sha256(ip)` is not a pseudonym. An IPv4 address is 2^32
+// candidates, so the whole lookup table builds in minutes on a laptop — the stored
+// value would be the address with extra steps. A hash is only as private as its key.
+//
+// WHY THE KEY LIVES IN KV RATHER THAN A SECRET. The obvious design is
+// `wrangler secret put`, and that is what C12 assumed ("it is a deployment step ...
+// not a code-only change"). A random salt held in KV is strictly better here:
+//
+//   * it needs NO operator step, so the privacy fix cannot sit un-deployed waiting
+//     for one, and there is no window where the code is live but the secret is not;
+//   * it ROTATES DAILY and then EXPIRES. A long-lived secret makes every row ever
+//     written linkable to every other row for that visitor, for ever. Here, once a
+//     day's salt has expired, that day's pseudonyms cannot be tied back to an
+//     address by anybody — including us, including with the database in hand.
+//     Deleting the key is what makes the old rows genuinely anonymous.
+//
+// The daily period is chosen against the 60-second flood window: the pseudonym only
+// has to be stable for far longer than the window it is counted in. At the moment
+// the salt rolls over, an in-flight counting window restarts — a once-a-day, 60
+// second relaxation of a cap whose other two layers (the KV limiter below and the
+// message de-duplication) are untouched, and which fails open by design anyway.
+//
+// If KV is unavailable the pseudonym is EMPTY and nothing is stored. It never falls
+// back to the raw address, and never to an unkeyed hash: an unset key must not
+// silently mean "store something that looks protected and is not".
+const IP_SALT_TTL_SECONDS = 60 * 60 * 48; // two days — one full period plus slack
+
+function ipSaltKey(now = new Date()) {
+  return `pub:ipsalt:${now.toISOString().slice(0, 10)}`; // UTC day
+}
+
+function toHex(buf) {
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * A keyed, daily-rotating pseudonym for a visitor address, or '' when one cannot be
+ * produced. Never returns the address itself.
+ */
+async function visitorPseudonym(env, ip) {
+  const raw = (ip == null ? '' : ip.toString()).trim();
+  if (!raw) return '';
+  const kv = pubKv(env);
+  if (!kv) return '';
+  try {
+    const saltKey = ipSaltKey();
+    let salt = await kv.get(saltKey);
+    if (!salt) {
+      const bytes = new Uint8Array(32);
+      crypto.getRandomValues(bytes);
+      salt = toHex(bytes);
+      // Two isolates can race here on the first request of a day and write
+      // different salts; the loser's rows simply stop matching, which costs at most
+      // one 60-second counting window. Worth strictly less than a lock.
+      await kv.put(saltKey, salt, { expirationTtl: IP_SALT_TTL_SECONDS });
+    }
+    const key = await crypto.subtle.importKey(
+      'raw', new TextEncoder().encode(salt), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+    );
+    const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(raw));
+    // 128 bits is far past collision concerns for a per-day visitor count and keeps
+    // the stored value obviously not-an-address.
+    return toHex(sig).slice(0, 32);
+  } catch (e) {
+    return ''; // fail CLOSED on privacy: store nothing rather than something weak
+  }
+}
+
 const PUB_RL_WINDOW_SECONDS = 60;
 const PUB_RL_MAX = 60; // per IP per minute — generous for a real viewer, capping floods
 // Estimated D1 rows read per full portal build (8 table scans, sizes vary). We
@@ -1052,15 +1130,23 @@ async function logPublicError(env, source, page, message, stack, context, client
     const src = clamp(source || 'public', 100);
     const pg = clamp(page, 200);
     const msg = clamp(message, 1000);
-    const ip = (clientIp || '').toString().trim();
+    // carry-over C12: the visitor's address is turned into a keyed, daily-rotating
+    // pseudonym here and the raw value is never stored, counted or logged. `''`
+    // means we could not produce one, in which case nothing about the visitor is
+    // recorded at all — see visitorPseudonym().
+    const ipKey = await visitorPseudonym(env, clientIp);
 
-    // Fold the edge IP into the stored context so the per-IP limiter can count it.
     let ctxObj = {};
     if (context) {
       try { ctxObj = typeof context === 'string' ? JSON.parse(context) : context; }
       catch (e) { ctxObj = { note: context.toString().slice(0, 200) }; }
     }
-    if (ip) ctxObj.edgeIp = ip;
+    // C12: `edgeIp` used to be folded into the JSON context so the old LIKE-based
+    // limiter could match it. That limiter is gone (see below) and the column is
+    // indexed, so the context copy has no remaining purpose — it was a second,
+    // unindexed, permanent copy of the same address. A client that sends its own
+    // `edgeIp` key must not be able to reinstate it either.
+    if (ctxObj && typeof ctxObj === 'object') delete ctxObj.edgeIp;
     const ctx = clamp(JSON.stringify(ctxObj), 500);
 
     // Per-IP cap (only when we actually know the IP).
@@ -1072,19 +1158,22 @@ async function logPublicError(env, source, page, message, stack, context, client
     // limiter meant to make abuse cheap was the expensive part, and it degraded as
     // the table grew, i.e. exactly when a flood is under way.
     //
-    // `client_ip` is a real indexed column (migration 2026-09-05/09). Falls back to
-    // the old LIKE if that migration has not been applied yet, so this deploys in
-    // either order — but the fallback is a scan, so apply the migration.
-    if (ip) {
+    // `client_ip` is a real indexed column (migration 2026-09-05/09) and now holds
+    // the pseudonym, not the address. Counting pseudonym-against-pseudonym answers
+    // exactly the same question ("how many from this visitor in the last minute?")
+    // because the pseudonym is stable for the whole day.
+    //
+    // The old `context LIKE '%"edgeIp":"1.2.3.4"%'` fallback is REMOVED. It only
+    // existed for a deployment where migration 09 had not been applied yet, it can
+    // never match a pseudonym, and it was an unindexed scan on an anonymous endpoint
+    // — the very thing migration 09 was written to stop. When the column is missing
+    // this cap is skipped instead; the KV limiter (60/min per IP) and the message
+    // de-duplication below both still apply, so the endpoint is not left open.
+    if (ipKey) {
       const windowStart = new Date(Date.now() - PUBLIC_LOG_WINDOW_MS).toISOString();
-      let cnt = await env.DB_LOGS.prepare(
+      const cnt = await env.DB_LOGS.prepare(
         'SELECT COUNT(*) AS n FROM error_log WHERE client_ip = ? AND created_at >= ?'
-      ).bind(ip, windowStart).first().catch(() => undefined);
-      if (cnt === undefined) {
-        cnt = await env.DB_LOGS.prepare(
-          "SELECT COUNT(*) AS n FROM error_log WHERE created_at >= ? AND context LIKE ?"
-        ).bind(windowStart, `%"edgeIp":"${ip}"%`).first().catch(() => null);
-      }
+      ).bind(ipKey, windowStart).first().catch(() => null);
       if (cnt && (parseInt(cnt.n) || 0) >= PUBLIC_LOG_MAX_PER_IP) {
         return { success: false, rateLimited: true };
       }
@@ -1107,7 +1196,7 @@ async function logPublicError(env, source, page, message, stack, context, client
     const id = 'ERR' + randomHexId(8);
     await env.DB_LOGS.prepare(
       'INSERT INTO error_log (error_id, source, page, message, stack, context, created_at, reported, client_ip) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)'
-    ).bind(id, src, pg, msg, clamp(stack, 2000), ctx, new Date().toISOString(), ip || '').run()
+    ).bind(id, src, pg, msg, clamp(stack, 2000), ctx, new Date().toISOString(), ipKey).run()
       // audit M-13: if migration 2026-09-05/09 has not been applied yet the
       // client_ip column does not exist. Retry without it rather than losing the
       // error report, so the Worker and the migration can deploy in either order.

@@ -499,6 +499,43 @@ So the sequence is fixed: run this report → repair by hand, deciding row by ro
 enforce. PR-34 also needs a **fresh backup and a quiet window**, because unlike
 everything merged so far it modifies live data.
 
+### W8e. Clear the visitor IP addresses already stored (C12) 🔴
+
+The public Worker no longer stores a visitor's address — it stores a keyed pseudonym,
+or nothing. **No secret to set**: the key is a random salt the Worker keeps in KV,
+which rotates daily and expires on its own.
+
+That stops new rows. The addresses already in `error_log` need clearing:
+
+```bash
+# 1. DRY RUN first — how many rows, and how far back does this go?
+wrangler d1 execute chhath_logs --remote --command "
+  SELECT
+    SUM(CASE WHEN client_ip <> '' AND (LENGTH(client_ip) <> 32
+                                       OR client_ip GLOB '*[^0-9a-f]*')
+             THEN 1 ELSE 0 END)                              AS raw_client_ip,
+    SUM(CASE WHEN context IS NOT NULL AND json_valid(context)
+                   AND json_extract(context, '\$.edgeIp') IS NOT NULL
+             THEN 1 ELSE 0 END)                              AS context_edge_ip,
+    COUNT(*) AS total_rows, MIN(created_at) AS oldest
+  FROM error_log;"
+
+# 2. Apply. Only ever CLEARS two fields — deletes no row, and keeps the rest of
+#    each JSON context. Safe to re-run (a second run matches nothing).
+wrangler d1 execute chhath_logs --remote \
+  --file=./mgmt/db/migration/2026-09-05/33-scrub-visitor-ips.sql
+
+# 3. Re-run the query from step 1 — both counts must now be 0.
+```
+
+**Deploy the public Worker first**, otherwise it keeps writing new addresses behind
+the scrub.
+
+The pseudonyms that remain are only anonymous because their salt is unreachable. It
+lives in the public Worker's KV as `pub:ipsalt:<UTC date>` with a two-day TTL. **Do
+not copy those keys anywhere durable and do not raise the TTL** without deciding you
+want the linkability that buys.
+
 ## W9. Checklist — everything in §W, in order
 
 - [ ] W1: confirm `users.photo`, `error_log.client_ip`, `public_data_version` (3 queries above)
@@ -515,3 +552,4 @@ everything merged so far it modifies live data.
 - [ ] W8b: confirm `summary.notRun` is **empty** (a check that could not run is not a pass)
 - [ ] **W8c: if there are findings, work the three urgent ones first** — duplicate consent token (live credential) → duplicate login name (privilege) → orphan consents with live tokens (H-8)
 - [ ] W8d: only once the report is clean, schedule PR-34 with a **fresh backup and a quiet window** — it is the first change of this effort that modifies live data
+- [ ] **W8e: deploy the public Worker, then run the C12 dry-run query, then apply migration `33-scrub-visitor-ips.sql`** on `chhath_logs`, then confirm both counts are 0. No secret to set

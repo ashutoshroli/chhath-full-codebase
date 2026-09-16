@@ -6,9 +6,10 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status: 39 of 48 PRs merged · 1 open (this one) · 8 pending**
+**Status — against the plan's 48 PRs: 33.5 done · 14.5 remaining.**
+Separately, **42 GitHub PRs** have been merged for this effort (#311–#355). Those two numbers are not the same thing and earlier revisions of this file wrongly treated them as one: several merged PRs were docs/runbook updates (#340, #343, #346, #352), CI fix-ups (#330, #345) or carry-over work outside the 48 (**this one**). The plan count is the one to read for progress; the header used to say "8 pending" while §3 below listed 14.5.
 
-Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 ✅ done (8/8 — every PUB-BE finding is closed)** · **W3 7/7 — PR-32 half done (security in, Neon schema + retention left)** · **W4 1/3 (detection in; repair + enforce and the ledger left)** · W5–W6 not started · **W7 1.5/3 (PR-46 CI gates done)**
+Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-BE closed)** · **W3 6.5/7** · **W4 1/3** · W5 0/6 · W6 0/4 · **W7 1/3**
 
 ---
 
@@ -58,70 +59,79 @@ Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is c
 | [#352](https://github.com/ashutoshroli/chhath-full-codebase/pull/352) | operator steps for Wave 3 and the committee items | — | Runbook §W7: the first migration of this effort (without which #349 silently does nothing), the secret worth setting, the two escape hatches to leave unset, the `ai_providers` non-https check whose key needs rotating, deploys per PR, five smoke checks | — |
 | [#353](https://github.com/ashutoshroli/chhath-full-codebase/pull/353) | declare what every migration does, in every folder | C6 | Migration CI scanned only the newest folder; the three older ones held **twelve** files covered by nothing. Widening it fails — which is why C6 stayed open — so each file's *relationship to the schema* is now declared instead: nine apply idempotently, **two span three D1 databases and cannot be run whole**, one is already in the schema. Two headers said "TWO databases" while having three sections | No migration — one new test, two header comments, and the CI glob |
 | [#354](https://github.com/ashutoshroli/chhath-full-codebase/pull/354) | find the broken data before anything tries to enforce it | W4 PR-33 | Every business key is an ordinary index, not a unique constraint: `main`’s committed schema accepts two Superadmin/Subadmin logins of one name, two identical `Ajay Verma`, two contributions printing receipt `NCS-2026-45`, and **two consents sharing one token**. Detection queries existed — as SQL *comments* (migration 10 is 101 comment lines, **0 executable**). Eleven checks now run in one Superadmin call, including two that span databases and so could never have been a SQL file at all | No migration — read-only action `getIntegrityReport`; runbook §W8 |
+| [#355](https://github.com/ashutoshroli/chhath-full-codebase/pull/355) | make three gates that were not gating actually gate | PR-46, C5 | The `H-6 … WITHOUT decoding` test asserted `ms < 250` — **3 failures in 6 runs** under load, blaming the code for something it never did. Now asserts the `atob` call count is 0: **0 failures in 12 runs**. Plus the first bundle budgets for the two SvelteKit apps (602 kB / 999 kB, both gates checked in *both* directions) and `--fail-on-warnings` for Public v6 | No migration — CI, one script, one test |
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — three CI gates that were not gating (finishes PR-46; closes C5)
+## 2. This PR — a visitor's address is no longer something we keep (closes C12)
 
-**Audit ID:** Wave 7 **PR-46** (CI gates), the remainder after #353. Carry-over **C5** closed, **C10**'s blind spot closed for the two SvelteKit apps.
+**Audit ID:** carry-over **C12**, split out of PR-22 so the authenticity fix there stayed reviewable.
 
-### C5 — a test that failed for reasons that had nothing to do with the code
+`logError` is anonymous, and it is called by the visitor's **browser**, not by the visitor. A JavaScript error is not something they did, chose, or can see. Every one of them wrote that person's IP address into `error_log` — and proved on `main`, **three times over** for a single report:
 
-`h6-upload-size-caps.test.mjs` asserts that an oversized upload is rejected **without being decoded first** — the H-6 denial-of-service fix, where a 40 MB base64 photo must not be materialised in a 128 MB isolate just to say no. It asserted that with a stopwatch:
-
-```js
-assert.ok(ms < 250, `rejection took ${ms}ms — it looks like it decoded first`);
+```
+SELECT ... WHERE client_ip = ?            args: ["203.0.113.47", ...]
+INSERT INTO error_log (... context ...)   args: [..., "{\"edgeIp\":\"203.0.113.47\"}", ..., "203.0.113.47"]
 ```
 
-Reproduced on `main`, with the box loaded: **3 failures in 6 runs**, at 251–271 ms. And the failure message was **false** — the code never decoded, the runner was just busy. That is worse than a missing test: a test that accuses correct code of a bug gets muted, and then the property stops being checked at all.
+Permanently, with no retention limit, in a table the committee reads. Nothing in this portal needs a visitor's address. The flood cap needs to know only whether two requests came from the **same** visitor — a much weaker question, and a pseudonym answers it exactly as well.
 
-The stopwatch was never necessary, because decoding is not a duration — it is **one observable call**. `base64ToBytes` decodes with the global `atob`, so the honest statement of the test's own title is *"`atob` is never reached"*:
+### Why the key lives in KV, not in a secret
 
-| | old | new |
-|---|---|---|
-| asserts | elapsed < 250 ms | `atob` call count is 0 |
-| under load (8 busy cores) | **3 failures / 6 runs** | **0 failures / 12 runs** |
-| when the code really does decode first | fails | fails — *with a true message* |
+C12 itself assumed the fix needed `wrangler secret put` — *"a deployment step ... not a code-only change"*. It does not, and a random salt in KV is strictly better:
 
-It carries a **control** assertion too: the same spy must observe exactly one call for an under-cap payload. Without that, a spy that was never wired up would also report zero and the test would pass while checking nothing.
+- **No operator step**, so the privacy fix cannot sit un-deployed waiting for one, and there is no window where the code is live but the key is not.
+- **It rotates daily and then expires.** A long-lived secret makes every row ever written linkable to every other row for that visitor, for ever. Here, once a day's salt has expired, that day's pseudonyms cannot be tied back to an address by anybody — us included, with the database in hand. Deleting the key is what makes the old rows genuinely anonymous.
 
-This is the same correction as #345, and for the same reason: measure the behaviour, not the clock. C5 was the last of that shape in the tree.
+The daily period is chosen against the 60-second flood window: the pseudonym only has to be stable for far longer than the window it is counted in. At rollover an in-flight window restarts — a once-a-day, 60-second relaxation of a cap whose other two layers (the KV limiter, and message de-duplication) are untouched, and which fails open by design anyway.
 
-### Two bundle budgets that did not exist
+`sha256(ip)` was never an option: an IPv4 is 2³² candidates, so the table builds in minutes and the stored value is the address with extra steps. **With no key available it stores nothing** — never the address, never an unkeyed hash.
 
-The React mgmt SPA has had a main-chunk budget since the audit. **Neither SvelteKit app had one**, so nothing stopped either from growing. Measured now and gated:
+### Two things removed
 
-| app | today | budget | headroom |
-|---|---|---|---|
-| `Public/frontend-v6` | **602.3 kB** | 700,000 B | 14% |
-| `mgmt/frontend-svelte` | **999.8 kB** | 1,150,000 B | 13% |
+- **`context.edgeIp` is gone entirely**, and is stripped even if a *client* sends the key — it was a second, unindexed, permanent copy of the same address.
+- **The `context LIKE '%"edgeIp":"…"%'` fallback count is gone.** It could never match a pseudonym, and it was a leading-wildcard scan on an anonymous endpoint — precisely what migration 09 was written to remove. Where the column is missing the D1 cap is now skipped instead; the KV limiter and de-duplication still apply, so nothing is left open.
 
-Two deliberate choices:
+### Migration 33 — the rows already written
 
-- **The metric is total client JS, not the entry chunk.** SvelteKit splits per route, so an entry-chunk budget can stay green while the app doubles across a dozen route chunks. Measuring the total is the honest version of the same question. Both jobs also report the figure and the largest chunk to the run summary, so a reviewer sees the direction of travel and not just pass/fail.
-- **602 kB is what it *is*, not what it *should be*.** This is the public portal — every visitor, mostly a phone on rural mobile data. The budget only stops it getting worse; bringing it down is W6/PR-45 (lazy skins). Setting the threshold at today's number dressed up as a target would have been the dishonest option.
+The code change stops new addresses. It does nothing about the old ones, so `33-scrub-visitor-ips.sql` clears both copies. Two decisions worth naming:
 
-Both gates were checked in both directions: they pass at the current sizes and **fail** when the limit is set below them, so neither is vacuous.
+- **The condition is "not a pseudonym", not "looks like an IP".** A pseudonym is exactly 32 lowercase hex characters; clearing everything else catches IPv4, IPv6, the literal `unknown` the older code substituted, and any shape nobody thought of. Matching `'%.%' OR '%:%'` would have left the last two behind — the kind of near-miss that makes a privacy scrub look finished when it is not.
+- **It removes only the one JSON key.** `json_remove` keeps the screen size and everything else a report carried. This is a privacy fix, not a data cull.
 
-### One type-check gate turned on
+**This is the first migration that depends on another** (`client_ip` comes from migration 09, not the committed schema). That ordering used to be something you were expected to know; `PREREQ_MIGRATIONS` in the harness now makes it tested — and it is exactly what PR-35's ledger will need.
 
-`Public/frontend-v6` is at **0 errors and 0 warnings**, so `svelte-check` now runs with `--fail-on-warnings`. A new warning fails CI instead of accumulating.
+It is also the first **data-scrub** migration, so it gets its own category with tighter rules rather than being squeezed into `SCHEMA_ONLY_MIGRATIONS` (whose rule — "an UPDATE may only backfill a column this migration ADDED" — is right for a schema change and wrong here; widening it would have removed the guarantee for the six migrations relying on it). A scrub may only ever **clear** a field, must be bounded by a `WHERE`, and unlike the schema-changers must stay fully idempotent.
 
-**Not** turned on for `mgmt/frontend-svelte`: it has ~160 pre-existing warnings, mostly unassociated labels. Those are the accessibility work in W5 — bulk-suppressing them to switch a gate on would defeat the point of the gate. That stays **C7**, and the CI comment now says so where somebody will read it.
-
-**Migrations & setup:** none. CI and one test.
+**Migrations & setup:** migration **33** on `chhath_logs` (runbook §W8e). **No new secret, no new variable.**
 
 ## Verification
 
+On `main`, the same test file fails **8 of 13** — the address is stored three times. On this branch, 13/13.
+
+Mutation-checked in both places:
+
+| mutation | caught by |
+|---|---|
+| pseudonym returns the raw IP | 7 tests |
+| client-supplied `edgeIp` kept | *cannot reinstate edgeIp* |
+| unkeyed `sha256` fallback when KV fails | *raw IP appears nowhere* + *KV throws* |
+| salt written without a TTL | *the salt is random, dated, and given a TTL* |
+| scrub writes a value instead of clearing | the invariant test **and** the behavioural test |
+| scrub's `WHERE` removed | the behavioural test |
+| scrub uses the near-miss `'.'`/`':'` condition | the behavioural test |
+
+The invariant test originally missed the "writes a value" mutation, because the shared `sqlWithoutCommentsAndStrings()` helper blanks every string literal — making `SET client_ip = 'REDACTED'` look identical to `SET client_ip = ''`. It now reads the raw SQL, so the one rule it exists to enforce is actually enforceable.
+
 ```
-mgmt/backend:          npm test  -> 881 passed
-Public/frontend-v6:    npm run check -> 0 errors, 0 warnings (now fail-on-warnings)
-Public/frontend-v6:    602,293 B  <= 700,000 B
-mgmt/frontend-svelte:  999,841 B  <= 1,150,000 B
+Public/backend: 158 unit (145 + 13) + 25 integration
+mgmt/backend:   883 passed (881 + 2)
+migration gate: all 45 migrations in 4 folders covered
 ```
 
-PR-46 is now complete apart from the route↔view wiring test, which is folded into W5 where the routes are being touched anyway.
+Not touched: both Workers also put a raw IP in an **ephemeral** KV rate-limit key (`rl:logError:<ip>:<bucket>`, TTL ~65s). Those expire in about a minute and are never read back as data, so hashing them would cost a limiter for no privacy gain. Said out loud here rather than left for someone to find and wonder about.
+
 ---
 
 ## 3. Pending
@@ -148,7 +158,7 @@ PR-46 is now complete apart from the route↔view wiring test, which is folded i
 | C9 | `verifyToken` revocation check still fails open on an audit-DB error | Availability trade-off; KV deletion (#319) is now the authoritative revocation | Revisit with W4 observability |
 | C10 | React mgmt main chunk at 218.3 kB vs 230 kB CI budget | Little headroom left; not a regression. The two SvelteKit apps had **no** budget at all until this PR — that gap is now closed (602 kB / 999 kB gated) | Reducing the React chunk itself is still open |
 | C11 | Consent photos/signatures already archived to Drive by earlier runs are still anonymously readable | Code no longer publishes them (#325), but existing files need a one-off ACL remediation | Operational step: dry-run report → apply, before the next archive |
-| C12 | Public visitor IPs are stored raw in `error_log.client_ip` (and in `context.edgeIp`) | Hashing them needs a salt SECRET to be worth anything — an unsalted hash of an IPv4 is 2^32 to reverse — so it is a deployment step (`wrangler secret put`) plus a fallback path, not a code-only change. Split out of PR-22 to keep the authenticity fix reviewable | Own PR, with the retention window, before W3 |
+| ~~C12~~ ✅ | Public visitor IPs stored raw in `error_log.client_ip` **and** in `context.edgeIp` | Proved on `main`: one JS error stored the address **three times** (the WHERE, the JSON context, the column). Now a keyed pseudonym from a **KV salt that rotates daily and expires** — so no operator step, and yesterday’s rows become unlinkable to any address by anybody. Migration 33 clears the addresses already written | **Done — this PR** |
 | C13 | `portalData` still materialises whole tables; the other seven sections still read `SELECT *` and filter in JS | Bounding the payload for real means PAGINATING the public contract, which changes all six frontends — a contract decision, not a fix. PR-24 makes the size visible (a section past 20k rows is logged) instead of pretending it is bounded. Truncating a transparency payload was rejected: hiding contributions is worse than a slow page | Contract decision, then its own PR; the row-count log is the trigger |
 | ~~C14~~ ✅ | **Consent `declined` / `rejected` sends nothing at all.** `respondConsent` notifies only on `accepted`; `setConsentVerification` notifies only on `verified`. So a loaner is never told his loan is blocked by a guarantor's refusal — he simply waits — the committee is not told either, and the remarks the decliner is *forced* to write (`'Remarks are required in order to Decline.'`) are visible only if someone opens the Consent Review screen. | New `consent_declined_*` / `consent_rejected_*` templates on the existing naming convention, WhatsApp + email. **Recipients (decided with the committee): the LOANER and the GROUP.** Remarks go to the group message; the loaner is told it was declined and by whom, without the raw remark text, which can be blunt — say so if that should change. **Needs a migration** (seed the new template rows) — the first migration since W0 — plus an operator pass to review the wording before it is used. | **Done — this PR** |
 | ~~C15~~ ✅ | **The contributor picker shows no father's name.** `Home.svelte` builds `{ value: ID, label: Name, sub: Village }`; `u["Father's Name"]` is on the row and unused. Village separates the two *Ajay Verma* rows in the reported screenshot (Gardih / Shaharpura) but **two same-name people in the same village are indistinguishable** — which is exactly when the wrong contributor is picked and money is recorded against the wrong person. | Add father's name to the option and to the search text, in every picker sharing `SearchableSelect`. No migration, no setup. | **Done — this PR** |
