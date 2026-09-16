@@ -20,6 +20,7 @@
 // ============================================================================
 
 import { requireSuperadmin, ValidationError, InternalError } from './auth.js';
+import { assertProviderUrl } from './providerUrl.js';
 import { randomId } from './random.js';
 import { logWarn } from './logger.js';
 
@@ -151,8 +152,18 @@ export async function saveAiProvider(env, req, user) {
     throw ValidationError(`purpose must be one of: ${PROVIDER_PURPOSES.join(', ')}.`);
   }
   if (!model) throw ValidationError('A model is required.');
-  if (type === 'openai-compatible' && !/^https?:\/\//.test(baseUrl)) {
-    throw ValidationError('openai-compatible providers need a base URL like https://api.openai.com/v1');
+  // audit Render/offload #6. This used to be `/^https?:\/\//.test(baseUrl)`, which accepts
+  // `http://169.254.169.254` (cloud metadata), `http://localhost:8787`, `http://10.0.0.1`
+  // and `https://user:pw@anything`. The field decides which host is handed this provider's
+  // API key as a Bearer token, and both the Worker and the Render service fetch it
+  // server-side — so a wrong entry is credential exfiltration and SSRF at once, with the
+  // internal response returned as "the model's answer". `assertProviderUrl` requires
+  // https, no credentials, a public host, and an optional operator allow-list; it is
+  // applied again at USE time, because a row saved before this check existed cannot be
+  // trusted on the strength of having been saved.
+  let normalizedBaseUrl = baseUrl;
+  if (type === 'openai-compatible') {
+    normalizedBaseUrl = assertProviderUrl(baseUrl, env);
   }
 
   const editing = req.providerId
@@ -182,11 +193,11 @@ export async function saveAiProvider(env, req, user) {
       const pr = await nextPriority(env, purpose);
       await env.DB_LOGS.prepare(
         'UPDATE ai_providers SET name=?, type=?, base_url=?, model=?, api_key_enc=?, key_hint=?, purpose=?, data_mode=?, priority=?, updated_at=? WHERE provider_id=?'
-      ).bind(name, type, baseUrl, model, apiKeyEnc, keyHint, purpose, dataMode, pr, ts, req.providerId).run();
+      ).bind(name, type, normalizedBaseUrl, model, apiKeyEnc, keyHint, purpose, dataMode, pr, ts, req.providerId).run();
     } else {
       await env.DB_LOGS.prepare(
         'UPDATE ai_providers SET name=?, type=?, base_url=?, model=?, api_key_enc=?, key_hint=?, purpose=?, data_mode=?, updated_at=? WHERE provider_id=?'
-      ).bind(name, type, baseUrl, model, apiKeyEnc, keyHint, purpose, dataMode, ts, req.providerId).run();
+      ).bind(name, type, normalizedBaseUrl, model, apiKeyEnc, keyHint, purpose, dataMode, ts, req.providerId).run();
     }
     return { success: true, providerId: req.providerId };
   }
@@ -194,7 +205,7 @@ export async function saveAiProvider(env, req, user) {
   const priority = await nextPriority(env, purpose); // append to the end of the purpose's fallback list
   await env.DB_LOGS.prepare(
     'INSERT INTO ai_providers (provider_id, name, type, base_url, model, api_key_enc, key_hint, purpose, data_mode, priority, is_default, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
-  ).bind(providerId, name, type, baseUrl, model, apiKeyEnc, keyHint, purpose, dataMode, priority, 0, ts, ts).run();
+  ).bind(providerId, name, type, normalizedBaseUrl, model, apiKeyEnc, keyHint, purpose, dataMode, priority, 0, ts, ts).run();
   return { success: true, providerId };
 }
 

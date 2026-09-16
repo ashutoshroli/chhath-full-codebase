@@ -14,6 +14,13 @@ process.env.GITHUB_REPO ||= 'o/r';
 process.env.ANTHROPIC_API_KEY ||= 'env-anthropic-key';
 process.env.AI_FIX_MODEL ||= 'claude-sonnet-4-5-20250929';
 
+// Provider calls now resolve the base URL host before the API key is sent (audit
+// Render/offload #6). These fixtures use `.test` hostnames, and `.test` never resolves — so
+// the suite supplies a resolver rather than the policy supplying an escape hatch.
+import { installPublicDns } from './helpers/dnsStub.mjs';
+installPublicDns();
+
+
 const { callModel } = await import('../src/lib/model.js');
 
 const GOOD_JSON = JSON.stringify({ reasoning: 'r', diff: 'diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n' });

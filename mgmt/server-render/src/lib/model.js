@@ -10,6 +10,7 @@
 //   - 'openai-compatible'  -> POST <baseUrl>/chat/completions (Bearer)
 
 import { config } from '../config.js';
+import { assertProviderUrlAtUse, allowHostsFromEnv, PROVIDER_FETCH_OPTS } from './providerUrl.js';
 
 const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -107,10 +108,18 @@ function modelError(message, status) {
 }
 
 async function callOpenAiCompatible(p, userMsg) {
-  const base = (p.baseUrl || '').replace(/\/+$/, '');
-  if (!base) throw new Error('openai-compatible provider is missing a base URL');
+  if (!p.baseUrl) throw new Error('openai-compatible provider is missing a base URL');
+  // audit Render/offload #6. The API key below is handed to whatever host this URL names,
+  // from inside this service's network position. Checked at USE time — a provider row
+  // saved before the check existed can still hold an internal address — and this copy also
+  // RESOLVES the name, which the Worker cannot do (workerd has no DNS resolver). That is
+  // what catches a public-looking name whose A record is 127.0.0.1.
+  const base = await assertProviderUrlAtUse(p.baseUrl, { allowHosts: allowHostsFromEnv() });
   const resp = await fetch(`${base}/chat/completions`, {
     method: 'POST',
+    // `redirect: 'error'`: otherwise an allowed host can answer `302 Location:
+    // http://169.254.169.254/...` and undici follows it WITH the Authorization header.
+    ...PROVIDER_FETCH_OPTS,
     headers: { Authorization: `Bearer ${p.apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: p.model,

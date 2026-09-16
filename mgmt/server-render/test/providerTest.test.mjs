@@ -12,6 +12,13 @@ process.env.GITHUB_TOKEN ||= 'gh';
 process.env.GITHUB_REPO ||= 'o/r';
 process.env.ANTHROPIC_API_KEY ||= 'a';
 
+// Provider calls now resolve the base URL host before the API key is sent (audit
+// Render/offload #6). These fixtures use `.test` hostnames, and `.test` never resolves — so
+// the suite supplies a resolver rather than the policy supplying an escape hatch.
+import { installPublicDns } from './helpers/dnsStub.mjs';
+installPublicDns();
+
+
 const { runProviderTest } = await import('../src/jobs/providerTest.js');
 
 function stubFetch(handler) {
