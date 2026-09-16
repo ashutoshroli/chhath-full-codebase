@@ -40,7 +40,7 @@
   }
 </script>
 
-<Modal open={!!userId} {onClose}>
+<Modal open={!!userId} {onClose} title="Member profile">
   {#if loading}
     <div class="inline-spinner">Loading profile...</div>
   {/if}

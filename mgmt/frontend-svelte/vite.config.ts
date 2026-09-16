@@ -10,7 +10,15 @@ export default defineConfig({
     target: ['es2020', 'chrome87', 'safari14', 'firefox78', 'edge88']
   },
   test: {
+    // `node` stays the default: the flags/permissions/core tests are pure TS and are much
+    // faster without a DOM. A component test opts in per file with
+    //   // @vitest-environment jsdom
     environment: 'node',
     include: ['src/**/*.{test,spec}.{js,ts}']
-  }
+  },
+  // Svelte ships separate server and client builds. Without this, `mount()` resolves to the
+  // SSR build and throws `lifecycle_function_unavailable`, so no component behaviour (focus,
+  // keyboard, ARIA wiring) could be tested at all. Gated on VITEST so the production build
+  // keeps resolving exactly as before.
+  resolve: process.env.VITEST ? { conditions: ['browser'] } : undefined
 });

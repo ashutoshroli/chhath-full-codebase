@@ -109,8 +109,8 @@
 
   <button class="fab" onclick={() => (showAdd = true)}><span class="material-icons-round">add</span></button>
 
-  <Modal open={showAdd} onClose={closeModal}>
-    <h3 style="margin-bottom:15px;">{editing ? 'Edit Login' : (isSuperadmin ? 'Add Login' : 'Add Subadmin Login')}</h3>
+  <Modal open={showAdd} onClose={closeModal} labelledBy="dlg-loginmanagement-112-title">
+    <h3 id="dlg-loginmanagement-112-title" style="margin-bottom:15px;">{editing ? 'Edit Login' : (isSuperadmin ? 'Add Login' : 'Add Subadmin Login')}</h3>
     <form onsubmit={submit}>
       <div class="form-group">
         <label>User</label>

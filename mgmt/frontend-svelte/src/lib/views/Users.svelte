@@ -158,8 +158,8 @@
     <button class="fab" onclick={() => (showAdd = true)}><span class="material-icons-round">add</span></button>
   {/if}
 
-  <Modal open={showAdd} onClose={closeModal}>
-    <h3 style="margin-bottom:15px;">{editing ? 'Edit User' : 'Add User'}</h3>
+  <Modal open={showAdd} onClose={closeModal} labelledBy="dlg-users-161-title">
+    <h3 id="dlg-users-161-title" style="margin-bottom:15px;">{editing ? 'Edit User' : 'Add User'}</h3>
     <form onsubmit={submit}>
       <div class="form-group" style="display:flex; align-items:center; gap:14px;">
         {#if form.Photo}

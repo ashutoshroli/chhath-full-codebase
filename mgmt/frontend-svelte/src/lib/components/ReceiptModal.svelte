@@ -175,8 +175,8 @@
   );
 </script>
 
-<Modal {open} {onClose}>
-  <h3 style="margin-bottom:15px;">{cfg.label}</h3>
+<Modal {open} {onClose} labelledBy="dlg-receiptmodal-178-title">
+  <h3 id="dlg-receiptmodal-178-title" style="margin-bottom:15px;">{cfg.label}</h3>
   {#if loading}<div class="inline-spinner">Loading...</div>{/if}
   {#if error}<div class="error-banner">{error}</div>{/if}
   {#if warning}

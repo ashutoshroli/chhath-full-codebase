@@ -403,8 +403,8 @@
     {/each}
   </nav>
 
-  <Modal open={showAdminMenu} onClose={() => (showAdminMenu = false)}>
-    <h3 style="margin-bottom:15px;">{MENU_TITLE_BY_ROLE[$session.role] || 'Tools'}</h3>
+  <Modal open={showAdminMenu} onClose={() => (showAdminMenu = false)} labelledBy="dlg-page-406-title">
+    <h3 id="dlg-page-406-title" style="margin-bottom:15px;">{MENU_TITLE_BY_ROLE[$session.role] || 'Tools'}</h3>
     <div style="display:flex; flex-direction:column; gap:18px;">
       {#each toolTabGroups as group (group.title)}
         <div>

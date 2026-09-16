@@ -159,7 +159,7 @@
 
   <button class="fab" onclick={startCompose} title="Compose"><span class="material-icons-round">edit</span></button>
 
-  <Modal open={!!openMsg} onClose={() => (openMsg = null)}>
+  <Modal open={!!openMsg} onClose={() => (openMsg = null)} title="Message">
     {#if opening}<div class="inline-spinner">Opening...</div>{/if}
     {#if openMsg}
       <h3 style="margin-bottom:4px;">{openMsg.message.subject || '(no subject)'}</h3>
@@ -192,8 +192,8 @@
     {/if}
   </Modal>
 
-  <Modal open={composeOpen} onClose={() => (composeOpen = false)}>
-    <h3 style="margin-bottom:12px;">{replyTo ? 'Reply' : 'Compose'}</h3>
+  <Modal open={composeOpen} onClose={() => (composeOpen = false)} labelledBy="dlg-emailofficial-195-title">
+    <h3 id="dlg-emailofficial-195-title" style="margin-bottom:12px;">{replyTo ? 'Reply' : 'Compose'}</h3>
     <form onsubmit={submitSend}>
       {#if !replyTo}
         <div class="form-group">

@@ -404,8 +404,8 @@
     <button class="fab" onclick={() => (showAdd = true)}><span class="material-icons-round">add</span></button>
   {/if}
 
-  <Modal open={showAdd} onClose={closeModal}>
-    <h3 style="margin-bottom:15px;">{editing ? 'Edit Collection' : 'Add Collection'}</h3>
+  <Modal open={showAdd} onClose={closeModal} labelledBy="dlg-home-407-title">
+    <h3 id="dlg-home-407-title" style="margin-bottom:15px;">{editing ? 'Edit Collection' : 'Add Collection'}</h3>
     <form onsubmit={submit}>
       <div class="form-group">
         <label>Contribution Type</label>

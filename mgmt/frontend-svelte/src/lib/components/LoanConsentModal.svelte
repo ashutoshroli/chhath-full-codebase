@@ -109,12 +109,12 @@
 </script>
 
 {#if !loanId}
-  <Modal {open} {onClose}>
+  <Modal {open} {onClose} title="Loan consent">
     <p style="padding:20px;">This is an older loan (predates the Consent system) — no consent record is available.</p>
   </Modal>
 {:else}
-  <Modal {open} {onClose}>
-    <h3 style="margin-bottom:5px;">Loan Status</h3>
+  <Modal {open} {onClose} labelledBy="dlg-loanconsentmodal-116-title">
+    <h3 id="dlg-loanconsentmodal-116-title" style="margin-bottom:5px;">Loan Status</h3>
     <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:15px;">
       Loan ID: {loanId} — <strong>{loan['Loan Status'] || 'Created'}</strong>
     </p>
