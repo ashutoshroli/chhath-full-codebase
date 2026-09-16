@@ -58,15 +58,16 @@
       style="background:{hiEditable ? '#fff' : '#f9fafb'}; flex-grow:1;"
       oninput={(e) => { manualHi = true; onChange({ en, hi: (e.currentTarget as HTMLInputElement).value }); }}
     />
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <span
-      class="material-icons-round"
-      style="cursor:pointer; font-size:1.1rem; color:{hiEditable ? 'var(--primary-saffron)' : 'var(--text-muted)'};"
+    <button
+      type="button"
+      class="btn-bare material-icons-round"
+      style="font-size:1.1rem; color:{hiEditable ? 'var(--primary-saffron)' : 'var(--text-muted)'};"
       title="Edit Hindi text"
+      aria-label="Edit the Hindi text by hand"
+      aria-pressed={hiEditable}
       onclick={() => (hiEditable = !hiEditable)}
     >
       edit
-    </span>
+    </button>
   </div>
 </div>

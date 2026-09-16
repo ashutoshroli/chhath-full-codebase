@@ -340,9 +340,8 @@
   {#if postSaveWarning}
     <div style="background:#FEF3C7; color:#92400E; border-radius:8px; padding:10px 12px; font-size:0.85rem; margin-bottom:12px; display:flex; justify-content:space-between; gap:8px;">
       <span>⚠️ The entry was saved, but: {postSaveWarning}</span>
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <span style="cursor:pointer; font-weight:700;" onclick={() => (postSaveWarning = '')}>×</span>
+      <button type="button" class="btn-bare" style="font-weight:700;"
+        aria-label="Dismiss this warning" onclick={() => (postSaveWarning = '')}>×</button>
     </div>
   {/if}
 

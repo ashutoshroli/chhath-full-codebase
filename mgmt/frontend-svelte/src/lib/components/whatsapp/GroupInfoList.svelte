@@ -70,11 +70,10 @@
         <div style="font-size:0.8rem; color:var(--text-muted);">{r.groupid}</div>
       </div>
       <div style="display:flex; align-items:center; gap:8px;">
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <span class="badge {isActive ? 'badge-ok' : 'badge-warn'} toggle-switch" onclick={() => toggleActive(r)}>
+        <button type="button" class="btn-bare badge {isActive ? 'badge-ok' : 'badge-warn'} toggle-switch"
+          aria-pressed={isActive} onclick={() => toggleActive(r)}>
           {isActive ? 'Active' : 'Inactive'}
-        </span>
+        </button>
         <div class="row-actions">
           <button type="button" class="icon-btn" title="Edit" onclick={() => openEdit(r)}>
             <span class="material-icons-round" style="font-size:16px;">edit</span>

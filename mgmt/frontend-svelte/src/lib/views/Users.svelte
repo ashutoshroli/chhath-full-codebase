@@ -140,12 +140,11 @@
     {/if}
     {#each filtered as u (u.ID)}
       <div class="data-row">
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div style="cursor:pointer;" onclick={() => (viewingUserId = u.ID)}>
+        <button type="button" class="btn-bare" onclick={() => (viewingUserId = u.ID)}
+          style="display:block; text-align:left;" aria-label="Open the profile of {u.Name}">
           <strong style="display:block;">{u.Name}{u['Name (Hindi)'] ? ` (${u['Name (Hindi)']})` : ''}</strong>
           <span style="font-size:0.8rem; color:var(--text-muted);">{u.Village || '-'} | {u.Mobile || 'N/A'}</span>
-        </div>
+        </button>
         <div style="display:flex; align-items:center; gap:10px;">
           <span class="badge" style="background:#f3f4f6; color:#374151;">{u.Designation || 'Member'}</span>
           <RowActions {role} onEdit={() => openEdit(u)} onDelete={() => remove(u)} />

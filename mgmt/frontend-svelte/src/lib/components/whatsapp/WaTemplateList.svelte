@@ -189,18 +189,16 @@
     <div class="glass-card" style="padding:15px; margin-bottom:10px;">
       <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
         <p style="margin:0; flex-grow:1;">{r.text}</p>
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <span class="badge {isActive ? 'badge-ok' : 'badge-warn'} toggle-switch" onclick={() => toggleActive(r)}>
+        <button type="button" class="btn-bare badge {isActive ? 'badge-ok' : 'badge-warn'} toggle-switch"
+          aria-pressed={isActive} onclick={() => toggleActive(r)}>
           {isActive ? 'Active' : 'Inactive'}
-        </span>
+        </button>
       </div>
       <div style="display:flex; gap:6px; margin-top:8px; align-items:center; flex-wrap:wrap;">
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <span class="badge {isPriority ? 'badge-warn' : 'badge-pending'}" style="cursor:pointer;" onclick={() => cycleMessageType(r)} title="Tap to toggle Normal/Priority">
+        <button type="button" class="btn-bare badge {isPriority ? 'badge-warn' : 'badge-pending'}"
+          aria-pressed={isPriority} onclick={() => cycleMessageType(r)} title="Tap to toggle Normal/Priority">
           {isPriority ? '⚡ Priority' : 'Normal'}
-        </span>
+        </button>
         {#if hasContributionType}
           <span class="badge" style="background:#f3f4f6; color:#374151;">
             {labelOf(contributionTypeOptions, ct) || 'Cash (Money)'}{ct === '3' && r.doc_sub_type ? ` — ${r.doc_sub_type}` : ''}

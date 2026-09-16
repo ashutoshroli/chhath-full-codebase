@@ -126,12 +126,8 @@
             <span style="font-size:0.85rem; color:var(--text-muted);">{row['Hindi Label'] || '-'}</span>
           </div>
           <div style="display:flex; align-items:center; gap:10px;">
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <span class="material-icons-round" style="cursor:pointer;" onclick={() => startEdit(row)}>edit</span>
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <span class="material-icons-round" style="cursor:pointer; color:var(--danger);" onclick={() => removeItem(row)}>delete</span>
+            <button type="button" class="btn-bare material-icons-round" aria-label="Edit this item" onclick={() => startEdit(row)}>edit</button>
+            <button type="button" class="btn-bare material-icons-round" style="color:var(--danger);" aria-label="Delete this item" onclick={() => removeItem(row)}>delete</button>
           </div>
         {/if}
       </div>

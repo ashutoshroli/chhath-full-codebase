@@ -52,9 +52,10 @@
 
 {#if counts && !(pending === 0 && failed === 0)}
   <div style="margin:10px 0;">
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
+    <button
+      type="button"
+      class="btn-bare"
+      aria-expanded={open}
       onclick={() => (open = !open)}
       style="display:inline-flex; align-items:center; gap:10px; cursor:pointer; padding:6px 12px; border-radius:20px; font-size:0.82rem; background:{failed > 0 ? '#fef2f2' : '#eff6ff'}; border:1px solid {failed > 0 ? '#fecaca' : '#bfdbfe'}; color:{failed > 0 ? '#b91c1c' : '#1d4ed8'};"
       title="Background PDF/WhatsApp queue"
@@ -65,7 +66,7 @@
       {#if pending > 0}<span>{pending} in queue</span>{/if}
       {#if failed > 0}<span>{failed} failed</span>{/if}
       <span class="material-icons-round" style="font-size:16px;">{open ? 'expand_less' : 'expand_more'}</span>
-    </div>
+    </button>
 
     {#if open}
       <div class="glass-card" style="padding:10px; margin-top:8px; font-size:0.78rem; max-width:520px;">

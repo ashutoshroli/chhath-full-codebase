@@ -258,15 +258,19 @@
           <strong style="font-size:0.85rem;">Slide {i + 1}</strong>
           <div style="display:flex; align-items:center; gap:10px;">
             {#if slides.length > 1}
-              <!-- svelte-ignore a11y_click_events_have_key_events -->
-              <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <span class="material-icons-round" title="Upar le jaayein" style="cursor:{i === 0 ? 'not-allowed' : 'pointer'}; opacity:{i === 0 ? 0.3 : 1}; font-size:1.1rem;" onclick={() => i > 0 && moveSlide(i, -1)}>arrow_upward</span>
-              <!-- svelte-ignore a11y_click_events_have_key_events -->
-              <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <span class="material-icons-round" title="Neeche le jaayein" style="cursor:{i === slides.length - 1 ? 'not-allowed' : 'pointer'}; opacity:{i === slides.length - 1 ? 0.3 : 1}; font-size:1.1rem;" onclick={() => i < slides.length - 1 && moveSlide(i, 1)}>arrow_downward</span>
-              <!-- svelte-ignore a11y_click_events_have_key_events -->
-              <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <span class="material-icons-round" title="Delete" style="cursor:pointer; color:var(--danger); font-size:1.1rem;" onclick={() => removeSlide(i)}>delete</span>
+              <!-- `disabled` replaces the cursor/opacity hint: a control that cannot act must
+                   say so to the keyboard and to assistive tech, not only to the mouse. -->
+              <button type="button" class="btn-bare material-icons-round" title="Upar le jaayein"
+                aria-label="Move slide {i + 1} up" disabled={i === 0}
+                style="opacity:{i === 0 ? 0.3 : 1}; font-size:1.1rem;"
+                onclick={() => i > 0 && moveSlide(i, -1)}>arrow_upward</button>
+              <button type="button" class="btn-bare material-icons-round" title="Neeche le jaayein"
+                aria-label="Move slide {i + 1} down" disabled={i === slides.length - 1}
+                style="opacity:{i === slides.length - 1 ? 0.3 : 1}; font-size:1.1rem;"
+                onclick={() => i < slides.length - 1 && moveSlide(i, 1)}>arrow_downward</button>
+              <button type="button" class="btn-bare material-icons-round" title="Delete"
+                aria-label="Delete slide {i + 1}" style="color:var(--danger); font-size:1.1rem;"
+                onclick={() => removeSlide(i)}>delete</button>
             {/if}
           </div>
         </div>
