@@ -242,6 +242,9 @@ jobs:
         run: |
           node --test \
             test/migration-matrix.test.mjs \
+            test/migration-target-databases.test.mjs \
+            test/pr34-enforced-keys-and-relations.test.mjs \
+            test/pr35-migration-ledger.test.mjs \
             test/h10-m38-indexes-and-retention.test.mjs \
             test/h9-atomic-id-allocation.test.mjs
 

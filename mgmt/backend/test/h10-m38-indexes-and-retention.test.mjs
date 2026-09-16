@@ -125,6 +125,11 @@ const SCHEMA_FOR_MIGRATION = {
   '34-core-unique-id-code.sql': 'core.sql',
   '35-collections-unique-receipt-no.sql': 'collections.sql',
   '36-loans-keys-and-relations.sql': 'loans_expenses.sql',
+  // PR-35 — the migration ledger. It is applied to EVERY database, so it must not
+  // assume anything about the schema it lands in; pr35-migration-ledger.test.mjs
+  // applies it against two unrelated schemas for exactly that reason. Mapped to
+  // core.sql here only because this harness wants one schema per file.
+  '37-schema-migrations-ledger.sql': 'core.sql',
 };
 
 // A FOURTH category: migrations that ADD A CONSTRAINT — a unique index or a trigger.

@@ -6,10 +6,10 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status — against the plan's 48 PRs: 35.5 done · 12.5 remaining.** *(this PR is a precondition for PR-35, not one of the 48)*
-Separately, **46 GitHub PRs** have been merged for this effort (#311–#359). Those two numbers are not the same thing, and revisions of this file before #356 wrongly treated them as one — the header claimed "8 pending" while §3 below listed 14.5. Several merged PRs were docs/runbook updates (#340, #343, #346, #352), CI fix-ups (#330, #345), or carry-over items outside the 48 (#348, #356). Others, like this one, are a **slice** of a plan PR rather than a whole one. **The plan count is the one to read for progress.**
+**Status — against the plan's 48 PRs: 36.5 done · 11.5 remaining.**
+Separately, **47 GitHub PRs** have been merged for this effort (#311–#360). Those two numbers are not the same thing, and revisions of this file before #356 wrongly treated them as one — the header claimed "8 pending" while §3 below listed 14.5. Several merged PRs were docs/runbook updates (#340, #343, #346, #352), CI fix-ups (#330, #345), or carry-over items outside the 48 (#348, #356). Others, like this one, are a **slice** of a plan PR rather than a whole one. **The plan count is the one to read for progress.**
 
-Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-BE closed)** · **W3 6.5/7** · **W4 2/3** · **W5 0.5/6** · W6 0/4 · **W7 1.5/3**
+Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-BE closed)** · **W3 6.5/7** · **W4 ✅ 3/3** · **W5 0.5/6** · W6 0/4 · **W7 1.5/3**
 
 ---
 
@@ -64,72 +64,84 @@ Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-
 | [#357](https://github.com/ashutoshroli/chhath-full-codebase/pull/357) | let people zoom | PR-39 (slice) | `maximum-scale=1.0, user-scalable=no` disabled pinch-zoom on four app shells, including **both live mgmt frontends** — WCAG 1.4.4. The block came from the original public frontend and rode into three successive rewrites; it left the public side by accident, not decision. So the fix is four one-line changes and the point is the test, which scans every tracked shell in the tree | No migration |
 | [#358](https://github.com/ashutoshroli/chhath-full-codebase/pull/358) | CI was installing a vulnerable xmldom | PR-47 (part) | The override redirected the *deprecated* `xmldom`, but `docxtemplater` depends on the **scoped** `@xmldom/xmldom` — never rewritten. `^0.9.10` fits both 0.9.11 (11 advisories, high) and 0.9.12, so the two apps differed only by lockfile timing and `npm ci` installed the vulnerable one. Also: **npm never records `overrides` in a lockfile**, so an override cannot protect the path that ships | No migration |
 | [#359](https://github.com/ashutoshroli/chhath-full-codebase/pull/359) | apply the constraints 07, 08 and 10 only described | PR-34 | Three migrations shipped their real work as **comments** (10 is 101 comment lines, 0 executable) because a UNIQUE index fails on a table holding a duplicate. #354’s report proved every precondition is 0, so there are **no repair scripts** — enforcement only: 3 partial unique indexes + **4** triggers. Migration 10 had `BEFORE INSERT` only; the UPDATE half is new. No `BEFORE DELETE` guard — it would abort `deleteLoan`’s own batch | Migrations **34/35/36**, one per database (§W8f) |
+| [#360](https://github.com/ashutoshroli/chhath-full-codebase/pull/360) | five migrations named a database that does not exist | PR-35 precondition | The "Apply with:" line an operator copy-pastes said `chhath_logs`, `chhath_core`, `chhath_collections`, `chhath_loans_expenses` — **underscores**, where every real database uses hyphens. One of the five was mine (#356), repeated in the runbook, so a **privacy remediation** was handed a command that could only fail and was reported as run. No test had ever read the one line a human acts on | No migration — comments only. **Verify migration 33 applied** (§W8e) |
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — five migrations told the operator to use a database that does not exist
+## 2. This PR — a migration system that records what it did (PR-35, completes W4)
 
-**Audit ID:** precondition for **PR-35** (the migration ledger). A runner cannot route a migration to a database until the name it declares is trustworthy.
+**Audit ID:** Wave 4 **PR-35**. This completes W4.
 
-Every migration carries an "Apply with:" line that a human copy-pastes:
+Asked *"which migrations have you applied?"*, nobody could answer — not the operator, not the code, not CI. The only way to find out was to probe for artefacts (does this index exist? does that column?) and infer.
+
+That is not an abstract gap. Two things in this repo happened **because** of it:
+
+- a privacy remediation was reported as applied when its command had failed, since a failed apply and a successful one look identical in a checklist (#360);
+- five migrations spent months telling people to run them against a database name that does not exist, and nothing noticed.
+
+### `schema_migrations`, one ledger per database
+
+Not one shared ledger. D1 has no cross-database query, so a central ledger could never be read alongside the schema it describes, and would drift the moment one database was restored from backup and another was not. Each database carries its own history, `filename` unique within it.
+
+The **checksum** is not tamper-proofing. It answers the question that comes up when a migration misbehaves: *is the file on disk still the file that was applied?* An edited migration is the one thing a ledger keyed only on a name cannot see — and editing an applied migration is a normal mistake.
+
+### `migrate.mjs` — the logic is pure, the database is one injected function
 
 ```
---   wrangler d1 execute chhath-logs --remote --file=./33-scrub-visitor-ips.sql
+status              what is applied and what is pending, per database (reads only)
+apply  --db <name>  apply pending migrations in order, recording each
+adopt  --db <name>  record pending migrations as applied WITHOUT running them
+verify              re-checksum applied migrations; report files that changed
 ```
 
-**Five of them named a database that does not exist** — `chhath_core`, `chhath_collections`, `chhath_logs`, `chhath_loans_expenses`, with **underscores**, while every real database in `wrangler.toml` uses **hyphens**:
+Everything that decides anything — what exists, what is pending, in what order, against which database, whether a checksum still matches — is a pure function over strings, and is tested. The only impure part shells out to wrangler and is injected. That is deliberate: a real D1 database is not reachable from where this was written, so the alternative was shipping untested branching around an untestable call.
 
-| migration | said | real name |
-|---|---|---|
-| `07-core-id-uniqueness` | `chhath_core` | `chhath-core` |
-| `08-collections-sl-no-uniqueness` | `chhath_collections` | `chhath-collections` |
-| `09-error-log-client-ip` | `chhath_logs` | `chhath-logs` |
-| `10-loans-referential-integrity` | `chhath_loans_expenses` | `chhath-loans-expenses` |
-| **`33-scrub-visitor-ips`** | `chhath_logs` | `chhath-logs` |
+**`adopt` is not a convenience — it is the only thing that makes this usable at all.** There are 40+ migrations already applied to the live databases by hand. Without it, `apply` would try to re-run all of them: most are idempotent and harmless, some (ADD COLUMN) would fail outright. So the first run on an existing deployment is `adopt`, which writes the history without touching the schema, and `--dry-run` prints exactly what it is about to claim so a wrong claim is visible *before* it is made.
 
-**The last one is mine.** I added it in #356 by copying the header of migration 09, and then repeated the wrong name in the runbook — so the operator was handed a command that could only fail, for a **privacy remediation**. It was reported as run. It may not have been. §W8e now opens with a verification query for exactly that, because "I ran it" and "it applied" are not the same thing when the command errors.
+Four things the runner refuses to guess at:
 
-### Why nothing caught it
+| | |
+|---|---|
+| a **multi-database** file | refused, not attempted — running the whole file applies the earlier sections then fails part-way (#353). It says which databases and stops |
+| an **inert** recipe (applies nothing) | never queued and never recorded. Running one is a harmless no-op, but the ledger row would claim something happened, and a ledger that overstates is worse than none |
+| a file **changed since applied** | reported, never auto-fixed — whether the edit was cosmetic is a human judgement |
+| a ledger row with **no file** | reported. Compared against the whole tree, so a migration moved between databases is not called deleted |
 
-The SQL is valid. The files are registered in the migration matrix. All 901 tests passed. **No test had ever read the one line a human actually acts on** — the instruction was prose, so it was not checked.
+### Two real bugs my own tests caught
 
-It is now, by two rules derived from the tree rather than from a list kept in step by hand:
+Worth naming, because both were exactly the failure mode I had just written a comment forbidding:
 
-1. the database a migration names must appear as a `database_name` in `mgmt/backend/wrangler.toml` — the only place D1 names are real;
-2. a migration that **has executable SQL** must name one at all. A comment-only recipe legitimately does not, and that exemption is computed from the file's own content, so a recipe that later grows real statements stops being exempt by itself.
+1. **An unrouted migration was silently skipped.** `plan()` filtered on `database === db`; a migration naming no database has `database: null`, so it fell out of the comparison entirely and appeared nowhere. A runner quietly skipping a migration is the whole problem this tool exists to remove. Unrouted migrations now surface in **every** database's plan.
+2. **Inert recipes were queued for apply.** They *do* declare a database, so they passed the routing filter and landed in `pending` — which would have applied a no-op and then written a ledger row saying it had happened.
 
-### A test that checked nothing, caught by mutating it
-
-The first version read only the `wrangler d1 execute` form. But the two multi-database files (`02-perf-indexes`, `03-scalability-indexes`) name their databases **exclusively** in the other two forms — `Section A -> <db>` and `Section A — DB: <db>`. So the guard silently validated nothing on precisely the files where getting a database wrong is most damaging.
-
-All three forms are read now. Mutating a *section header* to an underscore name is caught; before, it was not.
-
-**Migrations & setup:** none — comment lines only. But **verify migration 33 actually applied** (§W8e).
+**Migrations & setup:** migration **37** (the ledger), applied per database — but the tool bootstraps it, so there is no separate step. Runbook §W8g covers the first run.
 
 ## Verification
 
-| mutation | caught by |
-|---|---|
-| the underscore name restored (the real bug) | *no migration names a database that does not exist* |
-| a typo'd name (`chhath-logz`) | same |
-| the "Apply with" line deleted | *a migration with executable SQL says where to apply it* |
-| a **section header** given a bad name | the name check **and** the multi-database list |
+`pr35-migration-ledger.test.mjs` — 19 tests. Beyond the two bugs above:
 
-Against `main` the guard reports all five offenders by file and name. Also pinned: the set of six files that apply nothing, and the two that span databases — so a migration quietly becoming a no-op, or a new multi-database file, both surface.
+- the ledger applies against **two unrelated schemas**, twice, and rejects a second row for the same migration;
+- a recorded row round-trips into a clean plan (recorded means done, not pending);
+- an operator named `O'Brien` does not break the INSERT — `recordSql` builds SQL for `wrangler d1 execute --command`, which takes no bound parameters, so escaping is the only thing between a name and a broken statement;
+- load order is folder-then-filename and *is* the intended order — asserted against the real tree, including that 07 precedes 34 and 09 precedes 33;
+- **a full `adopt` leaves nothing pending, nothing changed and nothing orphaned, in all nine databases** — if that were not true the tool would be unusable on the existing deployment;
+- `wrangler --json` is read in either shape it has come in across versions, and anything unparseable is an empty ledger rather than a crash;
+- an unknown `--db` and an unknown command both exit 1.
 
 ```
-mgmt/backend: 906 passed (901 + 5)
+mgmt/backend: 925 passed (906 + 19)
+migration gate: all 49 migrations covered
 ```
 
-Next, on top of this: **PR-35** — the `schema_migrations` ledger and runner, which needs exactly this mapping to be reliable.
+Not included from PR-35's description: *"canonical schema = generated end-state"* and the *"bootstrap path env-guarded"* item. Both are about regenerating `db/schema/*.sql` from the migration sequence, which is a different concern from recording history — and doing it now would mean regenerating schema files that 900+ tests currently treat as the source of truth.
 
 ---
 
 ## 3. Pending
 
 **W3 — Render / AI / chat (1 left):** PR-32 remainder — Neon **schema**: FK/cascade, role CHECK, automated raw-content retention; consent/disclosure copy; **plus the shared rate/concurrency store deferred from #347 and the in-process job claim from #350**. (TLS verification, the keyed rotating IP pseudonym and server-issued session ids shipped in #351.)
-**W4 — Database (1 left):** ~~duplicate/orphan detection (#354)~~ · ~~partial unique indexes + loan relations (this PR)~~ · **PR-35** `schema_migrations` ledger + transactional runner + checksums *(precondition merged in #353; the first prerequisite declaration landed in #356)*
+**W4 — Database ✅ done (3/3):** ~~duplicate/orphan detection (#354)~~ · ~~partial unique indexes + loan relations (#359)~~ · ~~migration ledger + runner (this PR)~~
 <sub>Still open from PR-34, deliberately: the real FK and the CHECK constraints, both of which need a full table rebuild of the money tables, to be done together with the REAL→INTEGER conversion in migration 12. And a `BEFORE DELETE ON loans` guard, which needs `deleteLoan` to delete children before the parent first — an application change.</sub>
 **W5 — Accessibility (5.5 left):** dialog primitives (public + mgmt) · combobox/buttons · contrast + `:focus-visible` *(the zoom half shipped in this PR)* · live regions + labels · structure/motion
 **W6 — SEO / PWA / privacy / perf (4):** route metadata · manifest + update UX · privacy + same-origin push · lazy skins
