@@ -69,6 +69,7 @@ Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-
 | [#363](https://github.com/ashutoshroli/chhath-full-codebase/pull/363) | make the chat retention window real, and give the chat tables constraints | PR-32 | The retention policy was two commented-out DELETEs under *"OPTIONAL ... if you want to keep the free tier small"* — a privacy commitment framed as housekeeping, and never run, so every public question ever typed was still stored. Now code. Plus FK + CHECK via Postgres `NOT VALID` (the analogue of D1’s partial indexes), and `ON DELETE CASCADE`, which is what makes retention correct rather than tidy | `db/neon/02-constraints-and-retention.sql`; optional `CHAT_RETENTION_DAYS` |
 | [#364](https://github.com/ashutoshroli/chhath-full-codebase/pull/364) | retention for the tables it forgot, and the one it half-covered | PR-48 | `boundedBlank` cleared `filled_base64` only for `status = 'done'`, so a **failed** job kept its whole base64 `.docx` for ever — and failed jobs are the ones that accumulate. The sweep written because that column is "the fastest route to the 5 GB limit" was leaking through the half it did not cover. Plus `render_jobs`, `ai_fixes`, official mail and dead push subscriptions, each with a rule that age alone would have got wrong | No migration |
 | [#365](https://github.com/ashutoshroli/chhath-full-codebase/pull/365) | make the fail-open fallbacks audible | PR-48, C9 | `verifyToken` carries on with a cached session when the live-role read throws — the right trade, but **silent**: a deployment where it had thrown all day reported `status: 'ok'` while demoted and deleted accounts kept working. Counted in KV, surfaced by `?health=1`, **degraded** past a threshold. A log line was rejected: rare → lost in noise, frequent → floods the one place the committee looks | No migration |
+| [#369](https://github.com/ashutoshroli/chhath-full-codebase/pull/369) | publish the donation details atomically, and validate them on the server | C3 | The seven `donation_*` keys ARE the page telling people where to send money, and both frontends published them in a **seven-call loop** with no server validation. Proven on `main`: failing call 4 of 7 left the NEW UPI id live beside the OLD account number and OLD IFSC — a transfer from that page reaches a bank the committee has left. And `money.ts` validates in the BROWSER only; the retained React app validated **nothing**. One `setPortalSettings` now validates everything before writing anything and writes via a D1 `batch` (all-or-none). The account⇔IFSC rule is enforced on the SET and deliberately not per key, since the old loop necessarily passed through that state. Also fixed: `setPortalSetting` was a racy `SELECT`-then-write, now an upsert; and omitting the action from `EXPECTED_MUTATING_ACTIONS` would have left it **CSRF-unprotected** on a cookie session, not merely unclassified | None |
 | [#368](https://github.com/ashutoshroli/chhath-full-codebase/pull/368) | stop writing visitors' addresses into the mgmt Worker's KV keys | C12 (mgmt half) | C12 had been called closed twice and was not: #362 named one mgmt function, and the mgmt Worker had **five** keys spelling out an address — the broadest being `rl:<action>:<ip>:<bucket>`, i.e. every rate-limited public action. A probe on `main` printed all five, populated. All five now key on an HMAC under a **daily-rotating salt** that expires after two days; no fallback to the address, and the salt is cached per namespace (a `WeakMap` on the binding, not a module global). The announce-PIN gate is the deliberate exception — it does not fail open, so with no salt it degrades to the **token-only** key rather than skipping a 6-digit PIN's only brake. `login_attempts.ip`, `user_sessions.ip`, the consent record and `loginfail:` keep the address: named staff accounts and legal evidence, not passers-by. The invariant is a KV **sweep** with one named exception, so a new leaking key fails without anyone adding a case | None — nothing reached D1, no secret |
 | [#367](https://github.com/ashutoshroli/chhath-full-codebase/pull/367) | how to rebuild the databases before launch, and the two traps in doing it | — (operator half of #366) | §W8g: the portal has not launched and D1 holds only test data, so the clean start is nine databases built from `schema/*.sql`. Two things would have made that quietly wrong: **eight** tables are `CREATE TABLE IF NOT EXISTS` with no `DROP` and survive a re-apply, so "re-apply to reset" gives a partial reset that looks complete; and the schema creates tables but not the **five** seed rows migrations insert — without `32-consent-decline-templates` a declined consent notifies nobody, the exact failure #349 already had once. Migrations 11/12/13, 33 and §W8f become unnecessary on a rebuilt DB; `migrate.mjs adopt` records history without running anything, which is also the only thing that works (the six ADD-COLUMN migrations fail on `duplicate column` against the end state). The test written for the runbook caught the runbook saying "nine" when the list has eight | Operator: §W8g, 5 confirmations |
 | [#366](https://github.com/ashutoshroli/chhath-full-codebase/pull/366) | the committed schema is the end state | — | **40 indexes and 10 columns** existed only in a migration, so a database built from the schema had no 2FA, no profile photos, no AI provider columns, and no loan-relation triggers. The drift ran the dangerous way: tests were **more permissive than production**. Also makes migrations 11/12/13 unnecessary — the schema already has the CHECKs and INTEGER types, so a recreate fixes M-33 with no rebuild | Rebuild: runbook §W8g |
@@ -76,92 +77,70 @@ Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-
 
 ---
 
-## 2. This PR — the Donate page could show a half-published set of payment details
+## 2. This PR — the request id #365 built and never used
 
-**Audit ID:** carry-over **C3**. No migration, no operator step.
+**Audit ID:** **PR-48** (observability), finishing my own unfinished work. No migration, no
+operator step.
 
-The seven `donation_*` settings **are** the page that tells people where to send money.
-Both mgmt frontends published them by calling the singular `setPortalSetting` seven times
-in a loop, and the server validated nothing at all.
+#365 added `newRequestId()` and `requestSummary()` to `telemetry.js`, tested the log format,
+and wired them to **nothing**. Both had zero callers. I found that while auditing my own
+work, and a tested format that is never emitted is worse than no format, because the tests
+make it look done.
 
-### What that did, proven on `main`
+### The point is the join
 
-A throwaway probe failed the 4th of the seven calls — a dropped connection on a phone,
-which is how this screen is actually used:
+An `error_log` row and the log line describing the request that produced it had **nothing in
+common**. So "what else happened in that request" was unanswerable, and an operator
+reporting "it failed" gave us nothing to search on. The id now appears in three places, and
+any two of them without the third is useless:
 
-```
-upi=pay@newbank  account=123456789012  ifsc=GOOD0001234
-```
+| where | why |
+|---|---|
+| the response, as `X-Request-Id` | so the caller has something to quote — on failures above all |
+| one `[req]` line per request | action, method, status, ms, cache, user, degraded |
+| the `error_log` context | **the join key.** Without it the other two are decoration |
 
-The **new** UPI id, live beside the **old** account number and the **old** IFSC. A bank
-transfer made from the public Donate page in that state reaches an account the committee
-has left. The Svelte view's own comment said as much and named the fix it could not make:
-the remaining risk "cannot be removed from the client — it needs a single atomic settings
-action on the backend".
+`Access-Control-Expose-Headers` had to be added too: without it the browser hides the header
+from JavaScript, so the frontend could not read the id and the whole point would be lost.
 
-The same probe also stored `donation_upi_id = "not a upi id at all"`. `money.ts` validates
-in the **browser**; the retained React app (the rollback target, which has no tests)
-validated **nothing**, so a typo'd UPI id or account number went live from there, and from
-any scripted call.
+### Choices worth stating
 
-### The fix
-
-`setPortalSettings(env, settings, user)` — Superadmin, validate **everything before writing
-anything**, then one `DB_CORE.batch()`. D1's `batch` is a single implicit transaction, so a
-failure on any statement rolls the whole set back and the Donate page is never left showing
-a mix. Both frontends now make one call instead of seven, and the Svelte view's
-"N of 7 fields were already published" error message is gone because that state no longer
-exists.
-
-Validating on the server is what fixes **both** frontends, including the one nothing else
-guards. The singular action format-checks a donation field too, since the React app's other
-callers still use it.
-
-### The cross-field rule only works in the plural action
-
-An account number with no IFSC — or the reverse — publishes a transfer nobody can complete.
-That rule is enforced on the **set** and deliberately **not** per key: a loop writing seven
-keys one at a time *necessarily* passes through "account set, IFSC not yet", so applying it
-per key would reject the committee's own legitimate save half-way through. It is enforceable
-only when the whole set arrives together, which is the second reason the action exists.
-
-### Two things found on the way
-
-- `setPortalSetting` was a `SELECT`-then-`INSERT`-or-`UPDATE`. Two admins saving at once
-  both saw "no such row" and both inserted; the winner was whichever the UNIQUE index did
-  not reject. Both paths are now one `ON CONFLICT` upsert.
-- Omitting a new write action from `EXPECTED_MUTATING_ACTIONS` is **not** just a failed
-  drift test: that is the set the CSRF double-submit check consults, so the action would
-  have been **unprotected on a cookie session**. A test now pins the membership *and* that
-  the CSRF gate still reads that set, so the reasoning cannot go stale silently.
-
-Changing the donation details now writes an activity-log row (keys only, not values) — the
-singular action logged nothing, and "who changed where the money goes, and when" is exactly
-what someone will later need to trace.
+- **A log line, not a table.** A row per request in `error_log` would bury the actual errors
+  in the committee's error screen within a day — the opposite of observability. Lines go to
+  `wrangler tail`, cost nothing and are free to discard.
+- **`degraded` only for unexpected faults.** A session timing out or a validation message is
+  routine; marking those degraded would make the field meaningless exactly when it matters.
+- **The id is per request, and server-minted.** A module-scoped id would correlate unrelated
+  requests in the same isolate — worse than none. And a client-supplied one would let an
+  attacker's error row be made to look like part of somebody else's request, so `__requestId`
+  is set from the server's value only, after the body is parsed.
+- **Telemetry can never break a response.** `logRequest` swallows everything: it runs after
+  the body is built, and a line that can fail a request is not worth having.
+- **No re-indentation.** The id is minted inside `fetch` and used at the two final return
+  points rather than in a wrapper around the handler. A wrapper would have meant re-indenting
+  ~1000 lines, which would also have broken the Q-8 test's structural parse of the router
+  table for no behavioural gain.
 
 ## Verification
 
 ```
-mgmt/backend            1011 passed (985 + 26)
-Public/backend          159 unit + 25 integration passed
-mgmt/server-render      181 passed
-svelte-check            0 errors (160 warnings, pre-existing — C7)
-both mgmt frontends     build; React main chunk 218.36 kB vs the 230 kB budget
-lint:errors             clean
+mgmt/backend        1024 passed (1011 + 13)
+Public/backend      159 unit + 25 integration passed
+mgmt/server-render  181 passed
+lint:errors         clean
 ```
 
-**Eight mutations of the fix all fail the suite**: `batch` replaced by sequential writes
-(the old behaviour); validating *after* writing; the pair rule dropped; the singular action
-skipping its format check; the upsert replaced by a plain `INSERT`; `requireSuperadmin`
-removed; the server's UPI pattern made more permissive than `money.ts`; and object values
-accepted.
+**Eleven mutations were checked. Ten failed the suite immediately**: a module-scoped id;
+the header dropped from the success path; dropped from the error path only;
+`Access-Control-Expose-Headers` removed; the id kept out of the error-log context; an
+expected refusal also marked degraded; the cache outcome always reported `MISS`;
+`logRequest` allowed to throw; and the client's `context` allowed to overwrite our fields.
 
-The new test file cannot run against `main` — `setPortalSettings` does not exist there — so
-the defect proof is the standalone probe quoted above rather than a red run of this file.
-One test compares the four validation patterns extracted from `money.ts` and `settings.js`
-and fails if they differ: they cannot share a module (TypeScript in Vite vs workerd), so the
-drift is guarded rather than prevented, and the dangerous direction is the **server** being
-the more permissive of the two.
+**The eleventh passed, and that was a gap in my test.** Letting a client-supplied
+`__requestId` win left the *header* correct — it is built from the local variable — and
+poisoned only the error-log context, which is where it matters, because a chosen id lets an
+attacker's row be made to look like part of someone else's request. The test asserted the
+header alone. It now asserts the stored context as well, and the mutation fails.
 
 ---
 
