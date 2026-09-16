@@ -28,6 +28,9 @@ import worker from '../src/index.js';
 const BASE = 'https://api.example/';
 
 let queryLog = [];
+// How many D1 reads were in flight at the same moment, at the peak.
+let inFlight = 0;
+let maxInFlight = 0;
 
 /**
  * A D1 stub that records every statement with a timestamp, and can delay each answer so
@@ -50,8 +53,18 @@ function d1(rows = {}, { delayMs = 0, version = null } = {}) {
       const record = async () => {
         const startedAt = Date.now();
         queryLog.push({ sql: flat, args, startedAt });
-        if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
-        return answer();
+        // Concurrency is COUNTED, not timed. An earlier version of this suite asserted on
+        // elapsed milliseconds, which passes alone and fails on a loaded CI runner — the
+        // same defect shape as carry-over C5. What "read together" actually means is that
+        // more than one read is in flight at once, and that is observable exactly.
+        inFlight++;
+        if (inFlight > maxInFlight) maxInFlight = inFlight;
+        try {
+          if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
+          return answer();
+        } finally {
+          inFlight--;
+        }
       };
       const stmt = {
         bind: (...a) => { args = a; return stmt; },
@@ -118,24 +131,26 @@ const get = (env, query = '?action=portalData') =>
 const sectionQueries = () => queryLog.filter((q) => /FROM (users|committee_members|collections|expenses|loans|loan_guarantors|loan_consents|generated_files)\b/.test(q.sql));
 
 let cacheStore;
-beforeEach(() => { queryLog = []; pending.length = 0; cacheStore = installCache(); });
+beforeEach(() => { queryLog = []; inFlight = 0; maxInFlight = 0; pending.length = 0; cacheStore = installCache(); });
 
 describe('the sections are read together, not one after another', () => {
   test('a build overlaps its section reads instead of summing them', async () => {
-    const env = makeEnv({ delayMs: 40 });
-    const startedAt = Date.now();
+    const env = makeEnv({ delayMs: 5 });
     const res = await get(env);
-    const elapsed = Date.now() - startedAt;
 
     assert.equal(res.status, 200);
     const reads = sectionQueries();
     assert.ok(reads.length >= 8, `sanity: the sections were read (${reads.length})`);
 
-    // Sequentially these same reads are >= 8 * 40ms. Concurrently they overlap, so the
-    // build is bounded by the SLOWEST section rather than by their sum. The threshold is
-    // deliberately loose — this asserts the shape, not a benchmark.
-    assert.ok(elapsed < reads.length * 40 * 0.6,
-      `expected overlapping reads, took ${elapsed}ms for ${reads.length} reads of 40ms`);
+    // The assertion is on CONCURRENCY, not on elapsed time. Sequential awaits can never
+    // have two reads in flight at once, whatever the machine is doing; concurrent ones
+    // always do. A wall-clock threshold would only be a slower way of asking the same
+    // question, and would be wrong whenever CI is busy.
+    assert.ok(maxInFlight > 1,
+      `expected overlapping section reads, but the peak in flight was ${maxInFlight}`);
+    // Not asserted as an exact number: the sections that read portal_settings share a
+    // database and their queries interleave, so the peak is a range, not a constant.
+    assert.ok(maxInFlight >= 4, `expected most sections to overlap, peak was ${maxInFlight}`);
   });
 
   test('the same queries are issued — only their timing changes', async () => {
