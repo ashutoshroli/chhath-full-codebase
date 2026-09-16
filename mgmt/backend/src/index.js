@@ -9,6 +9,7 @@ import { getYears, addYear, getHomeData, getLoansData, getExpensesData, getCommi
 import { getLoginUsers, addLoginUser, updateLoginUser, deleteLoginUser, updateOwnProfile, changePassword, uploadFileToDrive } from './account.js';
 import { getDropdownList, getAllDropdownLists, addDropdownListItem, updateDropdownListItem, deleteDropdownListItem } from './dropdownLists.js';
 import { getFestivalDates, saveFestivalDates, getPortalSetting, setPortalSetting, setPortalSettings, getConsentPageTemplate, updateConsentPageTemplate } from './settings.js';
+import { newRequestId, requestSummary } from './telemetry.js'; // PR-48 observability
 import * as seo from './seo.js';
 import * as wa from './whatsapp.js';
 import { logError, reportErrorToWhatsApp, getErrorLog, reportErrorPublic, isLogErrorRateLimited } from './errorLog.js';
@@ -371,8 +372,28 @@ function corsHeaders(request, env, extra) {
     // wildcard ACAO, so only advertise them when we echoed a specific origin
     // (ALLOWED_ORIGINS is set — the deliberate, non-wildcard case).
     if (origin !== '*') headers['Access-Control-Allow-Credentials'] = 'true';
+    // PR-48: let the page READ the request id. Without this the browser hides the header
+    // from JavaScript, so the frontend could not quote it in an error message and the
+    // whole point — an operator reporting "it failed" with something we can search on —
+    // would be lost.
+    headers['Access-Control-Expose-Headers'] = 'X-Request-Id';
   }
   return headers;
+}
+
+// PR-48: one structured line per request, to stdout (`wrangler tail`).
+//
+// NOT a row in `error_log`. That table is the committee's error screen, and a row per
+// request would bury the actual errors in it within a day — the opposite of observability.
+// A log line costs nothing, is free to keep, and is where per-request data belongs.
+//
+// NEVER THROWS. A telemetry line that can break a response is worse than no telemetry, and
+// this runs after the response body is already built.
+function logRequest(fields) {
+  try {
+    const { startedAt, ...rest } = fields;
+    console.log(requestSummary({ ...rest, ms: Date.now() - startedAt }));
+  } catch (e) { /* observability must never be the thing that fails */ }
 }
 
 function jsonOut(obj, request, env, status, extraHeaders) {
@@ -450,6 +471,10 @@ function hasXss(v) {
 // (`clientIp`, from CF-Connecting-IP) as the authoritative value.
 function buildLogContext(req) {
   const extra = {
+    // PR-48: the join key between this error_log row and the `[req]` summary line for the
+    // request that produced it. Emitted only when we set it, so a direct call that never
+    // went through the router does not gain an empty field.
+    ...(req.__requestId ? { requestId: req.__requestId } : {}),
     deviceId: req.deviceId || '',
     deviceInfo: (req.deviceInfo || '').toString().slice(0, 200),
     // The server-observed Cloudflare edge IP — the only value a client cannot forge.
@@ -492,6 +517,16 @@ function isExpectedError(err) {
 
 export default {
   async fetch(request, env, ctx) {
+    // PR-48 observability. A correlation handle for this one request, minted here and
+    // used three ways: returned as `X-Request-Id`, printed on the one-line request
+    // summary, and recorded in the error-log context. That last one is the point — until
+    // now an `error_log` row and the log line describing the request that produced it had
+    // nothing in common to join on, so "what else happened in that request" was
+    // unanswerable. `newRequestId` and `requestSummary` shipped in #365 and, as I noted
+    // when auditing my own work, had ZERO callers: the format was tested and never used.
+    const requestId = newRequestId();
+    const startedAt = Date.now();
+
     if (request.method === 'OPTIONS') {
       return new Response(null, {
         headers: corsHeaders(request, env, {
@@ -670,6 +705,10 @@ export default {
     req.serverIp = edgeIp;
     req.clientIpReported = req.clientIp || '';
     if (edgeIp) req.clientIp = edgeIp;
+    // Carried on `req` the same way `serverIp` is, so buildLogContext can emit it without
+    // a new parameter on every call site. Underscored: it is ours, not a client field, and
+    // a client-supplied `requestId` must never be able to overwrite it.
+    req.__requestId = requestId;
 
     // ---- audit H-12 / M-10: cookie session + CSRF (backward-compatible) ----
     //
@@ -1401,6 +1440,10 @@ export default {
       // the normal handler so it produces the exact same AuthError as before.
       const cacheParamFn = CACHEABLE_ACTIONS[action];
       let servedFromCacheable = false;
+      // PR-48: for the request summary only. `authedUser` below is block-scoped and the
+      // cache outcome was not recorded anywhere, so neither could be read at the return.
+      let cacheState;          // 'HIT' | 'MISS' | undefined (action is not cacheable)
+      let summaryUser = '';    // the NAME, never a token — see requestSummary
       if (cacheParamFn) {
         // Cookie-only clients carry no body token, so this must use the effective
         // one or the fast path silently never applies to them (audit P0-05).
@@ -1418,9 +1461,11 @@ export default {
           // is (action, param, data-version) and carries no authorization dimension.
           requireStaffRole(authedUser);
           servedFromCacheable = true;
+          summaryUser = authedUser.name || '';
           const param = cacheParamFn(req);
           const version = await getDataVersion(env).catch(() => '0');
           const cached = await mgmtCacheGet(env, action, param, version);
+          cacheState = cached !== null ? 'HIT' : 'MISS';
           if (cached !== null) {
             result = cached; // cache HIT — no D1 work
           } else {
@@ -1467,11 +1512,18 @@ export default {
       // mgmt responses are per-caller/private — never let a browser/CDN cache them
       // across users (our own server-side KV cache is the only cache, and it only
       // holds shared read data).
-      const resp = jsonOut(result, request, env, status, { 'Cache-Control': 'private, no-store' });
+      const resp = jsonOut(result, request, env, status, {
+        'Cache-Control': 'private, no-store',
+        'X-Request-Id': requestId,
+      });
       if (setCookies) {
         try { for (const c of setCookies) resp.headers.append('Set-Cookie', c); }
         catch (e) { /* cookie set is best-effort — never fail the response */ }
       }
+      logRequest({
+        requestId, action, method: request.method, status, startedAt,
+        cache: cacheState, user: summaryUser,
+      });
       return resp;
     } catch (err) {
       const status = err.authError ? 'authError' : (err.announceSessionExpired ? 'announceSessionExpired' : 'error');
@@ -1504,9 +1556,18 @@ export default {
         ? (err.message || String(err))
         : (err.userMessage
           || 'Something went wrong on the server. Please try again; the committee has been notified.');
+      const httpStatus = httpStatusForError(err);
+      // `degraded` names WHY this request did less than it promises, which is the field
+      // that makes a failure searchable next to the error_log row carrying the same
+      // requestId. Expected failures (a session timing out, a validation message) are
+      // routine and are not degradations.
+      logRequest({
+        requestId, action, method: request.method, status: httpStatus, startedAt,
+        degraded: isExpectedError(err) ? undefined : 'unhandled',
+      });
       return jsonOut(
         { success: false, message: safeMessage, [status]: true },
-        request, env, httpStatusForError(err)
+        request, env, httpStatus, { 'X-Request-Id': requestId }
       );
     }
   },
