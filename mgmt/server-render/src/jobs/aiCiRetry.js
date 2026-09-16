@@ -16,6 +16,7 @@ import { config } from '../config.js';
 import { gh, githubGetFileOnBranch, fetchFailedJobLog, isBlockedPath, toBase64Utf8 } from '../lib/github.js';
 import { callModel } from '../lib/model.js';
 import { applyUnifiedDiff, pathsInDiff } from '../lib/diffApply.js';
+import { checkWritablePath, checkDiffWithinContext } from '../lib/aiWritePolicy.js';
 
 export async function runAiCiRetry(payload) {
   const { fixId, branch, prevDiff, checkSuiteId, attempts } = payload || {};
@@ -36,7 +37,23 @@ export async function runAiCiRetry(payload) {
   }
 
   // 2) Read the CURRENT branch state of the files the previous diff touched.
-  const paths = pathsInDiff(prevDiff).filter(p => !isBlockedPath(p));
+  //
+  // audit Render/offload #7. This used to be `.filter(p => !isBlockedPath(p))`, which
+  // SILENTLY DROPPED a path it did not like — so a previous diff that had touched something
+  // protected simply proceeded without it, and nobody was told. A path that is not writable
+  // now is a reason to stop, loudly: the previous diff passed the gate when the branch was
+  // created, so reaching this state means the gate has changed or the diff was not gated.
+  const prevPaths = pathsInDiff(prevDiff);
+  const paths = [];
+  const refused = [];
+  for (const p of prevPaths) {
+    const verdict = checkWritablePath(p, isBlockedPath);
+    if (verdict.ok) paths.push(verdict.path);
+    else refused.push(verdict.error);
+  }
+  if (refused.length) {
+    throw new Error(`ai_ci_retry: the previous diff touches paths that may not be written: ${refused.join('; ')}`);
+  }
   const files = [];
   const shaByPath = {};
   const contentByPath = {};
@@ -64,9 +81,23 @@ export async function runAiCiRetry(payload) {
   if (!applied.ok) {
     throw new Error(`retry diff did not apply: ${applied.reason}`);
   }
+  // This is the sharpest prompt-injection surface in the whole system: `failure.log` above
+  // is a CI LOG, and a CI log contains whatever the build printed — including text someone
+  // else's pull request, test or dependency put there. "Also update
+  // .github/workflows/ci.yml" is a plausible sentence to find in build output, and a model
+  // cannot tell an instruction from data.
+  //
+  // So two gates, and the second is the one that holds even if the first has gaps: the
+  // corrected diff may only touch the files the PREVIOUS diff touched. Anything the log
+  // talked the model into reaching for is, by definition, not in that set.
+  const appliedPaths = [];
   for (const f of applied.files) {
-    if (isBlockedPath(f.path)) throw new Error(`retry touched a protected path: ${f.path}`);
+    const verdict = checkWritablePath(f.path, isBlockedPath);
+    if (!verdict.ok) throw new Error(`retry ${verdict.error}`);
+    appliedPaths.push(verdict.path);
   }
+  const scoped = checkDiffWithinContext(appliedPaths, paths);
+  if (!scoped.ok) throw new Error(`retry ${scoped.error}`);
 
   // 5) Commit each file to the SAME branch (re-triggers CI).
   for (const f of applied.files) {
