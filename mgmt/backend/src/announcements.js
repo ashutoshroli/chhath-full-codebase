@@ -6,6 +6,7 @@ import { requireAdminOrAbove, ValidationError, hashPassword, verifyPassword } fr
 // that causes "Active but never shown" bugs.
 import { isTruthyFlag } from './flags.js';
 import { randomId, randomToken } from './random.js';
+import { ipKey } from './ipPseudonym.js'; // C12: never key KV on a raw IP
 
 const ANNOUNCE_MAX_PIN_ATTEMPTS = 5;
 const ANNOUNCE_PIN_LOCKOUT_SECONDS = 900; // 15 min, mirrors login lockout
@@ -35,11 +36,20 @@ const ANNOUNCE_SESSION_TTL_SECONDS = 21600; // 6 hours
 // router's 20-requests-per-minute-per-IP limit on `verifyAnnouncementPin`, a link
 // that expires, and an Admin who can revoke it instantly. Covering the keyspace
 // would need ~200,000 distinct IP addresses.
-const pinFailKey = (token, ip) => {
-  const addr = (ip || '').toString().trim();
-  // No edge IP (local `wrangler dev`, an odd proxy): fall back to the old
-  // token-only key rather than leaving the attempt ungated.
-  return addr ? `announcepinfail:${token}:${addr}` : `announcepinfail:${token}`;
+// carry-over C12: the announce link is handed out over WhatsApp, so whoever hits this
+// is an ordinary member of the public, not a logged-in operator — and this key used to
+// spell out their address. It is scoped to a daily-rotating PSEUDONYM instead, which
+// scopes the lockout exactly as well because the pseudonym is stable per address.
+//
+// NOTE the fallback differs from the rate limiters in index.js / errorLog.js / auth.js /
+// twoFactor.js. There, no pseudonym means no counting: those limiters were already
+// documented as failing OPEN, so skipping a count changes nothing about the guarantee.
+// Here, dropping the gate would leave a 6-digit PIN open to unlimited guessing, so we
+// fall back to the TOKEN-ONLY key — the pre-H-17 behaviour, which locks more people out
+// than necessary but never fewer. Neither branch falls back to the address.
+const pinFailKey = async (env, token, ip) => {
+  const idKey = await ipKey(env, ip);
+  return idKey ? `announcepinfail:${token}:${idKey}` : `announcepinfail:${token}`;
 };
 
 // The PIN is typed on a phone by whoever is holding the microphone, and the
@@ -116,7 +126,7 @@ export async function verifyAnnouncementPin(env, token, pin, ip) {
 
   // audit H-17: scoped to this client, so one person cannot lock the whole
   // committee out of the announce screen mid-event. See pinFailKey above.
-  const lockKey = pinFailKey(token, ip);
+  const lockKey = await pinFailKey(env, token, ip);
   const fails = parseInt((await env.KV_SESSIONS.get(lockKey)) || '0');
   if (fails >= ANNOUNCE_MAX_PIN_ATTEMPTS) {
     return {

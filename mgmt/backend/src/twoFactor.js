@@ -30,6 +30,7 @@ import {
   generateBackupCodes, generateRecoveryKey, hashBackupCodes, hashCode,
   verifyCodeHash, normalizeCode,
 } from './totp.js';
+import { ipKey } from './ipPseudonym.js'; // C12: never key KV on a raw IP
 
 const ISSUER = 'Chhath Puja Portal';
 
@@ -245,8 +246,12 @@ export async function beginLoginChallenge(env, loginRow, rememberMe, ip, deviceI
 async function isVerifyRateLimited(env, ip) {
   if (!env || !env.KV_SESSIONS || !ip) return false;
   try {
+    // carry-over C12: the counter is keyed on a daily-rotating PSEUDONYM, never the
+    // address. No pseudonym means no counting — never a fallback to the raw value.
+    const idKey = await ipKey(env, ip);
+    if (!idKey) return false;
     const bucket = Math.floor(Date.now() / (VERIFY_RATE_WINDOW_SECONDS * 1000));
-    const key = `twofa:rl:${ip}:${bucket}`;
+    const key = `twofa:rl:${idKey}:${bucket}`;
     const current = parseInt((await env.KV_SESSIONS.get(key)) || '0', 10) || 0;
     if (current >= VERIFY_RATE_MAX) return true;
     await env.KV_SESSIONS.put(key, String(current + 1), { expirationTtl: VERIFY_RATE_WINDOW_SECONDS + 5 });

@@ -23,6 +23,11 @@ import { makeD1, makeKV, schemaFor } from './helpers/stubs.mjs';
 import {
   generateAnnouncementLink, verifyAnnouncementPin, markAnnounced, reannounceAll,
 } from '../src/announcements.js';
+// carry-over C12: the lockout key now carries a daily-rotating PSEUDONYM of the caller's
+// address rather than the address itself, so these tests have to derive the key the same
+// way the source does instead of spelling the address into it. What they ASSERT is
+// unchanged — H-17 is about the counter being per-device, and it still is.
+import { ipKey } from '../src/ipPseudonym.js';
 
 const ADMIN = { name: 'USER0001', role: 'Superadmin' };
 const PIN = '135790';
@@ -39,6 +44,9 @@ function makeEnv() {
 
 const IP_A = '203.0.113.10';
 const IP_B = '198.51.100.20';
+
+// The lockout key for one caller, as announcements.js builds it.
+const lockKeyFor = async (env, token, ip) => `announcepinfail:${token}:${await ipKey(env, ip)}`;
 
 async function makeLink(env, year = 2026) {
   const res = await generateAnnouncementLink(env, year, PIN, null, ADMIN);
@@ -99,7 +107,7 @@ test('H-17 proof: the OLD token-only key locks every device at once', async () =
 
   // ...and under the old key that value is what EVERY other device would read,
   // because nothing in the key distinguishes them. The new key does:
-  assert.equal(await env.KV_SESSIONS.get(`announcepinfail:${token}:${IP_B}`), null,
+  assert.equal(await env.KV_SESSIONS.get(await lockKeyFor(env, token, IP_B)), null,
     'the on-stage device has its own, untouched counter');
 });
 
@@ -108,11 +116,12 @@ test('H-17: the per-device counter is cleared on a successful PIN', async () => 
   const token = await makeLink(env);
   await verifyAnnouncementPin(env, token, 'wrong1', IP_A);
   await verifyAnnouncementPin(env, token, 'wrong2', IP_A);
-  assert.equal(await env.KV_SESSIONS.get(`announcepinfail:${token}:${IP_A}`), '2');
+  const key = await lockKeyFor(env, token, IP_A);
+  assert.equal(await env.KV_SESSIONS.get(key), '2');
 
   const ok = await verifyAnnouncementPin(env, token, PIN, IP_A);
   assert.equal(ok.success, true);
-  assert.equal(await env.KV_SESSIONS.get(`announcepinfail:${token}:${IP_A}`), null,
+  assert.equal(await env.KV_SESSIONS.get(key), null,
     'a fumbled-then-correct entry does not leave the device half-locked');
 });
 
@@ -128,13 +137,31 @@ test('H-17: with no edge IP available the gate still applies (falls back, never 
 test('H-17: brute force from one device still costs at most 5 KV writes per window', async () => {
   const env = makeEnv();
   const token = await makeLink(env);
-  const before = env.KV_SESSIONS._writeOps();
+
+  // Tally by key prefix rather than one running total. carry-over C12 added a second
+  // writer to this path — the daily salt — and a single number would have let a
+  // per-attempt salt write hide inside a raised bound. KV writes are the tightest
+  // free-tier limit (~1,000/day), so what matters is that BOTH stay bounded.
+  const inner = env.KV_SESSIONS;
+  const writes = { lock: 0, salt: 0, other: 0 };
+  env.KV_SESSIONS = {
+    ...inner,
+    async put(k, v, o) {
+      if (k.startsWith('announcepinfail:')) writes.lock++;
+      else if (k.startsWith('mgmt:ipsalt:')) writes.salt++;
+      else writes.other++;
+      return inner.put(k, v, o);
+    },
+    _store: inner._store,
+  };
 
   for (let i = 0; i < 25; i++) await verifyAnnouncementPin(env, token, '000000', IP_A);
 
-  // 25 attempts, but only the first 5 get past the gate and write. KV writes are
-  // the tightest free-tier limit (~1,000/day), so this bound matters.
-  assert.equal(env.KV_SESSIONS._writeOps() - before, 5);
+  // 25 attempts, but only the first 5 get past the gate and write.
+  assert.equal(writes.lock, 5, 'the lockout counter is written at most 5 times per window');
+  // And the pseudonym costs ONE write for the whole isolate, not one per attempt —
+  // 25 salt writes would have been a way to burn the daily quota through this endpoint.
+  assert.equal(writes.salt, 1, 'the salt is written once, then cached');
 });
 
 // ================================== H-17.2 NUMERIC PIN, AND NO PIN ECHO
