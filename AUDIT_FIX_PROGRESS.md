@@ -6,9 +6,9 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status: 37 of 48 PRs merged · 1 open (this one) · 10 pending**
+**Status: 38 of 48 PRs merged · 1 open (this one) · 9 pending**
 
-Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 ✅ done (8/8 — every PUB-BE finding is closed)** · **W3 7/7 — PR-32 half done (security in, Neon schema + retention left)** · W4–W6 not started · **W7 1/3 (CI gates part-done)**
+Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 ✅ done (8/8 — every PUB-BE finding is closed)** · **W3 7/7 — PR-32 half done (security in, Neon schema + retention left)** · **W4 1/3 (detection in; repair + enforce and the ledger left)** · W5–W6 not started · **W7 1/3 (CI gates part-done)**
 
 ---
 
@@ -56,50 +56,72 @@ Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is c
 | [#350](https://github.com/ashutoshroli/chhath-full-codebase/pull/350) | claim a job before running it, and bound how long it may run | Render #3, #5 | `/jobs` answered `202` and fire-and-forgot, recording nothing — so the Worker's ten-minute redispatch of a job that was merely SLOW ran it a second time, opening a second GitHub pull request. Adds a claim taken before the ack (a duplicate is answered `202` with the running state), a per-job deadline just under the Worker's reconcile window, and bounded concurrency answering `503` so the Worker falls back | No migration; `JOBS_MAX_CONCURRENT`, `JOB_DEADLINE_MS` optional. The claim is in-process — exact version needs PR-32's Neon store |
 | [#351](https://github.com/ashutoshroli/chhath-full-codebase/pull/351) | verify Neon TLS, key the IP pseudonym, issue session ids server-side | Render #9 | TLS verification was OFF, so the connection carrying every chat question and the visitor pseudonyms was encrypted but **unauthenticated**; the IP "hash" was an unsalted `sha256` (2³² to reverse for IPv4) and is now a keyed HMAC rotating monthly, storing **nothing** when no secret is set; the session id was read from the request body, so a caller could append to somebody else's conversation | Setup: `CHAT_IP_HASH_SECRET`; leave `NEON_ALLOW_UNVERIFIED_TLS` unset |
 | [#352](https://github.com/ashutoshroli/chhath-full-codebase/pull/352) | operator steps for Wave 3 and the committee items | — | Runbook §W7: the first migration of this effort (without which #349 silently does nothing), the secret worth setting, the two escape hatches to leave unset, the `ai_providers` non-https check whose key needs rotating, deploys per PR, five smoke checks | — |
+| [#353](https://github.com/ashutoshroli/chhath-full-codebase/pull/353) | declare what every migration does, in every folder | C6 | Migration CI scanned only the newest folder; the three older ones held **twelve** files covered by nothing. Widening it fails — which is why C6 stayed open — so each file's *relationship to the schema* is now declared instead: nine apply idempotently, **two span three D1 databases and cannot be run whole**, one is already in the schema. Two headers said "TWO databases" while having three sections | No migration — one new test, two header comments, and the CI glob |
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — every migration in every folder is declared (closes C6)
+## 2. This PR — the first thing that actually looks for broken data (W4 PR-33)
 
-**Audit ID:** part of PR-46 (CI gates). Carry-over **C6** closed.
+**Audit ID:** Wave 4 **PR-33** — *"detection SQL + report action/script (duplicates: login name, consent token/ID, loan ID, (year, sl_no), receipt no; orphans: consents/guarantors/files) — read-only."*
 
-C6 said: *"Migration CI only scans `mgmt/db/migration/2026-09-05/` — older folders have uncovered files, and widening it fails today."*
+Every important business key in this database is an **ordinary index, not a unique constraint**, and every cross-table reference is a bare TEXT column with no foreign key. Measured against `main`'s own committed schema, all of these insert without complaint:
 
-Widening it does fail, and the reasons turn out to be worth knowing. **Twelve files** in the three older folders were covered by nothing at all, and they are not the same kind of thing:
+| planted into `main`'s committed schema | result |
+|---|---|
+| two logins named `ashutosh` — one Superadmin, one Subadmin | **accepted** |
+| two member rows with `id_code = USER0007` | **accepted** |
+| two identical `Ajay Verma`, same father, same village | **accepted** |
+| two contributions both printing receipt `NCS-2026-45` | **accepted** |
+| two loans with `Loan ID = LN-2026-1` | **accepted** |
+| two consents sharing **one token** | **accepted** |
+| a consent pointing at a loan that does not exist | **accepted** |
 
-- **nine** apply cleanly and idempotently against one committed schema;
-- **two** — `2026-09-02/02-perf-indexes.sql` and `03-scalability-indexes.sql` — **cannot be applied as a whole file to any single database.** They carry indexes for **three** different D1 databases. A `CREATE INDEX` on a table that lives in another database does not skip, it **fails** — so running one of these whole applies the earlier sections and then breaks part-way through, leaving the operator to work out how far it got;
-- **one** — `2026-09-01/03-whatsapp_index.sql` — is already fully reflected in the committed schema, so against a fresh schema its `ALTER` can only fail with `duplicate column`.
+This is not news to the repo — it is why `crud.js`'s H-9 comment ends *"Nothing detected it — there was no unique constraint."* Detection queries for a few of these **were** written down, and that is the actual defect this PR fixes: they were written as **SQL comments**. `migration/2026-09-05/10-loans-referential-integrity.sql` is **101 comment lines and zero executable lines**. A commented query is not a check — somebody has to remember it exists, paste it into `wrangler d1 execute` against the right one of nine databases, and read the output correctly. Nobody did.
 
-So the new test does not ask *"does every file apply"*. It asks a better question: **is every file's relationship to the committed schema declared?** A migration nobody has classified is the one that reaches a live database unverified.
+### `src/integrity.js` — eleven checks, one call, nine databases
 
-Done:
+Seven duplicate checks and four orphan checks, Superadmin-only. Highlights of what they turned out to mean:
 
-- **`test/migration-matrix.test.mjs`** — 21 tests. Every file in every folder must appear in a `DECLARED` map as one of: a single schema (applied twice), a **multi-database** file (each `-- Section X — DB: <name>` block applied against the schema for the DB it names), or **already-in-schema** with a written reason. A new migration in any folder fails until it is declared, and a declaration for a file that no longer exists fails too.
-- **The whole-file failure is asserted**, not assumed: if someone ever merges those sections into one applicable file, the test fails and must be deleted deliberately — rather than the header's warning quietly outliving the reason for it.
-- **The CI step now scans `migration/*/*.sql`** — all four folders, 44 files.
-- The 2026-09-05 folder stays delegated to `h10-m38`'s existing per-file list rather than being duplicated into a second list to keep in step; a test asserts that delegation is real, so this suite cannot silently become the only coverage while believing otherwise.
+- **Duplicate login name is the worst one.** Sign-in resolves an account with `WHERE name = ? LIMIT 1`, and `verifyToken` re-reads `SELECT role FROM login_users WHERE name = ? LIMIT 1` on **every authenticated request** to catch demotions. With two rows of one name, both the password that works and the **role the request runs with** are whichever row D1 hands back first. So the check reports the distinct `roles` — a duplicate spanning Superadmin and Subadmin is a privilege question, not an untidiness question. It groups `COLLATE NOCASE`, because that is how the login path matches.
+- **"Duplicate receipt no" and "duplicate `(year, sl_no)`" are the same check.** A receipt number is not a stored column: `templates.js` builds it as `NCS-<year>-<Sl. No.>`. So a duplicate pair *is* two different contributions, different people, different amounts, printing one receipt id — and the report gives the operator that string rather than making them derive it.
+- **A duplicate consent token is a live credential problem.** The token is the entire authorization on the public consent page, so one link resolving to an arbitrary one of two consents means a person could be shown, and could sign, somebody else's. Statuses come back with it so a still-`pending` collision is obvious. The report **never echoes the token value** — orphan consents report `has_token: 1` instead.
+- **Two checks span databases and therefore could never have been a SQL file at all.** D1 has no cross-database join. `loan_consents.person_id`, `loans.name`, `loan_guarantors.loaner`/`.guarantor`, `collections.name` and `committee_members.name` all hold a `USER####` id by value; and `generated_files.record_id` is a **composite key built in another database** (`<docType>-<year>-<ref>`, where the ref is a `collections.id` or a `loan_consents.consent_id`). Delete the collection and the index row stays — still unique, now pointing at nothing, and the public portal still offers the file. That is exactly why these were never among the commented queries.
+- **Duplicate *people* are reported for review, not as a defect.** Two members genuinely can share a name, a father's name and a village; nothing in the data distinguishes that from one person entered twice. So `dup_person` has `severity: 'review'`, is excluded from `blocking`, and **PR-34 must not put a unique index on it**. It is here because it was reported from live use — the two `Ajay Verma` in the Add Collection picker. #348 made the picker *show* them apart; nothing detected the underlying rows.
 
-**Two header corrections, found by the test.** Both multi-database files said they span **"TWO databases"** while having **three** sections. A header that undercounts is exactly how an operator misses a database and leaves an index unapplied on the one they skipped. `03-scalability-indexes.sql` did not state a count at all, and now says what happens if you run it whole.
+### Three things this PR deliberately does not do
 
-**Migrations & setup:** none. This PR adds no migration and changes no SQL that runs — only two header comments, one new test, and the CI scan's glob.
+**It does not write.** Every statement is a SELECT, and that is asserted rather than intended: the test captures every statement sent to every binding and fails on anything that is not a `SELECT`. A detection tool that can write is a repair tool nobody reviewed, and this one runs against nine live databases.
+
+**It does not repair, and it adds no constraint.** That is the audit's staging — detect, then repair, then enforce — and it is not bureaucracy: adding a UNIQUE index to a populated table **fails** while the duplicates are still there, and repairing rows nobody has looked at is how a cleanup becomes an incident. Every finding carries a `hint` saying which migration it blocks and what repairing it involves.
+
+**It never reports a check it could not run as clean.** An unconfigured binding gives `unavailable`, a throwing query gives `error`, and either forces `ok: false`. The dangerous failure mode for a report like this is a false clean bill of health.
+
+**Migrations & setup:** **none.** No migration, no SQL change, no new environment variable. One new read-only action, `getIntegrityReport` (classified in `READ_ONLY_ACTIONS`, so it does not bump the public data version).
 
 ## Verification
 
+`mgmt/backend/test/pr33-integrity-detection.test.mjs` — 21 tests. Each case is planted into the **committed** schema (`mgmt/db/schema/*.sql`), not a fixture invented in the test, so the insert succeeding *is* the finding.
+
+Deliberately mutation-checked, because 21 tests passing first time is not evidence:
+
+| mutation | caught |
+|---|---|
+| `dup_person` made blocking instead of review | ✅ |
+| a single write sneaked into the report path | ✅ |
+| a missing binding reported as clean | ✅ |
+
 ```
-mgmt/backend: npm test -> 860 passed (839 + 21)
-the widened gate, run locally: all 44 migrations in 4 folders are covered
+mgmt/backend: npm test -> 881 passed (860 + 21)
 ```
 
-This is also the **precondition for PR-35** (the migration ledger): a runner that applies migrations in order cannot be built until every file's target and expected outcome is written down. It now is.
-
+Next in W4: **PR-34** repair scripts, partial unique indexes, CHECK constraints and the loan relations (insert **and update** triggers — migration 10's PART 2 ships insert-only). That one touches live data, so it needs a backup and a quiet window first, and it cannot be planned until this report has been *run* — the repair depends on what it finds. **PR-35** is the `schema_migrations` ledger, whose precondition (#353) is already merged.
 ---
 
 ## 3. Pending
 
 **W3 — Render / AI / chat (1 left):** PR-32 remainder — Neon **schema**: FK/cascade, role CHECK, automated raw-content retention; consent/disclosure copy; **plus the shared rate/concurrency store deferred from #347 and the in-process job claim from #350**. (TLS verification, the keyed rotating IP pseudonym and server-issued session ids shipped in #351.)
-**W4 — Database (3):** duplicate/orphan detection · enforce keys & relations · migration ledger
+**W4 — Database (2 left):** ~~duplicate/orphan detection~~ *(this PR)* · **PR-34** repair + partial unique indexes + CHECKs + loan relations (insert **and update** triggers) — *needs a backup, a quiet window, and the output of this PR's report first* · **PR-35** `schema_migrations` ledger + transactional runner + checksums *(its precondition, the migration matrix, merged in #353)*
 **W5 — Accessibility (6):** dialog primitives (public + mgmt) · combobox/buttons · contrast/focus/zoom · live regions + labels · structure/motion
 **W6 — SEO / PWA / privacy / perf (4):** route metadata · manifest + update UX · privacy + same-origin push · lazy skins
 **W7 — Platform (2.5 left):** CI gates *(migration matrix done — route↔view wiring, bundle budgets and fail-on-warning gates remain)* · dependency upgrades · observability + retention

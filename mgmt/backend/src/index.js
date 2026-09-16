@@ -28,6 +28,7 @@ import * as cq from './collectionQueue.js';
 import * as email from './email.js';
 import * as officialMail from './officialMail.js';
 import { cleanupData, cleanupPreview } from './cleanup.js';
+import { runIntegrityReport } from './integrity.js';
 import { generateAiFix, getAiFixes, getAiFix, getLatestAiFixForError, createAiFixPr } from './aiFix.js';
 import { verifyGithubSignature, handleCheckSuiteEvent } from './aiFixCi.js';
 import { getAiProviders, saveAiProvider, deleteAiProvider, setDefaultAiProvider, reorderAiProviders, testAiProvider } from './aiConfig.js';
@@ -86,6 +87,9 @@ export const READ_ONLY_ACTIONS = new Set([
   'getPendingMessages', 'getStuckMessages',
   'getEmailTemplates', 'getStuckEmails', 'getLoanEmailTemplates', 'getEmailLog',
   'listOfficialEmails', 'getOfficialEmail', 'cleanupPreview',
+  // Detection only — every statement it issues is a SELECT, so it cannot change
+  // what the public portal serves and must not bump the data version.
+  'getIntegrityReport',
   'whatsappDiagnostic',
   'getAnnouncementLinks', 'getCustomAnnouncements', 'getAnnouncementQueue',
   'publicGetSeo', 'getSeoSettings',
@@ -1249,6 +1253,12 @@ export default {
       // ---- Data cleanup (Superadmin) ----
       cleanupPreview: () => withAuth(env, req, (user) => cleanupPreview(env, req.target, req.mode, req.days, user)),
       cleanupData: () => withAuth(env, req, (user) => cleanupData(env, req.target, req.mode, req.days, user)),
+
+      // ---- Data-integrity report (Superadmin, read-only — audit Wave 4 PR-33) ----
+      // Detection only: it issues nothing but SELECT and repairs nothing. See the
+      // header of integrity.js for why detect/repair/enforce are three separate
+      // steps rather than one button.
+      getIntegrityReport: () => withAuth(env, req, (user) => runIntegrityReport(env, user, { only: req.only })),
 
       // ---- WhatsApp: Diagnostic endpoint (Superadmin only) ----
       whatsappDiagnostic: () => withAuth(env, req, async (user) => {
