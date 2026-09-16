@@ -6,9 +6,9 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status: 38 of 48 PRs merged · 1 open (this one) · 9 pending**
+**Status: 39 of 48 PRs merged · 1 open (this one) · 8 pending**
 
-Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 ✅ done (8/8 — every PUB-BE finding is closed)** · **W3 7/7 — PR-32 half done (security in, Neon schema + retention left)** · **W4 1/3 (detection in; repair + enforce and the ledger left)** · W5–W6 not started · **W7 1/3 (CI gates part-done)**
+Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 ✅ done (8/8 — every PUB-BE finding is closed)** · **W3 7/7 — PR-32 half done (security in, Neon schema + retention left)** · **W4 1/3 (detection in; repair + enforce and the ledger left)** · W5–W6 not started · **W7 1.5/3 (PR-46 CI gates done)**
 
 ---
 
@@ -57,65 +57,71 @@ Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is c
 | [#351](https://github.com/ashutoshroli/chhath-full-codebase/pull/351) | verify Neon TLS, key the IP pseudonym, issue session ids server-side | Render #9 | TLS verification was OFF, so the connection carrying every chat question and the visitor pseudonyms was encrypted but **unauthenticated**; the IP "hash" was an unsalted `sha256` (2³² to reverse for IPv4) and is now a keyed HMAC rotating monthly, storing **nothing** when no secret is set; the session id was read from the request body, so a caller could append to somebody else's conversation | Setup: `CHAT_IP_HASH_SECRET`; leave `NEON_ALLOW_UNVERIFIED_TLS` unset |
 | [#352](https://github.com/ashutoshroli/chhath-full-codebase/pull/352) | operator steps for Wave 3 and the committee items | — | Runbook §W7: the first migration of this effort (without which #349 silently does nothing), the secret worth setting, the two escape hatches to leave unset, the `ai_providers` non-https check whose key needs rotating, deploys per PR, five smoke checks | — |
 | [#353](https://github.com/ashutoshroli/chhath-full-codebase/pull/353) | declare what every migration does, in every folder | C6 | Migration CI scanned only the newest folder; the three older ones held **twelve** files covered by nothing. Widening it fails — which is why C6 stayed open — so each file's *relationship to the schema* is now declared instead: nine apply idempotently, **two span three D1 databases and cannot be run whole**, one is already in the schema. Two headers said "TWO databases" while having three sections | No migration — one new test, two header comments, and the CI glob |
+| [#354](https://github.com/ashutoshroli/chhath-full-codebase/pull/354) | find the broken data before anything tries to enforce it | W4 PR-33 | Every business key is an ordinary index, not a unique constraint: `main`’s committed schema accepts two Superadmin/Subadmin logins of one name, two identical `Ajay Verma`, two contributions printing receipt `NCS-2026-45`, and **two consents sharing one token**. Detection queries existed — as SQL *comments* (migration 10 is 101 comment lines, **0 executable**). Eleven checks now run in one Superadmin call, including two that span databases and so could never have been a SQL file at all | No migration — read-only action `getIntegrityReport`; runbook §W8 |
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — the first thing that actually looks for broken data (W4 PR-33)
+## 2. This PR — three CI gates that were not gating (finishes PR-46; closes C5)
 
-**Audit ID:** Wave 4 **PR-33** — *"detection SQL + report action/script (duplicates: login name, consent token/ID, loan ID, (year, sl_no), receipt no; orphans: consents/guarantors/files) — read-only."*
+**Audit ID:** Wave 7 **PR-46** (CI gates), the remainder after #353. Carry-over **C5** closed, **C10**'s blind spot closed for the two SvelteKit apps.
 
-Every important business key in this database is an **ordinary index, not a unique constraint**, and every cross-table reference is a bare TEXT column with no foreign key. Measured against `main`'s own committed schema, all of these insert without complaint:
+### C5 — a test that failed for reasons that had nothing to do with the code
 
-| planted into `main`'s committed schema | result |
-|---|---|
-| two logins named `ashutosh` — one Superadmin, one Subadmin | **accepted** |
-| two member rows with `id_code = USER0007` | **accepted** |
-| two identical `Ajay Verma`, same father, same village | **accepted** |
-| two contributions both printing receipt `NCS-2026-45` | **accepted** |
-| two loans with `Loan ID = LN-2026-1` | **accepted** |
-| two consents sharing **one token** | **accepted** |
-| a consent pointing at a loan that does not exist | **accepted** |
+`h6-upload-size-caps.test.mjs` asserts that an oversized upload is rejected **without being decoded first** — the H-6 denial-of-service fix, where a 40 MB base64 photo must not be materialised in a 128 MB isolate just to say no. It asserted that with a stopwatch:
 
-This is not news to the repo — it is why `crud.js`'s H-9 comment ends *"Nothing detected it — there was no unique constraint."* Detection queries for a few of these **were** written down, and that is the actual defect this PR fixes: they were written as **SQL comments**. `migration/2026-09-05/10-loans-referential-integrity.sql` is **101 comment lines and zero executable lines**. A commented query is not a check — somebody has to remember it exists, paste it into `wrangler d1 execute` against the right one of nine databases, and read the output correctly. Nobody did.
+```js
+assert.ok(ms < 250, `rejection took ${ms}ms — it looks like it decoded first`);
+```
 
-### `src/integrity.js` — eleven checks, one call, nine databases
+Reproduced on `main`, with the box loaded: **3 failures in 6 runs**, at 251–271 ms. And the failure message was **false** — the code never decoded, the runner was just busy. That is worse than a missing test: a test that accuses correct code of a bug gets muted, and then the property stops being checked at all.
 
-Seven duplicate checks and four orphan checks, Superadmin-only. Highlights of what they turned out to mean:
+The stopwatch was never necessary, because decoding is not a duration — it is **one observable call**. `base64ToBytes` decodes with the global `atob`, so the honest statement of the test's own title is *"`atob` is never reached"*:
 
-- **Duplicate login name is the worst one.** Sign-in resolves an account with `WHERE name = ? LIMIT 1`, and `verifyToken` re-reads `SELECT role FROM login_users WHERE name = ? LIMIT 1` on **every authenticated request** to catch demotions. With two rows of one name, both the password that works and the **role the request runs with** are whichever row D1 hands back first. So the check reports the distinct `roles` — a duplicate spanning Superadmin and Subadmin is a privilege question, not an untidiness question. It groups `COLLATE NOCASE`, because that is how the login path matches.
-- **"Duplicate receipt no" and "duplicate `(year, sl_no)`" are the same check.** A receipt number is not a stored column: `templates.js` builds it as `NCS-<year>-<Sl. No.>`. So a duplicate pair *is* two different contributions, different people, different amounts, printing one receipt id — and the report gives the operator that string rather than making them derive it.
-- **A duplicate consent token is a live credential problem.** The token is the entire authorization on the public consent page, so one link resolving to an arbitrary one of two consents means a person could be shown, and could sign, somebody else's. Statuses come back with it so a still-`pending` collision is obvious. The report **never echoes the token value** — orphan consents report `has_token: 1` instead.
-- **Two checks span databases and therefore could never have been a SQL file at all.** D1 has no cross-database join. `loan_consents.person_id`, `loans.name`, `loan_guarantors.loaner`/`.guarantor`, `collections.name` and `committee_members.name` all hold a `USER####` id by value; and `generated_files.record_id` is a **composite key built in another database** (`<docType>-<year>-<ref>`, where the ref is a `collections.id` or a `loan_consents.consent_id`). Delete the collection and the index row stays — still unique, now pointing at nothing, and the public portal still offers the file. That is exactly why these were never among the commented queries.
-- **Duplicate *people* are reported for review, not as a defect.** Two members genuinely can share a name, a father's name and a village; nothing in the data distinguishes that from one person entered twice. So `dup_person` has `severity: 'review'`, is excluded from `blocking`, and **PR-34 must not put a unique index on it**. It is here because it was reported from live use — the two `Ajay Verma` in the Add Collection picker. #348 made the picker *show* them apart; nothing detected the underlying rows.
+| | old | new |
+|---|---|---|
+| asserts | elapsed < 250 ms | `atob` call count is 0 |
+| under load (8 busy cores) | **3 failures / 6 runs** | **0 failures / 12 runs** |
+| when the code really does decode first | fails | fails — *with a true message* |
 
-### Three things this PR deliberately does not do
+It carries a **control** assertion too: the same spy must observe exactly one call for an under-cap payload. Without that, a spy that was never wired up would also report zero and the test would pass while checking nothing.
 
-**It does not write.** Every statement is a SELECT, and that is asserted rather than intended: the test captures every statement sent to every binding and fails on anything that is not a `SELECT`. A detection tool that can write is a repair tool nobody reviewed, and this one runs against nine live databases.
+This is the same correction as #345, and for the same reason: measure the behaviour, not the clock. C5 was the last of that shape in the tree.
 
-**It does not repair, and it adds no constraint.** That is the audit's staging — detect, then repair, then enforce — and it is not bureaucracy: adding a UNIQUE index to a populated table **fails** while the duplicates are still there, and repairing rows nobody has looked at is how a cleanup becomes an incident. Every finding carries a `hint` saying which migration it blocks and what repairing it involves.
+### Two bundle budgets that did not exist
 
-**It never reports a check it could not run as clean.** An unconfigured binding gives `unavailable`, a throwing query gives `error`, and either forces `ok: false`. The dangerous failure mode for a report like this is a false clean bill of health.
+The React mgmt SPA has had a main-chunk budget since the audit. **Neither SvelteKit app had one**, so nothing stopped either from growing. Measured now and gated:
 
-**Migrations & setup:** **none.** No migration, no SQL change, no new environment variable. One new read-only action, `getIntegrityReport` (classified in `READ_ONLY_ACTIONS`, so it does not bump the public data version).
+| app | today | budget | headroom |
+|---|---|---|---|
+| `Public/frontend-v6` | **602.3 kB** | 700,000 B | 14% |
+| `mgmt/frontend-svelte` | **999.8 kB** | 1,150,000 B | 13% |
+
+Two deliberate choices:
+
+- **The metric is total client JS, not the entry chunk.** SvelteKit splits per route, so an entry-chunk budget can stay green while the app doubles across a dozen route chunks. Measuring the total is the honest version of the same question. Both jobs also report the figure and the largest chunk to the run summary, so a reviewer sees the direction of travel and not just pass/fail.
+- **602 kB is what it *is*, not what it *should be*.** This is the public portal — every visitor, mostly a phone on rural mobile data. The budget only stops it getting worse; bringing it down is W6/PR-45 (lazy skins). Setting the threshold at today's number dressed up as a target would have been the dishonest option.
+
+Both gates were checked in both directions: they pass at the current sizes and **fail** when the limit is set below them, so neither is vacuous.
+
+### One type-check gate turned on
+
+`Public/frontend-v6` is at **0 errors and 0 warnings**, so `svelte-check` now runs with `--fail-on-warnings`. A new warning fails CI instead of accumulating.
+
+**Not** turned on for `mgmt/frontend-svelte`: it has ~160 pre-existing warnings, mostly unassociated labels. Those are the accessibility work in W5 — bulk-suppressing them to switch a gate on would defeat the point of the gate. That stays **C7**, and the CI comment now says so where somebody will read it.
+
+**Migrations & setup:** none. CI and one test.
 
 ## Verification
 
-`mgmt/backend/test/pr33-integrity-detection.test.mjs` — 21 tests. Each case is planted into the **committed** schema (`mgmt/db/schema/*.sql`), not a fixture invented in the test, so the insert succeeding *is* the finding.
-
-Deliberately mutation-checked, because 21 tests passing first time is not evidence:
-
-| mutation | caught |
-|---|---|
-| `dup_person` made blocking instead of review | ✅ |
-| a single write sneaked into the report path | ✅ |
-| a missing binding reported as clean | ✅ |
-
 ```
-mgmt/backend: npm test -> 881 passed (860 + 21)
+mgmt/backend:          npm test  -> 881 passed
+Public/frontend-v6:    npm run check -> 0 errors, 0 warnings (now fail-on-warnings)
+Public/frontend-v6:    602,293 B  <= 700,000 B
+mgmt/frontend-svelte:  999,841 B  <= 1,150,000 B
 ```
 
-Next in W4: **PR-34** repair scripts, partial unique indexes, CHECK constraints and the loan relations (insert **and update** triggers — migration 10's PART 2 ships insert-only). That one touches live data, so it needs a backup and a quiet window first, and it cannot be planned until this report has been *run* — the repair depends on what it finds. **PR-35** is the `schema_migrations` ledger, whose precondition (#353) is already merged.
+PR-46 is now complete apart from the route↔view wiring test, which is folded into W5 where the routes are being touched anyway.
 ---
 
 ## 3. Pending
@@ -124,7 +130,7 @@ Next in W4: **PR-34** repair scripts, partial unique indexes, CHECK constraints 
 **W4 — Database (2 left):** ~~duplicate/orphan detection~~ *(this PR)* · **PR-34** repair + partial unique indexes + CHECKs + loan relations (insert **and update** triggers) — *needs a backup, a quiet window, and the output of this PR's report first* · **PR-35** `schema_migrations` ledger + transactional runner + checksums *(its precondition, the migration matrix, merged in #353)*
 **W5 — Accessibility (6):** dialog primitives (public + mgmt) · combobox/buttons · contrast/focus/zoom · live regions + labels · structure/motion
 **W6 — SEO / PWA / privacy / perf (4):** route metadata · manifest + update UX · privacy + same-origin push · lazy skins
-**W7 — Platform (2.5 left):** CI gates *(migration matrix done — route↔view wiring, bundle budgets and fail-on-warning gates remain)* · dependency upgrades · observability + retention
+**W7 — Platform (1.5 left):** ~~CI gates~~ *(#353 migration matrix + this PR: C5, bundle budgets, fail-on-warning)* · **PR-47** dependency upgrades · **PR-48** observability + retention
 
 ---
 
@@ -136,11 +142,11 @@ Next in W4: **PR-34** repair scripts, partial unique indexes, CHECK constraints 
 | C2 | Retained React app: no auth-expiry handling, no tests | No test harness there; it is the rollback target, so changes need their own verification | PR-47 (retained-app hardening) |
 | C3 | Donation settings not truly atomic | Needs a single backend settings action | Folded into W2 backend work |
 | C4 | Collection DOCX still rendered client-side | Server-side rendering is a feature change, not a fix | Post-W3 |
-| C5 | `H-6 … WITHOUT decoding` test flake (asserts `ms < 250`) | Pre-existing; timing-based, passes in isolation, fails under full-suite load | PR-46 (CI gates). **The same defect shape was introduced by me in #337 and removed in #345** — that assertion now counts concurrency instead of milliseconds, which is what it was really asking |
+| ~~C5~~ ✅ | `H-6 … WITHOUT decoding` test flake (asserted `ms < 250`) | Reproduced on `main`: **3 failures in 6 runs** under load, with a message that falsely blamed the code. Now asserts the `atob` call count is 0 — the property the title always claimed — plus a control assertion so a mis-wired spy cannot pass. **0 failures in 12 runs** under the same load | **Done — this PR** |
 | ~~C6~~ ✅ | Migration CI only scans `mgmt/db/migration/2026-09-05/` | Widening it did fail, on twelve files — nine appliable, two that span THREE databases and cannot be run whole, one already in the schema. All now declared in `migration-matrix.test.mjs`; CI scans all four folders | **Done — this PR** |
 | C7 | 160 `svelte-check` warnings in the mgmt SPA | Mostly label association — belongs with the a11y work, then fail-on-warning | PR-40 / PR-46 |
 | C9 | `verifyToken` revocation check still fails open on an audit-DB error | Availability trade-off; KV deletion (#319) is now the authoritative revocation | Revisit with W4 observability |
-| C10 | React mgmt main chunk at 218.3 kB vs 230 kB CI budget | Little headroom left; not a regression | PR-46 bundle budgets |
+| C10 | React mgmt main chunk at 218.3 kB vs 230 kB CI budget | Little headroom left; not a regression. The two SvelteKit apps had **no** budget at all until this PR — that gap is now closed (602 kB / 999 kB gated) | Reducing the React chunk itself is still open |
 | C11 | Consent photos/signatures already archived to Drive by earlier runs are still anonymously readable | Code no longer publishes them (#325), but existing files need a one-off ACL remediation | Operational step: dry-run report → apply, before the next archive |
 | C12 | Public visitor IPs are stored raw in `error_log.client_ip` (and in `context.edgeIp`) | Hashing them needs a salt SECRET to be worth anything — an unsalted hash of an IPv4 is 2^32 to reverse — so it is a deployment step (`wrangler secret put`) plus a fallback path, not a code-only change. Split out of PR-22 to keep the authenticity fix reviewable | Own PR, with the retention window, before W3 |
 | C13 | `portalData` still materialises whole tables; the other seven sections still read `SELECT *` and filter in JS | Bounding the payload for real means PAGINATING the public contract, which changes all six frontends — a contract decision, not a fix. PR-24 makes the size visible (a section past 20k rows is logged) instead of pretending it is bounded. Truncating a transparency payload was rejected: hiding contributions is worse than a slow page | Contract decision, then its own PR; the row-count log is the trigger |
