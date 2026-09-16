@@ -189,9 +189,8 @@
     {#each years as y (y.year)}
       <div class="badge" style="background:#f3f4f6; color:#374151; display:flex; align-items:center; gap:6px;">
         {y.year} — {y.file_name}
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <span class="material-icons-round" style="font-size:1rem; cursor:pointer; color:var(--danger);" onclick={() => remove(y.year)}>close</span>
+        <button type="button" class="btn-bare material-icons-round" style="font-size:1rem; color:var(--danger);"
+          aria-label="Remove the {y.year} template" onclick={() => remove(y.year)}>close</button>
       </div>
     {/each}
   </div>

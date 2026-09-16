@@ -101,6 +101,41 @@ input[type="checkbox"], input[type="radio"] {
 .subtab-btn.active { color: var(--primary-saffron); border-bottom-color: var(--primary-saffron); }
 .toggle-switch { cursor: pointer; }
 
+/* audit PR-38 — a <button> that looks exactly like the <span> it replaced.
+ *
+ * Seventeen controls in this app were clickable <span>/<div> elements: the active/priority
+ * badges, the row edit/delete icons, the slide reorder arrows, the attachment remove, the
+ * warning dismiss. None of them was reachable by Tab or operable by Enter or Space, so every
+ * one was mouse-only, and each carried a pair of `svelte-ignore a11y_*` comments recording
+ * that fact without fixing it.
+ *
+ * They are real buttons now. This class strips the button chrome so nothing moves on screen
+ * — which matters, because these sit in dense list rows I cannot see.
+ *
+ * TARGET SIZE: 24px, not 44px. WCAG 2.5.5 (44px) is level AAA; 2.5.8 (24px) is the AA
+ * requirement, and 24px is reachable here without changing row heights. Going to 44px would
+ * relayout ten screens' worth of list rows, and I have no way to look at the result — so it
+ * is deliberately left for someone who can. Stated rather than silently skipped.
+ */
+.btn-bare {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  line-height: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+}
+.btn-bare:disabled { cursor: not-allowed; }
+/* The badges carry their own padding and colours; they must not gain the icon min-size box. */
+.btn-bare.badge { display: inline-block; min-width: 0; min-height: 0; }
+
 .desktop-nav { display: none; }
 @media(min-width: 768px) {
   .bottom-nav { display: none; }

@@ -140,11 +140,10 @@
     {#each rows || [] as m, i (m.message_id || i)}
       {@const who = box === 'inbox' ? m.from_addr : m.to_addr}
       {@const unreadRow = box === 'inbox' && !m.is_read}
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div
-        class="glass-card"
-        style="padding:12px; margin-bottom:8px; cursor:pointer; border-left:{unreadRow ? '3px solid var(--primary, #d97706)' : '3px solid transparent'};"
+      <button
+        type="button"
+        class="btn-bare glass-card"
+        style="display:block; width:100%; text-align:left; padding:12px; margin-bottom:8px; border-left:{unreadRow ? '3px solid var(--primary, #d97706)' : '3px solid transparent'};"
         onclick={() => openMessage(m)}
       >
         <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
@@ -153,7 +152,7 @@
         </div>
         <div style="font-size:0.88rem; margin-top:2px;">{m.subject || '(no subject)'}</div>
         {#if box === 'sent' && m.status === 'failed'}<span class="badge badge-warn" style="margin-top:6px;">failed</span>{/if}
-      </div>
+      </button>
     {/each}
   {/if}
 
@@ -223,9 +222,8 @@
             {#each attachments as a, i (i)}
               <span class="badge" style="background:#eef2ff; color:#3730a3; display:inline-flex; align-items:center; gap:4px;">
                 📎 {a.filename}
-                <!-- svelte-ignore a11y_click_events_have_key_events -->
-                <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <span class="material-icons-round" style="font-size:14px; cursor:pointer;" onclick={() => removeAttachment(i)}>close</span>
+                <button type="button" class="btn-bare material-icons-round" style="font-size:14px;"
+                  aria-label="Remove attachment {a.filename}" onclick={() => removeAttachment(i)}>close</button>
               </span>
             {/each}
           </div>

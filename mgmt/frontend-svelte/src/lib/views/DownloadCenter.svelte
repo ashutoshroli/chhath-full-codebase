@@ -95,12 +95,11 @@
   <div class="glass-card" style="padding:15px; margin-bottom:15px;">
     {#if results.length === 0}<div style="text-align:center; padding:10px;">No matches found.</div>{/if}
     {#each results as u (u.ID)}
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div onclick={() => selectUser(u)} style="padding:10px 0; border-bottom:1px solid #f0f0f0; cursor:pointer;">
+      <button type="button" class="btn-bare" onclick={() => selectUser(u)}
+        style="display:block; width:100%; text-align:left; padding:10px 0; border-bottom:1px solid #f0f0f0;">
         <strong>{u.Name}</strong>
         <div style="font-size:0.8rem; color:var(--text-muted);">{u.Village} {u.Mobile ? `| ${u.Mobile}` : ''}</div>
-      </div>
+      </button>
     {/each}
   </div>
 {/if}

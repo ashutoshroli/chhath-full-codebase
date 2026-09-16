@@ -242,15 +242,14 @@
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
           <span class="badge {loan.Status === 'Repaid' ? 'badge-ok' : 'badge-warn'}">{loan.Status || 'Active'}{statusHindiOf(loan.Status || 'Active') ? ` (${statusHindiOf(loan.Status || 'Active')})` : ''}</span>
           {#if loan['Loan ID']}
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <span
-              class="badge {loan['Loan Status'] === 'Disbursed' ? 'badge-ok' : loan['Loan Status'] === 'Approved' ? 'badge-pending' : 'badge-warn'}"
-              style="cursor:pointer;"
+            <button
+              type="button"
+              class="btn-bare badge {loan['Loan Status'] === 'Disbursed' ? 'badge-ok' : loan['Loan Status'] === 'Approved' ? 'badge-pending' : 'badge-warn'}"
+              aria-label="Open the consent and status detail for this loan"
               onclick={() => (statusLoan = loan)}
             >
               {loan['Loan Status'] || 'Created'} 🔗
-            </span>
+            </button>
           {/if}
           <RowActions {role} disabled={!editable} onEdit={() => openEdit(loan)} onDelete={() => removeLoan(loan)} />
         </div>
