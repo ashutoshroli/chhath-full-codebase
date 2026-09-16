@@ -53,6 +53,14 @@ export const config = {
   // Per-IP rate limit for /public-chat (requests per window).
   chatRateMax: parseInt(opt('CHAT_RATE_MAX', '15'), 10) || 15,
   chatRateWindowMs: parseInt(opt('CHAT_RATE_WINDOW_MS', '60000'), 10) || 60000,
+  // How many proxies sit between this service and the caller. The client IP is read from
+  // the RIGHT of X-Forwarded-For by this many hops, because the left-hand entries are
+  // client-supplied (audit Render/offload #8). Render puts exactly one proxy in front.
+  chatTrustedProxyHops: parseInt(opt('CHAT_TRUSTED_PROXY_HOPS', '1'), 10) || 1,
+  // Absolute ceilings for an anonymous endpoint where every request costs money. The per-IP
+  // window catches one greedy caller; these catch the total.
+  chatMaxConcurrent: parseInt(opt('CHAT_MAX_CONCURRENT', '4'), 10) || 4,
+  chatDailyTokenBudget: parseInt(opt('CHAT_DAILY_TOKEN_BUDGET', '200000'), 10) || 200000,
   // Neon Postgres connection string for chat logs. OPTIONAL — if unset, the
   // chatbot still answers and just skips logging.
   databaseUrl: opt('DATABASE_URL', ''),

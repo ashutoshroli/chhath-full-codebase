@@ -6,9 +6,9 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status: 31 of 48 PRs merged · 1 open (this one) · 16 pending**
+**Status: 32 of 48 PRs merged · 1 open (this one) · 15 pending**
 
-Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 ✅ done (8/8 — every PUB-BE finding is closed)** · **W3 4/7 in progress** · W4–W7 not started
+Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 ✅ done (8/8 — every PUB-BE finding is closed)** · **W3 6/7 in progress** · W4–W7 not started
 
 ---
 
@@ -47,65 +47,69 @@ Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is c
 | [#341](https://github.com/ashutoshroli/chhath-full-codebase/pull/341) | constrain where a provider API key may be sent | Render #6 | `/^https?:\/\//` accepted `http://169.254.169.254`, `http://localhost`, `http://10.0.0.1` and `https://user:pw@host` — and that URL receives the provider's API key as a Bearer token, fetched server-side. Adds a shared shape policy (https only, no credentials, no private/loopback/link-local/CGNAT address, optional allow-list), DNS resolution of **every** returned address on the Render side, `redirect: 'error'`, and enforcement at USE time as well as save time | Setup: optional `AI_PROVIDER_HOST_ALLOWLIST`; check existing `ai_providers` rows for non-https URLs |
 | [#342](https://github.com/ashutoshroli/chhath-full-codebase/pull/342) | write to an allowlist, and only where the model was looking | Render #7 | AI GitHub writes were gated by a denylist that returned `false` for `.github/workflows/ci.yml` (code that runs in CI with the repo's secrets) and `package.json` (dependency substitution). Now an allowlist of `src/`/`test/` roots + source extensions, plus the containment that needs no enumeration: the diff may only touch files the model was SHOWN. The CI-retry path no longer silently drops a refused path; branch names are validated | Setup: optional — use a `GITHUB_TOKEN` without `workflows: write` |
 | [#343](https://github.com/ashutoshroli/chhath-full-codebase/pull/343) | catch the operator doc up with Wave 3, and fix a miscount | — | §3 said "W3 — 3 left" while listing four; runbook §W gained a Wave 3 subsection (no migrations, optional `AI_PROVIDER_HOST_ALLOWLIST`, a `workflows:write`-less `GITHUB_TOKEN`, and the `ai_providers` non-https query whose key needs rotating) | — |
+| [#344](https://github.com/ashutoshroli/chhath-full-codebase/pull/344) | claim the job row before applying a callback | MGMT-BE-02, -03, -04 | The callback's idempotency check was a SELECT with the R2/GitHub side effect between it and the finalising write, so two concurrent callbacks both applied it — a duplicate PDF, or a second pull request. The claim is now the UPDATE; a dead claim is failed rather than retried; jobs whose payload was never stored time out instead of being re-dispatched with the essentials missing; a completed PDF callback bumps `public_data_version` | No migration — `status` is TEXT with no CHECK |
+| [#345](https://github.com/ashutoshroli/chhath-full-codebase/pull/345) | count concurrency instead of milliseconds | — | The assembly test I added in #337 asserted on elapsed wall-clock time and failed on a loaded runner, turning #344's CI red for an unrelated reason. It now counts in-flight D1 reads — the question it was really asking, and one that cannot flake | Same defect shape as C5 |
+| [#346](https://github.com/ashutoshroli/chhath-full-codebase/pull/346) | record three committee-reported items | — | C14 (a declined/rejected consent notifies nobody — loaner + group, decided with the committee), C15 (no father's name in the contributor picker), C16 (the public portal never shows a father's name, for anyone — a trailing-space key mismatch) | C14 needs the first migration of the effort |
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — the callback claims the row before it acts
+## 2. This PR — the public chat's limits actually limit
 
-**Audit IDs:** MGMT-BE-02, MGMT-BE-03 and MGMT-BE-04 — three HIGH findings in one handler. Fourth W3 PR.
+**Audit ID:** Render/offload #8. Fifth W3 PR.
 
-### The idempotency check was a SELECT (MGMT-BE-02)
+`/public-chat` is anonymous, and every request costs money and provider quota. It had one guard — a per-IP sliding window — and that guard was keyed on **a value the caller writes**:
 
 ```js
-const row = await SELECT ...;
-if (row.status === 'completed' || row.status === 'failed') return;   // the check
-await applyResultSideEffect(...);                                    // R2, GitHub
-await UPDATE ... SET status='completed';                             // the write
+const xff = headers['x-forwarded-for'].split(',')[0].trim();   // the FIRST hop
 ```
 
-Everything expensive happened *between* the check and the write. Two callbacks arriving together — Render retrying, a webhook delivered twice, a reconcile racing a late reply — both read `dispatched`, both pass, and **both run the side effect**. For `pdf_convert` that writes the PDF to R2 and inserts into `generated_files` twice; for `ai_pr_create` it opens a **second pull request**. Sequential idempotency is not idempotency.
+`X-Forwarded-For` is built by each proxy **appending** the address it received from, so the left-hand entries are whatever the caller claimed and only the rightmost were added by infrastructure we control. Sending a different value per request therefore makes every request a new "IP".
 
-The claim is now the **UPDATE**: `SET status='applying@<iso>' WHERE job_id=? AND status IN ('pending','dispatched')`, and `meta.changes` says whether it was us. The loser returns without touching anything — and still acks, because a webhook that is not acked is retried forever.
+Measured on `main`: **200 requests from one client, each forging a different first hop → 0 were limited**, against a configured ceiling of 15/minute. A limiter keyed on a value the caller chooses is not a limiter; it is a formality.
 
-A claim that dies mid-side-effect is **failed, never re-dispatched**: we cannot know how far it got, and re-running is exactly the duplicate write the claim exists to prevent. The operator gets *"it was NOT retried automatically, because part of the work may already have been done"* — a human reading that is the right outcome; a silent retry is not.
+Done:
 
-### Retrying a job whose payload was never stored (MGMT-BE-03)
+- **The IP is read from the right.** With one trusted proxy in front (Render's), the last entry is the address that proxy actually observed. `CHAT_TRUSTED_PROXY_HOPS` (default 1) says how many hops to skip if that changes, and a *wrong* value clamps towards the proxy's own address — which throttles everyone rather than nobody, the safe direction for a limiter.
+- **Absolute ceilings, because the per-IP window answers the wrong question.** It catches one greedy caller; it cannot catch total cost, and 200 IPs each politely inside the window still bought 200 model calls. So: a **global concurrency cap** and a **daily token budget**, both checked *before* any provider work, both answering a fast `503` rather than queueing — holding the request open would tie up memory and a connection while the caller waits for something already saturated.
+- **The slot is released in a `finally`.** A slot leaked on the error path would saturate the endpoint permanently after a handful of provider failures — exactly when it most needs to still work.
+- The budget resets by **UTC day key**, not by a timer, so a process that sleeps through midnight still starts the new day at zero. Unparseable token counts contribute nothing rather than `NaN`.
 
-Reconciliation re-dispatched with the **stored** payload. For `pdf_convert_batch` and `provider_test` that is metadata only — the base64 documents and the provider API key are deliberately not persisted (a D1 row is ~1 MB, and a key must not be at rest in a job row). The retry could not succeed; it could only fail slowly or half-run, while the original attempt may still be doing irreversible Drive work. Those two kinds now time out with a reason instead. Every other kind stores its full reference payload and is still retried.
+**An existing test was pinning the vulnerability.** `publicChat.test.mjs` asserted `clientIpFrom` *"prefers the first X-Forwarded-For hop"` — the exact behaviour that made the bypass work. It now asserts the opposite, with the reason recorded.
 
-### A generated document never reached the public portal (MGMT-BE-04)
+**Migrations & setup:** **no migration.** Three optional variables, all with defaults that are already the intended posture:
 
-The router bumps `public_data_version` at **dispatch**, but the `generated_files` index the public portal reads is written when the **callback** arrives — minutes later. So the public payload cached against the dispatch-time version does not contain the document that was just generated, and stays that way until some unrelated edit moves the counter. A visitor following a QR code is told a receipt that exists does not.
+```
+CHAT_TRUSTED_PROXY_HOPS = 1        # Render puts exactly one proxy in front
+CHAT_MAX_CONCURRENT     = 4
+CHAT_DAILY_TOKEN_BUDGET = 200000
+```
 
-The bump now happens after the row is finalised, for the two file-index kinds only. Failures are swallowed deliberately: a version that did not move is a stale portal, while a throw would turn a completed job into a failed one and re-run the side effect on retry.
-
-**Migrations & setup:** **none.** `status` is plain `TEXT` with no `CHECK`, so the `applying@<iso>` marker needs no schema change — and a new column would have meant reckoning with `render_jobs` existing only in migration 23 and not in the canonical schema, which is real but is W4's, and coupling them would make both harder to review. Nothing to configure; nothing to run.
+**Stated limitation, not hidden:** both new counters are **in-process**. Render can run more than one instance, so the effective ceiling is (instances × limit). Making it exact needs a shared store, and the only one this service has is Neon — which PR-32 is already opening for the chat retention work. Putting the shared counter there is better than building a second, throwaway mechanism here.
 
 ## Verification
 
-`mgmt/backend/test/render-callback-claim.test.mjs` — 15 tests, **7 of which fail on `main`**:
+`mgmt/server-render/test/chatAbuseControls.test.mjs` — 15 tests:
 
 | | on `main` | on this branch |
 |---|---|---|
-| two concurrent callbacks for one job | **both** apply the side effect | exactly one; the loser acks |
-| a callback for a row already being applied | applies again | refused |
-| a claim stuck for 30 minutes | invisible | failed, with an actionable message |
-| `pdf_convert_batch` / `provider_test` stuck with retries left | **re-dispatched** with a payload missing its essentials | timed out, nothing re-sent |
-| a completed `pdf_convert` | version unchanged — portal stays stale | version bumped |
+| 200 requests, a different forged first hop each | **0 limited** | the window fills |
+| three forged left-hand entries, same real client | three distinct limiter keys | one |
+| 200 callers each inside the per-IP window | 200 model calls | capped, then fast `503` |
+| a day's token spend | unbounded | `503` once the budget is spent |
+| a provider failure mid-request | — | the slot is released in `finally` |
 
-Also pinned: a *recent* `applying` row is left alone (a side effect in progress must not be interrupted); the claim marker is reported to a client as plain `applying`, never with its timestamp; a reconstructable kind **is** still re-dispatched; an `ai_fix_generate` does **not** bump the version; and a bump failure leaves the job completed.
+Also pinned: no header falls back to the socket address; a hop count larger than the chain clamps to the leftmost; the ceilings are checked *before* `getPublicChatProviders`; and the first-hop read is gone from the guards module.
 
 ```
-mgmt/backend:       npm test -> 826 passed (811 + 15) · lint:errors clean
-mgmt/server-render: npm test -> 119 passed (unaffected)
+mgmt/server-render: npm test -> 134 passed (119 + 15)
 ```
 
 ---
 
 ## 3. Pending
 
-**W3 — Render / AI / chat (3 left):** durable idempotent jobs (deadlines, bounded concurrency, cancellation) · chat abuse controls · chat privacy + Neon
+**W3 — Render / AI / chat (2 left):** durable idempotent jobs (deadlines, bounded concurrency, cancellation) · chat privacy + Neon (incl. the SHARED rate/concurrency store deferred from PR-31)
 **W4 — Database (3):** duplicate/orphan detection · enforce keys & relations · migration ledger
 **W5 — Accessibility (6):** dialog primitives (public + mgmt) · combobox/buttons · contrast/focus/zoom · live regions + labels · structure/motion
 **W6 — SEO / PWA / privacy / perf (4):** route metadata · manifest + update UX · privacy + same-origin push · lazy skins
