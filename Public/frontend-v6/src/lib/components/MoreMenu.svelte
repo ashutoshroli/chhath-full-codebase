@@ -22,6 +22,7 @@
    * the `dark` class so those variants flip correctly.
    */
   import { page } from '$app/stores';
+  import { dialog } from '$lib/a11y/dialog'; // audit PR-36
   import { tr } from '$lib/stores/lang';
   import { NAV_MORE, NAV_MORE_PATHS } from './nav';
   import { MoreHorizontal, X, ChevronRight, Bell } from '@lucide/svelte';
@@ -118,8 +119,6 @@
   });
 </script>
 
-<svelte:window onkeydown={(e) => e.key === 'Escape' && (open = false)} />
-
 <div class="relative {itemClass}">
   <button
     type="button"
@@ -153,6 +152,7 @@
     role="dialog"
     aria-modal="true"
     aria-label={$tr('nav_more')}
+    use:dialog={{ onclose: () => (open = false) }}
   >
     <!-- Dim backdrop -->
     <button

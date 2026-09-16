@@ -1,5 +1,6 @@
 <script lang="ts">
   import { X, MapPin, Crown } from '@lucide/svelte';
+  import { dialog } from '$lib/a11y/dialog'; // audit PR-36
   import type { Ranked } from '$lib/utils/ranking';
   import type { Contributor } from '$lib/api/derive';
   import { fmt, initials, avatarGradient } from '$lib/utils/format';
@@ -23,12 +24,7 @@
   );
   let grad = $derived(avatarGradient(c?.key));
 
-  function onKey(e: KeyboardEvent) {
-    if (e.key === 'Escape') onclose();
-  }
 </script>
-
-<svelte:window onkeydown={onKey} />
 
 {#if entry && c}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -44,6 +40,7 @@
       aria-modal="true"
       tabindex="-1"
       aria-label={$tr('contributor_detail')}
+      use:dialog={{ onclose }}
       onclick={(e) => e.stopPropagation()}
     >
       <div class="flex items-start justify-between">

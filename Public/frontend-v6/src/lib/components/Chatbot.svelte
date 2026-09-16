@@ -5,6 +5,7 @@
    * Purely additive; failures degrade to an inline error message.
    */
   import { MessageCircle, X, Send, Loader2 } from '@lucide/svelte';
+  import { dialog } from '$lib/a11y/dialog'; // audit PR-36
   import { chatUrl } from '$lib/api/client';
   import { lang, tr } from '$lib/stores/lang';
   import { browser } from '$app/environment';
@@ -122,6 +123,8 @@
       flex-col overflow-hidden md:bottom-24"
     role="dialog"
     aria-label={$tr('ask_assistant')}
+    tabindex="-1"
+    use:dialog={{ onclose: () => (open = false), modal: false }}
   >
     <div class="chat-panel__header flex items-center gap-2 border-b border-black/5 px-3 py-2 dark:border-white/10">
       <span class="chat-orb chat-orb--mini grid h-8 w-8 place-items-center rounded-full text-white">
