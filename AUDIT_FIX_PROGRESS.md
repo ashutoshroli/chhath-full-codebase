@@ -6,9 +6,9 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status: 30 of 48 PRs merged · 1 open (this one) · 17 pending**
+**Status: 31 of 48 PRs merged · 1 open (this one) · 16 pending**
 
-Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 ✅ done (8/8 — every PUB-BE finding is closed)** · **W3 3/7 in progress** · W4–W7 not started
+Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is closed)** · **W2 ✅ done (8/8 — every PUB-BE finding is closed)** · **W3 4/7 in progress** · W4–W7 not started
 
 ---
 
@@ -46,24 +46,66 @@ Wave progress: **W0 ✅ done** · **W1 ✅ done (17/17 — every P0 finding is c
 | [#340](https://github.com/ashutoshroli/chhath-full-codebase/pull/340) | operator steps for Waves 0–2 | — | `docs/POST_AUDIT_MANUAL_STEPS.md` §W: W0–W2 add **no migrations**; a deploy ORDER (frontend before Worker, since #335 requires `application/json` on writes); the one new setting (`ALLOWED_ORIGINS` on the PUBLIC Worker); three prerequisite-migration checks; six smoke tests | C11 consent-ACL pass still needs a human |
 | [#341](https://github.com/ashutoshroli/chhath-full-codebase/pull/341) | constrain where a provider API key may be sent | Render #6 | `/^https?:\/\//` accepted `http://169.254.169.254`, `http://localhost`, `http://10.0.0.1` and `https://user:pw@host` — and that URL receives the provider's API key as a Bearer token, fetched server-side. Adds a shared shape policy (https only, no credentials, no private/loopback/link-local/CGNAT address, optional allow-list), DNS resolution of **every** returned address on the Render side, `redirect: 'error'`, and enforcement at USE time as well as save time | Setup: optional `AI_PROVIDER_HOST_ALLOWLIST`; check existing `ai_providers` rows for non-https URLs |
 | [#342](https://github.com/ashutoshroli/chhath-full-codebase/pull/342) | write to an allowlist, and only where the model was looking | Render #7 | AI GitHub writes were gated by a denylist that returned `false` for `.github/workflows/ci.yml` (code that runs in CI with the repo's secrets) and `package.json` (dependency substitution). Now an allowlist of `src/`/`test/` roots + source extensions, plus the containment that needs no enumeration: the diff may only touch files the model was SHOWN. The CI-retry path no longer silently drops a refused path; branch names are validated | Setup: optional — use a `GITHUB_TOKEN` without `workflows: write` |
+| [#343](https://github.com/ashutoshroli/chhath-full-codebase/pull/343) | catch the operator doc up with Wave 3, and fix a miscount | — | §3 said "W3 — 3 left" while listing four; runbook §W gained a Wave 3 subsection (no migrations, optional `AI_PROVIDER_HOST_ALLOWLIST`, a `workflows:write`-less `GITHUB_TOKEN`, and the `ai_providers` non-https query whose key needs rotating) | — |
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — the operator doc catches up with Wave 3, and a miscount is fixed
+## 2. This PR — the callback claims the row before it acts
 
-Not a code change. Two corrections:
+**Audit IDs:** MGMT-BE-02, MGMT-BE-03 and MGMT-BE-04 — three HIGH findings in one handler. Fourth W3 PR.
 
-- **§3 said "W3 — 3 left" while listing four items.** PR-27, 28, 31 and 32 remain; three of the seven are merged (#339, #341, #342). Mine to fix — a progress tracker that cannot be trusted on its own numbers is worse than none.
-- **`docs/POST_AUDIT_MANUAL_STEPS.md` §W covered W0–W2 only.** Wave 3's merged PRs add no migrations either, but they do add two *optional* hardening steps and one **check worth running once against live data**, and none of that was written down anywhere an operator would look.
+### The idempotency check was a SELECT (MGMT-BE-02)
 
-The runbook now has a Wave 3 subsection saying: no migrations; optional `AI_PROVIDER_HOST_ALLOWLIST` on both deployments; a fine-grained `GITHUB_TOKEN` without `workflows: write`; and the one live-data query — existing `ai_providers` rows were never validated, so a row holding a non-`https` base URL is now refused at use time and needs re-saving.
+```js
+const row = await SELECT ...;
+if (row.status === 'completed' || row.status === 'failed') return;   // the check
+await applyResultSideEffect(...);                                    // R2, GitHub
+await UPDATE ... SET status='completed';                             // the write
+```
+
+Everything expensive happened *between* the check and the write. Two callbacks arriving together — Render retrying, a webhook delivered twice, a reconcile racing a late reply — both read `dispatched`, both pass, and **both run the side effect**. For `pdf_convert` that writes the PDF to R2 and inserts into `generated_files` twice; for `ai_pr_create` it opens a **second pull request**. Sequential idempotency is not idempotency.
+
+The claim is now the **UPDATE**: `SET status='applying@<iso>' WHERE job_id=? AND status IN ('pending','dispatched')`, and `meta.changes` says whether it was us. The loser returns without touching anything — and still acks, because a webhook that is not acked is retried forever.
+
+A claim that dies mid-side-effect is **failed, never re-dispatched**: we cannot know how far it got, and re-running is exactly the duplicate write the claim exists to prevent. The operator gets *"it was NOT retried automatically, because part of the work may already have been done"* — a human reading that is the right outcome; a silent retry is not.
+
+### Retrying a job whose payload was never stored (MGMT-BE-03)
+
+Reconciliation re-dispatched with the **stored** payload. For `pdf_convert_batch` and `provider_test` that is metadata only — the base64 documents and the provider API key are deliberately not persisted (a D1 row is ~1 MB, and a key must not be at rest in a job row). The retry could not succeed; it could only fail slowly or half-run, while the original attempt may still be doing irreversible Drive work. Those two kinds now time out with a reason instead. Every other kind stores its full reference payload and is still retried.
+
+### A generated document never reached the public portal (MGMT-BE-04)
+
+The router bumps `public_data_version` at **dispatch**, but the `generated_files` index the public portal reads is written when the **callback** arrives — minutes later. So the public payload cached against the dispatch-time version does not contain the document that was just generated, and stays that way until some unrelated edit moves the counter. A visitor following a QR code is told a receipt that exists does not.
+
+The bump now happens after the row is finalised, for the two file-index kinds only. Failures are swallowed deliberately: a version that did not move is a stale portal, while a throw would turn a completed job into a failed one and re-run the side effect on retry.
+
+**Migrations & setup:** **none.** `status` is plain `TEXT` with no `CHECK`, so the `applying@<iso>` marker needs no schema change — and a new column would have meant reckoning with `render_jobs` existing only in migration 23 and not in the canonical schema, which is real but is W4's, and coupling them would make both harder to review. Nothing to configure; nothing to run.
+
+## Verification
+
+`mgmt/backend/test/render-callback-claim.test.mjs` — 15 tests, **7 of which fail on `main`**:
+
+| | on `main` | on this branch |
+|---|---|---|
+| two concurrent callbacks for one job | **both** apply the side effect | exactly one; the loser acks |
+| a callback for a row already being applied | applies again | refused |
+| a claim stuck for 30 minutes | invisible | failed, with an actionable message |
+| `pdf_convert_batch` / `provider_test` stuck with retries left | **re-dispatched** with a payload missing its essentials | timed out, nothing re-sent |
+| a completed `pdf_convert` | version unchanged — portal stays stale | version bumped |
+
+Also pinned: a *recent* `applying` row is left alone (a side effect in progress must not be interrupted); the claim marker is reported to a client as plain `applying`, never with its timestamp; a reconstructable kind **is** still re-dispatched; an `ai_fix_generate` does **not** bump the version; and a bump failure leaves the job completed.
+
+```
+mgmt/backend:       npm test -> 826 passed (811 + 15) · lint:errors clean
+mgmt/server-render: npm test -> 119 passed (unaffected)
+```
 
 ---
 
 ## 3. Pending
 
-**W3 — Render / AI / chat (4 left):** durable idempotent jobs · callback outbox + version bump · chat abuse controls · chat privacy + Neon
+**W3 — Render / AI / chat (3 left):** durable idempotent jobs (deadlines, bounded concurrency, cancellation) · chat abuse controls · chat privacy + Neon
 **W4 — Database (3):** duplicate/orphan detection · enforce keys & relations · migration ledger
 **W5 — Accessibility (6):** dialog primitives (public + mgmt) · combobox/buttons · contrast/focus/zoom · live regions + labels · structure/motion
 **W6 — SEO / PWA / privacy / perf (4):** route metadata · manifest + update UX · privacy + same-origin push · lazy skins

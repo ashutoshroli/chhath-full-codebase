@@ -32,6 +32,28 @@ import { logErrorAt, logWarn } from './logger.js';
 
 const MAX_ATTEMPTS = 3;       // dispatch attempts before a job is parked 'failed'
 const STUCK_MINUTES = 10;     // a 'dispatched' row older than this is reconciled
+
+// The claim marker written by handleRenderCallback, with its own timestamp, so a claim that
+// dies mid-side-effect can be recovered (audit MGMT-BE-02). Stored in the existing TEXT
+// `status` column — no CHECK constraint, so no migration.
+const APPLYING_PREFIX = 'applying@';
+const APPLYING_STUCK_MINUTES = 5;   // a side effect that has not finished by now is not going to
+
+const isApplying = (status) => (status || '').toString().startsWith(APPLYING_PREFIX);
+const applyingSince = (status) => (status || '').toString().slice(APPLYING_PREFIX.length);
+
+// Kinds whose D1 `payload` is METADATA ONLY, because the real dispatch payload could not be
+// stored: `pdf_convert_batch` carries the base64 .docx items (far past D1's ~1 MB row limit)
+// and `provider_test` carries the provider's API key, which must never be at rest in a job
+// row. Re-dispatching one of these sends a payload with the essential part MISSING, so the
+// job cannot succeed — it can only fail slowly, or half-run (audit MGMT-BE-03).
+const NON_RECONSTRUCTABLE_KINDS = new Set(['pdf_convert_batch', 'provider_test']);
+
+// Kinds whose side effect writes the generated_files index, which the PUBLIC portal reads.
+// The router bumps the data version at DISPATCH, but the file index is only written when the
+// callback arrives — so without this the portal keeps serving a cached payload that predates
+// the document (audit MGMT-BE-04).
+const VERSION_BUMPING_KINDS = new Set(['pdf_convert', 'pdf_convert_batch']);
 const KINDS = new Set(['ai_fix_generate', 'ai_pr_create', 'ai_ci_retry', 'pdf_convert', 'pdf_convert_batch', 'provider_test']);
 
 const genJobId = () => randomId('RJOB');
@@ -190,7 +212,35 @@ export async function handleRenderCallback(env, body) {
       return { success: true, applied: false, message: 'already finalized' };
     }
 
+    // ---- ATOMIC CLAIM (audit MGMT-BE-02) ----
+    //
+    // The read above and the `status='completed'` write at the end used to be the whole of
+    // the idempotency story, and everything expensive happened BETWEEN them. Two callbacks
+    // arriving together — Render retrying, a webhook delivered twice, a reconcile racing a
+    // late reply — both SELECT, both see `dispatched`, both pass the check above, and both
+    // run `applyResultSideEffect`. That is not a double row: for `pdf_convert` it writes the
+    // PDF to R2 and inserts into `generated_files` TWICE, and for `ai_pr_create` it opens a
+    // second GitHub pull request. Sequential idempotency is not idempotency.
+    //
+    // So the claim is the UPDATE, not the SELECT: exactly one caller can move a row out of
+    // pending/dispatched, and `meta.changes` says whether it was us. The loser returns
+    // without touching anything.
+    //
+    // The claim marker carries its own timestamp (`applying@<iso>`) so a claim that dies
+    // mid-side-effect is recoverable — see reconcileStuckJobs. It lives in the existing TEXT
+    // `status` column, which has no CHECK constraint, so this needs NO migration. (A column
+    // would also have meant reckoning with `render_jobs` existing only in migration 23 and
+    // not in the canonical schema — a real problem, but W4's, and coupling them would make
+    // both harder to review.)
     const now = new Date().toISOString();
+    const claim = await db.prepare(
+      `UPDATE render_jobs SET status=? WHERE job_id=? AND status IN ('pending','dispatched')`
+    ).bind(`${APPLYING_PREFIX}${now}`, jobId).run();
+    if (!claim || !claim.meta || claim.meta.changes !== 1) {
+      // Either another callback is applying this result right now, or it already finished.
+      // Both mean: do not run the side effect again.
+      return { success: true, applied: false, message: 'already being applied' };
+    }
     const succeeded = (body.status || '').toString() === 'completed' && !body.error;
 
     if (succeeded) {
@@ -225,6 +275,27 @@ export async function handleRenderCallback(env, body) {
       await db.prepare(
         `UPDATE render_jobs SET status='completed', result=?, finished_at=?, render_job_id=COALESCE(render_job_id, ?) WHERE job_id=?`
       ).bind(JSON.stringify(stored), now, body.renderJobId || null, jobId).run();
+
+      // audit MGMT-BE-04. The router bumps the data version when the job is DISPATCHED, but
+      // the generated_files index — which the public portal reads — is written just above,
+      // when the callback arrives. Those are minutes apart, so the public payload cached
+      // against the dispatch-time version does not contain the document that was just
+      // generated, and stays that way until some unrelated edit bumps the counter again. A
+      // visitor following a QR code sees "not generated yet" for a receipt that exists.
+      //
+      // Bumped AFTER the row is finalised, and failures are swallowed: a version that did
+      // not move is a stale portal, while a throw here would turn a completed job into a
+      // failed one and re-run the side effect on retry.
+      if (VERSION_BUMPING_KINDS.has(row.kind)) {
+        try {
+          const { bumpDataVersion } = await import('./dataVersion.js');
+          await bumpDataVersion(env);
+        } catch (e) {
+          await logWarn(env, 'backend-render', 'handleRenderCallback:bumpDataVersion',
+            `Generated file indexed but the public data version could not be bumped (job ${jobId}): ${(e && e.message) || e}`,
+            { jobId, kind: row.kind }).catch(() => {});
+        }
+      }
       return { success: true, applied: true };
     }
 
@@ -301,14 +372,61 @@ export async function reconcileStuckJobs(env) {
   try { db = jobsDb(env); } catch (e) { return { reconciled: 0 }; }
 
   const cutoff = new Date(Date.now() - STUCK_MINUTES * 60 * 1000).toISOString();
+
+  // A claim that died mid-side-effect (audit MGMT-BE-02). It is deliberately FAILED and never
+  // re-dispatched: we cannot know how far the side effect got, and re-running it is exactly
+  // the duplicate R2 write / duplicate pull request the claim exists to prevent. A human
+  // reading a clear error is the right outcome; a silent retry is not.
+  const applyCutoff = new Date(Date.now() - APPLYING_STUCK_MINUTES * 60 * 1000).toISOString();
+  const { results: stuckApplying } = await db.prepare(
+    `SELECT * FROM render_jobs WHERE status LIKE ? AND status < ? ORDER BY id ASC LIMIT 10`
+  ).bind(`${APPLYING_PREFIX}%`, `${APPLYING_PREFIX}${applyCutoff}`).all().catch(() => ({ results: [] }));
+
+  let reconciled = 0;
+  for (const row of (stuckApplying || [])) {
+    try {
+      const msg = 'The server stopped while applying this result. It was NOT retried automatically, '
+        + 'because part of the work may already have been done — check the outcome and re-run if needed.';
+      const done = await db.prepare(
+        `UPDATE render_jobs SET status='failed', error=?, finished_at=? WHERE job_id=? AND status=?`
+      ).bind(msg, new Date().toISOString(), row.job_id, row.status).run();
+      if (done && done.meta && done.meta.changes === 1) {
+        await logWarn(env, 'backend-render', 'reconcileStuckJobs:stuckApplying',
+          `Job ${row.job_id} (${row.kind}) was claimed at ${applyingSince(row.status)} and never finished.`,
+          { jobId: row.job_id, kind: row.kind }).catch(() => {});
+        await applyFailureSideEffect(env, row, msg).catch(() => {});
+        reconciled++;
+      }
+    } catch (e) {
+      await logErrorAt(env, 'backend-render', 'reconcileStuckJobs:stuckApplying', e, { jobId: row.job_id }).catch(() => {});
+    }
+  }
+
+  // Rows still waiting on Render, past the stuck window.
   const { results } = await db.prepare(
     `SELECT * FROM render_jobs WHERE status='dispatched' AND (dispatched_at IS NULL OR dispatched_at < ?)
       ORDER BY id ASC LIMIT 10`
   ).bind(cutoff).all().catch(() => ({ results: [] }));
 
-  let reconciled = 0;
   for (const row of (results || [])) {
     try {
+      // audit MGMT-BE-03. Re-dispatching one of these sends the stored METADATA-ONLY payload:
+      // pdf_convert_batch without its base64 documents, provider_test without the API key.
+      // The job cannot succeed — it can only fail slowly, or half-run — and meanwhile the
+      // ORIGINAL attempt may still be running on Render, doing irreversible Drive work. So
+      // they time out with a reason the operator can act on instead of being retried.
+      if (NON_RECONSTRUCTABLE_KINDS.has(row.kind)) {
+        const msg = 'Timed out waiting for the processing service. This job cannot be retried '
+          + 'automatically (its request data is not stored on the server) — please run it again.';
+        const done = await db.prepare(
+          `UPDATE render_jobs SET status='failed', error=?, finished_at=? WHERE job_id=? AND status='dispatched'`
+        ).bind(msg, new Date().toISOString(), row.job_id).run();
+        if (done && done.meta && done.meta.changes === 1) {
+          await applyFailureSideEffect(env, row, msg).catch(() => {});
+          reconciled++;
+        }
+        continue;
+      }
       if ((row.attempts || 0) >= (row.max_attempts || MAX_ATTEMPTS)) {
         await db.prepare(
           `UPDATE render_jobs SET status='failed', error=?, finished_at=? WHERE job_id=? AND status='dispatched'`
@@ -370,7 +488,10 @@ export async function getRenderJobStatus(env, jobId, user) {
   return {
     success: true,
     job: {
-      jobId: row.job_id, kind: row.kind, status: row.status,
+      jobId: row.job_id, kind: row.kind,
+      // The claim marker carries a timestamp, which is server bookkeeping. A client polls
+      // until it sees completed/failed, so it is reported as a plain in-progress state.
+      status: isApplying(row.status) ? 'applying' : row.status,
       refId: row.ref_id, attempts: row.attempts,
       result, error: row.error || null,
       createdAt: row.created_at, dispatchedAt: row.dispatched_at, finishedAt: row.finished_at,
