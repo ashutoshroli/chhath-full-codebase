@@ -33,7 +33,12 @@ export default defineConfig({
         theme_color: '#F27A1A',
         background_color: '#0b1020',
         display: 'standalone',
-        orientation: 'portrait',
+        // audit PR-43: was 'portrait', which LOCKS an installed PWA to one orientation. WCAG
+        // 1.3.4 (AA) requires content not be restricted that way: a phone clamped to a
+        // wheelchair arm, or a tablet in a stand, is often fixed in landscape, and the portal
+        // was simply unusable there. 'any' lets the device decide; the layout is responsive
+        // already, which is what made the lock gratuitous.
+        orientation: 'any',
         start_url: '/',
         scope: '/',
         // Display fallback chain: prefer standalone, then minimal-ui, then browser.

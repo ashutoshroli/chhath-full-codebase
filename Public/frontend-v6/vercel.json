@@ -12,6 +12,13 @@
       ]
     },
     {
+      "comment": "audit PR-43 — a service worker MUST NOT be cached. sw.js and push-sw.js are .js, so they fell through to the catch-all rule below with no Cache-Control at all: whatever the CDN chose to do became how long a visitor stayed stuck on an old build, with no way to update. The browser re-checks the SW script on navigation, and this makes that check reach the origin. Must stay ABOVE the immutable/asset rules.",
+      "source": "/(sw|push-sw|workbox-[^/]+)\\.js",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+      ]
+    },
+    {
       "source": "/(.*)\\.(webmanifest|png|svg|xml|txt)",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=86400, stale-while-revalidate=604800" }
