@@ -18,6 +18,14 @@ const LOAN_PLACEHOLDER_HINTS = {
   loan_passed_personal: 'Sent personally to the loaner once everyone\'s consent is verified. Placeholders: {LoanerName} {LoanerNameHindi} {Amount} {Tenure} {InterestRate}',
   disbursement: 'Placeholders: {Name} {NameHindi} {Amount} {Tenure} {InterestRate} {CashAmount} {OnlineAmount} {TotalAmount}',
   otp: 'Placeholders: {OTP} {Name}',
+  // C14: sent when a guarantor/loaner DECLINES consent or the committee REJECTS a
+  // verification. The group message carries {DeclineRemarks} (the reason the decliner
+  // was forced to write); the loaner message deliberately omits it — add {DeclineRemarks}
+  // here too if the committee wants the loaner to see the raw reason.
+  consent_declined_group: 'Sent to the WA group when someone declines consent. Placeholders: {Name} {Role} {LoanerName} {Amount} {Year} {DeclineRemarks}',
+  consent_declined_loaner_personal: 'Sent personally to the loaner when a consent is declined. Placeholders: {Name} {Role} {LoanerName} {Amount} {Year}',
+  consent_rejected_group: 'Sent to the WA group when the committee rejects a verification. Placeholders: {Name} {Role} {LoanerName} {Amount} {Year}',
+  consent_rejected_loaner_personal: 'Sent personally to the loaner when a verification is rejected. Placeholders: {Name} {Role} {LoanerName} {Amount} {Year}',
 };
 const LOAN_TEMPLATE_TYPES = [
   ['consent_group', 'Consent — Group'],
@@ -29,6 +37,13 @@ const LOAN_TEMPLATE_TYPES = [
   ['consent_verified_personal', 'Verified — Personal'],
   ['loan_passed_personal', 'Loan Passed — Loaner'],
   ['disbursement', 'Disbursement'],
+  // C14 — declined / rejected notifications. These are already seeded in the DB
+  // (migration 32) and are sent by the backend; they were missing from this list, so
+  // the committee could not see or edit them.
+  ['consent_declined_group', 'Declined — Group'],
+  ['consent_declined_loaner_personal', 'Declined — Loaner Personal'],
+  ['consent_rejected_group', 'Rejected — Group'],
+  ['consent_rejected_loaner_personal', 'Rejected — Loaner Personal'],
   ['otp', 'OTP'],
 ];
 
