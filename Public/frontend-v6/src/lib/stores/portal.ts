@@ -25,7 +25,12 @@ export interface PortalState {
 }
 
 const initialState: PortalState = {
-  status: 'idle',
+  // audit PR-42: 'loading', not 'idle'. Every consumer derives `loading = status === 'loading'`,
+  // so with 'idle' the first render — and the PRERENDERED HTML that a crawler indexes — took the
+  // ready branch with empty data and displayed a transparency portal reporting zero
+  // contributions and no records. 'idle' stays in the union: verifyVerdict treats it as
+  // "checking" and that defensive branch is still correct.
+  status: 'loading',
   data: EMPTY_PORTAL_DATA,
   stale: false,
   savedAt: 0,

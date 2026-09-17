@@ -9,6 +9,7 @@
   import Chatbot from '$lib/components/Chatbot.svelte';
   import AnnouncementPopup from '$lib/components/AnnouncementPopup.svelte';
   import ThemeGallery from '$lib/components/ThemeGallery.svelte';
+  import Seo from '$lib/components/Seo.svelte'; // audit PR-42: per-route canonical + social + JSON-LD
   import { pwaInfo } from 'virtual:pwa-info';
   import { listenForSubscriptionChange } from '$lib/push';
   import { initInbox } from '$lib/stores/notifications';
@@ -64,8 +65,9 @@
   });
 </script>
 
+<Seo />
+
 <svelte:head>
-  <link rel="canonical" href={config.siteUrl} />
   <!-- eslint-disable-next-line svelte/no-at-html-tags — trusted build-time string -->
   {@html webManifestLink}
 </svelte:head>
