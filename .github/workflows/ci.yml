@@ -169,6 +169,14 @@ jobs:
         working-directory: mgmt/frontend
         run: npm ci
 
+      # The retained React SPA had NO tests until the react-router 7 upgrade
+      # (carry-over C2). Now it has a vitest+jsdom harness covering route wiring,
+      # so gate on it — the router is the one part of this app that is testable
+      # without a browser, and it is exactly what a react-router major could break.
+      - name: Unit tests (router wiring)
+        working-directory: mgmt/frontend
+        run: npm test
+
       - name: Build
         working-directory: mgmt/frontend
         run: npm run build
