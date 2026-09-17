@@ -105,13 +105,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
+          cache-dependency-path: mgmt/server-render/package-lock.json
 
-      # No lockfile in this service yet (audit Render/offload #10 — it resolves semver at
-      # deploy time and auto-deploys, which is its own finding and its own PR). `npm
-      # install` is therefore what reproduces what Render actually runs today.
+      # `npm ci` against the committed lockfile (added in wave-a1 with the docx
+      # renderer, closing audit Render/offload #10). The lockfile pins the xmldom ->
+      # @xmldom/xmldom override + the direct @xmldom/xmldom dep, so CI installs the
+      # exact tree Render deploys — no vulnerable xmldom 0.1.x, no semver drift.
       - name: Install
         working-directory: mgmt/server-render
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Test suite
         working-directory: mgmt/server-render
