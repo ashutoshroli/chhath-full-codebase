@@ -412,6 +412,128 @@ cd ~/chhath-full-codebase/mgmt/backend && npx wrangler tail
 
 ---
 
+## §W8g — Ek DB ko schema se rebuild + seed karo (fresh database)
+
+> **Kab chahiye:** jab ek D1 database **naye sire se** banana ho (fresh/khaali DB) —
+> jaise ek naya environment, ya ek recreate ki gayi database. Ye **normal deploy ka
+> hissa nahi** hai; normal deploy Step 1 ki migrations use karta hai.
+>
+> ⚠️ **SABSE ZAROORI BAAT — schema akela ADHA-KHAALI database deta hai.** `schema/*.sql`
+> ki 9 files 54 tables to bana deti hain, par **ek bhi seed row nahi**. Har seed
+> migration `schema/` ke **bahar** rehti hai. Sirf schema se banaya DB launch pe:
+>
+> * **Donate page pe koi bank / UPI / QR detail nahi** dikhegi (30-donation-settings ke bina), aur
+> * **ek declined consent kisi ko notify nahi karega** — jis loaner ka loan ruk gaya
+>   use kabhi pata hi nahi chalega (32-consent-decline-templates ke bina — ye #349 gap hai).
+>
+> Isliye fresh DB rebuild = **schema PEHLE, phir seed migrations.**
+
+Seed migrations sirf **4** hain, aur wo do database pe jaati hain:
+
+| Migration | DB | Rows | Kya seed karti hai |
+|---|---|---|---|
+| `28-journey-content.sql` | `chhath-core` | **12** | 10 journey year-cards + 2 tagline (`journey_entries` + `portal_settings`) |
+| `29-journey-page-text.sql` | `chhath-core` | **2** | journey page ka static text (`portal_settings` me 2 JSON blob) |
+| `30-donation-settings.sql` | `chhath-core` | **7** | donate page ke bank / UPI / QR keys (`portal_settings`) |
+| `32-consent-decline-templates.sql` | `chhath-loans-expenses` | **6** | declined/rejected notify templates (`loan_message_templates` + `loan_email_templates`) |
+
+Har seed migration idempotent hai (**har INSERT `WHERE NOT EXISTS` se guarded**),
+isliye seed dobara chalane se kuch add nahi hota aur admin ki edit ki hui value
+overwrite nahi hoti. Schema apply (plain `CREATE TABLE`, `IF NOT EXISTS` nahi) sirf
+**khaali** DB pe chalao.
+
+### W8g-a. Pehle exact order dekho (kuch chalata nahi)
+
+```bash
+cd ~/chhath-full-codebase
+node mgmt/db/rebuild.mjs plan
+# har seeded DB ke liye: pehle schema file, phir uske seed migrations, sahi order me.
+```
+
+### W8g-b. Fresh DB rebuild — schema THEN seeds
+
+`full` = schema apply karke phir uske seed migrations chalata hai. **Sirf khaali DB pe.**
+
+```bash
+cd ~/chhath-full-codebase
+
+# pehle LOCAL pe test (safe — production ko touch nahi karta)
+node mgmt/db/rebuild.mjs full --db chhath-core            --local
+node mgmt/db/rebuild.mjs full --db chhath-loans-expenses  --local
+
+# thik lage to REMOTE (asli, fresh production DB pe hi)
+node mgmt/db/rebuild.mjs full --db chhath-core            --remote
+node mgmt/db/rebuild.mjs full --db chhath-loans-expenses  --remote
+```
+
+> Agar DB me schema **pehle se** hai (khaali nahi) to `full` mat chalao — sirf seeds
+> chahiye to `seed` use karo (idempotent, re-run safe):
+>
+> ```bash
+> node mgmt/db/rebuild.mjs seed --db chhath-core           --remote
+> node mgmt/db/rebuild.mjs seed --db chhath-loans-expenses --remote
+> ```
+
+### W8g-c. Verify — row counts exactly 12 / 2 / 7 / 6 hone chahiye
+
+```bash
+# chhath-core: journey year-cards = 10
+npx wrangler d1 execute chhath-core --remote \
+  --command="SELECT COUNT(*) AS journey_entries FROM journey_entries"
+# expected: 10
+
+# chhath-core: 2 tagline + 2 page-text + 7 donation = 11 seeded portal_settings keys
+npx wrangler d1 execute chhath-core --remote \
+  --command="SELECT COUNT(*) AS donation_keys FROM portal_settings WHERE \"key\" LIKE 'donation_%'"
+# expected: 7  (30-donation-settings)
+
+npx wrangler d1 execute chhath-core --remote \
+  --command="SELECT COUNT(*) AS journey_text FROM portal_settings WHERE \"key\" IN ('journey_page_text_en','journey_page_text_hi')"
+# expected: 2  (29-journey-page-text)
+
+# chhath-loans-expenses: 4 WhatsApp + 2 email decline/reject templates = 6
+npx wrangler d1 execute chhath-loans-expenses --remote \
+  --command="SELECT COUNT(*) AS decline_wa FROM loan_message_templates WHERE type LIKE 'consent_%declined%' OR type LIKE 'consent_%rejected%'"
+# expected: 4
+
+npx wrangler d1 execute chhath-loans-expenses --remote \
+  --command="SELECT COUNT(*) AS decline_email FROM loan_email_templates WHERE type LIKE 'consent_%'"
+# expected: 2
+```
+
+Summary: `28 → 12`, `29 → 2`, `30 → 7`, `32 → 6`. Agar koi count kam hai to seed
+migration reh gayi — `node mgmt/db/rebuild.mjs seed --db <name> --remote` dobara
+chalao (idempotent hai).
+
+### W8g-d. Ledger record karna (migrate.mjs)
+
+`rebuild.mjs` sirf schema+seed lagata hai, ledger nahi likhta. Rebuild ke baad
+migration ledger ko sync karo taaki `migrate.mjs status` sahi bataye. Ek fresh DB pe
+jo migrations rebuild ne laga di, unhe **adopt** karo (bina dobara chalaye record):
+
+```bash
+# dekho kya pending hai
+node mgmt/db/migrate.mjs status
+
+# fresh DB pe pehle ledger + baaki migrations adopt karo (record only, run nahi)
+node mgmt/db/migrate.mjs adopt --db chhath-core           --dry-run
+node mgmt/db/migrate.mjs adopt --db chhath-core
+node mgmt/db/migrate.mjs adopt --db chhath-loans-expenses
+```
+
+> `adopt` kyun aur `apply` kyun nahi: seed migrations to rebuild ne pehle hi
+> idempotently laga di hain, aur baaki bahut si migrations already-in-schema hain
+> (fresh schema unhe pehle se rakhta hai) — `apply` unhe dobara chalane pe fail kar
+> sakta hai. `adopt` sirf ledger likhta hai, schema ko touch nahi karta. Detail
+> `mgmt/db/migrate.mjs` ke header me.
+
+Ye poora rebuild+seed path CI me proven hai:
+`mgmt/backend/test/rebuild-and-seed.test.mjs` fresh SQLite se schema banati hai,
+prove karti hai schema-akela ye 4 tables **khaali** chhodta hai, phir rebuild+seed
+se exactly **12 / 2 / 7 / 6** rows aati hain.
+
+---
+
 ## Rollback (agar kuch tut jaye)
 
 **Code rollback** — DB safe rehta hai (naye columns extra hain, purana code unhe
