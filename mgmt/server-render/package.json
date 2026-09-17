@@ -12,16 +12,16 @@
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
-    "@xmldom/xmldom": "0.9.12",
+    "@xmldom/xmldom": "^0.9.12",
     "docxtemplater": "3.69.3",
     "docxtemplater-image-module-free": "^1.1.1",
     "express": "^4.21.2",
     "pg": "^8.13.1",
     "pizzip": "^3.2.0"
   },
-  "comment:overrides": "SECURITY (audit S3, same as mgmt/frontend): docxtemplater-image-module-free pulls in the deprecated, unmaintained 'xmldom' (0.1.x) which has CRITICAL advisories and no upstream fix. We redirect it to its maintained successor '@xmldom/xmldom' via an npm override. But npm NEVER records `overrides` in a lockfile, and this service deploys with `npm ci --omit=dev` off a COMMITTED lockfile (render.yaml) — so we ALSO pin @xmldom/xmldom as a DIRECT dependency at an exact version, which forces it into the resolved tree the lockfile records and guarantees the vulnerable 0.1.x can never be installed at deploy. Regenerate the lockfile with `npm install` after changing deps; verify with `npm ls xmldom @xmldom/xmldom` (no 0.1.x) and `npm audit`.",
+  "comment:overrides": "SECURITY (audit S3, same block as mgmt/frontend): docxtemplater-image-module-free pulls in the deprecated, unmaintained 'xmldom' (0.1.x) which has CRITICAL advisories and no upstream fix, and docxtemplater itself pulls @xmldom/xmldom by its scoped name. We redirect BOTH to the maintained successor '@xmldom/xmldom' via npm overrides (matching the caret form the frontends and the repo-wide security-floor test in mgmt/backend/test/dependency-security-floors.test.mjs expect). But npm NEVER records `overrides` in a lockfile, and this service deploys with `npm ci --omit=dev` off a COMMITTED lockfile (render.yaml) — so we ALSO pin @xmldom/xmldom as a DIRECT dependency at an EXACT version, which forces the patched copy into the resolved tree the lockfile records and guarantees the vulnerable 0.1.x can never be installed at deploy. Regenerate the lockfile with `npm install` after changing deps; verify with `npm ls xmldom @xmldom/xmldom` (no 0.1.x) and `npm audit`.",
   "overrides": {
-    "@xmldom/xmldom": "0.9.12",
-    "xmldom": "npm:@xmldom/xmldom@0.9.12"
+    "@xmldom/xmldom": "^0.9.12",
+    "xmldom": "npm:@xmldom/xmldom@^0.9.12"
   }
 }
