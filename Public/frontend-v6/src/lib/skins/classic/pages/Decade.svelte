@@ -34,7 +34,9 @@
 <div class="mb-4 rounded-xl bg-gradient-to-br from-gray-800 to-gray-900 p-6 text-center text-white shadow-lg">
   <Trophy class="mx-auto h-8 w-8 text-[#F5B840]" aria-hidden="true" />
   <p class="mt-2 text-xs font-bold text-[#F5B840]">{$tr('decade_years', rangeVars)}</p>
-  <h2 class="text-2xl font-black">{$tr('decade_title')}</h2>
+  <!-- audit PR-41: was <h2>. This IS the page title, so it is the document's h1 — the classes
+     are unchanged, so nothing moves; only the outline is corrected. -->
+  <h1 class="text-2xl font-black">{$tr('decade_title')}</h1>
   <p class="mt-1 text-sm text-gray-300">{taglineText}</p>
   <p class="mx-auto mt-3 max-w-xl text-sm text-gray-200/90">{T('intro', 'decade_intro')}</p>
 </div>
@@ -87,18 +89,23 @@
 
 <!-- Table -->
 <div class="mb-4 rounded-xl border border-gray-100 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
-  <h3 class="text-base font-black text-gray-900 dark:text-white">{T('table_h', 'decade_table_h', rangeVars)}</h3>
-  <div class="mt-3">
-    <div class="grid grid-cols-[1fr_1.4fr_1fr] gap-2 border-b border-gray-200 pb-2 text-xs font-bold uppercase text-gray-500 dark:border-gray-700 dark:text-gray-400">
-      <span>{T('th_year', 'decade_th_year')}</span>
-      <span>{T('th_total', 'decade_th_total')}</span>
-      <span>{T('th_contributors', 'decade_th_contributors')}</span>
+  <h3 id="decade-table-h" class="text-base font-black text-gray-900 dark:text-white">{T('table_h', 'decade_table_h', rangeVars)}</h3>
+  <div class="mt-3" role="table" aria-labelledby="decade-table-h">
+        <!-- audit PR-41: this is a data table drawn with CSS grid, so a screen reader was given
+         three unrelated runs of numbers with no column association at all — "2019, 41,300, 63"
+         read as a flat list tells you nothing about which figure is which. ARIA table roles give
+         it the semantics of a <table> with ZERO visual change, which matters because converting
+         the grid to real <table> markup would relayout five skins I cannot look at. -->
+<div role="row" class="grid grid-cols-[1fr_1.4fr_1fr] gap-2 border-b border-gray-200 pb-2 text-xs font-bold uppercase text-gray-500 dark:border-gray-700 dark:text-gray-400">
+      <span role="columnheader">{T('th_year', 'decade_th_year')}</span>
+      <span role="columnheader">{T('th_total', 'decade_th_total')}</span>
+      <span role="columnheader">{T('th_contributors', 'decade_th_contributors')}</span>
     </div>
     {#each d.years as r (r.year)}
-      <div class="grid grid-cols-[1fr_1.4fr_1fr] gap-2 border-b border-gray-100 py-2 text-sm last:border-0 dark:border-gray-700">
-        <span class="font-bold text-[#F27A1A]">{r.year}{#if r.isCurrent} •{/if}</span>
-        <span class="font-semibold text-emerald-700 dark:text-emerald-300">{fmt(r.total)}</span>
-        <span class="text-gray-700 dark:text-gray-200">{r.contributors}</span>
+      <div role="row" class="grid grid-cols-[1fr_1.4fr_1fr] gap-2 border-b border-gray-100 py-2 text-sm last:border-0 dark:border-gray-700">
+        <span role="cell" class="font-bold text-[#F27A1A]">{r.year}{#if r.isCurrent} •{/if}</span>
+        <span role="cell" class="font-semibold text-emerald-700 dark:text-emerald-300">{fmt(r.total)}</span>
+        <span role="cell" class="text-gray-700 dark:text-gray-200">{r.contributors}</span>
       </div>
     {/each}
   </div>

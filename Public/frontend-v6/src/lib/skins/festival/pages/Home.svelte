@@ -30,6 +30,14 @@
 
 <svelte:head><title>Chhath Puja Transparency Portal — Navyuvak Chhath Puja Samiti</title></svelte:head>
 
+<!-- audit PR-41: every page needs exactly one h1, and the Home pages had none in three of
+     the five skins. It is visually hidden rather than drawn: the hero/banner below already
+     shows the portal's name to a sighted visitor, so adding a second visible title would be
+     redundant, while a screen-reader user had NO page name at all and heading navigation
+     landed nowhere. -->
+<h1 class="sr-only">{$tr('app_title')}</h1>
+
+
 {#if $portalState.failed}
   <ErrorState />
 {:else}

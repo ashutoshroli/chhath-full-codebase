@@ -20,7 +20,9 @@
 <svelte:head><title>{$tr('active_committee')} — {$tr('app_title')}</title></svelte:head>
 
 <div class="mb-4 flex items-center justify-between gap-3">
-  <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100">{$tr('active_committee')}</h2>
+  <!-- audit PR-41: was <h2>. This IS the page title, so it is the document's h1 — the classes
+     are unchanged, so nothing moves; only the outline is corrected. -->
+  <h1 class="text-lg font-semibold text-gray-800 dark:text-gray-100">{$tr('active_committee')}</h1>
   <a
     href={mgmtLoginUrl}
     target="_blank"

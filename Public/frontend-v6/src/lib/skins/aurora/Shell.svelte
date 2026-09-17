@@ -25,6 +25,17 @@
   const isActive = (href: string, path: string) => (href === '/' ? path === '/' : path.startsWith(href));
 </script>
 
+<!-- audit PR-41: a skip link. Every one of these shells puts a header, a language
+     switcher, a theme picker and a primary nav ahead of the content, so a keyboard or
+     switch-access visitor had to Tab through all of it on EVERY page before reaching what they
+     came for (WCAG 2.4.1). Visually hidden until focused, so nothing changes for anyone else. -->
+<a
+  href="#main"
+  class="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[200] focus:rounded-lg
+    focus:bg-brand-600 focus:px-4 focus:py-2 focus:text-sm focus:font-bold focus:text-white"
+>{$tr('skip_to_content')}</a>
+
+
 <AuroraBg {still} />
 
 <div class="text-slate-100">
@@ -67,7 +78,7 @@
 
   <StatusBanner />
 
-  <main class="mx-auto max-w-6xl px-3 pb-28 pt-4 md:pb-10">
+  <main id="main" tabindex="-1" class="mx-auto max-w-6xl px-3 pb-28 pt-4 md:pb-10">
     {@render children()}
   </main>
 
