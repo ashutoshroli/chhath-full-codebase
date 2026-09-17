@@ -17,12 +17,10 @@
     <!-- Default SEO / social preview (per-page <title>/<meta> override these). -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Chhath Puja Transparency Portal" />
-    <meta property="og:title" content="Chhath Puja Transparency Portal — Navyuvak Chhath Puja Samiti" />
-    <meta
-      property="og:description"
-      content="Every contribution is visible. Every expense is accountable. Live financial transparency for Navyuvak Chhath Puja Samiti, Shaharpura, Gardih."
-    />
-    <meta property="og:image" content="https://chhath.shaharpura.com/icons/icon-512.png" />
+    <!-- audit PR-42: og:title / og:description / og:image / og:url are emitted PER ROUTE by
+         src/lib/components/Seo.svelte. They used to be hard-coded here, so every share of every
+         page previewed as the home page, and there was no og:url at all. Two competing og:title
+         tags is worse than one wrong one, so the duplicates are gone from here. -->
     <meta name="twitter:card" content="summary" />
     <meta name="theme-color" content="#F27A1A" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#0b1020" media="(prefers-color-scheme: dark)" />
