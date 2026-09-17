@@ -5,26 +5,38 @@
 // closed. This module moves the slow steps (PDF conversion + WhatsApp queueing)
 // into a background Cron Trigger so the SAVE returns instantly.
 //
-// FLOW:
-//   1. Browser fills the .docx template client-side (unchanged — docxFill.js)
-//      and calls enqueueCollectionJob() with the already-filled base64.
-//   2. enqueueCollectionJob() just INSERTs one `pending` row into
-//      collection_jobs and returns. Fast.
-//   3. A Cron Trigger (see wrangler.toml [triggers] + index.js scheduled())
-//      calls processPendingJobs() every minute. For each pending job it runs the
-//      EXISTING, already-server-side convertDocxToPdf() + triggerCollectionMessages()
-//      — no new heavy library in the Worker — then marks the row done/failed.
+// FLOW (server-side fill — FEAT-003):
+//   1. Browser calls enqueueCollectionJob() with REFERENCES ONLY: docType, rowIndex
+//      and year. It no longer fills the .docx or builds the QR — the stored
+//      collection row is the single source of truth (audit P0-03).
+//   2. enqueueCollectionJob() INSERTs one `pending` row into collection_jobs and
+//      returns. Fast. filled_base64 is written as '' — nothing heavy lands in D1
+//      any more (closes M-38 storage hog + #364 failed-job retention gap).
+//   3. processPendingJobs() (on-demand nudge + Cron backstop) claims each pending
+//      job. For a job WITH a document, runOneJob resolves the TEMPLATE bytes
+//      (Worker-side Drive + KV cache) and the fill data (server-built from the
+//      stored row), then dispatches a `docx_render` Render job (fill + QR + PDF).
+//      For a resell / no-document job there is nothing to render, so runOneJob
+//      triggers WhatsApp then email directly.
+//   4. On the render callback the Worker writes R2 + generated_files (unchanged
+//      trust boundary) and, because the PDF now exists and has a publicLink, THEN
+//      triggers WhatsApp then email in that exact order — see applyDocxRenderResult.
 //
 // SAFETY / NON-BREAKING:
-//   * This is additive. If the cron is disabled the queue simply stops draining;
-//     nothing else changes.
-//   * The DOCX FILLING still happens in the browser exactly as before, so no
-//     risky server-side docxtemplater port. Only the orchestration moved.
-//   * enqueue enforces the same staff permission the direct save always required.
+//   * The generate -> message -> send ORDER is preserved and, because the fill is
+//     now async on Render, WhatsApp+email are sequenced on the render callback so
+//     nothing goes out before the document exists.
+//   * WhatsApp+email stay NEW-ENTRY-ONLY (edits never message) and email stays
+//     isolated in its own try/catch so it can never fail the job or the WhatsApp
+//     send.
+//   * Only the Worker writes R2; Render returns bytes. Render never touches D1/R2.
+//   * enqueue enforces the same staff permission the direct save always required
+//     and every P0-03/P0-04 invariant.
 
 import { requireStaffRole, requireRole, requireYearUnlocked, requireYearAccess, requireSuperadmin, ValidationError, InternalError } from './auth.js';
 import { fromColumnRow } from './tableRegistry.js';
-import { convertDocxToPdf } from './docxTemplates.js';
+import { getDocxTemplate, applyPdfConvertResult } from './docxTemplates.js';
+import { buildReceiptData, buildCertificateData, buildSamaanData } from './templates.js';
 import { triggerCollectionMessages } from './whatsapp.js';
 import { triggerCollectionEmail } from './email.js';
 import { logErrorAt, logWarn } from './logger.js';
@@ -40,9 +52,11 @@ const STUCK_MINUTES = 10;        // a 'processing' row older than this is retrie
 // the security note in enqueueCollectionJob.
 const QUEUEABLE_DOC_TYPES = new Set(['', 'receipt', 'receipt_work', 'certificate', 'samaan']);
 
-// D1 rows are limited to ~1 MB in practice and filled_base64 dominates the row.
-// The client sends a filled .docx (a few hundred KB with a letterhead image), so
-// 700 KB of base64 (~525 KB of bytes) is generous while still fitting a row.
+// The new (server-side) enqueue no longer accepts a filled .docx at all — the fill
+// moved to Render — so nothing large lands in a job row. The cap is KEPT only for a
+// LEGACY client that is still sending bytes during a rollout (an old bundle cached
+// in a browser), so such a request is rejected cleanly instead of blowing D1's
+// ~1 MB row limit. Once every client is updated this branch is dead.
 const MAX_QUEUE_BASE64_CHARS = 700 * 1024;
 
 const genJobId = () => randomId('JOB');
@@ -54,10 +68,15 @@ function jobsDb(env) {
 
 // ---- ENQUEUE (called from the save path, staff only) ----
 //
-// `job` shape from the client:
-//   { docType, rowIndex, isNewEntry, filledBase64, fileName, year?, recordId?, payload? }
-// docType/filledBase64 may be '' when the collection has no auto-document
-// (e.g. a resell entry) — in that case the job still runs to queue WhatsApp.
+// `job` shape from the (updated) client — REFERENCES ONLY:
+//   { docType, rowIndex, isNewEntry, year?, recordId? }
+// docType may be '' when the collection has no auto-document (e.g. a resell
+// entry) — in that case the job still runs to queue WhatsApp + email.
+//
+// `filledBase64` / `fileName` / `payload` are no longer used to drive the render
+// (the fill is server-side now) but are still ACCEPTED and cross-checked for
+// backwards compatibility with a legacy client during rollout; filled_base64 is
+// never stored (the row is written with '').
 //
 // `rowIndex` is REQUIRED: it is the id of the collection row that was just saved,
 // and everything that identifies the job (year, record id, notification payload)
@@ -153,11 +172,10 @@ export async function enqueueCollectionJob(env, job, user) {
   // message and the email announce are the committed ones. The client's payload is
   // no longer trusted for any of it.
   //
-  // Residual, deliberately unchanged here: `filled_base64` is still the .docx the
-  // browser filled (that rendering stays client-side — see the FLOW note at the
-  // top of this file). What an attacker can no longer do is point a document at a
-  // record that does not exist, at another year, or announce figures that were
-  // never saved.
+  // filled_base64 is no longer stored: the fill happens on Render at run time from
+  // the Worker-resolved template + server-built data, so the job row carries only
+  // references. What an attacker can no longer do is point a document at a record
+  // that does not exist, at another year, or announce figures that were never saved.
   const payload = fromColumnRow('collections', storedRow);
   delete payload.__rowIndex;
   if (!payload['Created By'] && user && user.name) payload['Created By'] = user.name;
@@ -181,7 +199,7 @@ export async function enqueueCollectionJob(env, job, user) {
     recordId || null,
     job.isNewEntry === false ? 0 : 1,
     safeJson(payload),
-    (job.filledBase64 || '').toString(),
+    '', // filled_base64 is never stored — the fill is server-side (Render) now
     (job.fileName || '').toString(),
     user ? user.name : (job.createdBy || ''),
     now,
@@ -359,15 +377,16 @@ export async function processPendingJobs(env) {
   // Eligible = still pending, OR marked processing but stale (a previous tick
   // died mid-flight). Cap attempts so a permanently-bad job doesn't loop.
   //
-  // rows_read: we DELIBERATELY do NOT `SELECT *` here. Each row holds a ~700 KB
-  // base64 .docx in filled_base64, and this poll runs every 3 min (cron) plus on
-  // every retry/nudge — pulling that blob for every candidate row silently burned
-  // the D1 free-tier read budget (5M rows/day). We select only the small columns
-  // the claim + runOneJob need, then re-fetch filled_base64 by id for the ONE row
-  // we actually claim (below). Paired with idx_collection_jobs_status_attempts
-  // (migration 2026-09-05/14) the WHERE is index-served, not a full scan.
+  // rows_read: we DELIBERATELY do NOT `SELECT *` here. filled_base64 is a fat TEXT
+  // column (legacy in-flight rows may still hold a base64 .docx; new rows store ''),
+  // and this poll runs every 3 min (cron) plus on every retry/nudge — pulling that
+  // blob for every candidate row silently burned the D1 free-tier read budget (5M
+  // rows/day). We select ONLY the small columns the claim + runOneJob need and NEVER
+  // filled_base64 (the fill is server-side now, so nothing needs it). Paired with
+  // idx_collection_jobs_status_attempts (migration 2026-09-05/14) the WHERE is
+  // index-served, not a full scan.
   const { results: jobs } = await db.prepare(
-    `SELECT id, job_id, status, doc_type, year, record_id, is_new_entry,
+    `SELECT id, job_id, status, doc_type, year, row_index, record_id, is_new_entry,
             payload, file_name, created_by, attempts
        FROM collection_jobs
       WHERE attempts < ?
@@ -409,15 +428,10 @@ export async function processPendingJobs(env) {
     if (owner !== claimToken) continue;
 
     try {
-      // Now that THIS row is ours, load the heavy blob for just this one row.
-      // runOneJob only needs filled_base64 when there is a document to convert;
-      // fetching it here (single indexed point-read on the PK) keeps the poll above
-      // cheap while still giving runOneJob everything it used to get from SELECT *.
-      const blobRow = await db.prepare(
-        `SELECT filled_base64 FROM collection_jobs WHERE id = ?`
-      ).bind(job.id).first().catch(() => null);
-      job.filled_base64 = (blobRow && blobRow.filled_base64) || '';
-
+      // No heavy blob to load any more: runOneJob resolves the template + builds
+      // the fill data server-side and dispatches a Render job (or, for a resell /
+      // no-document job, triggers WhatsApp + email directly). The poll above stays
+      // cheap and there is nothing large to re-read for the claimed row.
       await runOneJob(env, job);
       await db.prepare(
         `UPDATE collection_jobs SET status = 'done', finished_at = ?, last_error = '' WHERE id = ?`
@@ -439,81 +453,240 @@ export async function processPendingJobs(env) {
   return { processed };
 }
 
-// Runs the PDF + WhatsApp steps for one claimed job. Mirrors exactly what
-// Home.jsx used to do inline, but server-side.
+// Which server-side data builder produces the placeholder set for a doc type, and
+// the placeholder that holds its document number (used for the file name). A
+// `receipt_work` reuses the `receipt` template + placeholder set (only the template
+// document differs), exactly as the browser path did.
+// The UNGATED data builders: the queue is a trusted internal caller and the staff
+// role + year access were already enforced at enqueue time (audit P0-03), so it
+// must not re-run the staff-facing gate as a fabricated committee member. These
+// share the SAME placeholder builders the receipt modal uses, so the auto path and
+// the modal cannot drift.
+const DOC_DATA_FETCH = {
+  receipt: buildReceiptData,
+  receipt_work: buildReceiptData,
+  certificate: buildCertificateData,
+  samaan: buildSamaanData,
+};
+const DOC_NO_KEY = { receipt: 'RECEIPT_NO', receipt_work: 'RECEIPT_NO', certificate: 'CERT_NO', samaan: 'SAMAAN_NO' };
+
+// Runs one claimed job server-side, preserving the exact order the user requires:
+// generate the document -> WhatsApp -> email.
+//
+// For a job WITH a document, the fill is async on Render, so runOneJob only gets as
+// far as DISPATCHING the docx_render job here (template resolved Worker-side, fill
+// data built server-side, QR generated on Render). The WhatsApp + email steps run
+// AFTER the PDF exists — on the render callback (applyDocxRenderResult) — so nothing
+// goes out before the document exists and the order is guaranteed.
+//
+// For a resell / no-document job there is nothing to render, so WhatsApp + email are
+// triggered directly here (no publicLink, same as before).
 async function runOneJob(env, job) {
   const payload = parseJson(job.payload) || {};
   const docType = (job.doc_type || '').toString();
   const year = (job.year || '').toString();
   const recordId = job.record_id || null;
-  let publicLink = '';
 
-  // 1) PDF generation (only when the client actually filled a document).
-  if (docType && job.filled_base64 && recordId) {
-    // The job was already authorized at enqueue time (staff-only). The cron is a
-    // trusted internal caller, so we pass a system user with a staff role that
-    // satisfies convertDocxToPdf's requireStaffRole for mode 'auto'. Attribution
-    // (created_by) is preserved for the audit trail.
-    // audit M-5: this used to claim `role: 'Superadmin'`, so every authorization
-    // decision downstream saw the highest privilege in the system and no gate could
-    // tell an internal cron caller apart from a real Superadmin. The privilege the
-    // cron actually needs is narrow: satisfy convertDocxToPdf's requireStaffRole
-    // for mode 'auto'. So claim the LOWEST role that does that, and carry the
-    // `system: true` marker for a future gate that wants to distinguish the two.
-    //
-    // Authorization for what this job may touch already happened at enqueue time
-    // (see the C-2 whitelist above), which is the check that matters — this is
-    // defence in depth against a future gate being added upstream of it.
-    const systemUser = { name: job.created_by || 'system', role: 'Subadmin', system: true };
-    const res = await convertDocxToPdf(
-      env, docType, year, recordId, job.filled_base64, job.file_name || `${docType}.docx`,
-      systemUser, 'auto', {}
-    );
-    publicLink = (res && res.publicLink) || '';
-    if (res && res.indexFailed) {
+  // Ensure the acting login is on the payload so the WhatsApp "from" (sender) and
+  // the audit trail resolve to whoever saved the entry, wherever the message is
+  // sent from (here for no-doc jobs, or on the render callback for documents).
+  if (!payload['Created By'] && job.created_by) payload['Created By'] = job.created_by;
+
+  // ---- Job WITH a document: dispatch fill+QR+PDF to Render ----
+  if (docType && recordId) {
+    // 1) Resolve the TEMPLATE bytes on the Worker (Drive + 7-day KV cache). Render
+    //    has no D1 and cannot read docx_templates, so the bytes travel in the
+    //    dispatch payload. A missing template is not a hard failure: nothing to
+    //    render, but the entry was saved — log a warning and still send WhatsApp +
+    //    email for a new entry (the browser path degraded the same way).
+    let templateRow = null;
+    try {
+      templateRow = await getDocxTemplate(env, docType, year);
+    } catch (e) {
       await logWarn(env, 'collection-queue', 'runOneJob',
-        `PDF generated but NOT indexed for ${recordId}.`, { jobId: job.job_id, recordId, publicLink });
+        `Template load failed for ${docType} ${year} (job ${job.job_id}): ${e && e.message}`,
+        { jobId: job.job_id, docType, year, recordId });
     }
-    // Persist the link so the queue panel / retries can see it.
+    if (!templateRow || !templateRow.base64) {
+      // No template => no document can be generated. The OLD browser path degraded
+      // by still queuing WhatsApp/email with a blank link, but that violates the
+      // order/no-message-without-document invariant the user made critical ("kuchh
+      // tute na"): a new entry would be announced with a receipt that does not
+      // exist. So DO NOT send here — FAIL the job (same as the dispatch-failure path
+      // below) so it surfaces for retry once the template is uploaded, and no
+      // blank-link message ever goes out.
+      await logWarn(env, 'collection-queue', 'runOneJob',
+        `No ${docType} template for ${year} — no document generated for ${recordId}; failing the job (no message sent).`,
+        { jobId: job.job_id, docType, year, recordId });
+      throw InternalError(
+        `No ${docType} template for ${year}, so no document could be generated for ${recordId}. `
+        + `No WhatsApp/email was sent (a message must never go out without a document). `
+        + `Upload the template and the job will retry.`
+      );
+    }
+
+    // 2) Build the fill data SERVER-SIDE from the stored row (audit P0-03: derived,
+    //    never client-supplied). QR_CODE is generated on Render inside the fill.
+    const fetcher = DOC_DATA_FETCH[docType];
+    let placeholders = {};
+    if (fetcher) {
+      const data = await fetcher(env, job.row_index, year);
+      placeholders = { ...(data && data.placeholders ? data.placeholders : {}), GENERATED_AT: new Date().toLocaleString('en-IN') };
+    }
+    const docNoKey = DOC_NO_KEY[docType];
+    const fileName = `${docType}-${(docNoKey && placeholders[docNoKey]) || recordId}.docx`;
+
+    // 3) If Render is not configured, we cannot fill (docxtemplater lives on Render
+    //    only, deliberately not in the Worker). The OLD browser path degraded by
+    //    still messaging with a blank link, but that breaks the order/no-message-
+    //    without-document invariant the user made critical: no document exists, so
+    //    nothing may go out. FAIL the job (same as the dispatch-failure path below)
+    //    so it surfaces for retry once Render is configured — never send a blank
+    //    link. This keeps the invariant intact instead of the old degrade behaviour.
+    if (!env.RENDER_SERVICE_URL || !env.RENDER_API_KEY) {
+      await logWarn(env, 'collection-queue', 'runOneJob',
+        `Render not configured — ${recordId} could not be generated; failing the job (no message sent).`,
+        { jobId: job.job_id, recordId });
+      throw InternalError(
+        `The processing service (Render) is not configured, so no document could be generated for ${recordId}. `
+        + `No WhatsApp/email was sent (a message must never go out without a document). `
+        + `Configure Render and the job will retry.`
+      );
+    }
+
+    // 4) Dispatch the docx_render job. The dispatch payload carries the TEMPLATE
+    //    bytes + fill data (Render-body-only, NOT stored in D1). The STORED payload
+    //    is metadata only: everything the callback needs to write the index and to
+    //    send WhatsApp + email in order (see applyDocxRenderResult).
+    const { createAndDispatchJob } = await import('./renderJobs.js');
+    const dispatch = await createAndDispatchJob(env, 'docx_render', {
+      templateBase64: templateRow.base64,
+      data: placeholders,
+      docType, year, recordId,
+      fileName,
+    }, {
+      refId: recordId,
+      createdBy: job.created_by || '',
+      storePayload: {
+        docType, year, recordId,
+        isNewEntry: job.is_new_entry ? 1 : 0,
+        collectionJobId: job.job_id,
+        notify: payload, // the committed notification snapshot (P0-03), for messaging
+      },
+    });
+    if (!dispatch || !dispatch.success) {
+      // Could not reach Render. The document was not generated; surface it so the
+      // job is retried by the queue. Do NOT send a message here — a message must
+      // never go out before/without the document on the render path.
+      throw InternalError(`Could not dispatch the document render for ${recordId}: ${(dispatch && dispatch.message) || 'render dispatch failed'}`);
+    }
+    // Record the render job id on the collection job for the monitor / retries.
     try {
       await env.DB_MISC.prepare('UPDATE collection_jobs SET public_link = ? WHERE id = ?')
-        .bind(publicLink, job.id).run();
+        .bind('', job.id).run();
+    } catch (e) { /* non-fatal */ }
+    return;
+  }
+
+  // ---- Resell / no-document job: nothing to render, message directly ----
+  await sendCollectionMessages(env, job, payload, docType, recordId, '');
+}
+
+// Triggers WhatsApp then email for a NEW entry, in that exact order, reusing the
+// SAME generated PDF link (never regenerated). Email is isolated in its own
+// try/catch so an email problem can never fail the job or affect the WhatsApp send.
+// Edits never message (the new-entry gate). Shared by the no-document path in
+// runOneJob and the render-callback path in applyDocxRenderResult, so the order +
+// gate cannot drift between them.
+async function sendCollectionMessages(env, job, payload, docType, recordId, publicLink) {
+  const isNewEntry = job && (job.is_new_entry === 1 || job.is_new_entry === true || job.is_new_entry === '1');
+  if (!isNewEntry) return;
+
+  if (!payload['Created By'] && job && job.created_by) payload['Created By'] = job.created_by;
+
+  // 1) WhatsApp.
+  const summary = await triggerCollectionMessages(env, payload, docType || null, recordId, publicLink || '');
+  if (summary && summary.groupMessagesSent === 0 && summary.personMessageSent === false) {
+    await logWarn(env, 'collection-queue', 'sendCollectionMessages',
+      `No WhatsApp message queued for job ${job && job.job_id}.`,
+      { jobId: job && job.job_id, recordId, warnings: (summary.warnings || []) });
+  }
+
+  // 2) Email (Resend) — same new-entry gate as WhatsApp, reusing the SAME PDF link.
+  //    Isolated so an email problem can never fail the job or affect WhatsApp.
+  try {
+    const emailSummary = await triggerCollectionEmail(env, payload, docType || null, recordId, publicLink || '');
+    if (emailSummary && emailSummary.emailSent === false) {
+      await logWarn(env, 'collection-queue', 'sendCollectionMessages',
+        `No email queued for job ${job && job.job_id}.`,
+        { jobId: job && job.job_id, recordId, warnings: (emailSummary.warnings || []) });
+    }
+  } catch (e) {
+    await logWarn(env, 'collection-queue', 'sendCollectionMessages',
+      `Email trigger threw for job ${job && job.job_id} (ignored): ${e && e.message}`,
+      { jobId: job && job.job_id, recordId });
+  }
+}
+
+// ---- RENDER CALLBACK side-effect for a completed docx_render job ----
+//
+// Render filled the template (+QR) and converted it to a PDF, returning the bytes.
+// This runs on the Worker's render-webhook callback (via renderJobs.applyResultSideEffect),
+// inside the ATOMIC callback claim (audit MGMT-BE-02), so it runs EXACTLY ONCE per job.
+//
+// It performs the user's required order end-to-end, now that the PDF exists:
+//   1. write the PDF to R2 + the generated_files index (applyPdfConvertResult —
+//      the SAME binding-only path pdf_convert uses; base64-STRIPPED result), then
+//   2. WhatsApp, then 3. email — new-entry-only, email isolated.
+//
+// `payload` is the STORED (metadata-only) dispatch payload: { docType, year,
+// recordId, isNewEntry, notify, collectionJobId }. `result` is Render's
+// { pdfBase64, fileName, report }.
+export async function applyDocxRenderResult(env, payload, result) {
+  const { docType, year, recordId, isNewEntry, notify, collectionJobId } = payload || {};
+
+  // 1) Write R2 + the generated_files index (only the Worker writes R2). Reuses the
+  //    pdf_convert side-effect so the trust boundary + base64-stripping are identical.
+  const indexed = await applyPdfConvertResult(env, { docType, year, recordId }, result);
+  const publicLink = (indexed && indexed.publicLink) || '';
+
+  // THE ORDER/NO-MESSAGE-WITHOUT-DOCUMENT INVARIANT (invariant 1/9). A callback can
+  // report status:'completed' yet carry NO usable document: applyPdfConvertResult
+  // returns undefined when the Render result is missing pdfBase64/recordId, and
+  // { error } when R2 is unconfigured — in BOTH cases nothing was written and there
+  // is no publicLink. Sending WhatsApp/email now would announce a receipt that does
+  // NOT exist, with a blank link. So a falsy publicLink is a HARD FAILURE: throw with
+  // an actionable message. handleRenderCallback catches this, marks the render_jobs
+  // row 'failed' with the error (surfacing it for retry), and sends NOTHING —
+  // consistent with the failed-dispatch path in runOneJob, which also throws rather
+  // than sending a blank-link message. We must NEVER fall through to messaging here.
+  if (!publicLink) {
+    throw InternalError(
+      `docx_render callback for ${recordId || 'unknown record'} produced no stored document `
+      + `(no public link from R2/index write), so no WhatsApp/email was sent. `
+      + `The job is failed for retry — check the Render result (missing PDF bytes?) and R2 configuration.`
+    );
+  }
+
+  // Persist the link on the originating collection job for the monitor / retries.
+  if (collectionJobId) {
+    try {
+      await env.DB_MISC.prepare('UPDATE collection_jobs SET public_link = ? WHERE job_id = ?')
+        .bind(publicLink, collectionJobId.toString()).run();
     } catch (e) { /* non-fatal */ }
   }
 
-  // 2) WhatsApp — only for NEW entries (edits never queued messages, same as before).
-  if (job.is_new_entry) {
-    // Ensure the acting login is known so the WhatsApp "from" (sender) resolves
-    // to whoever saved the entry. The queue stores the login name in the job's
-    // created_by column; the payload snapshot may not carry 'Created By' (the
-    // frontend builds it before the backend stamps that field), so backfill it.
-    if (!payload['Created By'] && job.created_by) payload['Created By'] = job.created_by;
-    const summary = await triggerCollectionMessages(env, payload, docType || null, recordId, publicLink || '');
-    if (summary && summary.groupMessagesSent === 0 && summary.personMessageSent === false) {
-      await logWarn(env, 'collection-queue', 'runOneJob',
-        `No WhatsApp message queued for job ${job.job_id}.`,
-        { jobId: job.job_id, recordId, warnings: (summary.warnings || []) });
-    }
+  // 2 + 3) WhatsApp then email — only now that the PDF exists and has a publicLink,
+  //        so nothing goes out before the document. New-entry-only, email isolated.
+  const jobShim = {
+    is_new_entry: isNewEntry ? 1 : 0,
+    job_id: collectionJobId || (recordId ? `docx_render:${recordId}` : 'docx_render'),
+    created_by: (notify && notify['Created By']) || '',
+  };
+  await sendCollectionMessages(env, jobShim, notify || {}, docType, recordId, publicLink);
 
-    // 3) Email (Resend) — same new-entry gate as WhatsApp, reusing the SAME
-    // generated PDF link (never regenerated). Isolated in its own try/catch so an
-    // email problem can never fail the job or affect the WhatsApp send above. The
-    // email is only queued here; the cron (processPendingEmails) actually sends it.
-    try {
-      const emailSummary = await triggerCollectionEmail(env, payload, docType || null, recordId, publicLink || '');
-      if (emailSummary && emailSummary.emailSent === false) {
-        await logWarn(env, 'collection-queue', 'runOneJob',
-          `No email queued for job ${job.job_id}.`,
-          { jobId: job.job_id, recordId, warnings: (emailSummary.warnings || []) });
-      }
-    } catch (e) {
-      // triggerCollectionEmail already swallows to error_log; this is a last-resort
-      // guard so nothing here can bubble up and fail the job.
-      await logWarn(env, 'collection-queue', 'runOneJob',
-        `Email trigger threw for job ${job.job_id} (ignored): ${e && e.message}`,
-        { jobId: job.job_id, recordId });
-    }
-  }
+  // Return the base64-STRIPPED result for the render_jobs row / status poll.
+  return indexed || { publicLink, fileName: (result && result.fileName) || 'document.pdf' };
 }
 
 function safeJson(obj) {

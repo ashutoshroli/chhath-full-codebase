@@ -429,11 +429,17 @@ export async function convertDocxToPdf(env, docType, year, recordId, base64, fil
 // Called by the convertDocxToPdfBulk handler (Superadmin). Returns { jobId } for
 // the client to poll (getRenderJobStatus). If Render is NOT configured, falls back
 // to the synchronous in-Worker path so bulk keeps working before Render is set up.
-export async function dispatchBulkPdfConvert(env, docType, year, recordId, base64, fileName, user, opts) {
+// SERVER-SIDE FILL: the client no longer fills the .docx in the browser. It sends the
+// record's fill DATA (the placeholder set); the Worker resolves the TEMPLATE bytes (Drive
+// + 7-day KV cache) and Render fills the template with the data (+ a server-generated QR
+// from the DERIVED recordId) then converts. So this function takes `data`, not `base64`.
+//
+// `data` is the placeholder set. The recordId is used both to file the result and, on
+// Render, to build the QR — so the QR always encodes the AUTHORITATIVE record URL.
+export async function dispatchBulkPdfConvert(env, docType, year, recordId, data, fileName, user, opts) {
   requireSuperadmin(user);
   if (!DOC_TYPES.includes(docType)) throw ValidationError('Invalid doc type');
   assertRecordIdMatches(docType, year, recordId);
-  base64 = assertValidDocxBase64(base64);
   if (!env.DRIVE_ROOT_FOLDER_ID) throw InternalError('DRIVE_ROOT_FOLDER_ID not configured on server');
 
   const force = !!(opts && opts.force);
@@ -446,25 +452,43 @@ export async function dispatchBulkPdfConvert(env, docType, year, recordId, base6
     }
   }
 
-  // No Render configured -> keep working synchronously (unchanged behaviour).
-  const { createAndDispatchJob } = await import('./renderJobs.js');
-  if (!env.RENDER_SERVICE_URL || !env.RENDER_API_KEY) {
-    return convertDocxToPdf(env, docType, year, recordId, base64, fileName, user, 'bulk', { force });
+  // Resolve the TEMPLATE bytes on the Worker (Drive + 7-day KV cache). Render has no D1
+  // and cannot read docx_templates, so the bytes travel in the dispatch payload.
+  const templateRow = await getDocxTemplate(env, docType, year);
+  if (!templateRow || !templateRow.base64) {
+    throw ValidationError(`No .docx template found for ${docType} ${year}. Upload one before generating PDFs.`);
   }
 
-  // Offload the Drive conversion to Render. Render returns the PDF bytes; the
-  // Worker's render-webhook callback (applyPdfConvertResult) writes R2 + the index.
+  // No Render configured -> the Worker cannot FILL in-process: docxtemplater was
+  // deliberately kept out of the Worker (CPU/bundle limits), and the fill now lives ONLY
+  // on Render + the browser renderer that this change removes. Bulk generation is a
+  // Superadmin action and Render is expected to be configured for launch, so this is a
+  // clear, actionable error rather than a silent no-op (see FEAT-004 findings).
+  const { createAndDispatchJob } = await import('./renderJobs.js');
+  if (!env.RENDER_SERVICE_URL || !env.RENDER_API_KEY) {
+    throw InternalError('The processing service (Render) is not configured, so bulk PDF generation is unavailable. Please configure Render and try again.');
+  }
+
+  // Offload fill + convert to Render. Render fills the template with `data` (+QR) and
+  // returns the PDF bytes; the Worker's render-webhook callback (applyPdfConvertResult)
+  // writes R2 + the index. The template bytes are Render-body-only (never stored in D1).
   const dispatch = await createAndDispatchJob(env, 'pdf_convert', {
     docType, year, recordId,
-    base64,                        // the filled .docx (client-provided)
+    templateBase64: templateRow.base64,   // the shared template (Worker-resolved)
+    data: data || {},                      // the record's fill data (QR added on Render)
     fileName: fileName || 'document.docx',
     force,
-  }, { refId: recordId || `${docType}-${year}`, createdBy: (user && user.name) || '' });
+  }, {
+    refId: recordId || `${docType}-${year}`,
+    createdBy: (user && user.name) || '',
+    // METADATA ONLY in D1 — the template bytes + data must never be stored (row limit),
+    // so pdf_convert is now non-reconstructable, like pdf_convert_batch.
+    storePayload: { docType, year, recordId, force },
+  });
 
   if (!dispatch.success) {
-    // Could not reach Render — fall back to synchronous conversion so the user
-    // isn't blocked by a Render outage.
-    return convertDocxToPdf(env, docType, year, recordId, base64, fileName, user, 'bulk', { force });
+    // Could not reach Render. Without an in-Worker fill there is no fallback — surface it.
+    throw InternalError('Could not reach the processing service (Render) to generate the PDF. Please try again shortly.');
   }
   return { success: true, dispatched: true, jobId: dispatch.jobId, status: 'pending' };
 }
@@ -473,10 +497,22 @@ export async function dispatchBulkPdfConvert(env, docType, year, recordId, base6
 // PDF bytes (base64) + name; the Worker stores them (R2 if configured, else the
 // caller must have used the sync path) and writes the generated_files index row.
 // `payload` is the original dispatch payload (docType/year/recordId).
+// Normalize the per-record render report to a small, base64-free shape that is safe to
+// store on the D1 job row and hand to the client. Returns null when there is nothing to
+// surface (both lists empty / absent), so callers can omit the field entirely.
+function normalizeRenderReport(report) {
+  if (!report || typeof report !== 'object') return null;
+  const missingTags = Array.isArray(report.missingTags) ? [...new Set(report.missingTags.map(String))] : [];
+  const missingImages = Array.isArray(report.missingImages) ? [...new Set(report.missingImages.map(String))] : [];
+  if (!missingTags.length && !missingImages.length) return null;
+  return { missingTags, missingImages };
+}
+
 export async function applyPdfConvertResult(env, payload, result) {
   const { docType, year, recordId } = payload || {};
   const pdfBase64 = result && result.pdfBase64;
   const pdfName = (result && result.fileName) || 'document.pdf';
+  const report = normalizeRenderReport(result && result.report);
   if (!pdfBase64 || !recordId) return;
 
   const bytes = base64ToBytes(pdfBase64, { label: pdfName, maxBytes: MAX_DOCX_BYTES * 3 });
@@ -498,8 +534,9 @@ export async function applyPdfConvertResult(env, payload, result) {
   await recordGeneratedFile(env, docType, year, recordId, pdfName, publicLink, drivePath).catch((err) =>
     logErrorAt(env, 'backend-docx', 'applyPdfConvertResult:index', err, { docType, year, recordId }));
 
-  // Return a base64-STRIPPED result for the job row / status poll.
-  return { publicLink, fileName: pdfName };
+  // Return a base64-STRIPPED result for the job row / status poll. The per-record render
+  // report (unresolved tags/images) rides along so the UI can surface blank placeholders.
+  return { publicLink, fileName: pdfName, ...(report ? { report } : {}) };
 }
 
 // ---- BATCHED bulk PDF: convert up to BULK_BATCH_MAX records in ONE Render job ----
@@ -515,7 +552,11 @@ export async function applyPdfConvertResult(env, payload, result) {
 // then the Worker writes R2 + the index once per record on the single callback.
 const BULK_BATCH_MAX = 20; // hard cap (payload/memory); default is chosen client-side (10)
 
-// `items`: [{ recordId, base64, fileName }]. All same docType+year.
+// SERVER-SIDE FILL: `items` is now [{ recordId, data, fileName }] — per-record fill DATA,
+// NOT pre-filled .docx bytes. All records are the same docType+year, so they share ONE
+// template, which the Worker resolves once (Drive + KV cache) and sends in the dispatch;
+// Render fills each record's data against it (+QR) then converts. This both moves the fill
+// off the browser and shrinks the input (one template + N tiny data blobs vs N documents).
 export async function dispatchBulkPdfBatch(env, docType, year, items, user, opts) {
   requireSuperadmin(user);
   if (!DOC_TYPES.includes(docType)) throw ValidationError('Invalid doc type');
@@ -525,6 +566,14 @@ export async function dispatchBulkPdfBatch(env, docType, year, items, user, opts
 
   const force = !!(opts && opts.force);
 
+  // Resolve the TEMPLATE bytes on the Worker (Drive + 7-day KV cache), ONCE for the whole
+  // batch. Render has no D1 and cannot read docx_templates, so the bytes travel in the
+  // dispatch. Do this before any per-record work so a missing template fails cleanly.
+  const templateRow = await getDocxTemplate(env, docType, year);
+  if (!templateRow || !templateRow.base64) {
+    throw ValidationError(`No .docx template found for ${docType} ${year}. Upload one before generating PDFs.`);
+  }
+
   // Validate every item + dedup (D1 reads) up front. Already-generated records are
   // reported as `skipped` and NOT sent to Render.
   const toConvert = [];
@@ -533,7 +582,7 @@ export async function dispatchBulkPdfBatch(env, docType, year, items, user, opts
     const recordId = it && it.recordId;
     if (!recordId) continue;
     assertRecordIdMatches(docType, year, recordId);
-    const base64 = assertValidDocxBase64(it.base64);
+    const data = (it && it.data && typeof it.data === 'object') ? it.data : {};
     if (!force) {
       const existing = await isFileGenerated(env, docType, year, recordId);
       if (existing) {
@@ -547,7 +596,7 @@ export async function dispatchBulkPdfBatch(env, docType, year, items, user, opts
         continue;
       }
     }
-    toConvert.push({ recordId, base64, fileName: it.fileName || 'document.docx' });
+    toConvert.push({ recordId, data, fileName: it.fileName || 'document.docx' });
   }
 
   // `engine` tells the client WHICH service actually did (or will do) the
@@ -567,22 +616,17 @@ export async function dispatchBulkPdfBatch(env, docType, year, items, user, opts
   }
 
   const { createAndDispatchJob } = await import('./renderJobs.js');
-  // No Render configured -> convert synchronously in-Worker, one by one (unchanged
-  // per-record behaviour), so bulk keeps working before Render is set up.
+  // No Render configured -> the Worker cannot FILL in-process (docxtemplater is
+  // deliberately not in the Worker; the fill now lives ONLY on Render). Bulk generation is
+  // a Superadmin action and Render is expected to be configured for launch, so report a
+  // clear per-record error rather than silently producing nothing (see FEAT-004 findings).
   if (!env.RENDER_SERVICE_URL || !env.RENDER_API_KEY) {
-    const results = [...skipped];
-    for (const it of toConvert) {
-      try {
-        const r = await convertDocxToPdf(env, docType, year, it.recordId, it.base64, it.fileName, user, 'bulk', { force });
-        results.push({ recordId: it.recordId, ...r });
-      } catch (e) {
-        results.push({ recordId: it.recordId, success: false, error: (e && (e.userMessage || e.message)) || 'conversion failed' });
-      }
-    }
+    const msg = 'The processing service (Render) is not configured, so PDFs cannot be generated. Please configure Render and try again.';
+    const results = [...skipped, ...toConvert.map(it => ({ recordId: it.recordId, success: false, error: msg }))];
     return {
       success: true, dispatched: false, results,
-      engine: 'worker', engineReason: 'render-not-configured',
-      dispatchedCount: toConvert.length, skippedCount,
+      engine: 'none', engineReason: 'render-not-configured',
+      dispatchedCount: 0, skippedCount,
     };
   }
 
@@ -599,12 +643,16 @@ export async function dispatchBulkPdfBatch(env, docType, year, items, user, opts
   // `planBatches` splits by the same limits Render enforces on arrival, so a dispatch can
   // no longer be the thing that breaks the contract, and a document that cannot fit in
   // any batch is reported per record rather than sinking the run it is part of.
-  const { planBatches, MAX_BATCH_ITEMS } = await import('./renderContract.js');
-  const plan = planBatches(toConvert, (b64) => {
-    // A payload that cannot even be cleaned is treated as unbounded, so it lands in
-    // `rejected` with a reason instead of being sized as 0 and dispatched.
-    try { return base64ByteLength(cleanBase64(b64, 'Document')); } catch (e) { return Number.MAX_SAFE_INTEGER; }
-  });
+  const { planBatches, MAX_BATCH_ITEMS, dataByteLength } = await import('./renderContract.js');
+  // The input is now the shared TEMPLATE once + each record's DATA, so the batch is sized
+  // by `templateBytes (per batch) + sum(per-record data)`. This is far smaller than the
+  // old N-filled-documents model, so an ordinary run is still one batch, one job.
+  const templateBytes = base64ByteLength(cleanBase64(templateRow.base64, 'Template'));
+  const plan = planBatches(
+    toConvert,
+    (data) => dataByteLength(data),
+    { perBatchBytes: templateBytes, of: (it) => it.data }
+  );
 
   const oversized = plan.rejected.map(r => ({
     recordId: r.item.recordId, success: false, error: r.error,
@@ -626,7 +674,9 @@ export async function dispatchBulkPdfBatch(env, docType, year, items, user, opts
     const recordIds = batch.map(it => it.recordId);
     const dispatch = await createAndDispatchJob(
       env, 'pdf_convert_batch',
-      { docType, year, force, items: batch },                 // -> Render (big)
+      // -> Render (big): the TEMPLATE bytes ONCE + per-record { recordId, data, fileName }.
+      // Render fills each record's data against the shared template (+QR) then converts.
+      { docType, year, force, templateBase64: templateRow.base64, items: batch },
       {
         refId: `${docType}-${year}`,
         createdBy: (user && user.name) || '',
@@ -638,18 +688,15 @@ export async function dispatchBulkPdfBatch(env, docType, year, items, user, opts
   }
 
   if (dispatchFailures.length) {
-    // Could not reach Render — fall back to synchronous conversion, for the batches that
-    // did not get through only. A batch that WAS accepted is already running there, and
-    // converting it here as well would produce the same file twice.
+    // Could not reach Render for these batches. There is no in-Worker fill fallback
+    // (docxtemplater is not in the Worker), so a batch that did not get through is
+    // reported per record with an actionable reason. A batch that WAS accepted is already
+    // running on Render, and its records are accounted for via its jobId.
+    const msg = 'Could not reach the processing service (Render) for this record. Please retry shortly.';
     const results = [...skipped, ...oversized];
     for (const batch of dispatchFailures) {
       for (const it of batch) {
-        try {
-          const r = await convertDocxToPdf(env, docType, year, it.recordId, it.base64, it.fileName, user, 'bulk', { force });
-          results.push({ recordId: it.recordId, ...r });
-        } catch (e) {
-          results.push({ recordId: it.recordId, success: false, error: (e && (e.userMessage || e.message)) || 'conversion failed' });
-        }
+        results.push({ recordId: it.recordId, success: false, error: msg });
       }
     }
     const fallbackCount = dispatchFailures.reduce((n, b) => n + b.length, 0);
@@ -660,7 +707,7 @@ export async function dispatchBulkPdfBatch(env, docType, year, items, user, opts
       // is one, and `jobIds` carries the rest.
       ...(dispatchedJobs.length ? { jobId: dispatchedJobs[0].jobId, jobIds: dispatchedJobs.map(j => j.jobId), status: 'pending' } : {}),
       results,
-      engine: dispatchedJobs.length ? 'mixed' : 'worker',
+      engine: dispatchedJobs.length ? 'mixed' : 'none',
       engineReason: 'render-unreachable',
       dispatchedCount: toConvert.length - fallbackCount,
       skippedCount,
@@ -696,24 +743,29 @@ export async function applyPdfConvertBatchResult(env, payload, result) {
     const recordId = r && r.recordId;
     if (!recordId) continue;
     seen.add(recordId);
+    // Per-record RENDER REPORT (unresolved tags/images), from FEAT-002's non-singleton
+    // report. It travels back so the bulk UI can warn which records had blank placeholders
+    // (parity with the browser's getLastRenderReport). It carries no bytes, so it is kept
+    // on the stored result (base64 is still stripped from the PDF fields below).
+    const report = normalizeRenderReport(r && r.report);
     if (!r.ok || !r.pdfBase64) {
-      out.push({ recordId, success: false, error: (r && r.error) || 'conversion failed' });
+      out.push({ recordId, success: false, error: (r && r.error) || 'conversion failed', ...(report ? { report } : {}) });
       continue;
     }
     try {
       const pdfName = r.fileName || 'document.pdf';
       const bytes = base64ToBytes(r.pdfBase64, { label: pdfName, maxBytes: MAX_DOCX_BYTES * 3 });
       if (!r2Available(env)) {
-        out.push({ recordId, success: false, error: 'R2 not configured' });
+        out.push({ recordId, success: false, error: 'R2 not configured', ...(report ? { report } : {}) });
         continue;
       }
       const key = keyForYear(year, 'pdf', pdfName, docType);
       const publicLink = await putToR2(env, key, new Uint8Array(bytes), 'application/pdf');
       await recordGeneratedFile(env, docType, year, recordId, pdfName, publicLink, key).catch((err) =>
         logErrorAt(env, 'backend-docx', 'applyPdfConvertBatchResult:index', err, { docType, year, recordId }));
-      out.push({ recordId, success: true, publicLink, fileName: pdfName });
+      out.push({ recordId, success: true, publicLink, fileName: pdfName, ...(report ? { report } : {}) });
     } catch (e) {
-      out.push({ recordId, success: false, error: (e && e.message) || 'store failed' });
+      out.push({ recordId, success: false, error: (e && e.message) || 'store failed', ...(report ? { report } : {}) });
     }
   }
   // Reconcile against the records we ASKED Render to convert (stored on the job

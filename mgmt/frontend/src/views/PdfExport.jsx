@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { api, reportClientError } from '../api.js';
-import { fillDocxTemplateFromRow, getLastRenderReport } from '../docxFill.js';
 
 
 const DOC_TYPE_FOR_MODE = { en: 'report_en', hi: 'report_hi', both: 'report_both' };
@@ -55,17 +54,8 @@ export default function PdfExport() {
       const mode = language;
       const docType = DOC_TYPE_FOR_MODE[mode];
 
-      let docxRow = null;
-      try {
-        docxRow = await api.getDocxTemplateForDoc(docType, year);
-      } catch (err) {
-        reportClientError('PdfExport', `Template load failed for ${docType} ${year}`, err, { docType, year });
-        throw new Error(`Report template failed to load: ${err.message}`);
-      }
-      if (!docxRow || !(docxRow.base64 || docxRow.downloadUrl)) {
-        throw new Error(`No Report template (${mode}) has been uploaded for Year ${year} yet. Please upload one under Document Templates.`);
-      }
-
+      // The browser no longer fills the report .docx. The Worker resolves the template and
+      // Render fills it with the placeholders we build below (+QR) then converts.
       const [home, loansData, expenses, users, lists] = await Promise.all([
         api.getHome(year),
         api.getLoans(year),
@@ -144,18 +134,18 @@ export default function PdfExport() {
         loans, guarantors, contributors, expenses: expenseRows,
       };
 
-      const filledBase64 = await fillDocxTemplateFromRow(docxRow, placeholders);
-
-      const rep = getLastRenderReport();
-      if (rep.missingTags.length) {
-        setWarning(`These placeholders in the report template could not be resolved (they will be blank): ${[...new Set(rep.missingTags)].join(', ')}`);
-        reportClientError('PdfExport', 'Report template had unresolved placeholders', null,
-          { docType, year, missingTags: [...new Set(rep.missingTags)] });
-      }
-
       const recordId = `${docType}-${year}`;
       const fileName = `Chhath-Puja-Report-${year}${mode !== 'en' ? '-' + mode : ''}.docx`;
-      const res = await api.convertDocxToPdfBulk(docType, year, recordId, filledBase64, fileName, true);
+      const res = await api.convertDocxToPdfBulk(docType, year, recordId, placeholders, fileName, true);
+
+      // The per-record render report (unresolved placeholders) now comes BACK on the
+      // result, since Render filled the document.
+      const missing = res && res.report && Array.isArray(res.report.missingTags) ? res.report.missingTags : [];
+      if (missing.length) {
+        setWarning(`These placeholders in the report template could not be resolved (they will be blank): ${[...new Set(missing)].join(', ')}`);
+        reportClientError('PdfExport', 'Report template had unresolved placeholders', null,
+          { docType, year, missingTags: [...new Set(missing)] });
+      }
 
       if (res && res.indexFailed) {
         setWarning(res.error || 'The report PDF was generated but not indexed.');

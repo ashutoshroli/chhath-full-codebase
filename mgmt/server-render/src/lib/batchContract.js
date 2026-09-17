@@ -97,6 +97,48 @@ export function safeFileName(name) {
   return s;
 }
 
+// ---- SERVER-SIDE FILL (bulk moved server-side) ------------------------------
+//
+// The bulk path used to send N pre-FILLED .docx files (one `base64` per item). The
+// filling now happens HERE, so a batch carries the TEMPLATE bytes ONCE
+// (`payload.templateBase64`) plus per-record fill DATA — small JSON, not a document.
+// That both moves docxtemplater off the browser AND shrinks the input: one template
+// + N tiny data blobs instead of N full documents.
+//
+// The per-record cap that used to bound one filled .docx now bounds one record's
+// DATA (the placeholder set + any inline image data-URLs). A record's data is a few
+// hundred bytes of text normally; MAX_ITEM_BYTES (2 MB) still comfortably covers a
+// record that carries an inline photo, and rejects anything that could only be abuse.
+export const MAX_DATA_ITEM_BYTES = MAX_ITEM_BYTES;
+
+/** Rough serialized byte size of a record's fill DATA (JSON, UTF-8). */
+export function dataByteLength(data) {
+  if (data === undefined || data === null) return 0;
+  try { return Buffer.byteLength(JSON.stringify(data), 'utf8'); } catch (e) { return Number.MAX_SAFE_INTEGER; }
+}
+
+/**
+ * Validates ONE server-fill batch item: { recordId, data, fileName }. Unlike the
+ * legacy `validateBatchItem`, there is no base64/ZIP check — the bytes are the
+ * shared template, validated once for the whole batch. Only the record's identity,
+ * output name, and data size are checked. Refusal is per item and never throws.
+ */
+export function validateFillBatchItem(item) {
+  const recordId = item && item.recordId;
+  if (!recordId) return { ok: false, error: 'missing recordId' };
+
+  const fileName = safeFileName((item && item.fileName) || 'document.docx');
+  if (!fileName) return { ok: false, error: 'unsafe or unsupported fileName' };
+
+  const data = (item && item.data && typeof item.data === 'object') ? item.data : {};
+  const declared = dataByteLength(data);
+  if (declared > MAX_DATA_ITEM_BYTES) {
+    return { ok: false, error: `record data is too large (${(declared / 1048576).toFixed(1)} MB; limit ${MAX_DATA_ITEM_BYTES / 1048576} MB)` };
+  }
+
+  return { ok: true, recordId, fileName, data, declaredBytes: declared };
+}
+
 /**
  * Validates ONE batch item against the contract and returns either the decoded bytes or
  * the reason it was refused. Refusal is per item and never throws: a batch of twenty

@@ -44,6 +44,27 @@ export const MAX_OUTPUT_TOTAL_BYTES = 6 * 1024 * 1024;
 export const MAX_CHAT_REQUEST_BYTES = 16 * 1024;
 // ---- 8< ---- END CONTRACT ---- 8< ----
 
+// ---- SERVER-SIDE FILL (bulk moved server-side) ------------------------------
+//
+// The bulk path used to send N pre-FILLED .docx files (one `base64` per item), and
+// `planBatches` sized a batch by the sum of those documents. Filling now happens on
+// Render, so a batch carries the TEMPLATE bytes ONCE plus per-record fill DATA (small
+// JSON, not a document). `planBatches` therefore sizes a batch by
+// `templateBytes (once) + sum(per-record data)` — see the `opts.perBatchBytes`
+// argument below — which is far smaller than N filled documents and means an ordinary
+// run is still one batch, one job.
+//
+// The per-record cap that bounded one filled .docx now bounds one record's DATA. A
+// record's data is a few hundred bytes of text normally; MAX_ITEM_BYTES (2 MB) still
+// covers a record carrying an inline image and rejects anything that could only be abuse.
+export const MAX_DATA_ITEM_BYTES = MAX_ITEM_BYTES;
+
+/** Rough serialized byte size of a record's fill DATA (JSON, UTF-8). Mirrors the Render copy. */
+export function dataByteLength(data) {
+  if (data === undefined || data === null) return 0;
+  try { return Buffer.byteLength(JSON.stringify(data), 'utf8'); } catch (e) { return Number.MAX_SAFE_INTEGER; }
+}
+
 /**
  * Splits the records to convert into batches that each satisfy the contract, so the
  * dispatch can never be the thing that breaks it.
@@ -54,15 +75,26 @@ export const MAX_CHAT_REQUEST_BYTES = 16 * 1024;
  * An item that cannot go in ANY batch (over the per-item cap) is returned in `rejected`
  * rather than silently dropped or wedged into a batch that will fail — the caller reports
  * it per record, exactly as it reports a conversion failure.
+ *
+ * `byteLengthOf(itemInput)` returns the per-item input size. It is called with the value
+ * the caller decides matters: the LEGACY filled-docx model passes `it.base64`; the
+ * SERVER-FILL model passes `it.data`. `opts.perBatchBytes` is a fixed overhead charged
+ * ONCE per batch — the server-fill model passes the shared template's decoded size there,
+ * so a batch's input budget is `perBatchBytes + sum(per-item bytes)`. A single item that
+ * cannot fit even in an empty batch alongside the template overhead is rejected. `opts.of`
+ * picks the per-item value out of the item (defaults to `it.base64`, the legacy field), so
+ * the sizer keeps receiving the raw value it always has.
  */
-export function planBatches(items, byteLengthOf) {
+export function planBatches(items, byteLengthOf, opts = {}) {
   const batches = [];
   const rejected = [];
+  const perBatchBytes = Math.max(0, Number(opts && opts.perBatchBytes) || 0);
+  const pick = (opts && typeof opts.of === 'function') ? opts.of : (it) => it && it.base64;
   let current = [];
   let currentBytes = 0;
 
   for (const it of items || []) {
-    const bytes = byteLengthOf(it.base64);
+    const bytes = byteLengthOf(pick(it));
     if (bytes > MAX_ITEM_BYTES) {
       rejected.push({
         item: it,
@@ -70,8 +102,17 @@ export function planBatches(items, byteLengthOf) {
       });
       continue;
     }
+    // A record that cannot fit even in a fresh batch (template overhead + this record
+    // alone over the total) can never be dispatched — report it rather than looping.
+    if (perBatchBytes + bytes > MAX_INPUT_TOTAL_BYTES) {
+      rejected.push({
+        item: it,
+        error: `document is too large to batch with the template (${((perBatchBytes + bytes) / 1048576).toFixed(1)} MB; limit ${MAX_INPUT_TOTAL_BYTES / 1048576} MB)`,
+      });
+      continue;
+    }
     const wouldExceed = current.length >= MAX_BATCH_ITEMS
-      || currentBytes + bytes > MAX_INPUT_TOTAL_BYTES;
+      || perBatchBytes + currentBytes + bytes > MAX_INPUT_TOTAL_BYTES;
     if (current.length && wouldExceed) {
       batches.push(current);
       current = [];

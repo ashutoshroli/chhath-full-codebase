@@ -47,14 +47,31 @@ const applyingSince = (status) => (status || '').toString().slice(APPLYING_PREFI
 // and `provider_test` carries the provider's API key, which must never be at rest in a job
 // row. Re-dispatching one of these sends a payload with the essential part MISSING, so the
 // job cannot succeed — it can only fail slowly, or half-run (audit MGMT-BE-03).
-const NON_RECONSTRUCTABLE_KINDS = new Set(['pdf_convert_batch', 'provider_test']);
+// `docx_render` joins this set: its dispatch payload carries the TEMPLATE bytes +
+// the fill data (a filled .docx is far past D1's ~1 MB row limit, so it is never
+// stored in the job row — the stored payload is metadata only). A re-dispatch would
+// send a payload with the essential bytes MISSING, so it could only fail slowly or
+// half-run, and the original attempt may already have written R2 + generated_files
+// and sent WhatsApp/email. So a stuck docx_render is failed with an actionable
+// message, never retried — exactly like pdf_convert_batch (audit MGMT-BE-03).
+// `pdf_convert` joins this set once the bulk fill moves server-side: its dispatch payload
+// now carries the TEMPLATE bytes + the record's fill DATA (Render-body-only; the stored
+// payload is metadata only — docType/year/recordId/force), exactly like pdf_convert_batch.
+// A re-dispatch would send the essential bytes MISSING, and the original attempt may
+// already have written R2 + generated_files, so a stuck pdf_convert is failed with an
+// actionable message, never retried (audit MGMT-BE-03).
+const NON_RECONSTRUCTABLE_KINDS = new Set(['pdf_convert', 'pdf_convert_batch', 'provider_test', 'docx_render']);
 
 // Kinds whose side effect writes the generated_files index, which the PUBLIC portal reads.
 // The router bumps the data version at DISPATCH, but the file index is only written when the
 // callback arrives — so without this the portal keeps serving a cached payload that predates
 // the document (audit MGMT-BE-04).
-const VERSION_BUMPING_KINDS = new Set(['pdf_convert', 'pdf_convert_batch']);
-const KINDS = new Set(['ai_fix_generate', 'ai_pr_create', 'ai_ci_retry', 'pdf_convert', 'pdf_convert_batch', 'provider_test']);
+// `docx_render` also writes the generated_files index on its callback (the auto
+// receipt/certificate/samaan the collection save produced), which the PUBLIC portal
+// reads — so it must bump the data version too, or a visitor following the QR sees
+// "not generated yet" for a receipt that exists (audit MGMT-BE-04).
+const VERSION_BUMPING_KINDS = new Set(['pdf_convert', 'pdf_convert_batch', 'docx_render']);
+const KINDS = new Set(['ai_fix_generate', 'ai_pr_create', 'ai_ci_retry', 'pdf_convert', 'pdf_convert_batch', 'provider_test', 'docx_render']);
 
 const genJobId = () => randomId('RJOB');
 
@@ -334,6 +351,21 @@ async function applyResultSideEffect(env, jobRow, result) {
       let payload = {};
       try { payload = JSON.parse(jobRow.payload || '{}'); } catch (e) { payload = {}; }
       return await applyPdfConvertResult(env, payload, result);
+    }
+  }
+  if (jobRow.kind === 'docx_render') {
+    // The auto-generate-on-save path. Render FILLED the template (+QR) and
+    // converted it to a PDF, returning the bytes. The Worker writes R2 + the
+    // generated_files index (binding-only, unchanged trust boundary) and — because
+    // the PDF now exists and has a publicLink — THEN triggers WhatsApp then email
+    // in that exact order, gated to NEW entries only. The stored jobRow.payload is
+    // METADATA ONLY (docType/year/recordId/isNewEntry + the notification snapshot);
+    // the template bytes + fill data were Render-body-only (NON_RECONSTRUCTABLE).
+    const { applyDocxRenderResult } = await import('./collectionQueue.js');
+    if (typeof applyDocxRenderResult === 'function') {
+      let payload = {};
+      try { payload = JSON.parse(jobRow.payload || '{}'); } catch (e) { payload = {}; }
+      return await applyDocxRenderResult(env, payload, result);
     }
   }
   if (jobRow.kind === 'pdf_convert_batch') {

@@ -3,7 +3,7 @@
   // by filling the report .docx template with aggregated home/loans/expenses/
   // contributors data, converting to PDF, and listing previously generated files.
   import { api, reportClientError } from '$lib/api';
-  import { fillDocxTemplateFromRow, getLastRenderReport } from '$lib/docxFill';
+
   import { newUid } from '$lib/a11y/uid';
   // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
   // component is mounted more than once on a screen.
@@ -74,17 +74,8 @@
       const mode = language;
       const docType = DOC_TYPE_FOR_MODE[mode];
 
-      let docxRow: any = null;
-      try {
-        docxRow = await api.getDocxTemplateForDoc(docType, year);
-      } catch (err) {
-        reportClientError('PdfExport', `Template load failed for ${docType} ${year}`, err as Error, { docType, year });
-        throw new Error(`Report template failed to load: ${(err as Error).message}`);
-      }
-      if (!docxRow || !(docxRow.base64 || docxRow.downloadUrl)) {
-        throw new Error(`No Report template (${mode}) has been uploaded for Year ${year} yet. Please upload one under Document Templates.`);
-      }
-
+      // The browser no longer fills the report .docx. The Worker resolves the template and
+      // Render fills it with the placeholders we build below (+QR) then converts.
       const [home, loansData, expenses, users, lists]: any[] = await Promise.all([
         api.getHome(year),
         api.getLoans(year),
@@ -163,18 +154,16 @@
         loans, guarantors, contributors, expenses: expenseRows
       };
 
-      const filledBase64 = await fillDocxTemplateFromRow(docxRow, placeholders);
-
-      const rep = getLastRenderReport();
-      if (rep.missingTags.length) {
-        warning = `These placeholders in the report template could not be resolved (they will be blank): ${[...new Set(rep.missingTags)].join(', ')}`;
-        reportClientError('PdfExport', 'Report template had unresolved placeholders', undefined,
-          { docType, year, missingTags: [...new Set(rep.missingTags)] });
-      }
-
       const recordId = `${docType}-${year}`;
       const fileName = `Chhath-Puja-Report-${year}${mode !== 'en' ? '-' + mode : ''}.docx`;
-      const res: any = await api.convertDocxToPdfBulk(docType, year, recordId, filledBase64, fileName, true);
+      const res: any = await api.convertDocxToPdfBulk(docType, year, recordId, placeholders, fileName, true);
+
+      const missing = res && res.report && Array.isArray(res.report.missingTags) ? res.report.missingTags : [];
+      if (missing.length) {
+        warning = `These placeholders in the report template could not be resolved (they will be blank): ${[...new Set(missing)].join(', ')}`;
+        reportClientError('PdfExport', 'Report template had unresolved placeholders', undefined,
+          { docType, year, missingTags: [...new Set(missing)] });
+      }
 
       if (res && res.indexFailed) {
         warning = res.error || 'The report PDF was generated but not indexed.';

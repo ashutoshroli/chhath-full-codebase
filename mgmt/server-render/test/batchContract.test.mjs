@@ -19,6 +19,9 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 // config.js throws on a missing env var at import time, and the job module reaches it
 // through drive.js — same preamble as the other suites here.
@@ -54,8 +57,19 @@ function docxOf(size) {
   return Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), body]).toString('base64');
 }
 
+// Legacy item shape (a pre-filled .docx) — still used by the `validateBatchItem` tests,
+// which pin the retained legacy validator.
 const item = (recordId, { size = 64, fileName = 'doc.docx' } = {}) =>
   ({ recordId, base64: docxOf(size), fileName });
+
+// The bulk path now FILLS server-side: a batch carries the TEMPLATE once + per-record
+// DATA. This real fixture template carries the OOXML rels the fill needs.
+const here = dirname(fileURLToPath(import.meta.url));
+const TEMPLATE_B64 = readFileSync(join(here, 'fixtures', 'template.docx')).toString('base64');
+// A fill item: { recordId, data, fileName }. `dataSize` pads the data so aggregate-input
+// tests can size a batch precisely (the template is shared, not per-item).
+const fillItem = (recordId, { dataSize = 0, fileName = 'doc.docx' } = {}) =>
+  ({ recordId, data: { name: 'x', pad: 'A'.repeat(Math.max(0, dataSize)) }, fileName });
 
 describe('the contract numbers hold together', () => {
   test('the request limit is derived from the input budget, not written beside it', () => {
@@ -149,8 +163,8 @@ describe('the batch itself is bounded', () => {
     // The Worker is supposed to have split it, so this is a caller bug and must be one
     // loud error rather than twenty quiet ones — or worse, the first twenty converted and
     // the rest dropped.
-    const items = Array.from({ length: MAX_BATCH_ITEMS + 1 }, (_, i) => item(`r${i}`));
-    return assert.rejects(() => runPdfConvertBatch({ items }), /exceeds the contract limit/);
+    const items = Array.from({ length: MAX_BATCH_ITEMS + 1 }, (_, i) => fillItem(`r${i}`));
+    return assert.rejects(() => runPdfConvertBatch({ templateBase64: TEMPLATE_B64, items }), /exceeds the contract limit/);
   });
 
   test('an aggregate over the input budget fails before any Drive work', async () => {
@@ -158,16 +172,18 @@ describe('the batch itself is bounded', () => {
     const orig = globalThis.fetch;
     globalThis.fetch = async () => { fetched++; return { ok: true, json: async () => ({}) }; };
     try {
+      // The input is the template ONCE + each record's data. Pad each record's data so the
+      // sum clears the input budget without any one item breaching the per-item cap.
       const per = Math.ceil(MAX_INPUT_TOTAL_BYTES / 4);
-      const items = Array.from({ length: 5 }, (_, i) => item(`r${i}`, { size: per }));
-      await assert.rejects(() => runPdfConvertBatch({ items }), /over the .* contract limit/);
+      const items = Array.from({ length: 5 }, (_, i) => fillItem(`r${i}`, { dataSize: per }));
+      await assert.rejects(() => runPdfConvertBatch({ templateBase64: TEMPLATE_B64, items }), /over the .* contract limit/);
       assert.equal(fetched, 0, 'not one Drive call was made');
     } finally { globalThis.fetch = orig; }
   });
 
   test('an empty batch is still rejected', async () => {
-    await assert.rejects(() => runPdfConvertBatch({}), /items is required/);
-    await assert.rejects(() => runPdfConvertBatch({ items: [] }), /items is required/);
+    await assert.rejects(() => runPdfConvertBatch({ templateBase64: TEMPLATE_B64 }), /items is required/);
+    await assert.rejects(() => runPdfConvertBatch({ templateBase64: TEMPLATE_B64, items: [] }), /items is required/);
   });
 });
 
@@ -197,7 +213,7 @@ describe('the result is bounded so the callback can be delivered', () => {
   test('one outsized PDF is dropped instead of sinking the whole callback', async () => {
     const drive = stubDrive(MAX_OUTPUT_ITEM_BYTES + 4096);
     try {
-      const res = await runPdfConvertBatch({ items: [item('r1')] });
+      const res = await runPdfConvertBatch({ templateBase64: TEMPLATE_B64, items: [fillItem('r1')] });
       assert.equal(res.results[0].ok, false);
       assert.match(res.results[0].error, /PDF is too large/);
       assert.equal(res.results[0].pdfBase64, undefined, 'and its bytes are not accumulated');
@@ -211,8 +227,8 @@ describe('the result is bounded so the callback can be delivered', () => {
     const per = Math.ceil(MAX_OUTPUT_TOTAL_BYTES / 4);
     const drive = stubDrive(per);
     try {
-      const items = Array.from({ length: 6 }, (_, i) => item(`r${i}`));
-      const res = await runPdfConvertBatch({ items });
+      const items = Array.from({ length: 6 }, (_, i) => fillItem(`r${i}`));
+      const res = await runPdfConvertBatch({ templateBase64: TEMPLATE_B64, items });
 
       const ok = res.results.filter((r) => r.ok);
       const refused = res.results.filter((r) => !r.ok);
@@ -235,7 +251,7 @@ describe('the result is bounded so the callback can be delivered', () => {
   test('a batch that fits reports no truncation and carries its budget', async () => {
     const drive = stubDrive(1024);
     try {
-      const res = await runPdfConvertBatch({ items: [item('r1'), item('r2')] });
+      const res = await runPdfConvertBatch({ templateBase64: TEMPLATE_B64, items: [fillItem('r1'), fillItem('r2')] });
       assert.equal(res.results.every((r) => r.ok), true);
       assert.equal(res.truncated, undefined);
       assert.ok(res.budget.outputBytes > 0);
@@ -243,20 +259,21 @@ describe('the result is bounded so the callback can be delivered', () => {
     } finally { drive.restore(); }
   });
 
-  test('an invalid item costs no Drive round-trip at all', async () => {
+  test('an invalid item costs no fill or Drive round-trip at all', async () => {
     const drive = stubDrive(1024);
     try {
       const res = await runPdfConvertBatch({
+        templateBase64: TEMPLATE_B64,
         items: [
-          { recordId: 'bad-b64', base64: '@@@@', fileName: 'a.docx' },
-          { recordId: 'not-docx', base64: Buffer.from('%PDF').toString('base64'), fileName: 'a.docx' },
-          { recordId: 'bad-name', base64: docxOf(64), fileName: '../x.docx' },
-          item('good'),
+          { data: { name: 'x' }, fileName: 'a.docx' },              // no recordId
+          { recordId: 'bad-name', data: { name: 'x' }, fileName: '../x.docx' }, // path traversal
+          { recordId: 'huge', data: { pad: 'A'.repeat(MAX_ITEM_BYTES + 4096) }, fileName: 'a.docx' }, // over data cap
+          fillItem('good'),
         ],
       });
       assert.equal(res.results.filter((r) => r.ok).length, 1);
-      // One conversion, for the one valid record. Before, each bad item was uploaded to
-      // Drive and converted before anyone noticed it was not a document.
+      // One conversion, for the one valid record. Each bad item is refused BEFORE the
+      // template is filled or Drive is touched.
       assert.equal(drive.conversions(), 1);
     } finally { drive.restore(); }
   });

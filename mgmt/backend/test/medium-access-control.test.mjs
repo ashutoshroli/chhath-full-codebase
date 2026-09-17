@@ -314,12 +314,26 @@ test('M-11: the names the app actually uses are all still allowed', async () => 
 
 test('M-5: the queue no longer runs jobs as a fabricated Superadmin', () => {
   const src = readFileSync(new URL('../src/collectionQueue.js', import.meta.url), 'utf8');
-  const line = src.split('\n').find(l => l.includes('const systemUser ='));
-  assert.ok(line, 'the system user is still constructed here');
-  assert.ok(!/role: 'Superadmin'/.test(line),
-    `the cron must not claim Superadmin: ${line.trim()}`);
-  assert.match(line, /role: 'Subadmin'/, 'it claims the lowest role that satisfies requireStaffRole');
-  assert.match(line, /system: true/, 'and keeps the marker a future gate can branch on');
+  // Strip comments so the AUDIT NOTES that DESCRIBE the old `role: 'Superadmin'`
+  // defect are not mistaken for live code (they explain what was removed).
+  const code = src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+
+  // FEAT-003 made this invariant STRONGER than "claim the lowest role": the queue
+  // no longer fabricates ANY user for the document path. The fill + PDF happen on
+  // Render (dispatched via createAndDispatchJob), the placeholder data is built by
+  // the UNGATED buildReceiptData/buildCertificateData/buildSamaanData (the staff
+  // role + year access were already enforced at enqueue time — audit P0-03), and
+  // convertDocxToPdf is no longer called from the queue at all. So the only correct
+  // assertion now is: NO fabricated privileged user is constructed here.
+  assert.ok(!/role:\s*'Superadmin'/.test(code),
+    'the queue must never fabricate a Superadmin caller');
+  // And it must not construct a fabricated staff user either — the ungated builders
+  // remove the need for one. (If a future change reintroduces a system user, this
+  // guards that it is not a Superadmin.)
+  assert.ok(!/\bconvertDocxToPdf\s*\(/.test(code),
+    'the queue no longer drives convertDocxToPdf as a fabricated caller — the render is offloaded');
 });
 
 // ============================================== H-7 GUARD (fixed earlier; keep it fixed)

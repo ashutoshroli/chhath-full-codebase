@@ -209,6 +209,17 @@ export async function getReceiptData(env, rowIndex, year, user) {
   // reasoning as H-1).
   requireStaffRole(user);
   await requireYearAccess(env, user, year);
+  return buildReceiptData(env, rowIndex, year);
+}
+
+// The DATA builders WITHOUT the staff/year gate. The collection queue (FEAT-003)
+// resolves the fill data server-side as a trusted internal caller — the year
+// access + staff role were already enforced at enqueue time (audit P0-03) — so it
+// calls these directly rather than re-running the staff-facing gate as a fabricated
+// member. Keeping ONE builder per doc type means the placeholder set (RECEIPT_NO
+// format, ID-based contributor resolution, formatAmt) cannot drift between the
+// receipt modal and the auto-generate path.
+export async function buildReceiptData(env, rowIndex, year) {
   const { entry, u } = await resolveEntry(env, rowIndex, year);
   const template = await getTemplate(env, 'receipt', year);
   return {
@@ -227,6 +238,10 @@ export async function getReceiptData(env, rowIndex, year, user) {
 export async function getCertificateData(env, rowIndex, year, user) {
   requireStaffRole(user);
   await requireYearAccess(env, user, year);
+  return buildCertificateData(env, rowIndex, year);
+}
+
+export async function buildCertificateData(env, rowIndex, year) {
   const { entry, u } = await resolveEntry(env, rowIndex, year);
   const template = await getTemplate(env, 'certificate', year);
   return {
@@ -245,6 +260,10 @@ export async function getCertificateData(env, rowIndex, year, user) {
 export async function getSamaanData(env, rowIndex, year, user) {
   requireStaffRole(user);
   await requireYearAccess(env, user, year);
+  return buildSamaanData(env, rowIndex, year);
+}
+
+export async function buildSamaanData(env, rowIndex, year) {
   const { entry, u } = await resolveEntry(env, rowIndex, year);
   const template = await getTemplate(env, 'samaan', year);
   return {

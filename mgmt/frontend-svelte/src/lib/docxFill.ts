@@ -1,6 +1,12 @@
 // Ported verbatim from mgmt/frontend/src/docxFill.js — fills a DOCX template
 // (base64 or URL) with placeholder data via docxtemplater + an image module,
-// tracking missing tags/images. Lazy-imported via safeImport from Home.
+// tracking missing tags/images. Lazy-imported via safeImport.
+//
+// DEPRECATED for the BULK + AUTO paths (FEAT-003 + FEAT-004): those now FILL
+// server-side on Render. The ONLY remaining production caller is the public,
+// token-gated CONSENT download (ConsentPdfDownload.svelte), which lazy-imports this
+// so docxtemplater/pizzip/image-module stay in a lazy chunk, never in the main bundle.
+// Delete this file once the consent path also moves server-side.
 import Docxtemplater from 'docxtemplater';
 import PizZip from 'pizzip';
 // docxtemplater-image-module-free ships no types.

@@ -2,8 +2,6 @@
   // Ported from the inner DownloadItem of React views/DownloadCenter.jsx — one
   // downloadable record: generate (fill docx -> convert to PDF) or link out.
   import { api, reportClientError } from '$lib/api';
-  import { fillDocxTemplateFromRow, getLastRenderReport } from '$lib/docxFill';
-  import { generateQrDataUrl, publicRecordUrl } from '$lib/qrCode';
 
   interface Props {
     item: any;
@@ -21,40 +19,19 @@
     error = '';
     warning = '';
     try {
-      let templateRow: any;
-      try {
-        templateRow = await api.getDocxTemplateForDoc(item.docType, item.year);
-      } catch (err) {
-        reportClientError('DownloadCenter', `Template load failed for ${item.docType} ${item.year}`, err as Error,
-          { docType: item.docType, year: item.year, recordId: item.recordId });
-        error = `Template failed to load: ${(err as Error).message}`;
-        return;
-      }
-      if (!templateRow || (!templateRow.base64 && !templateRow.downloadUrl)) {
-        error = 'No .docx template exists for this year/type (upload one in the Document Templates tab).';
-        return;
-      }
-
-      let qrCode = '';
-      try {
-        qrCode = await generateQrDataUrl(publicRecordUrl(item.recordId));
-      } catch (qrErr) {
-        warning = 'QR generation failed — the QR in the PDF will be blank.';
-        reportClientError('DownloadCenter', `QR generation failed for ${item.recordId}`, qrErr as Error,
-          { docType: item.docType, year: item.year, recordId: item.recordId });
-      }
-
-      const filledBase64 = await fillDocxTemplateFromRow(templateRow, { ...item.placeholders, GENERATED_AT: new Date().toLocaleString('en-IN'), QR_CODE: qrCode });
-
-      const rep = getLastRenderReport();
-      if (rep.missingTags.length) {
-        warning = `Blank placeholders: ${[...new Set(rep.missingTags)].join(', ')}`;
-        reportClientError('DownloadCenter', `Unresolved placeholders for ${item.recordId}`, undefined,
-          { docType: item.docType, year: item.year, recordId: item.recordId, missingTags: [...new Set(rep.missingTags)] });
-      }
-
+      // The browser no longer fills the .docx or builds the QR. We send the record's fill
+      // DATA; the Worker resolves the template and Render fills it (+QR) then converts. The
+      // per-record render report (blank placeholders) comes BACK on the result.
       const fileName = `${item.fileNameHint}.docx`;
-      const res: any = await api.convertDocxToPdfBulk(item.docType, item.year, item.recordId, filledBase64, fileName);
+      const data = { ...item.placeholders, GENERATED_AT: new Date().toLocaleString('en-IN') };
+      const res: any = await api.convertDocxToPdfBulk(item.docType, item.year, item.recordId, data, fileName);
+
+      const missing = res && res.report && Array.isArray(res.report.missingTags) ? res.report.missingTags : [];
+      if (missing.length) {
+        warning = `Blank placeholders: ${[...new Set(missing)].join(', ')}`;
+        reportClientError('DownloadCenter', `Unresolved placeholders for ${item.recordId}`, undefined,
+          { docType: item.docType, year: item.year, recordId: item.recordId, missingTags: [...new Set(missing)] });
+      }
 
       if (res && res.indexFailed) {
         warning = res.error || 'The PDF was generated but not indexed in the public portal.';

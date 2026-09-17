@@ -434,12 +434,19 @@ export const api = {
   getDocxTemplateForDoc: (docType, year) => call('getDocxTemplateForDoc', { docType, year }),
   getDocxTemplatePublic: (docType, year, token) => call('getDocxTemplatePublic', { docType, year, token }, false),
 
+  // convertDocxToPdf keeps the single-record CONSENT/preview path (a filled .docx from the
+  // token-gated public flow). The BULK paths below no longer fill in the browser: they
+  // send the record's fill DATA and the Worker resolves the template + Render fills it.
   convertDocxToPdf: (docType, year, recordId, base64, fileName) => call('convertDocxToPdf', { docType, year, recordId, base64, fileName }),
-  convertDocxToPdfBulk: async (docType, year, recordId, base64, fileName, force) => {
-    const res = await call('convertDocxToPdfBulk', { docType, year, recordId, base64, fileName, force });
+  // Bulk single-record: send the fill DATA (placeholder set), not a filled .docx. The
+  // Worker resolves the template and Render fills (+QR) then converts.
+  convertDocxToPdfBulk: async (docType, year, recordId, data, fileName, force) => {
+    const res = await call('convertDocxToPdfBulk', { docType, year, recordId, data, fileName, force });
     if (!res || !res.jobId) return res;
     return pollRenderPdfJob(res.jobId);
   },
+  // Bulk batch: items are [{ recordId, data, fileName }] — per-record fill DATA, not
+  // filled .docx bytes. The Worker resolves the shared template once and Render fills each.
   convertDocxToPdfBatch: async (docType, year, items, force) => {
     const res = await call('convertDocxToPdfBatch', { docType, year, items, force });
     const meta = {
