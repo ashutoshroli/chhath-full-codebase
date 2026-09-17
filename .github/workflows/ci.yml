@@ -246,7 +246,8 @@ jobs:
             test/pr34-enforced-keys-and-relations.test.mjs \
             test/pr35-migration-ledger.test.mjs \
             test/h10-m38-indexes-and-retention.test.mjs \
-            test/h9-atomic-id-allocation.test.mjs
+            test/h9-atomic-id-allocation.test.mjs \
+            test/rebuild-and-seed.test.mjs
 
   public-frontend-v6:
     name: Public v6 — type-check, tests and static build
