@@ -1,26 +1,38 @@
 #!/usr/bin/env node
 /**
- * First-load JavaScript budget (audit PR-45).
+ * First-load JavaScript budget (audit PR-45; the metric corrected here).
  *
  * WHY THIS EXISTS, ON TOP OF THE TOTAL-BYTES BUDGET
  * -------------------------------------------------
  * CI already bounds the TOTAL client JS in `build/_app/immutable`. That number
  * answers "is the app growing?" but it cannot answer "what does a visitor pay
- * to open one page?" — and those two questions come apart badly in a
- * skin-based app. Before PR-45 the total was 622 kB and *every single page*
- * pulled 583-603 kB of it on first load, because the skin registry statically
- * imported all five skins (and each skin's barrel imported all eight of its
- * pages). SvelteKit was splitting per route exactly as designed; a barrel
- * import upstream of the route made the split worthless.
+ * to open one page?" — and those two questions came apart badly in this app.
+ * Before PR-45 the total was 622 kB and *every single page* pulled ~583 kB of it
+ * on first load, because the skin registry statically imported all five skins
+ * (and each skin's barrel imported all eight of its pages). SvelteKit was
+ * splitting per route exactly as designed; a barrel import upstream of the route
+ * made the split worthless.
  *
  * WHAT IS MEASURED
  * ----------------
- * Every prerendered .html file in `build/` names, in `<link rel="modulepreload">`
- * tags and in its SvelteKit bootstrap, precisely the modules the browser must
- * fetch before it can hydrate that page. Dynamically imported chunks are NOT in
- * that list — which is the point: this metric only counts what is on the
- * critical path. Sum the unique referenced files, per page, and report the
- * worst page.
+ * Each prerendered .html file names some modules — in `<link rel="modulepreload">`
+ * tags and in its SvelteKit bootstrap. Those are the ENTRY POINTS. The browser then
+ * has to fetch everything they `import` statically, transitively, before the page
+ * can hydrate, whether or not the bundler bothered to preload-hint it. So the number
+ * reported is the transitive **static** import closure of the modules the HTML names.
+ * Dynamically imported chunks (`import(...)`) are excluded, which is the whole point:
+ * they are not on the critical path.
+ *
+ * WHY THE CLOSURE, AND NOT JUST THE HTML LIST
+ * -------------------------------------------
+ * The first version of this script summed only what the HTML listed, assuming the
+ * bundler preload-hints the entire critical path. No bundler guarantees that, and
+ * it is not stable across bundlers: measured on this app, the HTML list misses
+ * **810 bytes** under vite 5 (rollup) and **11,109 bytes** under vite 8 (rolldown),
+ * which emits fewer hints for a flatter chunk graph. A metric that moves when the
+ * bundler changes its hinting strategy cannot be used to compare two builds — it
+ * credited a toolchain upgrade with a 24 kB win when the real figure was 14 kB.
+ * Following the imports is bundler-independent.
  *
  * Usage:
  *   node scripts/first-load-bytes.mjs [--dir build] [--limit BYTES] [--json]
@@ -28,7 +40,7 @@
  * Exits 1 if the worst page is over --limit (when given).
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 
 function arg(name, fallback) {
   const i = process.argv.indexOf(name);
@@ -64,15 +76,39 @@ if (pages.length === 0) {
 // `_app/immutable/...` references, however they are quoted in the HTML.
 const REF = /_app\/immutable\/[A-Za-z0-9_./-]+\.js/g;
 
+/**
+ * Static import specifiers in a built chunk.
+ *
+ * `import x from"./a.js"`, `import{x}from"./a.js"` and `import"./a.js"` all match;
+ * `import("./a.js")` deliberately does not — the `(` sits between the keyword and
+ * the quote. That one character is the entire static/dynamic distinction in built
+ * output, so a test asserts a 500 kB dynamically-imported chunk stays uncounted.
+ */
+const STATIC_IMPORT = /(?:\bfrom|\bimport)\s*["'](\.[^"']+\.js)["']/g;
+
+const depCache = new Map();
+function staticDeps(file) {
+  let deps = depCache.get(file);
+  if (!deps) {
+    deps = new Set();
+    for (const m of readFileSync(file, 'utf8').matchAll(STATIC_IMPORT)) {
+      const target = resolve(dirname(file), m[1]);
+      if (existsSync(target) && statSync(target).isFile()) deps.add(target);
+    }
+    depCache.set(file, deps);
+  }
+  return deps;
+}
+
 const rows = [];
 for (const page of pages) {
   const html = readFileSync(page, 'utf8');
   const refs = new Set(html.match(REF) ?? []);
-  let bytes = 0;
   const missing = [];
+  const entries = [];
   for (const ref of refs) {
     const file = join(dir, ref);
-    if (existsSync(file) && statSync(file).isFile()) bytes += statSync(file).size;
+    if (existsSync(file) && statSync(file).isFile()) entries.push(resolve(file));
     else missing.push(ref);
   }
   if (missing.length) {
@@ -82,7 +118,21 @@ for (const page of pages) {
     console.error(`first-load-bytes: ${page} references missing files: ${missing.join(', ')}`);
     process.exit(1);
   }
-  rows.push({ page: relative(dir, page), modules: refs.size, bytes });
+
+  // Walk the static import graph out from those entry points. `reached` doubles
+  // as the visited set, so an import cycle terminates and each file is charged once.
+  const reached = new Set();
+  const queue = [...entries];
+  while (queue.length) {
+    const file = queue.pop();
+    if (reached.has(file)) continue;
+    reached.add(file);
+    for (const dep of staticDeps(file)) if (!reached.has(dep)) queue.push(dep);
+  }
+
+  let bytes = 0;
+  for (const file of reached) bytes += statSync(file).size;
+  rows.push({ page: relative(dir, page), modules: reached.size, bytes });
 }
 
 rows.sort((a, b) => b.bytes - a.bytes);
@@ -92,7 +142,9 @@ if (asJson) {
   console.log(JSON.stringify({ worst, rows }, null, 2));
 } else {
   for (const r of rows) {
-    console.log(`${String(r.bytes).padStart(8)}  ${String(r.modules).padStart(3)} modules  ${r.page}`);
+    console.log(
+      `${String(r.bytes).padStart(8)}  ${String(r.modules).padStart(3)} modules  ${r.page}`
+    );
   }
   const kb = (worst.bytes / 1000).toFixed(1);
   console.log(`\nworst first load: ${kb} kB (${worst.bytes} bytes) — ${worst.page}`);
