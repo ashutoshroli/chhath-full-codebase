@@ -10,9 +10,15 @@ services:
     runtime: node
     plan: free            # free tier spins down on inactivity; UptimeRobot keeps /health warm (see README)
     rootDir: mgmt/server-render
-    # `npm install`, not `npm ci`: this package has no committed package-lock.json
-    # (a single dependency, express), and `npm ci` HARD-FAILS without a lockfile.
-    buildCommand: npm install --omit=dev --no-audit --no-fund
+    # `npm ci` against the COMMITTED package-lock.json (added in wave-a1 with the
+    # docx renderer). This is what closes the xmldom trap at deploy: docxtemplater
+    # pulls the deprecated xmldom (0.1.x, CRITICAL advisories) transitively, and
+    # npm NEVER records `overrides` in a lockfile — so `npm install` off no lockfile
+    # would resolve the vulnerable xmldom on the live service. The lockfile pins the
+    # override (xmldom -> @xmldom/xmldom) AND the direct @xmldom/xmldom dep, and
+    # `npm ci` installs exactly that tree. Also fixes audit Render/offload #10
+    # (semver resolved at deploy time on an auto-deploying service).
+    buildCommand: npm ci --omit=dev --no-audit --no-fund
     startCommand: npm start
     healthCheckPath: /health
     autoDeploy: true      # auto-deploy on every push to the default branch, so the
