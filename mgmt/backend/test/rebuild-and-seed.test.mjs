@@ -145,12 +145,14 @@ test('a FULL rebuild (schema THEN seeds) yields the same 12 / 2 / 7 / 6 from emp
     runRebuild(
       db,
       {
-        schema: (sql) => { sqlite.exec(sql); schemaApplied = true; },
-        seed: (sql) => {
+        // runRebuild passes a FILE PATH now (it no longer reads the file itself),
+        // mirroring the real CLI which applies files via `wrangler d1 execute --file`.
+        schema: (file) => { sqlite.exec(readFileSync(file, 'utf8')); schemaApplied = true; },
+        seed: (file) => {
           assert.ok(schemaApplied, 'schema must be applied before any seed');
           const m = seeds[seedIdx++];
           const before = totalRows(sqlite, SEED_TABLES[m.filename]);
-          sqlite.exec(sql);
+          sqlite.exec(readFileSync(file, 'utf8'));
           deltas[m.filename] = totalRows(sqlite, SEED_TABLES[m.filename]) - before;
         },
       },
@@ -173,7 +175,7 @@ test('the seed apply is IDEMPOTENT — re-running adds nothing (fresh-DB rebuild
   for (const db of seededDatabases()) {
     const tables = [...new Set(seedMigrationsFor(db).flatMap((m) => SEED_TABLES[m.filename]))];
     const sqlite = freshSchemaDb(db);
-    const exec = { schema: () => {}, seed: (sql) => sqlite.exec(sql) };
+    const exec = { schema: () => {}, seed: (file) => sqlite.exec(readFileSync(file, 'utf8')) };
     runRebuild(db, exec, { mode: 'seed' });
     const afterOne = Object.fromEntries(tables.map((t) => [t, rowCount(sqlite, t)]));
     runRebuild(db, exec, { mode: 'seed' }); // second run must be a no-op

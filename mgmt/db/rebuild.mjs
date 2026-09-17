@@ -145,16 +145,16 @@ export function seededDatabases(migrations = loadMigrations()) {
  * Returns the ordered list of steps taken, so the caller (CLI or test) can report
  * exactly what ran.
  */
-export function runRebuild(db, exec, { mode = 'full', migrations, read = (p) => readFileSync(p, 'utf8') } = {}) {
+export function runRebuild(db, exec, { mode = 'full', migrations } = {}) {
   const plan = rebuildPlan(db, { migrations });
   const steps = [];
   if (mode === 'full') {
-    exec.schema(read(join(SCHEMA_ROOT, plan.schema)));
+    exec.schema(join(SCHEMA_ROOT, plan.schema));
     steps.push({ step: 'schema', file: plan.schema });
   }
   const seeds = seedMigrationsFor(db, migrations);
   for (const m of seeds) {
-    exec.seed(read(join(MIGRATION_ROOT, m.folder, m.filename)));
+    exec.seed(join(MIGRATION_ROOT, m.folder, m.filename));
     steps.push({ step: 'seed', file: m.filename });
   }
   return { db, mode, steps };
@@ -163,18 +163,23 @@ export function runRebuild(db, exec, { mode = 'full', migrations, read = (p) => 
 // ------------------------------------------------------------------- the shell
 
 function wrangler(args) {
-  return execFileSync('npx', ['wrangler', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  // stdio inherit so wrangler's own progress/errors reach the operator's terminal.
+  return execFileSync('npx', ['wrangler', ...args], { encoding: 'utf8', stdio: 'inherit' });
 }
 
 function makeExec(db, remote, dryRun) {
   const flag = remote ? '--remote' : '--local';
-  const run = (sql, label) => {
-    if (dryRun) { process.stdout.write(`  would apply ${label} (${sql.length} bytes)\n`); return; }
-    wrangler(['d1', 'execute', db, flag, '--command', sql]);
+  // Apply SQL by FILE, not --command. A schema/seed file is multi-statement, and
+  // `wrangler d1 execute --command "<many statements>"` misparses a long multi-line
+  // string — it read the database name as an "Unknown argument". `--file` is the
+  // documented path for a .sql file and applies every statement in order.
+  const run = (file, label) => {
+    if (dryRun) { process.stdout.write(`  would apply ${label}: ${file}\n`); return; }
+    wrangler(['d1', 'execute', db, flag, '--file', file, '--yes']);
   };
   return {
-    schema: (sql) => run(sql, 'schema'),
-    seed: (sql) => run(sql, 'seed'),
+    schema: (file) => run(file, 'schema'),
+    seed: (file) => run(file, 'seed'),
   };
 }
 
