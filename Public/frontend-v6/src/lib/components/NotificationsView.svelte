@@ -17,6 +17,7 @@
    * `slate-* / dark:slate-*` pairing the sheet itself already uses.
    */
   import { ArrowLeft, Bell, BellRing, CheckCheck, Trash2 } from '@lucide/svelte';
+  import { sameOriginPath } from '$lib/pushTarget.js';
   import { tr } from '$lib/stores/lang';
   import { lang } from '$lib/stores/lang';
   import { t } from '$lib/i18n';
@@ -46,10 +47,11 @@
     return t(l, 'notif_day_ago', { n: Math.floor(hr / 24) });
   }
 
-  // Only allow same-origin/relative targets from the payload.
+  // audit PR-44: this comment used to sit over `safeUrl()`, which only requires `^https?://` —
+  // so it rejected `javascript:` and accepted EVERY cross-origin https URL. The comment described
+  // the intent and the code did something else. Now it actually does what it says.
   function target(url: string): string {
-    const u = (url || '/').toString();
-    return u.startsWith('/') ? u : safeUrl(u) || '/';
+    return sameOriginPath(url, typeof location !== 'undefined' ? location.origin : 'https://localhost');
   }
 </script>
 
