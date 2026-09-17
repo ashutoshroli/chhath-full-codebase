@@ -309,9 +309,12 @@ jobs:
             exit 1
           fi
 
-      # Per-page critical-path JS, read off the prerendered HTML (the modules the
-      # browser must fetch before it can hydrate that page). ~10% headroom over
-      # today's worst page, 379,854 B. See scripts/first-load-bytes.mjs.
+      # Per-page critical-path JS: the modules the prerendered HTML names, PLUS
+      # everything they statically import, transitively. Reading only the
+      # `modulepreload` hints (as this gate first did) under-counts by an amount
+      # that depends on the bundler — 810 B under vite 5, 11,109 B under vite 8 —
+      # so it could not be used to compare two builds. ~10% headroom over today's
+      # worst page, 380,683 B. See scripts/first-load-bytes.mjs.
       - name: Bound first-load JS per page
         working-directory: Public/frontend-v6
         run: |
