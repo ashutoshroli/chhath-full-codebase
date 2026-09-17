@@ -6,10 +6,17 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status — against the plan's 48 PRs: 39 done · 9 remaining — all nine are frontend or toolchain. Every backend and database wave is complete.**
-Separately, **54 GitHub PRs** have been merged for this effort (#311–#367). Those two numbers are not the same thing, and revisions of this file before #356 wrongly treated them as one — the header claimed "8 pending" while §3 below listed 14.5. Several merged PRs were docs/runbook updates (#340, #343, #346, #352), CI fix-ups (#330, #345), or carry-over items outside the 48 (#348, #356). Others, like this one, are a **slice** of a plan PR rather than a whole one. **The plan count is the one to read for progress.**
+**Status — against the plan's 48 PRs: 47.5 done · 0.5 remaining.** The remaining half is **PR-47**'s vite 5→8 / vitest 2→5 major upgrades, held back deliberately (dev-server-only advisories; not verifiable without frontend preview deploys — see §3). Every other planned PR has shipped.
+Separately, **69 GitHub PRs** have been merged for this effort (#311–#382). Those two numbers are not the same thing, and revisions of this file before #356 wrongly treated them as one. Several merged PRs were docs/runbook updates (#340, #343, #346, #352, #371), CI fix-ups (#330, #345), or carry-over items outside the 48 (#348, #356, #368, #369, #372). Others are a **slice** of a plan PR rather than a whole one. **The plan count is the one to read for progress.**
 
-Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-BE closed)** · **W3 7/7 (consent copy folded into PR-44)** · **W4 ✅ 3/3** · **W5 0.5/6** · W6 0/4 · **W7 2.5/3**
+Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-BE closed)** · **W3 ✅ 7/7** · **W4 ✅ 3/3** · **W5 ✅ 6/6** · **W6 ✅ 4/4** · **W7 2.5/3**
+
+> **One honest caveat on W5 (accessibility).** Every fix in #373–#378 is proven by tests and by
+> computed values (contrast ratios, ARIA wiring, focus order, import graphs), and each was shown
+> to fail on `main` first. **None of it has been looked at in a browser.** The Vercel preview
+> deployments for this repo sit behind Deployment Protection / SSO, so every preview URL redirects
+> to a login page. Recorded as **C17** in §4 — it is the one thing about this batch that a reader
+> should not assume.
 
 ---
 
@@ -74,35 +81,84 @@ Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-
 | [#368](https://github.com/ashutoshroli/chhath-full-codebase/pull/368) | stop writing visitors' addresses into the mgmt Worker's KV keys | C12 (mgmt half) | C12 had been called closed twice and was not: #362 named one mgmt function, and the mgmt Worker had **five** keys spelling out an address — the broadest being `rl:<action>:<ip>:<bucket>`, i.e. every rate-limited public action. A probe on `main` printed all five, populated. All five now key on an HMAC under a **daily-rotating salt** that expires after two days; no fallback to the address, and the salt is cached per namespace (a `WeakMap` on the binding, not a module global). The announce-PIN gate is the deliberate exception — it does not fail open, so with no salt it degrades to the **token-only** key rather than skipping a 6-digit PIN's only brake. `login_attempts.ip`, `user_sessions.ip`, the consent record and `loginfail:` keep the address: named staff accounts and legal evidence, not passers-by. The invariant is a KV **sweep** with one named exception, so a new leaking key fails without anyone adding a case | None — nothing reached D1, no secret |
 | [#367](https://github.com/ashutoshroli/chhath-full-codebase/pull/367) | how to rebuild the databases before launch, and the two traps in doing it | — (operator half of #366) | §W8g: the portal has not launched and D1 holds only test data, so the clean start is nine databases built from `schema/*.sql`. Two things would have made that quietly wrong: **eight** tables are `CREATE TABLE IF NOT EXISTS` with no `DROP` and survive a re-apply, so "re-apply to reset" gives a partial reset that looks complete; and the schema creates tables but not the **five** seed rows migrations insert — without `32-consent-decline-templates` a declined consent notifies nobody, the exact failure #349 already had once. Migrations 11/12/13, 33 and §W8f become unnecessary on a rebuilt DB; `migrate.mjs adopt` records history without running anything, which is also the only thing that works (the six ADD-COLUMN migrations fail on `duplicate column` against the end state). The test written for the runbook caught the runbook saying "nine" when the list has eight | Operator: §W8g, 5 confirmations |
 | [#366](https://github.com/ashutoshroli/chhath-full-codebase/pull/366) | the committed schema is the end state | — | **40 indexes and 10 columns** existed only in a migration, so a database built from the schema had no 2FA, no profile photos, no AI provider columns, and no loan-relation triggers. The drift ran the dangerous way: tests were **more permissive than production**. Also makes migrations 11/12/13 unnecessary — the schema already has the CHECKs and INTEGER types, so a recreate fixes M-33 with no rebuild | Rebuild: runbook §W8g |
+| [#372](https://github.com/ashutoshroli/chhath-full-codebase/pull/372) | every mgmt edit screen was rejected by the server-owned-field guard | regression from #323 | Reported live as `"Created By" / "ID" / "Sl. No." is set by the server and cannot be sent from the browser`. **Not a stale deploy:** #254 made the save payloads echo the whole row back, and #323 then added `assertNoServerOwnedFields` — so all **10 call sites (5 screens × 2 apps)** were dead on arrival. Also found `final_repayment_date` misclassified as server-owned, and `saveLoanTransaction` with no guard at all. A probe corrected my own assumption about that gap: `cash_amount`/`online_amount` were plantable, `loan_status`/`created_by` were not | None |
+| [#373](https://github.com/ashutoshroli/chhath-full-codebase/pull/373) | accessible dialog primitive for the public portal | W5 PR-36 | **14 of 18** assertions failed on `main`: no focus trap, no focus restore, no `aria-modal`, Escape unhandled. Fixed as a Svelte **action**, not a wrapper component — the five public dialogs are a centred sheet, a bottom sheet, a docked chat panel and a slide-over, and one wrapper would have meant re-laying-out four of them to fix a focus bug. The chatbot stays `modal: false` on purpose, and a test asserts ARIA and keyboard agree **in both directions** so the fix cannot install the mirror-image lie | Component-test infra added (jsdom + browser resolve conditions, gated on `VITEST`) |
+| [#374](https://github.com/ashutoshroli/chhath-full-codebase/pull/374) | accessible dialog primitive for the management portal | W5 PR-37 | The mgmt `Modal` had no `role`, no `aria-modal`, no accessible name and no Escape handling, across **23 call sites**; 10 of 14 assertions failed on `main`. Named via `aria-labelledby` pointing at each screen's existing `<h3>` rather than a header rendered by the primitive — that keeps all 23 screens pixel-identical. `dialog.ts` is duplicated byte-identically in both apps with a two-sided drift test; monorepo tooling was rejected (separate builds, separate `node_modules`, no package to import) | — |
+| [#375](https://github.com/ashutoshroli/chhath-full-codebase/pull/375) | real buttons and a proper combobox for management controls | W5 PR-38 | The contributor picker was unusable by keyboard — **14 of 15** assertions failed on `main` — and 17 clickable `<span>`s were not focusable. Selection is **manual** (typing clears the highlight): with ~2,000 similar names, several differing only by father's name (C15/C16), automatic selection means a fast typist pressing Enter early commits a contributor they never read. Target size is **24 px (WCAG 2.5.8 AA)**, not 44 px (2.5.5 AAA) — 44 would relayout ten screens of dense rows that cannot be seen from here | 44 px target size stated, not silently skipped |
+| [#376](https://github.com/ashutoshroli/chhath-full-codebase/pull/376) | announce updates and associate every form label (closes C7) | W5 PR-40, **C7** | 160 `svelte-check` warnings → 0, and `--fail-on-warnings` turned **on** — that switch, not the count, is what closes C7. 56 error banners got `role="alert"`; the chat transcript got `role="log"`. **14 `state_referenced_locally` suppressions were kept**, each with a written reason: they are editable local state seeded from a prop, and `$derived` would wipe operator input. A test fails if the explanation is missing | Restructuring reactive code that cannot be visually verified was rejected |
+| [#377](https://github.com/ashutoshroli/chhath-full-codebase/pull/377) | AA contrast and visible focus rings | W5 PR-39 | Nine colour pairs computed as failing, and `outline: none` on **every** input in both mgmt apps. The brand fill `#F27A1A` is **not** repainted: where it failed as text a new `--saffron-text: #9A4E11` is used, and where white-on-saffron failed the **label** was darkened. Darkening the fill to `#B85D14` also passes and was rejected — the identity is the colour, not the label — and a test now forbids repainting it. The public focus ring is `brand-600`, chosen on the **worst-case** ratio; I first claimed `brand-700` failed, which was wrong (3.38 > 3) | — |
+| [#378](https://github.com/ashutoshroli/chhath-full-codebase/pull/378) | headings, skip link, tables, safe areas and motion | W5 PR-41 | **23 of 44** failed on `main`: no skip link in any of 5 shells, 10 pages with no `h1`, the Decade view not a table, a `requestAnimationFrame` loop that never stopped, and reduced-motion read once at startup. Decade uses ARIA table **roles**, not real `<table>` markup — zero visual change across five skins, with a test asserting the grid classes survive. The plan's "Festival `rgb(#hex)` bug" **does not exist**; reported rather than invented a fix for | — |
+| [#379](https://github.com/ashutoshroli/chhath-full-codebase/pull/379) | per-route canonical, metadata, structured data and sitemap | W6 PR-42 | `canonical` pointed at the site root on **all 12 routes**, the hand-maintained sitemap listed 8 of 12, and there was no `+error.svelte` at all. The prerendered shell showed **₹0** because the initial store status was `'idle'`. Sitemap is now generated from `seo.ts`; JSON-LD publishes **no financial figures** (they change daily — a test forbids `amount`) | Optional Vercel 404 rule for the operator |
+| [#380](https://github.com/ashutoshroli/chhath-full-codebase/pull/380) | per-announcement suppression, orientation unlock and no-cache workers | W6 PR-43 | One global "popup seen" timestamp meant a visitor who dismissed any announcement was blinded to every **new or edited** one. Revision is a content hash, because the API supplies no `revision`/`updated_at`. `orientation: 'portrait'` was locking the installed PWA; `sw.js` had no `Cache-Control` | Real PWA screenshots, an update-available prompt and manifest localization — deferred with reasons |
+| [#381](https://github.com/ashutoshroli/chhath-full-codebase/pull/381) | same-origin push navigation and a privacy notice that is true | W6 PR-44 | `push-sw.js`'s `notificationclick` passed `data.url` straight to `openWindow()` with **no origin check**, so a notification could open any external page from inside the app. The page side carried a comment *claiming* same-origin over `safeUrl()`, which accepts any `https:` origin — comment and code disagreed and the comment was the one being read. Six privacy sections added in **en + hi**, naming Google Fonts and the IP disclosure | Self-hosting the fonts (the only real fix, unverifiable without previews) and server-side unsubscribe |
+| [#382](https://github.com/ashutoshroli/chhath-full-codebase/pull/382) | load only the active skin and page | W6 PR-45 | The skin registry statically imported **all five skins**, and each skin's barrel `index.ts` imported all **eight** of its pages — 46 skin components on the critical path of every route. Measured on `main`: total client JS 622 kB and **every page fetched 583–603 kB of it on first load**, i.e. ~96% of the app to open one page in one skin. SvelteKit's per-route splitting was correct; a barrel upstream of the routes made it pointless. Non-default skins are now one lazy chunk each; the **default** skin stays static (layout imports its Shell, each route its own page) because the theme is only known in the browser, so prerendered HTML can only ever be the default — and #379's crawler content depends on that HTML being real. **Worst page 603,342 → 379,877 bytes (−37%)**. Total went **up** 2.6% (more, smaller chunks), which is why a total-only budget would have scored this as a regression — so CI now gates first-load bytes per page too | Lazy-loading the always-mounted overlays (Chatbot / ThemeGallery) — a11y-sensitive, and 3 kB of source |
+
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — correcting this file
+## 2. This PR — load only the active skin and page (W6 PR-45)
 
-**Audit ID:** none. Housekeeping on the tracker, prompted by re-reading it end to end after
-the backend work closed.
+**Audit ID:** W6 PR-45 (`perf/public-lazy-skins`). The last unshipped PR in the plan apart from
+PR-47's held-back majors.
 
-Five carry-over rows still said **"Done — this PR"**, which was true when each was written
-and false afterwards: C5 shipped in #355, C6 in #353, C14 in #349, C15 and C16 in #348, and
-C10's bundle-budget note also belonged to #355. A row that says "this PR" in a file listing
-forty PRs points at nothing. Each now names the PR that shipped it.
+**The defect, measured before touching anything.** `skins/registry.ts` statically imported all
+five skins; each skin's barrel `index.ts` statically imported all eight of its pages;
+`stores/skin.ts` imports the registry, and the root layout **and every route** import that store.
+So 46 skin components sat on the critical path of every page. On the build from `main`:
 
-Section 3 also claimed, flatly, that "every backend and database wave is now done". That
-overstates it in the same way #362 overstated C12. Two carry-overs still touch the backend
-and are **not** defects, and the file now says so rather than leaving them to look
-forgotten:
+```
+total client JS                       622,544 bytes
+worst page, first-load JS             603,342 bytes   (guide.html)
+home page, first-load JS              583,657 bytes
+```
 
-- **C4** — rendering the collection DOCX server-side is a feature change.
-- **C13** — bounding `portalData` means paginating the public contract, a decision that
-  changes all six frontends. #324 made the size visible instead of pretending it is bounded.
+Every page fetched 94–97% of the whole app. SvelteKit's per-route code-splitting was working
+exactly as designed — a barrel import upstream of the routes made the split worthless.
 
-What *is* true, and is what the section now says: every backend and database wave is
-complete, and every backend carry-over that was a defect is closed.
+**The fix, and the one thing it must not break.** The theme is chosen in the browser (saved
+value, else device preference, else random — see the no-flash script in `app.html`), so the
+server can only ever prerender the **default** skin. That prerendered body is what #379's SEO
+work depends on. So the default skin stays **static**: the root layout imports its `Shell`, and
+each route imports its own page. Only non-default skins became lazy — one chunk each, fetched by
+the small minority who have picked a different theme.
 
-**Nothing in this PR changes behaviour.** No source file is touched.
+```
+total client JS                       638,729 bytes   (+2.6%)
+worst page, first-load JS             379,877 bytes   (-37%)
+```
 
----
+The total going **up** is the honest trade: more chunks means more per-chunk overhead. It also
+means the existing total-bytes budget would have scored this improvement as a regression, so CI
+now gates **first-load bytes per page**, read off the prerendered HTML — the modules the browser
+must fetch before it can hydrate. `scripts/first-load-bytes.mjs`, budget 420,000.
+
+**What the tests actually assert.** 51 new tests (207 → 269 in this app, plus 11 that moved).
+The rule is asserted on the **import graph**, not on a byte count: a walker follows real static
+imports from every route and the layout, ignoring `import()`, and requires that no route reaches
+any skin component except the default Shell and that route's own default page. **21 of 28** of
+those fail on `main`, where each route reaches all 46. Separately, `stores/skin.test.ts` holds
+still the state this PR invents — "your skin is chosen but has not arrived yet" — and pins the
+four things that can go wrong in it: an empty prerender, an `undefined` first value for a
+returning visitor, a blank frame mid-load, and an abandoned skin winning a race.
+
+**Twenty mutations, all caught.** Including: `isLazySkin` always true and always false; caching a
+rejection forever; not caching at all; `skinPage` ignoring its page id; dropping `derived`'s
+initial value; removing the race guard; re-adding the premium barrel; keying the cross-fade on
+the skin id again; and five on the budget script itself (double-counting references, counting
+only `entry/` chunks, scoring a missing file as zero, reporting the lightest page, an off-by-one
+on the limit). Two mutations were caught by things other than a named assertion, which is worth
+recording: removing the promise's rejection handler is caught by vitest's unhandled-rejection
+detection (exit 1), and widening `DEFAULT_SKIN_ID` from a literal to `SkinId` is caught by
+`svelte-check` (2 errors) — `Exclude<SkinId, typeof DEFAULT_SKIN_ID>` is what stops the loader
+table and the default from silently disagreeing.
+
+**Two of my own mistakes in this PR, for the record.** The first version of
+`stores/skin.test.ts` leaked subscriptions between tests, and because these stores only load
+while subscribed, the "one request between the layout and the route" assertion saw six — the
+test caught it, not review. And the budget script's own test was first written to
+`src/lib/build/`, which matches this app's `.gitignore` rule for the SvelteKit output directory:
+it passed locally and was never committed, so CI would have gated on a script with no tests.
 
 ## 3. Pending
 
@@ -115,8 +171,9 @@ which is a decision affecting all six frontends). Neither is a bug waiting to be
 **W3 — Render / AI / chat ✅ done:** the PR-32 remainder shipped in [#363](https://github.com/ashutoshroli/chhath-full-codebase/pull/363) — Neon FK/cascade, the role CHECK and automated raw-content retention, using `NOT VALID` so the constraints govern new writes without failing on legacy rows. (TLS verification, the keyed rotating IP pseudonym and server-issued session ids shipped in #351.)
 **W4 — Database ✅ done (3/3):** ~~duplicate/orphan detection (#354)~~ · ~~partial unique indexes + loan relations (#359)~~ · ~~migration ledger + runner (#361)~~
 <sub>Still open from PR-34, deliberately: the real FK and the CHECK constraints, both of which need a full table rebuild of the money tables — **superseded in practice by the §W8g rebuild (#367)**, where a database built from `schema/*.sql` gets both, and `year` as an `INTEGER`, with no rebuild migration at all. And a `BEFORE DELETE ON loans` guard, which needs `deleteLoan` to delete children before the parent first — an application change; today it batches the parent `DELETE` first, so a guard would abort the app's own deletion.</sub>
-**W5 — Accessibility (5.5 left):** dialog primitives (public + mgmt) · combobox/buttons · contrast + `:focus-visible` *(the zoom half shipped in [#357](https://github.com/ashutoshroli/chhath-full-codebase/pull/357))* · live regions + labels · structure/motion
-**W6 — SEO / PWA / privacy / perf (4):** route metadata · manifest + update UX · privacy + same-origin push · lazy skins
+**W5 — Accessibility ✅ done (6/6):** ~~public dialog primitive (#373)~~ · ~~mgmt dialog primitive (#374)~~ · ~~combobox/buttons (#375)~~ · ~~contrast + `:focus-visible` (#377, zoom half in #357)~~ · ~~live regions + labels (#376, closes C7)~~ · ~~structure/motion (#378)~~
+<sub>All six are proven by tests and computed values, and each was shown to fail on `main` first. **None has been seen in a browser** — the Vercel previews are SSO-gated. That gap is **C17**, not a silent assumption.</sub>
+**W6 — SEO / PWA / privacy / perf ✅ done (4/4):** ~~route metadata (#379)~~ · ~~manifest + update UX (#380)~~ · ~~privacy + same-origin push (#381)~~ · ~~lazy skins (#382)~~
 **W7 — Platform (0.5 left):** ~~CI gates~~ *(#353 migration matrix + #355: C5, bundle budgets, fail-on-warning)* · ~~**PR-48** observability + retention~~ *(#364 retention, #365 telemetry + C9)* · **PR-47** dependency upgrades — **part-done**: the vulnerable transitive `@xmldom/xmldom` was pinned in [#358](https://github.com/ashutoshroli/chhath-full-codebase/pull/358) after finding that `npm ci` still installed it (npm never records `overrides` in a lockfile). The remaining half is the vite 5→8 / vitest 2→5 majors, held back deliberately: the advisories are **dev-server-only**, and the upgrades cannot be verified without frontend preview deploys.
 <sub>`npm audit fix --force` was rejected — it proposes downgrades, including `@sveltejs/kit@0.0.30`.</sub>
 
@@ -132,12 +189,13 @@ which is a decision affecting all six frontends). Neither is a bug waiting to be
 | C4 | Collection DOCX still rendered client-side | Server-side rendering is a feature change, not a fix | Post-W3 |
 | ~~C5~~ ✅ | `H-6 … WITHOUT decoding` test flake (asserted `ms < 250`) | Reproduced on `main`: **3 failures in 6 runs** under load, with a message that falsely blamed the code. Now asserts the `atob` call count is 0 — the property the title always claimed — plus a control assertion so a mis-wired spy cannot pass. **0 failures in 12 runs** under the same load | **Done — [#355](https://github.com/ashutoshroli/chhath-full-codebase/pull/355)** |
 | ~~C6~~ ✅ | Migration CI only scans `mgmt/db/migration/2026-09-05/` | Widening it did fail, on twelve files — nine appliable, two that span THREE databases and cannot be run whole, one already in the schema. All now declared in `migration-matrix.test.mjs`; CI scans all four folders | **Done — [#353](https://github.com/ashutoshroli/chhath-full-codebase/pull/353)** |
-| C7 | 160 `svelte-check` warnings in the mgmt SPA | Mostly label association — belongs with the a11y work, then fail-on-warning | PR-40 / PR-46 |
+| ~~C7~~ ✅ | 160 `svelte-check` warnings in the mgmt SPA | Mostly label association, so it belonged with the a11y work. Now **0**, and `--fail-on-warnings` is **on** for `mgmt/frontend-svelte` — the switch, not the count, is what closes this: without it the number climbs back. 14 `state_referenced_locally` suppressions were kept deliberately, each with a written reason (editable local state seeded from a prop; `$derived` would wipe operator input), and a test fails if the reason is missing | **Done — [#376](https://github.com/ashutoshroli/chhath-full-codebase/pull/376)** |
 | ~~C9~~ ✅ | `verifyToken` revocation check fails open on an audit-DB error | The trade was right — failing closed logs every admin out during a D1 blip — but it was **silent**: a deployment where the check had thrown all day reported `status: 'ok'`. Now counted and surfaced by `?health=1`, which turns **degraded** past a threshold (a handful is the blip the fallback exists for; a sustained count means demoted accounts are still working) | **Done** |
-| C10 | React mgmt main chunk at 218.3 kB vs 230 kB CI budget | Little headroom left; not a regression. The two SvelteKit apps had **no** budget at all until [#355](https://github.com/ashutoshroli/chhath-full-codebase/pull/355) — that gap is now closed (602 kB / 999 kB gated) | Reducing the React chunk itself is still open |
+| C10 | React mgmt main chunk at 218.3 kB vs 230 kB CI budget | Little headroom left; not a regression. The two SvelteKit apps had **no** budget at all until [#355](https://github.com/ashutoshroli/chhath-full-codebase/pull/355), and [#382](https://github.com/ashutoshroli/chhath-full-codebase/pull/382) added a **first-load** budget for Public v6 after finding that a total-bytes budget can stay green while every page fetches 96% of the app | Reducing the React chunk itself is still open. The mgmt apps have no first-load budget yet — the same barrel-import blind spot has not been checked there |
 | C11 | Consent photos/signatures already archived to Drive by earlier runs are still anonymously readable | Code no longer publishes them (#325). The owner is deleting the existing files by hand, which resolves it — no ACL remediation needed, because the data is test data | **Operator, in hand** |
 | ~~C12~~ ✅ | Visitor IPs stored raw in `error_log.client_ip`, `context.edgeIp` **and the KV keys of both Workers** | #356 pseudonymised the first two and deliberately left the KV key, on the grounds that it expires in ~65s. That was the wrong call — a KV snapshot still lists everyone who has just visited — and #356’s own test contradicted it, passing only because the write is sampled 1-in-5. #362 fixed the public Worker and **called C12 closed. It was not**: it named one mgmt function, and the mgmt Worker had **five** keys spelling out an address, the broadest being every rate-limited public action. [#368](https://github.com/ashutoshroli/chhath-full-codebase/pull/368) does the mgmt half and asserts the invariant as a KV **sweep** with one named exception, so the count cannot be understated a third time | **Done** |
 | C13 | `portalData` still materialises whole tables; the other seven sections still read `SELECT *` and filter in JS | Bounding the payload for real means PAGINATING the public contract, which changes all six frontends — a contract decision, not a fix. PR-24 makes the size visible (a section past 20k rows is logged) instead of pretending it is bounded. Truncating a transparency payload was rejected: hiding contributions is worse than a slow page | Contract decision, then its own PR; the row-count log is the trigger |
 | ~~C14~~ ✅ | **Consent `declined` / `rejected` sends nothing at all.** `respondConsent` notifies only on `accepted`; `setConsentVerification` notifies only on `verified`. So a loaner is never told his loan is blocked by a guarantor's refusal — he simply waits — the committee is not told either, and the remarks the decliner is *forced* to write (`'Remarks are required in order to Decline.'`) are visible only if someone opens the Consent Review screen. | New `consent_declined_*` / `consent_rejected_*` templates on the existing naming convention, WhatsApp + email. **Recipients (decided with the committee): the LOANER and the GROUP.** Remarks go to the group message; the loaner is told it was declined and by whom, without the raw remark text, which can be blunt — say so if that should change. **Needs a migration** (seed the new template rows) — the first migration since W0 — plus an operator pass to review the wording before it is used. | **Done — [#349](https://github.com/ashutoshroli/chhath-full-codebase/pull/349)** |
 | ~~C15~~ ✅ | **The contributor picker shows no father's name.** `Home.svelte` builds `{ value: ID, label: Name, sub: Village }`; `u["Father's Name"]` is on the row and unused. Village separates the two *Ajay Verma* rows in the reported screenshot (Gardih / Shaharpura) but **two same-name people in the same village are indistinguishable** — which is exactly when the wrong contributor is picked and money is recorded against the wrong person. | Add father's name to the option and to the search text, in every picker sharing `SearchableSelect`. No migration, no setup. | **Done — [#348](https://github.com/ashutoshroli/chhath-full-codebase/pull/348)** |
 | ~~C16~~ ✅ | **The public portal never shows a father's name — for anyone.** The public Worker emits the key with a TRAILING SPACE (`fathers_name: "Father's Name "`, inherited from the original sheet headers) and `Public/frontend-v6/src/lib/api/derive.ts:268` reads `"Father's Name"` without it, so `fatherName` is always `''` and `ContributorDetail.svelte`'s `{#if displayFather}` never renders. Found while checking C15; mgmt is unaffected (its alias is exact and its inbound lookup already normalises — see the note at `tableRegistry.js:75`). | Normalise the header lookup on the READ side, not the wire key: changing the key would break any other reader. No migration, no setup. | **Done — [#348](https://github.com/ashutoshroli/chhath-full-codebase/pull/348)** |
+| C17 | **Nothing in W5 (#373–#378) has been verified in a browser.** Contrast ratios, ARIA wiring, focus order, target sizes and the import graph are all asserted by tests and computed values, and each defect was shown to fail on `main` — but no rendered page has been looked at | The Vercel preview deployments for this repo are behind **Deployment Protection / SSO**: every preview URL (e.g. `chhath-public-v4-git-<branch>-…vercel.app`) redirects to `vercel.com/login`, so an automated browser cannot reach one. A local dev server is not a substitute here — background processes do not survive between tool calls in this environment, so the browser cannot reach `localhost` either. Computed contrast and asserted ARIA are strong evidence about the properties they measure; they say nothing about whether a focus ring is visible against a particular background, or whether a 24 px target sits where a thumb lands | **Needs the owner:** either disable preview protection for this repo, or supply a protection-bypass token. Then the W5 screens can be walked keyboard-only and screenshotted |

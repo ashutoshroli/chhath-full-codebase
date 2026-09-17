@@ -280,14 +280,18 @@ jobs:
       # people. The mgmt SPA has had a budget since the audit; these two SvelteKit
       # apps had none, so nothing stopped either from growing.
       #
-      # The metric is TOTAL client JS, not the entry chunk. SvelteKit splits per
-      # route, so an entry-chunk budget can stay green while the app doubles in a
-      # dozen route chunks — measuring the total is the honest version of the same
-      # question. The figure is reported to the run summary either way, so a review
-      # can see the direction of travel and not just pass/fail.
+      # TWO numbers are bounded, because they answer different questions and they
+      # came apart badly here:
       #
-      # NOTE: 602 kB is what it is TODAY, not what it should be. This budget only
-      # stops it getting worse; bringing it down is W6/PR-45 (lazy skins).
+      #  * TOTAL client JS — "is the app growing?" Guards against a dozen route
+      #    chunks quietly doubling the app while an entry-chunk budget stays green.
+      #  * FIRST-LOAD JS (PR-45) — "what does a visitor pay to open one page?"
+      #    Before PR-45 the total was 622 kB and every page pulled 583-603 kB of it,
+      #    because the skin registry statically imported all five skins. The total
+      #    looked fine; the thing visitors actually experience did not. Splitting
+      #    the skins moved the worst page to 380 kB while the TOTAL went UP 2.6%
+      #    (more, smaller chunks) — which is why a total-only budget would have
+      #    recorded this improvement as a regression.
       - name: Bound the client bundle
         working-directory: Public/frontend-v6
         run: |
@@ -297,13 +301,26 @@ jobs:
           BIGGEST=$(find build/_app/immutable -name '*.js' -type f -printf '%s %p\n' | sort -rn | head -1)
           echo "total client JS: ${KB} kB (${BYTES} bytes); largest chunk: ${BIGGEST}"
           echo "### Public v6 client JS: ${KB} kB (largest chunk: ${BIGGEST%% *} B)" >> "$GITHUB_STEP_SUMMARY"
-          # ~16% headroom over today's 602,293 B — a regression threshold, not a target.
+          # ~10% headroom over today's 638,706 B — a regression threshold, not a target.
           LIMIT_BYTES=700000
           if [ "$BYTES" -gt "$LIMIT_BYTES" ]; then
             echo "::error::Public v6 client JS is ${KB} kB, over the ${LIMIT_BYTES} byte budget."
             echo "Every public visitor downloads this. Check what stopped being lazily imported."
             exit 1
           fi
+
+      # Per-page critical-path JS, read off the prerendered HTML (the modules the
+      # browser must fetch before it can hydrate that page). ~10% headroom over
+      # today's worst page, 379,854 B. See scripts/first-load-bytes.mjs.
+      - name: Bound first-load JS per page
+        working-directory: Public/frontend-v6
+        run: |
+          set -e
+          node scripts/first-load-bytes.mjs --limit 420000 | tee /tmp/first-load.txt
+          echo '### Public v6 first-load JS' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/first-load.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
   mgmt-frontend-svelte:
     name: mgmt SvelteKit — type-check, tests and static build
