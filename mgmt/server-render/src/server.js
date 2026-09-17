@@ -42,12 +42,25 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'chhath-server-render' });
 });
 
+// The routers declare their own full paths ('/public-chat', '/jobs'), so they
+// stay mounted at '/'. The BUG was the body parsers: mounting them at '/' too made
+// BOTH run on EVERY request in order, so the TIGHT 16 KB chat parser parsed POST
+// /jobs first and rejected any job body over 16 KB with a 413 — before jobsRouter
+// and its 11 MB parser ever saw it. Invisible while jobs carried only small AI
+// references; docx_render, which posts the ~300 KB template bytes, hit it at once
+// (HTTP 413 "Payload Too Large"). Fix: scope each parser to its own path with a
+// guard, so the chat limit only applies to the chat route and the jobs limit only
+// to the jobs route. The routers themselves are unchanged.
+function onPath(prefix, mw) {
+  return (req, res, next) => (req.path === prefix || req.path.startsWith(prefix + '/')) ? mw(req, res, next) : next();
+}
+
 // Public chatbot — the ONE browser-facing endpoint (its own CORS/origin +
 // rate-limit guards live inside the router; NO X-Render-Api-Key).
-app.use('/', chatBodyParser, publicChatRouter);
+app.use('/', onPath('/public-chat', chatBodyParser), publicChatRouter);
 
 // Job intake (auth-gated inside the router).
-app.use('/', jobsBodyParser, jobsRouter);
+app.use('/', onPath('/jobs', jobsBodyParser), jobsRouter);
 
 // ============ CHAT LOG RETENTION (PR-32) ============
 //
@@ -99,6 +112,12 @@ app.post('/retention', async (req, res) => {
 // Fallback 404.
 app.use((req, res) => res.status(404).json({ success: false, message: 'Not found' }));
 
-app.listen(config.port, () => {
-  console.log(`chhath-server-render listening on :${config.port}`);
-});
+// Export the configured app so a test can exercise the body-limit routing without
+// binding a port. Only listen when run as the entry point.
+export { app };
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  app.listen(config.port, () => {
+    console.log(`chhath-server-render listening on :${config.port}`);
+  });
+}

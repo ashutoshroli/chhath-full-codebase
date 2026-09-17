@@ -73,10 +73,15 @@ describe('the two copies of the contract cannot drift', () => {
     assert.ok(!/limit:\s*'\d+\s*(mb|kb|b)?'/i.test(server), 'no literal body-size limit remains');
     assert.match(server, /express\.json\(\{ limit: MAX_REQUEST_BYTES \}\)/, 'the job intake limit comes from the contract');
     assert.match(server, /express\.json\(\{ limit: MAX_CHAT_REQUEST_BYTES \}\)/, 'and so does the chat limit');
-    // And each parser is mounted on its own router rather than globally, which is what
-    // lets the browser-facing route be capped tighter than the authenticated intake.
-    assert.match(server, /chatBodyParser, publicChatRouter/);
-    assert.match(server, /jobsBodyParser, jobsRouter/);
+    // And each parser is SCOPED TO ITS OWN PATH, not run on every request. The earlier
+    // spelling mounted both parsers at '/', so the tight chat parser also parsed POST
+    // /jobs and rejected a large docx_render body with a 413 before jobsRouter's larger
+    // limit applied. The chat parser must be gated to /public-chat and the jobs parser to
+    // /jobs, which is what actually lets the browser route be capped tighter than intake.
+    assert.match(server, /onPath\('\/public-chat', chatBodyParser\)/, 'chat parser is scoped to /public-chat');
+    assert.match(server, /onPath\('\/jobs', jobsBodyParser\)/, 'jobs parser is scoped to /jobs');
+    assert.match(server, /publicChatRouter/);
+    assert.match(server, /jobsRouter/);
   });
 
   test('the numbers are ordered sanely and fit the Worker’s own body cap', () => {
