@@ -1,4 +1,12 @@
 import Docxtemplater from 'docxtemplater';
+// DEPRECATED for the BULK + AUTO paths (FEAT-003 + FEAT-004). Bulk PDF generation
+// (Bulk Generate PDFs, Download Center, PDF Export, ReceiptModal) and the
+// auto-generate-on-save path now FILL server-side on Render (mgmt/server-render's
+// lib/docxRender.js is the single source of fill behaviour). The ONLY remaining
+// production caller is the public, token-gated CONSENT page (ConsentPage.jsx), which
+// dynamically imports this so docxtemplater/pizzip/image-module stay in a LAZY chunk
+// (docx-utils), never in the main SPA bundle. Once the consent path is also moved
+// server-side, this file and its dependencies can be deleted from the SPA entirely.
 import PizZip from 'pizzip';
 import ImageModule from 'docxtemplater-image-module-free';
 

@@ -1,13 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, reportClientError } from '../api.js';
-import { fillDocxTemplateFromRow, getLastRenderReport } from '../docxFill.js';
-import { generateQrDataUrl, publicRecordUrl } from '../qrCode.js';
 
 const RETRY_ATTEMPTS = 3;
 const BASE_BACKOFF_MS = 1500;
 const THROTTLE_MS = 350;
-
-const CONCURRENCY = 3;
 
 const BATCH_SIZE = 10;
 
@@ -17,18 +13,6 @@ function chunk(arr, size) {
   const out = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
-}
-
-async function runPool(items, limit, worker) {
-  let cursor = 0;
-  const next = async () => {
-    while (cursor < items.length) {
-      const i = cursor++;
-      await worker(items[i], i);
-    }
-  };
-  const size = Math.max(1, Math.min(limit, items.length));
-  await Promise.all(Array.from({ length: size }, () => next()));
 }
 
 function isRetryable(err) {
@@ -142,43 +126,23 @@ export default function BulkGeneratePdfs() {
     });
     appendLog(`${label}: ${records.length} records → ${batchCount} batch${batchCount === 1 ? '' : 'es'} of up to ${BATCH_SIZE}`);
 
-    const fillRecord = async (rec) => {
-      try {
-        let qrCode = '';
-        try {
-          qrCode = await generateQrDataUrl(publicRecordUrl(rec.recordId));
-        } catch (qrErr) {
-          appendDetail(`⚠️ ${label} — ${rec.recordId}: QR generation failed; the QR in the PDF will be blank.`);
-          reportClientError('BulkGeneratePdfs', `QR generation failed for ${rec.recordId}`, qrErr, { docType, year, recordId: rec.recordId });
-        }
-        const filledBase64 = await fillDocxTemplateFromRow(templateRow, {
-          ...rec.placeholders,
-          GENERATED_AT: new Date().toLocaleString('en-IN'),
-          QR_CODE: qrCode,
-        });
-        const rep = getLastRenderReport();
-        if (rep.missingTags.length) {
-          appendDetail(`⚠️ ${label} — ${rec.recordId}: blank placeholders — ${[...new Set(rep.missingTags)].join(', ')}`);
-          reportClientError('BulkGeneratePdfs', `Unresolved placeholders for ${rec.recordId}`, null,
-            { docType, year, recordId: rec.recordId, missingTags: [...new Set(rep.missingTags)] });
-        }
-        return { recordId: rec.recordId, base64: filledBase64, fileName: `${rec.fileNameHint}.docx` };
-      } catch (err) {
-        setProgress(p => { const cur = p[docType]; return { ...p, [docType]: { ...cur, done: cur.done + 1, failed: cur.failed + 1 } }; });
-        appendLog(`❌ ${label} — ${rec.recordId}: fill failed — ${err.message}`);
-        reportClientError('BulkGeneratePdfs', `Fill failed: ${rec.recordId}`, err, { docType, year, recordId: rec.recordId });
-        return null;
-      }
-    };
+    // The browser no longer fills the .docx or builds the QR. Each record is sent as its
+    // fill DATA (the placeholder set); the Worker resolves the shared template and Render
+    // fills each record (+ a server-generated QR) then converts. So a "record" is now just
+    // { recordId, data, fileName } — no docxtemplater, no qrcode in this bundle.
+    const buildItem = (rec) => ({
+      recordId: rec.recordId,
+      data: {
+        ...rec.placeholders,
+        GENERATED_AT: new Date().toLocaleString('en-IN'),
+      },
+      fileName: `${rec.fileNameHint}.docx`,
+    });
 
     let batchNo = 0;
     for (const group of chunk(records, BATCH_SIZE)) {
       batchNo++;
-      const items = [];
-      await runPool(group, CONCURRENCY, async (rec) => {
-        const it = await fillRecord(rec);
-        if (it) items.push(it);
-      });
+      const items = group.map(buildItem);
       if (items.length === 0) { await sleep(THROTTLE_MS); continue; }
 
       try {
@@ -210,6 +174,14 @@ export default function BulkGeneratePdfs() {
               { docType, year, recordId: it.recordId, error: reason, hadResult: !!r });
           } else {
             appendDetail(`${skipped ? '⏭️' : '✓'} ${label} — ${it.recordId}${skipped ? ' (already generated)' : ''}`);
+            // The per-record render report now comes BACK from the server (Render filled
+            // the doc), replacing the old in-browser getLastRenderReport() warning.
+            const missing = r && r.report && Array.isArray(r.report.missingTags) ? r.report.missingTags : [];
+            if (missing.length) {
+              appendDetail(`⚠️ ${label} — ${it.recordId}: blank placeholders — ${[...new Set(missing)].join(', ')}`);
+              reportClientError('BulkGeneratePdfs', `Unresolved placeholders for ${it.recordId}`, null,
+                { docType, year, recordId: it.recordId, missingTags: [...new Set(missing)] });
+            }
           }
           setProgress(p => {
             const cur = p[docType];
@@ -297,7 +269,7 @@ export default function BulkGeneratePdfs() {
               <div key={r} style={{ color: 'var(--text-muted)', marginBottom: 4 }}>{ENGINE_REASONS[r] || r}</div>
             ))}
             <div style={{ color: 'var(--text-muted)' }}>
-              Batch {eng.batchesDone}/{eng.batchesTotal} · size {BATCH_SIZE} · fill concurrency {CONCURRENCY} · throttle {THROTTLE_MS}ms · retries {RETRY_ATTEMPTS}
+              Batch {eng.batchesDone}/{eng.batchesTotal} · size {BATCH_SIZE} · throttle {THROTTLE_MS}ms · retries {RETRY_ATTEMPTS}
             </div>
             <div style={{ color: 'var(--text-muted)' }}>
               Converted → Render: {eng.render} · Worker: {eng.worker} · already generated: {eng.none}

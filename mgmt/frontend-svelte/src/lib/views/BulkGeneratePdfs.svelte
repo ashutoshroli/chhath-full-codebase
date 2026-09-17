@@ -4,8 +4,7 @@
   // (concurrency pool), convert in batches with retry/backoff, track per-type
   // progress + engine stats + a scrolling log.
   import { api, reportClientError } from '$lib/api';
-  import { fillDocxTemplateFromRow, getLastRenderReport } from '$lib/docxFill';
-  import { generateQrDataUrl, publicRecordUrl } from '$lib/qrCode';
+
   import { newUid } from '$lib/a11y/uid';
   // audit PR-40: one prefix per instance, so `for`/`id` pairs cannot collide when a
   // component is mounted more than once on a screen.
@@ -14,7 +13,6 @@
   const RETRY_ATTEMPTS = 3;
   const BASE_BACKOFF_MS = 1500;
   const THROTTLE_MS = 350;
-  const CONCURRENCY = 3;
   const BATCH_SIZE = 10;
 
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -23,18 +21,6 @@
     const out: T[][] = [];
     for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
     return out;
-  }
-
-  async function runPool<T>(items: T[], limit: number, worker: (item: T, i: number) => Promise<void>) {
-    let cursor = 0;
-    const next = async () => {
-      while (cursor < items.length) {
-        const i = cursor++;
-        await worker(items[i], i);
-      }
-    };
-    const size = Math.max(1, Math.min(limit, items.length));
-    await Promise.all(Array.from({ length: size }, () => next()));
   }
 
   function isRetryable(err: unknown): boolean {
@@ -150,44 +136,22 @@
     }
     appendLog(`${label}: ${records.length} records → ${batchCount} batch${batchCount === 1 ? '' : 'es'} of up to ${BATCH_SIZE}`);
 
-    const fillRecord = async (rec: any) => {
-      try {
-        let qrCode = '';
-        try {
-          qrCode = await generateQrDataUrl(publicRecordUrl(rec.recordId));
-        } catch (qrErr) {
-          appendDetail(`⚠️ ${label} — ${rec.recordId}: QR generation failed; the QR in the PDF will be blank.`);
-          reportClientError('BulkGeneratePdfs', `QR generation failed for ${rec.recordId}`, qrErr as Error, { docType, year, recordId: rec.recordId });
-        }
-        const filledBase64 = await fillDocxTemplateFromRow(templateRow, {
-          ...rec.placeholders,
-          GENERATED_AT: new Date().toLocaleString('en-IN'),
-          QR_CODE: qrCode
-        });
-        const rep = getLastRenderReport();
-        if (rep.missingTags.length) {
-          appendDetail(`⚠️ ${label} — ${rec.recordId}: blank placeholders — ${[...new Set(rep.missingTags)].join(', ')}`);
-          reportClientError('BulkGeneratePdfs', `Unresolved placeholders for ${rec.recordId}`, undefined,
-            { docType, year, recordId: rec.recordId, missingTags: [...new Set(rep.missingTags)] });
-        }
-        return { recordId: rec.recordId, base64: filledBase64, fileName: `${rec.fileNameHint}.docx` };
-      } catch (err) {
-        const cur = progress[docType];
-        progress = { ...progress, [docType]: { ...cur, done: cur.done + 1, failed: cur.failed + 1 } };
-        appendLog(`❌ ${label} — ${rec.recordId}: fill failed — ${(err as Error).message}`);
-        reportClientError('BulkGeneratePdfs', `Fill failed: ${rec.recordId}`, err as Error, { docType, year, recordId: rec.recordId });
-        return null;
-      }
-    };
+    // The browser no longer fills the .docx or builds the QR. Each record is sent as its
+    // fill DATA (the placeholder set); the Worker resolves the shared template and Render
+    // fills each record (+ a server-generated QR) then converts.
+    const buildItem = (rec: any) => ({
+      recordId: rec.recordId,
+      data: {
+        ...rec.placeholders,
+        GENERATED_AT: new Date().toLocaleString('en-IN')
+      },
+      fileName: `${rec.fileNameHint}.docx`
+    });
 
     let batchNo = 0;
     for (const group of chunk(records, BATCH_SIZE)) {
       batchNo++;
-      const items: any[] = [];
-      await runPool(group, CONCURRENCY, async (rec) => {
-        const it = await fillRecord(rec);
-        if (it) items.push(it);
-      });
+      const items: any[] = group.map(buildItem);
       if (items.length === 0) { await sleep(THROTTLE_MS); continue; }
 
       try {
@@ -219,6 +183,13 @@
               { docType, year, recordId: it.recordId, error: reason, hadResult: !!r });
           } else {
             appendDetail(`${skipped ? '⏭️' : '✓'} ${label} — ${it.recordId}${skipped ? ' (already generated)' : ''}`);
+            // The per-record render report now comes BACK from the server (Render filled it).
+            const missing = r && r.report && Array.isArray(r.report.missingTags) ? r.report.missingTags : [];
+            if (missing.length) {
+              appendDetail(`⚠️ ${label} — ${it.recordId}: blank placeholders — ${[...new Set(missing)].join(', ')}`);
+              reportClientError('BulkGeneratePdfs', `Unresolved placeholders for ${it.recordId}`, undefined,
+                { docType, year, recordId: it.recordId, missingTags: [...new Set(missing)] });
+            }
           }
           const cur = progress[docType];
           progress = { ...progress, [docType]: {
@@ -302,7 +273,7 @@
         <div style="color:var(--text-muted); margin-bottom:4px;">{ENGINE_REASONS[r] || r}</div>
       {/each}
       <div style="color:var(--text-muted);">
-        Batch {eng.batchesDone}/{eng.batchesTotal} · size {BATCH_SIZE} · fill concurrency {CONCURRENCY} · throttle {THROTTLE_MS}ms · retries {RETRY_ATTEMPTS}
+        Batch {eng.batchesDone}/{eng.batchesTotal} · size {BATCH_SIZE} · throttle {THROTTLE_MS}ms · retries {RETRY_ATTEMPTS}
       </div>
       <div style="color:var(--text-muted);">
         Converted → Render: {eng.render} · Worker: {eng.worker} · already generated: {eng.none}

@@ -568,11 +568,15 @@ export const api = {
 
   convertDocxToPdf: (docType: string, year: string, recordId: string, base64: string, fileName: string) =>
     call('convertDocxToPdf', { docType, year, recordId, base64, fileName }),
-  convertDocxToPdfBulk: async (docType: string, year: string, recordId: string, base64: string, fileName: string, force?: boolean) => {
-    const res: any = await call('convertDocxToPdfBulk', { docType, year, recordId, base64, fileName, force });
+  // Bulk single-record: send the fill DATA (placeholder set), not a filled .docx. The
+  // Worker resolves the template and Render fills (+QR) then converts.
+  convertDocxToPdfBulk: async (docType: string, year: string, recordId: string, data: unknown, fileName: string, force?: boolean) => {
+    const res: any = await call('convertDocxToPdfBulk', { docType, year, recordId, data, fileName, force });
     if (!res || !res.jobId) return res;
     return pollRenderPdfJob(res.jobId);
   },
+  // Bulk batch: items are [{ recordId, data, fileName }] — per-record fill DATA, not
+  // filled .docx bytes. The Worker resolves the shared template once and Render fills each.
   convertDocxToPdfBatch: async (docType: string, year: string, items: unknown, force?: boolean) => {
     const res: any = await call('convertDocxToPdfBatch', { docType, year, items, force });
     const meta = {

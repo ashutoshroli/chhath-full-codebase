@@ -215,21 +215,39 @@ test('getRenderJobStatus normalizes a STALE raw-shaped batch row (no blank error
 
 import { dispatchBulkPdfBatch } from '../src/docxTemplates.js';
 
-const DOCX_B64_OK = 'UEsDBBQAAAAIAA' + 'A'.repeat(18);
+// SERVER-SIDE FILL: a batch item is now the record's fill DATA, not a filled .docx.
+const dataItem = (recordId, fileName = 'r.docx') => ({ recordId, data: { NAME: recordId }, fileName });
+// A valid .docx (ZIP magic) base64 — used as the CACHED template bytes so getDocxTemplate
+// resolves the shared template from KV without a Drive round-trip.
+const DOCX_B64_OK = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.from('tpl-body')]).toString('base64');
 
 function bulkEnv() {
   const fileIndex = _makeD1(_schemaFor('file_index.sql'));
   const core = _makeD1(_schemaFor('core.sql'));
+  const templates = _makeD1(_schemaFor('templates.sql'));
+  const kv = makeKV();
+  const env = {
+    DB_CORE: core,
+    DB_MISC: _makeD1(_schemaFor('misc.sql')),
+    DB_FILE_INDEX: fileIndex,
+    DB_LOGS: _makeD1(_schemaFor('logs.sql')),
+    DB_TEMPLATES: templates,
+    KV_SESSIONS: kv,
+    DRIVE_ROOT_FOLDER_ID: 'folder-root',
+    // No RENDER_SERVICE_URL / RENDER_API_KEY by default -> the no-Render path, which now
+    // reports a clear per-record error (there is no in-Worker fill fallback).
+  };
+  // A shared template must exist for the doc type/year, since the Worker resolves it once
+  // per batch. Seed the row + prime the KV cache with valid bytes so no Drive call is made.
+  const seedTemplate = async (docType, year) => {
+    await templates.prepare(
+      'INSERT INTO docx_templates (doc_type, year, drive_file_id, file_name, created_at, updated_at) VALUES (?,?,?,?,?,?)'
+    ).bind(docType, year, `drive-${docType}-${year}`, `${docType}.docx`, '2025-01-01', '2025-01-01').run();
+    await kv.put(`docxtpl:drive-${docType}-${year}:2025-01-01`, DOCX_B64_OK);
+  };
   return {
-    env: {
-      DB_CORE: core,
-      DB_MISC: _makeD1(_schemaFor('misc.sql')),
-      DB_FILE_INDEX: fileIndex,
-      DB_LOGS: _makeD1(_schemaFor('logs.sql')),
-      DRIVE_ROOT_FOLDER_ID: 'folder-root',
-      // No RENDER_SERVICE_URL / RENDER_API_KEY -> the synchronous path, which is
-      // exactly where the raw `skipped` array is returned as `results`.
-    },
+    env,
+    seedTemplate,
     markGenerated: (docType, year, recordId) =>
       fileIndex.prepare(
         'INSERT INTO generated_files (doc_type, year, record_id, file_name, public_link, drive_path, generated_at) VALUES (?,?,?,?,?,?,?)'
@@ -238,13 +256,14 @@ function bulkEnv() {
 }
 
 test('ROOT CAUSE: an already-generated record is returned as success:true (never a blank failure)', async () => {
-  const { env, markGenerated } = bulkEnv();
+  const { env, seedTemplate, markGenerated } = bulkEnv();
+  await seedTemplate('receipt', 2025);
   markGenerated('receipt', 2025, 'receipt-2025-57');
 
   // Every record in the batch is already generated -> toConvert is empty -> the
   // function returns `results: skipped` VERBATIM on the synchronous path.
   const res = await dispatchBulkPdfBatch(env, 'receipt', 2025, [
-    { recordId: 'receipt-2025-57', base64: DOCX_B64_OK, fileName: 'r.docx' },
+    dataItem('receipt-2025-57'),
   ], SUPERADMIN2, {});
 
   assert.equal(res.dispatched, false, 'nothing to dispatch');
@@ -259,35 +278,37 @@ test('ROOT CAUSE: an already-generated record is returned as success:true (never
 });
 
 test('a MIXED batch marks the generated record skipped:true and still reports the rest', async () => {
-  const { env, markGenerated } = bulkEnv();
+  const { env, seedTemplate, markGenerated } = bulkEnv();
+  await seedTemplate('receipt', 2025);
   markGenerated('receipt', 2025, 'receipt-2025-57');
 
   const res = await dispatchBulkPdfBatch(env, 'receipt', 2025, [
-    { recordId: 'receipt-2025-57', base64: DOCX_B64_OK, fileName: 'a.docx' }, // already generated
-    { recordId: 'receipt-2025-58', base64: DOCX_B64_OK, fileName: 'b.docx' }, // needs conversion
+    dataItem('receipt-2025-57', 'a.docx'), // already generated
+    dataItem('receipt-2025-58', 'b.docx'), // needs conversion
   ], SUPERADMIN2, {});
 
   const map = Object.fromEntries(res.results.map((r) => [r.recordId, r]));
   // The skipped one is an unambiguous success.
   assert.equal(map['receipt-2025-57'].success, true);
   assert.equal(map['receipt-2025-57'].skipped, true);
-  // The other one was attempted synchronously (Drive is not reachable in the test,
-  // so it fails) — and when it fails it carries a CONCRETE, non-empty reason.
+  // The other one needs conversion but Render is not configured here — with no in-Worker
+  // fill fallback it comes back as a CONCRETE, non-empty failure reason (never blank).
   assert.equal(map['receipt-2025-58'].success, false);
   assert.ok(map['receipt-2025-58'].error && map['receipt-2025-58'].error.length > 0);
 });
 
 test('force:true re-converts instead of skipping (no skipped entries)', async () => {
-  const { env, markGenerated } = bulkEnv();
+  const { env, seedTemplate, markGenerated } = bulkEnv();
+  await seedTemplate('receipt', 2025);
   markGenerated('receipt', 2025, 'receipt-2025-57');
 
   const res = await dispatchBulkPdfBatch(env, 'receipt', 2025, [
-    { recordId: 'receipt-2025-57', base64: DOCX_B64_OK, fileName: 'a.docx' },
+    dataItem('receipt-2025-57', 'a.docx'),
   ], SUPERADMIN2, { force: true });
 
   const rec = res.results[0];
   assert.notEqual(rec.skipped, true, 'force must bypass the already-generated skip');
-  // It was actually attempted (and fails on the unreachable Drive) with a real reason.
+  // It was attempted (Render not configured here) so it fails with a real reason.
   assert.equal(rec.success, false);
   assert.ok(rec.error && rec.error.length > 0);
 });
@@ -300,11 +321,12 @@ test('force:true re-converts instead of skipping (no skipped entries)', async ()
 // assert the contract the UI reads.
 
 test('engine: "none" when every record was already generated (nothing dispatched)', async () => {
-  const { env, markGenerated } = bulkEnv();
+  const { env, seedTemplate, markGenerated } = bulkEnv();
+  await seedTemplate('receipt', 2025);
   markGenerated('receipt', 2025, 'receipt-2025-57');
 
   const res = await dispatchBulkPdfBatch(env, 'receipt', 2025, [
-    { recordId: 'receipt-2025-57', base64: DOCX_B64_OK, fileName: 'r.docx' },
+    dataItem('receipt-2025-57'),
   ], SUPERADMIN2, {});
 
   assert.equal(res.engine, 'none');
@@ -313,29 +335,35 @@ test('engine: "none" when every record was already generated (nothing dispatched
   assert.equal(res.skippedCount, 1);
 });
 
-test('engine: "worker" + reason when Render is not configured', async () => {
-  const { env } = bulkEnv(); // no RENDER_SERVICE_URL / RENDER_API_KEY
+test('engine: "none" + reason when Render is not configured (no in-Worker fill fallback)', async () => {
+  const { env, seedTemplate } = bulkEnv(); // no RENDER_SERVICE_URL / RENDER_API_KEY
+  await seedTemplate('receipt', 2025);
   const res = await dispatchBulkPdfBatch(env, 'receipt', 2025, [
-    { recordId: 'receipt-2025-58', base64: DOCX_B64_OK, fileName: 'r.docx' },
+    dataItem('receipt-2025-58'),
   ], SUPERADMIN2, {});
 
-  assert.equal(res.engine, 'worker');
+  // The Worker cannot FILL in-process (docxtemplater is not in the Worker), so there is no
+  // 'worker' engine any more — the record comes back as a clear per-record failure.
+  assert.equal(res.engine, 'none');
   assert.equal(res.engineReason, 'render-not-configured');
-  assert.equal(res.dispatchedCount, 1);
+  assert.equal(res.dispatchedCount, 0);
   assert.equal(res.skippedCount, 0);
   assert.equal(res.dispatched, false);
+  assert.equal(res.results[0].success, false);
+  assert.match(res.results[0].error, /Render/);
 });
 
 test('engine: "render" when the batch is offloaded, with the jobId for support', async () => {
-  const { env } = bulkEnv();
+  const { env, seedTemplate } = bulkEnv();
+  await seedTemplate('receipt', 2025);
   env.RENDER_SERVICE_URL = 'https://render.example.test';
   env.RENDER_API_KEY = 'k';
   const restore = stubFetchOk();
   let res;
   try {
     res = await dispatchBulkPdfBatch(env, 'receipt', 2025, [
-      { recordId: 'receipt-2025-59', base64: DOCX_B64_OK, fileName: 'a.docx' },
-      { recordId: 'receipt-2025-60', base64: DOCX_B64_OK, fileName: 'b.docx' },
+      dataItem('receipt-2025-59', 'a.docx'),
+      dataItem('receipt-2025-60', 'b.docx'),
     ], SUPERADMIN2, {});
   } finally { restore(); }
 
@@ -348,7 +376,8 @@ test('engine: "render" when the batch is offloaded, with the jobId for support',
 });
 
 test('engine: "render" still reports the pre-skipped count alongside the dispatched ones', async () => {
-  const { env, markGenerated } = bulkEnv();
+  const { env, seedTemplate, markGenerated } = bulkEnv();
+  await seedTemplate('receipt', 2025);
   env.RENDER_SERVICE_URL = 'https://render.example.test';
   env.RENDER_API_KEY = 'k';
   markGenerated('receipt', 2025, 'receipt-2025-61');
@@ -356,8 +385,8 @@ test('engine: "render" still reports the pre-skipped count alongside the dispatc
   let res;
   try {
     res = await dispatchBulkPdfBatch(env, 'receipt', 2025, [
-      { recordId: 'receipt-2025-61', base64: DOCX_B64_OK, fileName: 'a.docx' }, // already generated
-      { recordId: 'receipt-2025-62', base64: DOCX_B64_OK, fileName: 'b.docx' }, // dispatched
+      dataItem('receipt-2025-61', 'a.docx'), // already generated
+      dataItem('receipt-2025-62', 'b.docx'), // dispatched
     ], SUPERADMIN2, {});
   } finally { restore(); }
 

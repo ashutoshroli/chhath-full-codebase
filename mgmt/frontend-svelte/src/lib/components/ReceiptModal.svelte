@@ -8,7 +8,6 @@
   import jsPDF from 'jspdf';
   import { api, reportClientError } from '$lib/api';
   import { renderReceiptTemplate, PAGE_SIZES_MM } from '$lib/receiptTemplate';
-  import { fillDocxTemplateFromRow, getLastRenderReport } from '$lib/docxFill';
   import { generateQrDataUrl, publicRecordUrl } from '$lib/qrCode';
   import Modal from './Modal.svelte';
   import ReportErrorButton from './ReportErrorButton.svelte';
@@ -117,46 +116,45 @@
     warning = '';
     const recordId = `${docType}-${year}-${row.__rowIndex}`;
     try {
-      const placeholders = { ...data.placeholders, GENERATED_AT: generatedAt, QR_CODE: qrCode };
+      // The browser no longer fills the .docx. We send the record's fill DATA; the Worker
+      // resolves the template and Render fills it (+ server-generated QR) then converts.
+      // QR_CODE is generated on Render from the derived recordId (the HTML preview still
+      // uses the browser QR for on-screen display).
+      const placeholders = { ...data.placeholders, GENERATED_AT: generatedAt };
+      const fileName = `${cfg.label}-${data.placeholders[cfg.docNoKey] || recordId}.docx`;
 
-      let docxRow: any = null;
+      let res: any;
       try {
-        docxRow = await api.getDocxTemplateForDoc(docType, year);
+        res = await api.convertDocxToPdfBulk(docType, year, recordId, placeholders, fileName);
       } catch (err) {
-        reportClientError('ReceiptModal', `Template fetch failed for ${docType} ${year}`, err as Error, { docType, year, recordId });
-        throw new Error(`Failed to load the ${cfg.label} template: ${(err as Error).message}`);
-      }
-
-      if (docxRow && (docxRow.base64 || docxRow.downloadUrl)) {
-        const filledBase64 = await fillDocxTemplateFromRow(docxRow, placeholders);
-
-        const rep = getLastRenderReport();
-        if (rep.missingTags.length || rep.missingImages.length) {
-          reportClientError('ReceiptModal',
-            `Template rendered with unresolved placeholders for ${recordId}`,
-            undefined,
-            { docType, year, recordId, missingTags: rep.missingTags, missingImages: rep.missingImages });
-        }
-
-        const fileName = `${cfg.label}-${placeholders[cfg.docNoKey]}.docx`;
-        const res: any = await api.convertDocxToPdf(docType, year, recordId, filledBase64, fileName);
-
-        if (res && res.indexFailed) {
-          warning = res.error || 'The PDF was generated but was not indexed on the public portal.';
-          reportClientError('ReceiptModal', `PDF generated but NOT indexed: ${recordId}`, undefined,
-            { docType, year, recordId, publicLink: res.publicLink });
-        }
-
-        openDownload(res.publicLink);
-      } else {
+        // No server template (or Render unavailable): fall back to an image-based PDF of
+        // the on-screen preview, which will not be indexed on the public portal.
         if (!previewRef) {
           throw new Error('The preview is not ready — please close the modal and open it again.');
         }
-        await snapshotToPdf(previewRef, data.pageSize, `${cfg.label}-${placeholders[cfg.docNoKey]}.pdf`);
+        await snapshotToPdf(previewRef, data.pageSize, `${cfg.label}-${data.placeholders[cfg.docNoKey] || recordId}.pdf`);
         warning =
-          `No .docx template has been uploaded for this year (${year}), so an image-based PDF of the preview was generated. ` +
+          `No .docx template was available for this year (${year}), so an image-based PDF of the preview was generated. ` +
           'This PDF will not be available on the public portal — ask a Superadmin to upload a template under Document Templates.';
+        return;
       }
+
+      const missing = res && res.report && Array.isArray(res.report.missingTags) ? res.report.missingTags : [];
+      const missingImg = res && res.report && Array.isArray(res.report.missingImages) ? res.report.missingImages : [];
+      if (missing.length || missingImg.length) {
+        reportClientError('ReceiptModal',
+          `Template rendered with unresolved placeholders for ${recordId}`,
+          undefined,
+          { docType, year, recordId, missingTags: missing, missingImages: missingImg });
+      }
+
+      if (res && res.indexFailed) {
+        warning = res.error || 'The PDF was generated but was not indexed on the public portal.';
+        reportClientError('ReceiptModal', `PDF generated but NOT indexed: ${recordId}`, undefined,
+          { docType, year, recordId, publicLink: res.publicLink });
+      }
+
+      openDownload(res.publicLink);
     } catch (err) {
       error = 'An error occurred while generating the PDF: ' + (err as Error).message;
       reportClientError('ReceiptModal', `PDF generation failed for ${recordId}`, err as Error, { docType, year, recordId });
