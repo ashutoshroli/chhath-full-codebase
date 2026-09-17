@@ -138,6 +138,24 @@ export const T: Record<Lang, Dict> = {
     privacy_data_h: 'Data & caching',
     privacy_data_p:
       'Data is fetched from the committee\u2019s public API. Your browser may cache the last-loaded copy locally so the portal remains usable offline; this cache stays on your device and is never shared.',
+    privacy_chat_h: 'The assistant',
+    privacy_chat_p:
+      'The portal has an assistant you can ask questions of. What you type is sent to an AI provider to produce the answer, so do not put anything private in it. Questions and answers are not attached to you, and the committee does not keep a transcript.',
+    privacy_push_h: 'Notifications',
+    privacy_push_p:
+      'If you turn notifications on, your browser gives us an address to deliver them to. It identifies your browser, not you: no name, no phone number, no email. Turn them off in the menu at any time and the address stops being used. Notifications you have received are stored on this device only, capped at the newest 50, and are cleared when you clear site data.',
+    privacy_offline_h: 'What is stored on your device',
+    privacy_offline_p:
+      'So the portal opens quickly and works offline, your browser keeps a copy of the pages and the last figures it fetched, plus small settings such as your chosen theme and language, and which announcement you have already seen. All of it is on your device. Clearing site data in your browser removes every bit of it.',
+    privacy_thirdparty_h: 'Who else is involved',
+    privacy_thirdparty_p:
+      'Fonts are loaded from Google Fonts, which means Google receives your IP address when a page loads. Nothing else on the portal is a third party: the data comes from the committee’s own servers. We are working towards serving the fonts ourselves so that stops too.',
+    privacy_retention_h: 'How long anything is kept',
+    privacy_retention_p:
+      'The published records — contributions, expenses, loans, committee lists — are kept as the committee’s permanent accounts, because that is the point of publishing them. Anything technical is short-lived: error reports are pruned automatically, and a notification address is dropped as soon as it stops working or you turn notifications off.',
+    privacy_rights_h: 'Corrections and removal',
+    privacy_rights_p:
+      'If something published about you is wrong, or you want it removed, contact the committee and they will correct the record. Everything on this portal comes from the committee’s ledger, so a correction there is what changes what you see here.',
     privacy_contact_p:
       'For corrections or questions about your record, please contact the committee directly.',
     terms_subtitle: 'Terms of Use',
@@ -594,6 +612,24 @@ export const T: Record<Lang, Dict> = {
     privacy_data_h: 'डेटा और कैशिंग',
     privacy_data_p:
       'डेटा समिति के सार्वजनिक API से लिया जाता है। आपका browser अंतिम बार लोड की गई प्रति को स्थानीय रूप से cache कर सकता है ताकि पोर्टल offline भी उपयोग योग्य रहे; यह cache आपके device पर ही रहता है और कभी साझा नहीं किया जाता।',
+    privacy_chat_h: 'सहायक (असिस्टेंट)',
+    privacy_chat_p:
+      'पोर्टल पर एक सहायक है जिससे आप सवाल पूछ सकते हैं। आप जो लिखते हैं वह उत्तर बनाने के लिए एक AI सेवा को भेजा जाता है, इसलिए उसमें कोई निजी बात न लिखें। सवाल-जवाब आपके नाम से नहीं जुड़ते, और समिति कोई रिकॉर्ड नहीं रखती।',
+    privacy_push_h: 'सूचनाएँ (नोटिफिकेशन)',
+    privacy_push_p:
+      'अगर आप सूचनाएँ चालू करते हैं, तो आपका ब्राउज़र हमें उन्हें भेजने का एक पता देता है। वह आपके ब्राउज़र की पहचान है, आपकी नहीं: कोई नाम, मोबाइल या ईमेल नहीं। मेन्यू से कभी भी बंद कर सकते हैं, फिर वह पता इस्तेमाल नहीं होगा। मिली हुई सूचनाएँ सिर्फ़ इसी डिवाइस पर रहती हैं, अधिकतम 50, और साइट डेटा हटाने पर मिट जाती हैं।',
+    privacy_offline_h: 'आपके डिवाइस पर क्या रखा जाता है',
+    privacy_offline_p:
+      'पोर्टल जल्दी खुले और बिना इंटरनेट भी चले, इसके लिए आपका ब्राउज़र पेजों और आख़िरी आँकड़ों की एक नक़ल रखता है, साथ में छोटी सेटिंग्स जैसे आपकी चुनी हुई थीम और भाषा, और कौन-सी सूचना आप देख चुके हैं। यह सब आपके डिवाइस पर ही है। ब्राउज़र में साइट डेटा हटाने से सब मिट जाता है।',
+    privacy_thirdparty_h: 'और कौन शामिल है',
+    privacy_thirdparty_p:
+      'फ़ॉन्ट Google Fonts से आते हैं, जिसका मतलब है कि पेज खुलते समय Google को आपका IP पता मिलता है। इसके अलावा पोर्टल पर कोई तीसरा पक्ष नहीं है: आँकड़े समिति के अपने सर्वर से आते हैं। हम फ़ॉन्ट ख़ुद परोसने की तैयारी कर रहे हैं ताकि यह भी बंद हो जाए।',
+    privacy_retention_h: 'कुछ भी कितने समय रखा जाता है',
+    privacy_retention_p:
+      'प्रकाशित रिकॉर्ड — चंदा, ख़र्च, ऋण, समिति की सूची — समिति के स्थायी हिसाब के रूप में रखे जाते हैं, क्योंकि उन्हें प्रकाशित करने का मक़सद ही यही है। तकनीकी चीज़ें कम समय की हैं: ग़लती की रिपोर्टें अपने आप हटती रहती हैं, और सूचना का पता तभी तक रहता है जब तक वह काम करता है या आप सूचनाएँ बंद नहीं करते।',
+    privacy_rights_h: 'सुधार और हटाना',
+    privacy_rights_p:
+      'अगर आपके बारे में प्रकाशित कोई बात ग़लत है, या आप उसे हटाना चाहते हैं, तो समिति से संपर्क करें और वे रिकॉर्ड सुधार देंगे। इस पोर्टल पर सब कुछ समिति के रजिस्टर से आता है, इसलिए वहाँ सुधार होने पर ही यहाँ बदलता है।',
     privacy_contact_p:
       'अपने record में सुधार या किसी प्रश्न के लिए कृपया सीधे समिति से संपर्क करें।',
     terms_subtitle: 'उपयोग की शर्तें',

@@ -23,6 +23,56 @@
 
 'use strict';
 
+// ---- where a notification may send you (audit PR-44) -----------------------
+//
+// `notificationclick` used to pass the pushed `url` straight to client.navigate() and
+// openWindow() with NO check. A service worker navigates to whatever it is given, so a payload
+// carrying another origin takes the visitor off-site from inside the installed portal — the most
+// trusted surface the app has.
+//
+// The block below is BYTE-IDENTICAL to src/lib/pushTarget.ts, which the in-app notification list
+// uses. This file is a static asset pulled in with importScripts and cannot import anything (see
+// the header), so it is duplicated; a test compares the two copies and fails if they drift.
+
+// 8< ---- shared with static/push-sw.js — keep byte-identical ----------------------------
+/**
+ * The path a notification is allowed to open, as a same-origin, absolute path.
+ *
+ * Returns '/' for anything that is not plainly this site: another origin, a scheme that is not
+ * http(s), a protocol-relative `//host` (which LOOKS relative and is not), or junk. Never
+ * returns an absolute URL, so a caller cannot accidentally navigate off-site with the result.
+ *
+ * Typed with JSDoc rather than TypeScript syntax on purpose: this block is copied verbatim into
+ * static/push-sw.js, which is plain ES2019 with no build step.
+ *
+ * @param {unknown} raw  Anything; only a string can produce a path.
+ * @param {string} origin
+ * @returns {string}
+ */
+function sameOriginPath(raw, origin) {
+  // The payload contract says `url` is a string. Coercing anything else would turn a malformed
+  // payload into a real-looking path — String(42) resolves to '/42', which is same-origin and so
+  // technically safe, but it is not a page and pretending otherwise hides the malformed payload.
+  if (typeof raw !== 'string') return '/';
+  var input = raw.trim();
+  if (!input) return '/';
+  // `//evil.example` is protocol-relative: it starts with '/' but is cross-origin. Checked
+  // before the plain-path case, because that is exactly the string a naive `startsWith('/')`
+  // test waves through.
+  if (input.indexOf('//') === 0) return '/';
+  try {
+    // A relative input resolves against `origin`; an absolute one keeps its own origin, which
+    // is what the comparison below then rejects.
+    var resolved = new URL(input, origin);
+    if (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') return '/';
+    if (resolved.origin !== new URL(origin).origin) return '/';
+    return resolved.pathname + resolved.search + resolved.hash;
+  } catch (e) {
+    return '/';
+  }
+}
+// 8< ---- end shared block ---------------------------------------------------------------
+
 var DEFAULT_TITLE = 'Chhath Puja';
 var DEFAULT_ICON = '/icons/icon-192.png';
 var DEFAULT_BADGE = '/icons/icon-192.png';
@@ -168,7 +218,7 @@ self.addEventListener('push', function (event) {
 
   var title = (payload.title || DEFAULT_TITLE).toString();
   var body = (payload.body || '').toString();
-  var url = (payload.url || '/').toString();
+  var url = sameOriginPath(payload.url, self.location.origin);
   var tag = (payload.tag || 'chhath').toString();
 
   var options = {
@@ -213,7 +263,8 @@ self.addEventListener('push', function (event) {
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
 
-  var target = (event.notification.data && event.notification.data.url) || '/';
+  // Confined to this origin — see the shared block above.
+  var target = sameOriginPath(event.notification.data && event.notification.data.url, self.location.origin);
 
   event.waitUntil(
     self.clients
