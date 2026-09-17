@@ -77,12 +77,21 @@ export default defineConfig({
             label: 'Navyuvak Chhath Puja Samiti — transparency portal'
           }
         ],
+        // Every shortcut carries an `icons` array. Without it, Android's long-press
+        // app-shortcut menu shows a blank/generic glyph even though the app icon
+        // itself is fine (the app icon comes from `icons` above; per-shortcut icons
+        // are a SEPARATE field the spec requires for the shortcut menu). We reuse the
+        // existing 192x192 app icon — a valid, square PNG that already ships and
+        // returns 200 — rather than shipping five new per-shortcut assets: the
+        // shortcut menu then shows the app's own icon instead of a placeholder.
+        // `icon-192.png` is used because 192 is the size Android's launcher asks for;
+        // the shortcut menu downscales it.
         shortcuts: [
-          { name: 'Expenses', short_name: 'Expenses', description: 'View expense records', url: '/expenses' },
-          { name: 'Loans', short_name: 'Loans', description: 'View surplus loans and guarantors', url: '/loans' },
-          { name: 'Committee', short_name: 'Committee', description: 'View the committee members', url: '/committee' },
-          { name: 'Downloads', short_name: 'Downloads', description: 'Find receipts and certificates', url: '/downloads' },
-          { name: 'Donate Now', short_name: 'Donate', description: 'How to contribute', url: '/donate' }
+          { name: 'Expenses', short_name: 'Expenses', description: 'View expense records', url: '/expenses', icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }] },
+          { name: 'Loans', short_name: 'Loans', description: 'View surplus loans and guarantors', url: '/loans', icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }] },
+          { name: 'Committee', short_name: 'Committee', description: 'View the committee members', url: '/committee', icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }] },
+          { name: 'Downloads', short_name: 'Downloads', description: 'Find receipts and certificates', url: '/downloads', icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }] },
+          { name: 'Donate Now', short_name: 'Donate', description: 'How to contribute', url: '/donate', icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }] }
         ]
       },
       workbox: {
