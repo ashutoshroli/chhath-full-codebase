@@ -119,8 +119,13 @@ for (const page of pages) {
     process.exit(1);
   }
 
-  // Walk the static import graph out from those entry points. `reached` doubles
-  // as the visited set, so an import cycle terminates and each file is charged once.
+  // Walk the static import graph out from those entry points.
+  //
+  // What makes a cycle terminate is the `!reached.has(dep)` guard at push time
+  // together with `reached` being a Set, so each file is charged exactly once. The
+  // `continue` below is not what saves us — deleting it changes nothing observable
+  // (verified: that mutation survives the tests, correctly). It only avoids
+  // re-scanning a file that was queued twice before being processed.
   const reached = new Set();
   const queue = [...entries];
   while (queue.length) {
