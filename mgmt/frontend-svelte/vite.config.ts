@@ -1,6 +1,9 @@
-/// <reference types="vitest" />
 import { sveltekit } from '@sveltejs/kit/vite';
-import { defineConfig } from 'vite';
+// audit PR-47: `defineConfig` comes from `vitest/config`, not `vite`. Vitest 5 stopped
+// augmenting vite's own config type through `/// <reference types="vitest" />`, so the
+// `test` block below no longer type-checks against vite's `defineConfig`. Documented
+// migration; same function, re-exported with the test types.
+import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   plugins: [sveltekit()],

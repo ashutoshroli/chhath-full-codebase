@@ -1,7 +1,10 @@
-/// <reference types="vitest" />
 import { sveltekit } from '@sveltejs/kit/vite';
 import { SvelteKitPWA } from '@vite-pwa/sveltekit';
-import { defineConfig } from 'vite';
+// audit PR-47: `defineConfig` comes from `vitest/config`, not `vite`. Vitest 5 stopped
+// augmenting vite's own config type through `/// <reference types="vitest" />`, so the
+// `test` block below no longer type-checks against vite's `defineConfig`. This is the
+// documented migration and it is the same function, re-exported with the test types.
+import { defineConfig } from 'vitest/config';
 // Single source of truth for the IARC certificate — the same module the /guide
 // page's "Age ratings" block renders from, so the manifest and the UI can never
 // advertise different ratings. Dependency-free on purpose (see src/lib/ratings.ts).
