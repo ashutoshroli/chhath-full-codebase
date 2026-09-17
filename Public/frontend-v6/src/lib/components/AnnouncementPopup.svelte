@@ -13,35 +13,19 @@
   import { activePopupsSchema, type Popup } from '$lib/api/schema';
   import { safeUrl } from '$lib/utils/format';
   import { driveImageUrl, driveImageFallbackUrl } from '$lib/utils/drive';
+  import { wasSeenRecently, markSeen as markSeenFor } from '$lib/popupSuppression';
 
   let popup = $state<Popup | null>(null);
   let open = $state(false);
   let idx = $state(0);
   let timer: ReturnType<typeof setTimeout> | undefined;
 
-  // Show at most once per 24h (persisted in localStorage) — not every refresh,
-  // and not just once per session. Dismissing also starts the 24h window.
-  const SEEN_KEY = 'cpm_public_v4_popup_seen_at';
-  const SEEN_TTL_MS = 24 * 60 * 60 * 1000;
-
+  // audit PR-43: suppression is per ANNOUNCEMENT and per REVISION, not one global timestamp.
+  // The old single key meant that seeing any popup blinded the visitor to every other popup for
+  // 24 hours — including an urgent one published an hour later — and that EDITING a popup to fix
+  // a wrong date reached nobody who had seen the wrong version. See lib/popupSuppression.ts.
   function markSeen() {
-    try {
-      localStorage.setItem(SEEN_KEY, Date.now().toString());
-    } catch {
-      /* ignore */
-    }
-  }
-
-  function seenRecently(): boolean {
-    try {
-      const raw = localStorage.getItem(SEEN_KEY);
-      if (!raw) return false;
-      const t = parseInt(raw, 10);
-      if (!Number.isFinite(t)) return false;
-      return Date.now() - t < SEEN_TTL_MS;
-    } catch {
-      return false;
-    }
+    if (popup) markSeenFor(browser ? localStorage : undefined, popup);
   }
 
   function clampDuration(ms: unknown): number {
@@ -81,20 +65,23 @@
 
   onMount(async () => {
     if (!browser) return;
-    // Skip if it was already shown within the last 24 hours.
-    if (seenRecently()) return;
+    // audit PR-43: the "already seen?" check now has to run AFTER the fetch, because it is a
+    // question about THIS announcement rather than about the feature. The old code could ask it
+    // first — and skip the network call — only because it was suppressing every popup
+    // indiscriminately, which is the defect.
     const raw = await loadActivePopups();
     const parsed = activePopupsSchema.safeParse(raw);
     const list = parsed.success ? parsed.data : [];
     const p = pickFirst(list as Popup[]);
-    if (p) {
-      popup = p;
-      idx = 0;
-      open = true;
-      // Mark as seen as soon as it is shown, so a refresh within 24h won't
-      // re-open it even if the visitor doesn't explicitly dismiss.
-      markSeen();
-    }
+    if (!p) return;
+    if (wasSeenRecently(localStorage, p)) return;
+
+    popup = p;
+    idx = 0;
+    open = true;
+    // Mark as seen as soon as it is shown, so a refresh within 24h won't
+    // re-open it even if the visitor doesn't explicitly dismiss.
+    markSeen();
   });
 
   function go(dir: 1 | -1) {
