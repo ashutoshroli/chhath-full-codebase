@@ -16,6 +16,11 @@ const LOAN_PLACEHOLDER_HINTS = {
   loan_passed_personal: 'Placeholders: {LoanerName} {LoanerNameHindi} {Amount} {Tenure} {InterestRate}',
   disbursement: 'Placeholders: {Name} {NameHindi} {Amount} {Tenure} {InterestRate} {CashAmount} {OnlineAmount} {TotalAmount}',
   otp: 'Placeholders: {OTP} {Name}',
+  // C14: the loaner's email mirror when a consent is declined or a verification is
+  // rejected. Email is personal-only, so there is no group email here (the group is a
+  // WhatsApp-only channel). Subject + body both support these tokens.
+  consent_declined_loaner_personal: 'Sent to the loaner when a consent is declined. Placeholders (subject + body): {Name} {Role} {LoanerName} {Amount} {Year}',
+  consent_rejected_loaner_personal: 'Sent to the loaner when a verification is rejected. Placeholders (subject + body): {Name} {Role} {LoanerName} {Amount} {Year}',
 };
 const LOAN_TEMPLATE_TYPES = [
   ['consent_personal_loaner', 'Consent — Loaner'],
@@ -25,6 +30,10 @@ const LOAN_TEMPLATE_TYPES = [
   ['consent_verified_personal', 'Verified — Personal'],
   ['loan_passed_personal', 'Loan Passed — Loaner'],
   ['disbursement', 'Disbursement'],
+  // C14 — declined / rejected loaner emails (seeded in migration 32, sent by the
+  // backend; they were missing from this list so the committee could not edit them).
+  ['consent_declined_loaner_personal', 'Declined — Loaner'],
+  ['consent_rejected_loaner_personal', 'Rejected — Loaner'],
   ['otp', 'OTP'],
 ];
 
