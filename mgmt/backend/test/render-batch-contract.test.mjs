@@ -27,6 +27,7 @@ import {
   MAX_OUTPUT_TOTAL_BYTES,
   MAX_CHAT_REQUEST_BYTES,
   planBatches,
+  dataByteLength,
 } from '../src/renderContract.js';
 import { base64ByteLength } from '../src/base64.js';
 
@@ -180,6 +181,49 @@ describe('a dispatch is split so it always fits', () => {
   test('nothing to convert plans nothing', () => {
     assert.deepEqual(planBatches([], sizeOf), { batches: [], rejected: [] });
     assert.deepEqual(planBatches(null, sizeOf), { batches: [], rejected: [] });
+  });
+});
+
+describe('dataByteLength survives a BigInt in the record data', () => {
+  // Reported from live bulk generation: EVERY receipt failed with
+  // "document is too large (8589934592.0 MB; limit 2 MB)". 8589934592 is exactly
+  // Number.MAX_SAFE_INTEGER / 1048576 — the value the old catch returned when
+  // JSON.stringify threw. A D1 INTEGER column (YEAR / AMOUNT / Sl. No.) can reach the
+  // fill data as a BigInt, JSON.stringify throws on it, and the whole run is rejected.
+
+  test('a normal record is a few hundred bytes, not MAX_SAFE_INTEGER', () => {
+    const data = { NAME: 'Aarohi', RECEIPT_NO: 'NCS-2026-1', AMOUNT: '501', YEAR: '2026' };
+    const n = dataByteLength(data);
+    assert.ok(n > 0 && n < 2000, `expected a small size, got ${n}`);
+  });
+
+  test('a BigInt field (e.g. YEAR from a D1 INTEGER column) is sized, not rejected', () => {
+    // THE defect: before the fix this returned MAX_SAFE_INTEGER and every record was
+    // reported as "8589934592.0 MB".
+    const data = { NAME: 'Aarohi', YEAR: 2026n, AMOUNT: 501n };
+    const n = dataByteLength(data);
+    assert.ok(n < MAX_ITEM_BYTES, `a BigInt record must size under the 2 MB limit, got ${n}`);
+    assert.notEqual(n, Number.MAX_SAFE_INTEGER, 'must not fall back to the reject sentinel');
+  });
+
+  test('a batch of BigInt-bearing records all pass planBatches (none rejected)', () => {
+    const items = Array.from({ length: 6 }, (_, i) => ({
+      recordId: `receipt-2017-${625 + i}`,
+      data: { NAME: `Name ${i}`, YEAR: 2017n, AMOUNT: BigInt(100 + i), RECEIPT_NO: `NCS-2017-${i}` },
+    }));
+    const { batches, rejected } = planBatches(items, (d) => dataByteLength(d), {
+      perBatchBytes: 200000,
+      of: (it) => it.data,
+    });
+    assert.equal(rejected.length, 0, `no record should be rejected; got ${JSON.stringify(rejected.map(r => r.error))}`);
+    assert.equal(batches.length, 1, 'six tiny records fit in one batch');
+  });
+
+  test('a genuinely un-serializable value (circular) still fails closed', () => {
+    // The sentinel path must remain for real abuse — a circular reference is not a
+    // normal record and should not be dispatched.
+    const c = {}; c.self = c;
+    assert.equal(dataByteLength(c), Number.MAX_SAFE_INTEGER);
   });
 });
 

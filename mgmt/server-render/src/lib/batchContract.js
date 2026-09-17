@@ -114,7 +114,15 @@ export const MAX_DATA_ITEM_BYTES = MAX_ITEM_BYTES;
 /** Rough serialized byte size of a record's fill DATA (JSON, UTF-8). */
 export function dataByteLength(data) {
   if (data === undefined || data === null) return 0;
-  try { return Buffer.byteLength(JSON.stringify(data), 'utf8'); } catch (e) { return Number.MAX_SAFE_INTEGER; }
+  // A BigInt makes JSON.stringify throw; coerce it to a string in a replacer so a normal
+  // record (a D1 INTEGER year/amount can arrive as BigInt) is sized correctly instead of
+  // returning MAX_SAFE_INTEGER and being rejected as "8589934592.0 MB". Mirrors the Worker
+  // copy in mgmt/backend/src/renderContract.js.
+  try {
+    return Buffer.byteLength(JSON.stringify(data, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)), 'utf8');
+  } catch (e) {
+    return Number.MAX_SAFE_INTEGER;
+  }
 }
 
 /**

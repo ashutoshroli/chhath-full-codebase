@@ -59,10 +59,23 @@ export const MAX_CHAT_REQUEST_BYTES = 16 * 1024;
 // covers a record carrying an inline image and rejects anything that could only be abuse.
 export const MAX_DATA_ITEM_BYTES = MAX_ITEM_BYTES;
 
-/** Rough serialized byte size of a record's fill DATA (JSON, UTF-8). Mirrors the Render copy. */
+/** Rough serialized byte size of a record's fill DATA (JSON, UTF-8). Mirrors the Render copy.
+ *
+ * A `BigInt` in the data makes `JSON.stringify` THROW ("Do not know how to serialize a
+ * BigInt"), and the old `catch` returned Number.MAX_SAFE_INTEGER — which every caller then
+ * compares against the 2 MB limit and rejects, with the tell-tale "8589934592.0 MB" message
+ * (MAX_SAFE_INTEGER / 1048576). A D1 INTEGER column (year, amount, a Sl. No.) can arrive as a
+ * BigInt, so an ordinary bulk run had every record rejected. Coerce BigInt to string in a
+ * replacer so the size is real; the actual dispatch payload is coerced the same way. The
+ * throw path stays as a last-resort guard against a genuinely un-serializable value (a
+ * circular reference), which is real abuse, not a normal record. */
 export function dataByteLength(data) {
   if (data === undefined || data === null) return 0;
-  try { return Buffer.byteLength(JSON.stringify(data), 'utf8'); } catch (e) { return Number.MAX_SAFE_INTEGER; }
+  try {
+    return Buffer.byteLength(JSON.stringify(data, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)), 'utf8');
+  } catch (e) {
+    return Number.MAX_SAFE_INTEGER;
+  }
 }
 
 /**
