@@ -14,7 +14,9 @@
 
 <svelte:head><title>{$tr('expenses_ledger')} — {$tr('app_title')}</title></svelte:head>
 
-<h2 class="mb-4 text-lg font-semibold text-gray-800 dark:text-gray-100">{$tr('expenses_ledger')}</h2>
+<!-- audit PR-41: was <h2>. This IS the page title, so it is the document's h1 — the classes
+     are unchanged, so nothing moves; only the outline is corrected. -->
+<h1 class="mb-4 text-lg font-semibold text-gray-800 dark:text-gray-100">{$tr('expenses_ledger')}</h1>
 
 {#if $portalState.failed}
   <ErrorState />

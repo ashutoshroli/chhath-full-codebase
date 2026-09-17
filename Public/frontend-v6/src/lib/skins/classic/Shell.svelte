@@ -23,6 +23,17 @@
     href === '/' ? path === '/' : path.startsWith(href);
 </script>
 
+<!-- audit PR-41: a skip link. Every one of these shells puts a header, a language
+     switcher, a theme picker and a primary nav ahead of the content, so a keyboard or
+     switch-access visitor had to Tab through all of it on EVERY page before reaching what they
+     came for (WCAG 2.4.1). Visually hidden until focused, so nothing changes for anyone else. -->
+<a
+  href="#main"
+  class="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[200] focus:rounded-lg
+    focus:bg-brand-600 focus:px-4 focus:py-2 focus:text-sm focus:font-bold focus:text-white"
+>{$tr('skip_to_content')}</a>
+
+
 <!-- Flat classic background (no live gradient) -->
 <div class="fixed inset-0 -z-10 bg-[#F8F9FA] dark:bg-gray-900"></div>
 
@@ -80,7 +91,7 @@
 
 <StatusBanner />
 
-<main class="mx-auto mt-[86px] max-w-[1000px] px-4 pb-24 md:mt-[92px] md:pb-10">
+<main id="main" tabindex="-1" class="mx-auto mt-[86px] max-w-[1000px] px-4 pb-24 md:mt-[92px] md:pb-10">
   {@render children()}
 </main>
 
@@ -100,6 +111,7 @@
   class="fixed inset-x-0 bottom-0 z-40 flex h-[65px] items-center justify-around
     bg-white shadow-[0_-2px_10px_rgba(0,0,0,0.05)] dark:border-t dark:border-gray-700 dark:bg-gray-800 md:hidden"
   aria-label="Primary"
+  style="padding-bottom: env(safe-area-inset-bottom);"
 >
   {#each NAV_PRIMARY as item}
     {@const active = isActive(item.href, $page.url.pathname)}

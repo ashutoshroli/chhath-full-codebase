@@ -41,23 +41,56 @@
 
   const SPEED = 0.6; // px per frame (~36px/s @60fps) — gentle and readable
 
+  // audit PR-41: `prefers-reduced-motion` was read ONCE. A visitor who turns the setting on —
+  // which people with vestibular disorders do precisely BECAUSE something is moving — kept the
+  // animation for the life of the page. It is a listener now, so the change takes effect at once.
   $effect(() => {
     if (!browser) return;
-    reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    const mq = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+    if (!mq) return;
+    reduceMotion = mq.matches;
+    const onChange = (e: MediaQueryListEvent) => (reduceMotion = e.matches);
+    // Safari < 14 has no addEventListener on MediaQueryList; committee phones are old.
+    if (mq.addEventListener) mq.addEventListener('change', onChange);
+    else mq.addListener?.(onChange);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener('change', onChange);
+      else mq.removeListener?.(onChange);
+    };
+  });
+
+  // Re-read on visibility change too: `document.hidden` is not reactive, so without this the
+  // loop below could not know the tab had come back.
+  let tabHidden = $state(false);
+  $effect(() => {
+    if (!browser) return;
+    tabHidden = document.hidden;
+    const onVis = () => (tabHidden = document.hidden);
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  });
+
+  // Whether the scroller should be animating at all. Derived, so the effect below STARTS and
+  // STOPS with it rather than running for ever.
+  let shouldAnimate = $derived(canLoop && !userPaused && !hovering && !reduceMotion && !tabHidden);
+
+  // audit PR-41: this used to schedule the next frame UNCONDITIONALLY and then return early
+  // when inactive — so a paused, hovered, hidden or reduced-motion scroller still woke the
+  // browser 60 times a second for the life of the page. On a phone that is measurable battery
+  // for no pixels changed. The rAF loop now exists only while it has something to do.
+  $effect(() => {
+    if (!browser || !shouldAnimate) return;
 
     let raf = 0;
     const step = () => {
-      raf = requestAnimationFrame(step);
       const el = track;
-      if (!el) return;
-      const active = !userPaused && !hovering && !reduceMotion && !document.hidden;
-      if (!active) return;
-      if (!canLoop) return;
-      if (Date.now() < interactingUntil) return; // let a manual gesture settle
-      el.scrollLeft += SPEED;
-      // Seamless loop: track holds 2 copies; wrap at the halfway mark.
-      const half = el.scrollWidth / 2;
-      if (half > 0 && el.scrollLeft >= half) el.scrollLeft -= half;
+      if (el && Date.now() >= interactingUntil) {
+        el.scrollLeft += SPEED;
+        // Seamless loop: track holds 2 copies; wrap at the halfway mark.
+        const half = el.scrollWidth / 2;
+        if (half > 0 && el.scrollLeft >= half) el.scrollLeft -= half;
+      }
+      raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
@@ -136,7 +169,13 @@
       aria-label={$tr('contributors_live_scroll', { year: $year })}
     >
       {#each doubled as entry, i (entry.item.key + '-' + i)}
-        <div role="listitem" aria-hidden={i >= ranked.length ? 'true' : undefined}>
+        <!-- audit PR-41: the second copy exists only to make the loop seamless. `aria-hidden`
+             kept it out of the screen-reader tree but NOT out of the tab order, so a keyboard
+             user tabbed through every contributor twice and half of them announced nothing at
+             all. `inert` removes them from focus and from the a11y tree together, which is the
+             only combination that is honest. -->
+        {@const isDuplicate = i >= ranked.length}
+        <div role="listitem" inert={isDuplicate} aria-hidden={isDuplicate ? 'true' : undefined}>
           <ContributorCard {entry} compact onclick={() => onselect?.(entry.item.key)} />
         </div>
       {/each}

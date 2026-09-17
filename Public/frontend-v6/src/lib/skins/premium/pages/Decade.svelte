@@ -126,18 +126,23 @@
 
 <!-- Financial journey table -->
 <section class="mt-5 surface p-5">
-  <h3 class="text-base font-black">{T('table_h', 'decade_table_h', rangeVars)}</h3>
-  <div class="mt-3">
-    <div class="grid grid-cols-[1fr_1.4fr_1fr] gap-2 border-b border-slate-200 pb-2 text-xs font-bold uppercase text-slate-500 dark:border-slate-700 dark:text-slate-400">
-      <span>{T('th_year', 'decade_th_year')}</span>
-      <span>{T('th_total', 'decade_th_total')}</span>
-      <span>{T('th_contributors', 'decade_th_contributors')}</span>
+  <h3 id="decade-table-h" class="text-base font-black">{T('table_h', 'decade_table_h', rangeVars)}</h3>
+  <div class="mt-3" role="table" aria-labelledby="decade-table-h">
+        <!-- audit PR-41: this is a data table drawn with CSS grid, so a screen reader was given
+         three unrelated runs of numbers with no column association at all — "2019, 41,300, 63"
+         read as a flat list tells you nothing about which figure is which. ARIA table roles give
+         it the semantics of a <table> with ZERO visual change, which matters because converting
+         the grid to real <table> markup would relayout five skins I cannot look at. -->
+<div role="row" class="grid grid-cols-[1fr_1.4fr_1fr] gap-2 border-b border-slate-200 pb-2 text-xs font-bold uppercase text-slate-500 dark:border-slate-700 dark:text-slate-400">
+      <span role="columnheader">{T('th_year', 'decade_th_year')}</span>
+      <span role="columnheader">{T('th_total', 'decade_th_total')}</span>
+      <span role="columnheader">{T('th_contributors', 'decade_th_contributors')}</span>
     </div>
     {#each d.years as r (r.year)}
-      <div class="grid grid-cols-[1fr_1.4fr_1fr] gap-2 border-b border-slate-100 py-2 text-sm last:border-0 dark:border-slate-800">
-        <span class="font-bold text-brand-700 dark:text-brand-300">{r.year}{#if r.isCurrent} •{/if}</span>
-        <span class="font-semibold text-emerald-700 dark:text-emerald-300">{fmt(r.total)}</span>
-        <span class="text-slate-700 dark:text-slate-200">{r.contributors}</span>
+      <div role="row" class="grid grid-cols-[1fr_1.4fr_1fr] gap-2 border-b border-slate-100 py-2 text-sm last:border-0 dark:border-slate-800">
+        <span role="cell" class="font-bold text-brand-700 dark:text-brand-300">{r.year}{#if r.isCurrent} •{/if}</span>
+        <span role="cell" class="font-semibold text-emerald-700 dark:text-emerald-300">{fmt(r.total)}</span>
+        <span role="cell" class="text-slate-700 dark:text-slate-200">{r.contributors}</span>
       </div>
     {/each}
   </div>
