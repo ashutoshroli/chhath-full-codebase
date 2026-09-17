@@ -1,0 +1,31 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "WAVE A part 1 of 3 — the server-side DOCX renderer on Render + the golden baseline (the foundation for BOTH the auto-generate and bulk paths). Today the browser fills the .docx (mgmt/frontend/src/docxFill.js, byte-identical to mgmt/frontend-svelte/src/lib/docxFill.ts) and hands filled base64 to the Worker. This feature ports that renderer to mgmt/server-render so Render can FILL (not just convert) a .docx, and proves byte-for-byte parity against a golden baseline captured on main first. Cross-service constraints baked in: (1) the xmldom lockfile trap — docxtemplater pulls deprecated xmldom via docxtemplater-image-module-free, and server-render has NO lockfile + npm install, so the vulnerable xmldom would install; solve it (decision below). (2) getLastRenderReport() is a MODULE-LEVEL SINGLETON — on Render at jobsMaxConcurrent=3 that is a concurrency bug, so the missing-tags/missing-images report MUST travel WITH each fill result, not via shared module state. (3) exact renderer parity: delimiters {start:'{',end:'}'}, nullGetter that blanks-and-records unresolved tags, ImageModule getImage with the 1x1 BLANK_PNG_B64 fallback recording missing images, getSize [100,100]. This feature adds the renderer + a NEW job kind's fill primitive but does NOT yet rewire either production path (that is FEAT-003 and FEAT-004).",
+  "status": "pending",
+  "steps": [
+    "Prove-first / golden baseline: on main, write a throwaway-then-committed harness that runs the EXISTING mgmt/frontend/src/docxFill.js renderer (Node can import it; it uses pizzip + docxtemplater + docxtemplater-image-module-free, all in mgmt/frontend deps) against a known small template fixture + known data (include: a resolved tag, an UNRESOLVED tag to exercise nullGetter, and an image tag with both a valid data-URL and a missing/invalid one to exercise the blank-PNG fallback). Capture the output .docx bytes AND the render report (missingTags, missingImages) as committed golden fixtures under mgmt/server-render/test/fixtures/. This is the artifact that proves parity.",
+    "Decide and implement the xmldom fix for server-render, and justify it in a code comment + the PR body. Recommended: add a COMMITTED package-lock.json for mgmt/server-render generated with the same `overrides` block the frontends use (redirect xmldom -> @xmldom/xmldom), AND switch render.yaml buildCommand + the CI render-service job to `npm ci`. Because npm NEVER records overrides in a lockfile, ALSO add @xmldom/xmldom as a direct dependency at the pinned version so the resolved tree cannot fall back to vulnerable xmldom. Verify with `npm ls xmldom @xmldom/xmldom` and `npm audit` that no 0.1.x xmldom is present. (Alternative to evaluate and reject-with-reason if chosen otherwise: depend only on @xmldom/xmldom + a direct docxtemplater pin without a lockfile — but render.yaml currently has no lockfile by design, so the safest launch move is to introduce one HERE with npm ci, which also fixes audit Render/offload #10.)",
+    "Port the renderer to mgmt/server-render (e.g. src/lib/docxRender.js) reproducing docxFill.js EXACTLY: delimiters {start:'{',end:'}'}, paragraphLoop:true, linebreaks:true, the ImageModule (centered:false, getImage with base64FromDataUrl + BLANK_PNG_B64 1x1 fallback recording missing images, getSize ()=>[100,100]), and the nullGetter that pushes part.value to missingTags and returns ''. CRITICAL DIFFERENCE FROM THE BROWSER: do NOT use a module-level lastRenderReport singleton. The fill function must RETURN { filledBase64, report: { missingTags, missingImages } } so each concurrent job carries its own report. Use Buffer for base64 (Node) in place of the browser atob/Uint8Array.",
+    "Add unit tests in mgmt/server-render/test/ that run the new renderer against the SAME fixture+data and assert the output bytes and the returned report equal the golden fixtures from step 1 (byte-for-byte parity). Add a concurrency test: fill two different documents interleaved (Promise.all) and assert each returned report is correct for ITS document — this is the test that would fail against a singleton report and proves the concurrency fix.",
+    "Do NOT change any production dispatch path in this feature. The renderer is a new library + tests only; FEAT-003/004 consume it.",
+    "Mutation-test the parity + concurrency tests (change a delimiter to the default {{ }}, remove the nullGetter recording, swap the report to a shared module variable) and confirm each mutation makes a test fail; record any surviving mutant as equivalent with a reason.",
+    "Commit on a feature branch (e.g. wave-a1-render-docx-renderer). Do NOT push."
+  ],
+  "acceptance_criteria": [
+    "mgmt/server-render has a docx-fill renderer that reproduces docxFill.js behaviour (delimiters {}, nullGetter blank+record, blank-PNG image fallback, getSize [100,100]).",
+    "The renderer returns the render report PER CALL (no module-level singleton); a concurrency test with two interleaved fills proves each report is correct for its own document.",
+    "Golden-fixture parity test: the server renderer's output bytes + report equal the bytes + report captured from the browser renderer on main.",
+    "`cd mgmt/server-render && npm ci && npm test` passes (lockfile now committed).",
+    "`npm ls xmldom` shows no deprecated 0.1.x xmldom (redirected to @xmldom/xmldom); `npm audit` no longer lists the xmldom advisories.",
+    "render.yaml buildCommand and the CI render-service job use npm ci against the committed lockfile.",
+    "Mutation check recorded: delimiter/nullGetter/singleton mutations each fail a test."
+  ],
+  "verification": [
+    "cd mgmt/server-render && npm ci && npm test",
+    "cd mgmt/server-render && npm ls xmldom @xmldom/xmldom",
+    "cd mgmt/server-render && npm audit --audit-level=high | grep -i xmldom || echo 'no xmldom advisory'"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

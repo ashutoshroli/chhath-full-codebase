@@ -1,0 +1,33 @@
+{
+  "id": "FEAT-005",
+  "type": "chore",
+  "description": "WAVE B — finish the last remaining frontend item: the react-router v7 upgrade on mgmt/frontend (the LIVE React mgmt SPA). It sits on react-router-dom@6.30.6, which carries two moderate advisories with NO fix inside v6: GHSA-wrjc-x8rr-h8h6 (open redirect via <Link>/useNavigate, vulnerable >=6.0.0 <7.18.0) and GHSA-337j-9hxr-rhxg (data-router SSR-hydration deserializeErrors constructor injection, vulnerable >=6.4.0 <7.18.0). Verified against live code: the app imports only BrowserRouter, Routes, Route, useLocation (main.jsx) and useParams (ConsentPage.jsx, AnnouncePage.jsx) — no <Link>, no useNavigate, no data router (createBrowserRouter/RouterProvider), no SSR; App.jsx does not touch the router (hash-based tab routing). v7.18.4 re-exports all five APIs unchanged with peer react>=18 (app is 18.3.1). This app has ZERO tests (carry-over C2). Sequence: add a test harness, write router tests GREEN on v6 first, THEN upgrade to react-router-dom@7.18.4, prove the same tests still pass, add the React app to CI (currently only a build job), and DELETE the guard test mgmt/frontend-svelte/src/lib/reactRouterExposure.test.ts in the SAME change (it is DESIGNED to fail once the app is >=7.18.0). This opens carry-over C2 (the React app's first tests). Independent of Waves A and C.",
+  "status": "pending",
+  "steps": [
+    "Prove-first on v6: add a test harness to mgmt/frontend — vitest + jsdom + @testing-library/react (vite is already present; add devDeps and a vitest config, mirroring the SvelteKit apps' vitest setup). Confirm `npm ci && npm test` runs.",
+    "Write router tests (GREEN on the CURRENT react-router-dom@6.30.6 FIRST, so they prove behaviour before the upgrade): render main.jsx's routing (or a testable extraction of it) and assert (a) /consent/:token renders ConsentPage and the token param resolves via useParams, (b) /announce/:token renders AnnouncePage with its token, (c) an unmatched path * renders App, and (d) the GtmRouteTracker pushes a pageview with page = pathname+search to window.dataLayer on navigation (useLocation). Keep the tests router-behavioural, not implementation-coupled, so they are valid across the v6->v7 boundary.",
+    "Run the tests on v6 and confirm green. Commit this state (harness + green v6 tests) BEFORE the upgrade, so the upgrade diff is isolated and the pre-upgrade proof is preserved in history.",
+    "Upgrade react-router-dom to 7.18.4 in mgmt/frontend/package.json, regenerate package-lock.json (npm ci uses it in CI; the xmldom overrides block must be preserved). Run `npm ci`, then the same router tests, and confirm they STILL PASS unchanged (parity across the upgrade). Run `npm run build` and confirm the 230kB main-chunk budget still holds (v7 core is comparable; report the new size).",
+    "Delete mgmt/frontend-svelte/src/lib/reactRouterExposure.test.ts in the SAME change — it asserts isBelowFixed(range) and fails the day the app reaches >=7.18.0, by its own design ('the upgrade should DELETE it'). Also remove the corresponding note in AUDIT_FIX_PROGRESS.md that the guard test points at. Confirm the SvelteKit app's vitest suite still passes without it.",
+    "Add the React app to CI: extend .github/workflows/ci.yml so the mgmt/frontend job (currently build + 230kB chunk budget only) ALSO runs `npm ci && npm test` (the new vitest suite). Keep npm ci (the overrides/lockfile requirement noted in the existing job comment).",
+    "Mutation-test the router tests: change a Route path (e.g. /consent/:token -> /consent2/:token) and confirm the consent test fails; break the GtmRouteTracker dataLayer push and confirm that test fails; point a route at the wrong component and confirm a test fails. Record any equivalent mutants.",
+    "Confirm no <Link>/useNavigate/data-router usage was introduced (the reason the advisories were unreachable) — a quick grep, and note that on v7.18.4 the advisories no longer apply regardless.",
+    "Commit on a feature branch (e.g. wave-b-react-router-v7). Do NOT push."
+  ],
+  "acceptance_criteria": [
+    "mgmt/frontend has a vitest + jsdom + testing-library harness and `npm ci && npm test` runs (opens C2 — the app's first tests).",
+    "Router tests cover /consent/:token -> ConsentPage, /announce/:token -> AnnouncePage, * -> App, and the GtmRouteTracker pageview push, and were proven GREEN on v6 before the upgrade.",
+    "react-router-dom upgraded to 7.18.4 with lockfile regenerated (xmldom overrides preserved); the same router tests still pass and the build stays under the 230kB main-chunk budget.",
+    "mgmt/frontend-svelte/src/lib/reactRouterExposure.test.ts is deleted in the same change and the SvelteKit vitest suite passes without it; the AUDIT_FIX_PROGRESS.md note is updated.",
+    "CI runs the React app's vitest suite (mgmt/frontend job now does npm ci && npm test in addition to build + chunk budget).",
+    "Mutation checks recorded: route-path change and GtmRouteTracker break each fail a test."
+  ],
+  "verification": [
+    "cd mgmt/frontend && npm ci && npm test",
+    "cd mgmt/frontend && npm run build (confirm main chunk < 230000 bytes; report new size)",
+    "cd mgmt/frontend-svelte && npm ci && npm test (passes without the deleted guard test)",
+    "grep -rn 'useNavigate\\|<Link\\|createBrowserRouter\\|RouterProvider' mgmt/frontend/src || echo 'none introduced'"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}
