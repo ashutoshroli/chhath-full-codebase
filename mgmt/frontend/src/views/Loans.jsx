@@ -8,6 +8,7 @@ import RowActions from '../components/RowActions.jsx';
 import { canAddView } from '../permissions.js';
 import { useDropdownList } from '../useDropdownList.js';
 import LoanConsentModal from '../components/LoanConsentModal.jsx';
+import { personOptions } from '../personOption.js';
 
 export default function Loans({ year, users, committee, role, editable }) {
   const { data, loading, error, refresh } = useViewData(`loans:${year}`, () => api.getLoans(year), [year]);
@@ -42,7 +43,9 @@ export default function Loans({ year, users, committee, role, editable }) {
 
   const contributorOptions = useMemo(() => {
     if (!contributorIds) return [];
-    return (users || []).filter(u => contributorIds.has(u.ID)).map(u => ({ value: u.ID, label: u.Name, sub: u.Village }));
+    // C15: father's name in the label — a loan's receiver and its guarantors must be the
+    // right people, and two same-name contributors are otherwise indistinguishable here too.
+    return personOptions((users || []).filter(u => contributorIds.has(u.ID)));
   }, [users, contributorIds]);
 
   const closeModal = () => {
