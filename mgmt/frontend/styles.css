@@ -6,9 +6,18 @@
 }
 
 :root {
-  --primary-saffron: #F27A1A;
-  --bg-offwhite: #F8F9FA; --text-main: #1F2937; --text-muted: #6B7280;
-  --success: #10B981; --danger: #EF4444; --warning: #F59E0B; --saffron-light: #FFEDD5;
+  /* audit PR-39. Kept in step with mgmt/frontend-svelte/src/lib/styles.css, which a test
+     enforces: this app is the ROLLBACK TARGET, so a rollback must not reintroduce the nine
+     failing contrast pairs. Every value is measured against the WCAG 2.1 formula. */
+  --primary-saffron: #F27A1A;          /* fill only — 2.77 on white, never use for text */
+  --saffron-text: #9A4E11;             /* 6.04 on white, 5.27 on --saffron-light */
+  --focus-ring: #C2560B;               /* 4.53 on white; 1.4.11 needs 3 for non-text */
+  --bg-offwhite: #F8F9FA; --text-main: #1F2937;
+  --text-muted: #666E7B;               /* was #6B7280 = 4.39 on the #f3f4f6 panels */
+  --success: #0C875E;                  /* was #10B981 = 2.53 on white */
+  --danger: #D73D3D;                   /* was #EF4444 = 3.76 on white */
+  --warning: #A46A07;                  /* was #F59E0B = 2.14 on white */
+  --saffron-light: #FFEDD5;
   --card-white: #FFFFFF;
   --shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
 }
@@ -37,8 +46,8 @@ button, input, select { font: inherit; }
 .profile-mini-box strong { font-size: 0.9rem; }
 .profile-mini-box span { font-size: 0.75rem; color: var(--text-muted); }
 
-.year-selector { background: var(--bg-offwhite); color: var(--text-main); border: 1px solid #ddd; padding: 6px 10px; border-radius: 6px; font-weight: 600; outline: none; }
-.btn-submit { background: var(--primary-saffron); color: white; border: none; padding: 12px 15px; border-radius: 8px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 5px; cursor: pointer; width: 100%; }
+.year-selector { background: var(--bg-offwhite); color: var(--text-main); border: 1px solid #ddd; padding: 6px 10px; border-radius: 6px; font-weight: 600; }
+.btn-submit { background: var(--primary-saffron); color: var(--text-main); border: none; padding: 12px 15px; border-radius: 8px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 5px; cursor: pointer; width: 100%; }
 .btn-submit:disabled { opacity: 0.6; cursor: not-allowed; }
 .btn-danger { background: var(--danger); color: white; border: none; padding: 8px 12px; border-radius: 6px; font-weight: 600; cursor: pointer; }
 .btn-outline { background: none; border: 1px solid #ddd; padding: 8px 12px; border-radius: 6px; font-weight: 600; cursor: pointer; }
@@ -46,24 +55,24 @@ button, input, select { font: inherit; }
 .row-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .icon-btn { background: #f3f4f6; border: none; width: 32px; height: 32px; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-muted); }
 .icon-btn:hover { background: #e5e7eb; }
-.icon-btn.icon-danger { background: #FEE2E2; color: var(--danger); }
+.icon-btn.icon-danger { background: #FEE2E2; color: #991B1B; }
 .icon-btn.icon-danger:hover { background: #FECACA; }
 .role-select-badge { padding: 4px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; background: #EDE9FE; color: #5B21B6; }
 
-.fab { position: fixed; bottom: 85px; right: 20px; background-color: var(--primary-saffron); color: white; width: 60px; height: 60px; border-radius: 50%; display: flex; justify-content: center; align-items: center; box-shadow: 0 4px 15px rgba(242, 122, 26, 0.4); cursor: pointer; border: none; z-index: 99; }
+.fab { position: fixed; bottom: 85px; right: 20px; background-color: var(--primary-saffron); color: var(--text-main); width: 60px; height: 60px; border-radius: 50%; display: flex; justify-content: center; align-items: center; box-shadow: 0 4px 15px rgba(242, 122, 26, 0.4); cursor: pointer; border: none; z-index: 99; }
 
 .bottom-nav { position: fixed; bottom: 0; width: 100%; height: 65px; background: white; display: flex; justify-content: space-around; align-items: center; box-shadow: 0 -2px 10px rgba(0,0,0,0.05); z-index: 100; }
 .nav-btn { display: flex; flex-direction: column; align-items: center; background: none; border: none; color: var(--text-muted); font-size: 0.7rem; font-weight: 600; width: 20%; cursor: pointer; gap: 2px; }
-.nav-btn.active { color: var(--primary-saffron); }
+.nav-btn.active { color: var(--saffron-text); }
 
 .form-group { margin-bottom: 15px; }
 .form-group label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 5px; color: var(--text-muted); }
-input:not([type="checkbox"]):not([type="radio"]), select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; outline: none; }
+input:not([type="checkbox"]):not([type="radio"]), select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; }
 
 input[type="checkbox"], input[type="radio"] {
   width: 18px; height: 18px; min-width: 18px; margin: 0;
   padding: 0; border: 0; border-radius: 0;
-  accent-color: var(--primary-saffron); cursor: pointer; flex: 0 0 auto;
+  accent-color: var(--saffron-text); cursor: pointer; flex: 0 0 auto;
 }
 
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 15px; }
@@ -86,7 +95,7 @@ input[type="checkbox"], input[type="radio"] {
 
 .consent-doc { overflow-wrap: anywhere; }
 .consent-doc h2 { font-size: 1.3rem; margin: 10px 0 4px; }
-.consent-doc h3 { font-size: 1.05rem; margin: 18px 0 6px; color: var(--primary-saffron); }
+.consent-doc h3 { font-size: 1.05rem; margin: 18px 0 6px; color: var(--saffron-text); }
 .consent-doc p { margin: 6px 0; line-height: 1.5; font-size: 0.9rem; }
 .consent-doc ul, .consent-doc ol { margin: 6px 0 6px 20px; font-size: 0.9rem; }
 .consent-doc li { margin: 3px 0; }
@@ -98,7 +107,7 @@ input[type="checkbox"], input[type="radio"] {
 .subtabs { display: flex; gap: 8px; margin-bottom: 15px; border-bottom: 1px solid #eee; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
 .subtabs::-webkit-scrollbar { display: none; }
 .subtab-btn { background: none; border: none; padding: 10px 4px; font-size: 0.9rem; font-weight: 600; color: var(--text-muted); cursor: pointer; border-bottom: 3px solid transparent; white-space: nowrap; flex-shrink: 0; }
-.subtab-btn.active { color: var(--primary-saffron); border-bottom-color: var(--primary-saffron); }
+.subtab-btn.active { color: var(--saffron-text); border-bottom-color: var(--saffron-text); }
 .toggle-switch { cursor: pointer; }
 
 .desktop-nav { display: none; }
@@ -107,7 +116,7 @@ input[type="checkbox"], input[type="radio"] {
   .page-view { margin-top: 100px; }
   .desktop-nav { display: flex; gap: 10px; }
   .desktop-nav .nav-btn { flex-direction: row; padding: 8px 16px; border-radius: 8px; width: auto; font-size: 0.95rem; }
-  .desktop-nav .nav-btn.active { background: var(--saffron-light); color: var(--primary-saffron); }
+  .desktop-nav .nav-btn.active { background: var(--saffron-light); color: var(--saffron-text); }
   .fab { bottom: 30px; right: 30px; }
 }
 
@@ -136,3 +145,13 @@ input[type="checkbox"], input[type="radio"] {
   background: #fff; box-shadow: 0 -2px 10px rgba(0,0,0,0.08); padding: 10px 15px;
 }
 .announce-bottom-bar-inner { max-width: 900px; margin: 0 auto; display: flex; gap: 10px; }
+
+/* audit PR-39 — a visible focus indicator, everywhere. `outline: none` was set on every text
+ * input and select, removing the only signal a keyboard user has about where they are (2.4.7),
+ * with nothing in its place. :focus-visible rather than :focus so a mouse click draws no ring —
+ * which is why `outline: none` gets written in the first place. --focus-ring is 4.53 on white,
+ * past the 3:1 that 1.4.11 asks of a non-text indicator. */
+:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; border-radius: 4px; }
+@supports not selector(:focus-visible) {
+  :focus { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+}
