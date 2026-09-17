@@ -4,6 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Chhath Puja Transparency Portal — v6 (SvelteKit + TypeScript + Tailwind, static, PWA). Skin-based multi-portal: selecting a theme swaps the entire portal layout over one shared data layer. Consumes the UNCHANGED Cloudflare Worker public API.",
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
+  },
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",

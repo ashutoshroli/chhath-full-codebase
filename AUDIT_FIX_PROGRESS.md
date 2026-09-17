@@ -6,10 +6,10 @@
 > reviewer can see at a glance what is finished, what this PR changes, what is still
 > pending, and what was deliberately left for later (and where that is tracked).
 
-**Status — against the plan's 48 PRs: 47.5 done · 0.5 remaining.** The remaining half is **PR-47**'s vite 5→8 / vitest 2→5 major upgrades, held back deliberately (dev-server-only advisories; not verifiable without frontend preview deploys — see §3). Every other planned PR has shipped.
-Separately, **69 GitHub PRs** have been merged for this effort (#311–#382). Those two numbers are not the same thing, and revisions of this file before #356 wrongly treated them as one. Several merged PRs were docs/runbook updates (#340, #343, #346, #352, #371), CI fix-ups (#330, #345), or carry-over items outside the 48 (#348, #356, #368, #369, #372). Others are a **slice** of a plan PR rather than a whole one. **The plan count is the one to read for progress.**
+**Status — against the plan's 48 PRs: 48 done.** Two items inside PR-47 are recorded as **decisions rather than upgrades**, and are named in §2 and §4 (C18) instead of being left to look finished: react-router stays on 6.x, and `packageManager` is not pinned.
+Separately, **71 GitHub PRs** have been merged for this effort (#311–#384). Those two numbers are not the same thing, and revisions of this file before #356 wrongly treated them as one. Several merged PRs were docs/runbook updates (#340, #343, #346, #352, #371), CI fix-ups (#330, #345), or carry-over items outside the 48 (#348, #356, #368, #369, #372). Others are a **slice** of a plan PR rather than a whole one. **The plan count is the one to read for progress.**
 
-Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-BE closed)** · **W3 ✅ 7/7** · **W4 ✅ 3/3** · **W5 ✅ 6/6** · **W6 ✅ 4/4** · **W7 2.5/3**
+Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-BE closed)** · **W3 ✅ 7/7** · **W4 ✅ 3/3** · **W5 ✅ 6/6** · **W6 ✅ 4/4** · **W7 ✅ 3/3**
 
 > **One honest caveat on W5 (accessibility).** Every fix in #373–#378 is proven by tests and by
 > computed values (contrast ratios, ARIA wiring, focus order, import graphs), and each was shown
@@ -93,72 +93,93 @@ Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-
 | [#381](https://github.com/ashutoshroli/chhath-full-codebase/pull/381) | same-origin push navigation and a privacy notice that is true | W6 PR-44 | `push-sw.js`'s `notificationclick` passed `data.url` straight to `openWindow()` with **no origin check**, so a notification could open any external page from inside the app. The page side carried a comment *claiming* same-origin over `safeUrl()`, which accepts any `https:` origin — comment and code disagreed and the comment was the one being read. Six privacy sections added in **en + hi**, naming Google Fonts and the IP disclosure | Self-hosting the fonts (the only real fix, unverifiable without previews) and server-side unsubscribe |
 | [#382](https://github.com/ashutoshroli/chhath-full-codebase/pull/382) | load only the active skin and page | W6 PR-45 | The skin registry statically imported **all five skins**, and each skin's barrel `index.ts` imported all **eight** of its pages — 46 skin components on the critical path of every route. Measured on `main`: total client JS 622 kB and **every page fetched 583–603 kB of it on first load**, i.e. ~96% of the app to open one page in one skin. SvelteKit's per-route splitting was correct; a barrel upstream of the routes made it pointless. Non-default skins are now one lazy chunk each; the **default** skin stays static (layout imports its Shell, each route its own page) because the theme is only known in the browser, so prerendered HTML can only ever be the default — and #379's crawler content depends on that HTML being real. **Worst page 603,342 → 379,877 bytes (−37%)**. Total went **up** 2.6% (more, smaller chunks), which is why a total-only budget would have scored this as a regression — so CI now gates first-load bytes per page too | Lazy-loading the always-mounted overlays (Chatbot / ThemeGallery) — a11y-sensitive, and 3 kB of source |
 
+| [#383](https://github.com/ashutoshroli/chhath-full-codebase/pull/383) | measure first-load JS by import closure, not preload hints | corrects #382 | The budget added hours earlier summed only the modules the prerendered HTML **names**, assuming the bundler preload-hints the whole critical path. It does not, and the shortfall depends on the bundler: **810 bytes** under vite 5 (rollup), **11,109** under vite 8 (rolldown). That makes the number useless for the one thing a budget is for — comparing two builds; it credited the vite 8 upgrade with 24 kB when the real figure is 14 kB. Now walks static imports out from the HTML-named entries, cross-checked against an independently written closure calculation (both 380,683 B). Of 6 mutations, 5 caught; **the 6th survived correctly** — deleting the visited check changes nothing observable, so the code comment was what was wrong | None |
+| [#384](https://github.com/ashutoshroli/chhath-full-codebase/pull/384) | the frontend toolchain, and two upgrades deliberately not taken | W7 PR-47 | vite 8 / vitest 5 / plugin-svelte 7 / svelte 5.57 / kit 2.70.3 in both SvelteKit apps: `npm audit` **11 findings (1 critical, 1 high) → 4 low**. The critical is Vitest's **UI server**, which is never started, and the high is a Windows-only dev-server path — none of it ships, so the risk in this PR is the *upgrade*, vite 8 being a different bundler (rolldown) producing what the live portal serves. Verified without a browser: **all 13 prerendered pages byte-identical** before/after (and both mgmt pages), 0 svelte-check warnings, 271 + 130 tests, and budgets improving (v6 first-load 380,683 → 366,606; mgmt total 1,015,764 → 987,893). **react-router stays on 6.x** — no fix exists inside v6, the only upgrade is a router major in the untested live mgmt portal, and the app reaches neither advisory because it uses no `<Link>`, no `useNavigate` and no data router; that is now a test, not a claim (4 mutations, all caught). The 4 remaining lows are `cookie` via kit, whose vulnerable range includes kit's **own latest release** | react-router 6.x (**C18**); `packageManager` unpinned; the four legacy public frontends untouched (not deployed — the live portal is v6, confirmed against the live site) |
+
 <sub>#332 and #333 were closed as superseded by #334, and #322 by #323: GitGuardian flagged an *intermediate* commit (an enumerated list of credential column names), and such findings stay attached to a PR's whole history — the branch was recreated from `main` as one clean commit.</sub>
 
 ---
 
-## 2. This PR — load only the active skin and page (W6 PR-45)
+## 2. This PR — the frontend toolchain, and two upgrades deliberately not taken (W7 PR-47)
 
-**Audit ID:** W6 PR-45 (`perf/public-lazy-skins`). The last unshipped PR in the plan apart from
-PR-47's held-back majors.
+**Audit ID:** W7 PR-47, the remaining half. The earlier half — the vulnerable transitive
+`@xmldom/xmldom` — shipped in [#358](https://github.com/ashutoshroli/chhath-full-codebase/pull/358).
 
-**The defect, measured before touching anything.** `skins/registry.ts` statically imported all
-five skins; each skin's barrel `index.ts` statically imported all eight of its pages;
-`stores/skin.ts` imports the registry, and the root layout **and every route** import that store.
-So 46 skin components sat on the critical path of every page. On the build from `main`:
+### What was upgraded
 
-```
-total client JS                       622,544 bytes
-worst page, first-load JS             603,342 bytes   (guide.html)
-home page, first-load JS              583,657 bytes
-```
+`Public/frontend-v6` and `mgmt/frontend-svelte` move to **vite 8, vitest 5,
+@sveltejs/vite-plugin-svelte 7, svelte 5.57, kit 2.70.3, adapter-static 3.0.10** (and
+`@vite-pwa/sveltekit` 1.1.0 for v6). `npm audit` in each goes from **11 findings (1 critical,
+1 high, 5 moderate, 4 low) to 4 low**.
 
-Every page fetched 94–97% of the whole app. SvelteKit's per-route code-splitting was working
-exactly as designed — a barrel import upstream of the routes made the split worthless.
+One source change was required: `defineConfig` now comes from `vitest/config` rather than
+`vite`, because vitest 5 stopped augmenting vite's config type through
+`/// <reference types="vitest" />`.
 
-**The fix, and the one thing it must not break.** The theme is chosen in the browser (saved
-value, else device preference, else random — see the no-flash script in `app.html`), so the
-server can only ever prerender the **default** skin. That prerendered body is what #379's SEO
-work depends on. So the default skin stays **static**: the root layout imports its `Shell`, and
-each route imports its own page. Only non-default skins became lazy — one chunk each, fetched by
-the small minority who have picked a different theme.
+### How it was verified without a browser
 
-```
-total client JS                       638,729 bytes   (+2.6%)
-worst page, first-load JS             379,877 bytes   (-37%)
-```
+The advisories here are all **dev-server / test-runner** exposures — they need a developer's
+`vite dev` or `vitest --ui` to be running and reachable. Nothing in this set ships to
+visitors. So the risk in this PR is not the vulnerability, it is the upgrade: vite 8 replaces
+rollup with rolldown, which is a different bundler producing the JavaScript that the live
+public portal serves. Previews are SSO-gated (C17), so:
 
-The total going **up** is the honest trade: more chunks means more per-chunk overhead. It also
-means the existing total-bytes budget would have scored this improvement as a regression, so CI
-now gates **first-load bytes per page**, read off the prerendered HTML — the modules the browser
-must fetch before it can hydrate. `scripts/first-load-bytes.mjs`, budget 420,000.
+- **Every prerendered page was compared, before and after, and all 13 are byte-identical** —
+  after normalising content hashes, the SvelteKit bootstrap payload, and `modulepreload`
+  hints (whose count is a bundler choice, not app behaviour). Same for both of
+  `mgmt/frontend-svelte`'s pages. That is direct evidence the markup a visitor and a crawler
+  receive did not change.
+- `svelte-check --fail-on-warnings`: **0 errors, 0 warnings** in both apps.
+- **271 tests** in v6 and **130** in mgmt, all green on vitest 5.
+- Budgets improved rather than regressed: v6 total client JS **638,729 → 623,123**, worst-page
+  first-load **380,683 → 366,606**; mgmt total **1,015,764 → 987,893** against a 1,150,000 budget.
 
-**What the tests actually assert.** 51 new tests (207 → 269 in this app, plus 11 that moved).
-The rule is asserted on the **import graph**, not on a byte count: a walker follows real static
-imports from every route and the layout, ignoring `import()`, and requires that no route reaches
-any skin component except the default Shell and that route's own default page. **21 of 28** of
-those fail on `main`, where each route reaches all 46. Separately, `stores/skin.test.ts` holds
-still the state this PR invents — "your skin is chosen but has not arrived yet" — and pins the
-four things that can go wrong in it: an empty prerender, an `undefined` first value for a
-returning visitor, a blank frame mid-load, and an abandoned skin winning a race.
+Comparing those numbers honestly required fixing the first-load metric first, in
+[#383](https://github.com/ashutoshroli/chhath-full-codebase/pull/383): the gate shipped in
+#382 read `modulepreload` hints, which miss 810 bytes under rollup and 11,109 under rolldown,
+so it credited this upgrade with a 24 kB improvement when the real figure is 14 kB.
 
-**Twenty mutations, all caught.** Including: `isLazySkin` always true and always false; caching a
-rejection forever; not caching at all; `skinPage` ignoring its page id; dropping `derived`'s
-initial value; removing the race guard; re-adding the premium barrel; keying the cross-fade on
-the skin id again; and five on the budget script itself (double-counting references, counting
-only `entry/` chunks, scoring a missing file as zero, reporting the lightest page, an off-by-one
-on the limit). Two mutations were caught by things other than a named assertion, which is worth
-recording: removing the promise's rejection handler is caught by vitest's unhandled-rejection
-detection (exit 1), and widening `DEFAULT_SKIN_ID` from a literal to `SkinId` is caught by
-`svelte-check` (2 errors) — `Exclude<SkinId, typeof DEFAULT_SKIN_ID>` is what stops the loader
-table and the default from silently disagreeing.
+### react-router: NOT upgraded, and asserted rather than asserted-to-be-fine
 
-**Two of my own mistakes in this PR, for the record.** The first version of
-`stores/skin.test.ts` leaked subscriptions between tests, and because these stores only load
-while subscribed, the "one request between the layout and the route" assertion saw six — the
-test caught it, not review. And the budget script's own test was first written to
-`src/lib/build/`, which matches this app's `.gitignore` rule for the SvelteKit output directory:
-it passed locally and was never committed, so CI would have gated on a script with no tests.
+`react-router` 6.0.0–7.17.x has an unpatched **open redirect via a backslash in `<Link>` /
+`useNavigate`** (GHSA-wrjc-x8rr-h8h6) and a **constructor injection in `deserializeErrors()`**
+during SSR hydration (GHSA-337j-9hxr-rhxg). `react-router-dom@6.30.6` is the last 6.x and is
+in both ranges: **there is no fix inside v6.** npm's only offer is 7.18.4 — a major version of
+the router, in the app that **is the live management portal**, which has no tests at all (C2),
+with no way to open a browser against it (C17).
+
+The app cannot reach either advisory, because of how it uses the router: it imports only
+`BrowserRouter`, `Routes`, `Route`, `useLocation` and `useParams` — **no `<Link>`, no
+`useNavigate`, no data router**. That is a fact about today's source, not a property, so it is
+now a test (`mgmt/frontend-svelte/src/lib/reactRouterExposure.test.ts`) that fails and names
+the advisory if any of those APIs appear. The guard also fails once the app is on ≥7.18.0, so
+it cannot become an excuse to stay behind. Four mutations — adding `useNavigate`, adding
+`<Link>`, adopting `createBrowserRouter`, and breaking the version comparison so the guard
+would go vacuous — are all caught. Tracked as **C18**.
+
+### `cookie`: there is nothing to upgrade to
+
+The 4 remaining low findings are all `cookie@<0.7.0` reached through `@sveltejs/kit`. The
+advisory's vulnerable range is `@sveltejs/kit 1.0.0-next.0 - 2.70.3`, and **2.70.3 is the
+latest release** — which is why `npm audit fix --force` proposes `@sveltejs/kit@0.0.30`, a
+downgrade to 2021. Both apps are `adapter-static` with prerendering, so kit's cookie code
+never runs in production at all. Left as-is, deliberately.
+
+### `engines` pinned; `packageManager` not
+
+`engines.node` is set on the two upgraded apps to `^22.12.0 || ^24.0.0 || >=26.0.0` — vitest 5's
+own constraint, the tightest in the toolchain, and one that notably **excludes node 23 and 25**.
+It is not added to the backends or the legacy frontends: their toolchains do not require it, and
+a pin that does not reflect a real constraint is worse than none. `packageManager` is not pinned:
+it hands install control to corepack across seven CI jobs to gain nothing that `npm ci` plus a
+committed lockfile does not already give.
+
+### The four legacy public frontends are not upgraded
+
+`Public/frontend`, `-v2`, `-v3`, `-v4`, `-v5` are unbuilt, ungated by CI, and not deployed —
+**the live portal is v6**, confirmed against `chhath.shaharpura.com`, whose no-flash theme script
+carries v6's 7 light / 11 dark theme ids (v5 has 3; v4 has no such script). Upgrading four
+unbuilt apps with no CI would be changing code nothing verifies.
 
 ## 3. Pending
 
@@ -174,8 +195,8 @@ which is a decision affecting all six frontends). Neither is a bug waiting to be
 **W5 — Accessibility ✅ done (6/6):** ~~public dialog primitive (#373)~~ · ~~mgmt dialog primitive (#374)~~ · ~~combobox/buttons (#375)~~ · ~~contrast + `:focus-visible` (#377, zoom half in #357)~~ · ~~live regions + labels (#376, closes C7)~~ · ~~structure/motion (#378)~~
 <sub>All six are proven by tests and computed values, and each was shown to fail on `main` first. **None has been seen in a browser** — the Vercel previews are SSO-gated. That gap is **C17**, not a silent assumption.</sub>
 **W6 — SEO / PWA / privacy / perf ✅ done (4/4):** ~~route metadata (#379)~~ · ~~manifest + update UX (#380)~~ · ~~privacy + same-origin push (#381)~~ · ~~lazy skins (#382)~~
-**W7 — Platform (0.5 left):** ~~CI gates~~ *(#353 migration matrix + #355: C5, bundle budgets, fail-on-warning)* · ~~**PR-48** observability + retention~~ *(#364 retention, #365 telemetry + C9)* · **PR-47** dependency upgrades — **part-done**: the vulnerable transitive `@xmldom/xmldom` was pinned in [#358](https://github.com/ashutoshroli/chhath-full-codebase/pull/358) after finding that `npm ci` still installed it (npm never records `overrides` in a lockfile). The remaining half is the vite 5→8 / vitest 2→5 majors, held back deliberately: the advisories are **dev-server-only**, and the upgrades cannot be verified without frontend preview deploys.
-<sub>`npm audit fix --force` was rejected — it proposes downgrades, including `@sveltejs/kit@0.0.30`.</sub>
+**W7 — Platform ✅ done (3/3):** ~~CI gates~~ *(#353 migration matrix + #355: C5, bundle budgets, fail-on-warning; #382 first-load budget, corrected in #383)* · ~~**PR-48** observability + retention~~ *(#364 retention, #365 telemetry + C9)* · ~~**PR-47** dependency upgrades~~ *(#358 `@xmldom/xmldom`; #384 vite 8 / vitest 5 / plugin-svelte 7 / kit 2.70.3 across both SvelteKit apps — 11 findings down to 4 low)*
+<sub>Two items in PR-47 are decisions, not omissions, and both are asserted by tests rather than described in prose: **react-router stays on 6.x** (no fix exists inside v6; the only upgrade is a router major in the untested live mgmt portal, and the app reaches neither advisory — **C18**), and the 4 remaining low findings are `cookie` via `@sveltejs/kit`, whose vulnerable range includes kit's own latest release, so there is nothing to upgrade to. `npm audit fix --force` stays rejected — it proposes downgrades, including `@sveltejs/kit@0.0.30`.</sub>
 
 ---
 
@@ -199,3 +220,4 @@ which is a decision affecting all six frontends). Neither is a bug waiting to be
 | ~~C15~~ ✅ | **The contributor picker shows no father's name.** `Home.svelte` builds `{ value: ID, label: Name, sub: Village }`; `u["Father's Name"]` is on the row and unused. Village separates the two *Ajay Verma* rows in the reported screenshot (Gardih / Shaharpura) but **two same-name people in the same village are indistinguishable** — which is exactly when the wrong contributor is picked and money is recorded against the wrong person. | Add father's name to the option and to the search text, in every picker sharing `SearchableSelect`. No migration, no setup. | **Done — [#348](https://github.com/ashutoshroli/chhath-full-codebase/pull/348)** |
 | ~~C16~~ ✅ | **The public portal never shows a father's name — for anyone.** The public Worker emits the key with a TRAILING SPACE (`fathers_name: "Father's Name "`, inherited from the original sheet headers) and `Public/frontend-v6/src/lib/api/derive.ts:268` reads `"Father's Name"` without it, so `fatherName` is always `''` and `ContributorDetail.svelte`'s `{#if displayFather}` never renders. Found while checking C15; mgmt is unaffected (its alias is exact and its inbound lookup already normalises — see the note at `tableRegistry.js:75`). | Normalise the header lookup on the READ side, not the wire key: changing the key would break any other reader. No migration, no setup. | **Done — [#348](https://github.com/ashutoshroli/chhath-full-codebase/pull/348)** |
 | C17 | **Nothing in W5 (#373–#378) has been verified in a browser.** Contrast ratios, ARIA wiring, focus order, target sizes and the import graph are all asserted by tests and computed values, and each defect was shown to fail on `main` — but no rendered page has been looked at | The Vercel preview deployments for this repo are behind **Deployment Protection / SSO**: every preview URL (e.g. `chhath-public-v4-git-<branch>-…vercel.app`) redirects to `vercel.com/login`, so an automated browser cannot reach one. A local dev server is not a substitute here — background processes do not survive between tool calls in this environment, so the browser cannot reach `localhost` either. Computed contrast and asserted ARIA are strong evidence about the properties they measure; they say nothing about whether a focus ring is visible against a particular background, or whether a 24 px target sits where a thumb lands | **Needs the owner:** either disable preview protection for this repo, or supply a protection-bypass token. Then the W5 screens can be walked keyboard-only and screenshotted |
+| C18 | **`react-router` 6.x has an unpatched open redirect** (GHSA-wrjc-x8rr-h8h6, `<Link>` / `useNavigate`) and an SSR-hydration constructor injection (GHSA-337j-9hxr-rhxg). `react-router-dom@6.30.6` is the last 6.x and is inside both ranges | There is no fix in v6. npm's only offer is **7.18.4, a router major**, in the app that IS the live management portal, which has **no tests** (C2) and cannot be opened in a browser from here (C17). The app reaches neither advisory: it imports only `BrowserRouter`, `Routes`, `Route`, `useLocation`, `useParams` — no `<Link>`, no `useNavigate`, no data router. Since that is a fact about today's source rather than a property, it is asserted by `mgmt/frontend-svelte/src/lib/reactRouterExposure.test.ts`, which fails and names the advisory if any of those APIs appear — and also fails once the app is on ≥7.18.0, so it cannot become a reason to stay behind | Upgrade to react-router 7 **with** the retained-app test harness from C2, or when the live portal moves to the Svelte mgmt app |
