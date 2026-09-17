@@ -1,10 +1,8 @@
 import './polyfills.js';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
-import App from './App.jsx';
-import ConsentPage from './views/ConsentPage.jsx';
-import AnnouncePage from './views/AnnouncePage.jsx';
+import { BrowserRouter } from 'react-router-dom';
+import AppRoutes, { GtmRouteTracker } from './routes.jsx';
 import { reportClientError, isIgnorableClientError } from './api.js';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { reloadOnceForChunkError } from './chunkGuard.js';
@@ -33,18 +31,6 @@ window.addEventListener('unhandledrejection', (e) => {
   reportClientError('window.unhandledrejection', msg, err, {});
 });
 
-function GtmRouteTracker() {
-  const location = useLocation();
-  React.useEffect(() => {
-    window.dataLayer = window.dataLayer || [];
-    window.dataLayer.push({
-      event: 'pageview',
-      page: location.pathname + location.search,
-    });
-  }, [location]);
-  return null;
-}
-
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
@@ -53,14 +39,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       {
 }
       <ErrorBoundary name="root">
-        <Routes>
-          {}
-          <Route path="/consent/:token" element={<ConsentPage />} />
-          {}
-          <Route path="/announce/:token" element={<AnnouncePage />} />
-          {}
-          <Route path="*" element={<App />} />
-        </Routes>
+        <AppRoutes />
       </ErrorBoundary>
     </BrowserRouter>
   </React.StrictMode>
