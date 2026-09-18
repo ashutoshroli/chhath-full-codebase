@@ -1,0 +1,26 @@
+{
+  "project_type": "Multi-part portal: Cloudflare Worker mgmt API (mgmt/backend), a Node/Express-style Render offload service (mgmt/server-render), a React SPA (mgmt/frontend), and a Svelte SPA (mgmt/frontend-svelte). Public site under Public/.",
+  "language": "JavaScript (ESM, .mjs tests). React (.jsx) and Svelte on the frontends.",
+  "build_system": "npm per package. No monorepo tool. Cloudflare Wrangler for the Worker deploy; Render for the offload service.",
+  "test_framework": "node:test (built-in) with hand-written D1/KV stubs in mgmt/backend/test/helpers/stubs.mjs. Source-level contract tests read frontend/handler source text and assert compatibility (see frontend-payloads-pass-the-server-guard.test.mjs). vitest on mgmt/frontend.",
+  "build_command": "No compile step for backend/render (plain ESM). Frontends: npm run build in mgmt/frontend.",
+  "test_command": "Backend: cd mgmt/backend && node --test --test-reporter=spec test/*.test.mjs (baseline 1083 pass / 0 fail). Render: cd mgmt/server-render && node --test test/*.test.mjs (~199). Frontend: cd mgmt/frontend && vitest.",
+  "verification_instructions": "1) export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\". 2) Run backend suite, confirm 1083+new pass / 0 fail. 3) Run render suite, confirm green. 4) Confirm the new prove-first test FAILS if the fix line is reverted (req.data -> req.base64).",
+  "snapshot_or_generated_files": "mgmt/server-render has a golden-fixture parity test (test/docxRender.test.mjs) proving Render fill output is byte-identical to the browser renderer. No regeneration command needed for this fix; the report DOCX template is already correct and needs no re-upload.",
+  "setup_instructions": "export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\" (PREPEND). Node v22.23.2. Dependencies already installed in the repo (node_modules present).",
+  "environment_constraints": "Agent has NO Cloudflare or Render credentials and cannot deploy. Cannot exercise the live Worker->Render->Drive path. Validation is host-based via node:test with D1/KV stubs and source-level contract assertions. The user deploys the mgmt Worker and the Render service on his own infra.",
+  "contribution_requirements": "Keep existing suites green (backend 1083, render ~199) including the docxRender drift/parity test. Do NOT push or open PRs (orchestrator handles that). Work on a NEW branch off main. Do NOT modify PdfExport.jsx data-building (the frontend is confirmed correct).",
+  "key_patterns": "The Worker action router builds a `handlers` object inline in index.js default export (around line 768); each handler reads fields off `req` (the parsed request body). The frontend api.js `call(action, body)` posts {action, ...body}. dispatchBulkPdfConvert(env, docType, year, recordId, data, fileName, user, opts) forwards `data` into the Render 'pdf_convert' job as payload.data; Render (mgmt/server-render/src/jobs/pdfConvert.js -> lib/docxRender.js) fills the template with docxtemplater (paragraphLoop:true, inverted sections) using payload.data. Receipts use the batch path (convertDocxToPdfBatch -> req.items where each item carries .data) which is why they work.",
+  "relevant_files": [
+    "mgmt/backend/src/index.js (line ~1129-1138: convertDocxToPdfBulk handler — THE BUG: passes req.base64 instead of req.data as the 5th arg)",
+    "mgmt/backend/src/docxTemplates.js (dispatchBulkPdfConvert at line 439: 5th param named `data`, forwards data:data||{} to Render)",
+    "mgmt/frontend/src/api.js (line ~443: convertDocxToPdfBulk sends {docType, year, recordId, data, fileName, force} — placeholders under `data`)",
+    "mgmt/frontend/src/views/PdfExport.jsx (confirmed-correct; builds placeholders with nested arrays loans/guarantors/contributors/expenses and calls api.convertDocxToPdfBulk(docType,year,recordId,placeholders,fileName,true))",
+    "mgmt/server-render/src/jobs/pdfConvert.js (runPdfConvert: fills template with payload.data)",
+    "mgmt/server-render/src/lib/docxRender.js (docxtemplater config: paragraphLoop, inverted sections — correct)",
+    "mgmt/backend/test/c2-convertdocx-authorization.test.mjs (pattern for docx tests driving real exported fns)",
+    "mgmt/backend/test/frontend-payloads-pass-the-server-guard.test.mjs (pattern for a source-level contract test that reads frontend + server source and asserts they agree — the model for the prove-first test here)",
+    "mgmt/backend/test/helpers/stubs.mjs (makeD1/makeKV/schemaFor stubs)"
+  ],
+  "directory_structure": "mgmt/backend = Cloudflare Worker API (src/*.js, test/*.test.mjs). mgmt/server-render = offload service (src/jobs/*, src/lib/*). mgmt/frontend = React SPA. mgmt/frontend-svelte = Svelte SPA. Public/ = public site."
+}

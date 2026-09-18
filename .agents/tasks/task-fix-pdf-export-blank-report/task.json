@@ -1,0 +1,7 @@
+{
+  "task_id": "task-fix-pdf-export-blank-report",
+  "task_description": "Fix the More -> PDF Export Annual Report producing a blank (template-only, no data) PDF. Root cause: mgmt/backend/src/index.js convertDocxToPdfBulk handler forwards req.base64 (undefined) instead of req.data as the placeholder-set argument to dispatchBulkPdfConvert, so the Render pdf_convert job fills the report template with an empty object and every loop/scalar renders blank. Fix: forward req.data; add prove-first tests (handler wiring contract, Render-job data preservation, Render loop fill). Keep existing suites green. User must redeploy the mgmt Worker for the fix to take effect.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null
+}

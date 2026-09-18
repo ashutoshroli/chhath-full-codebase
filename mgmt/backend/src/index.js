@@ -1129,11 +1129,18 @@ export default {
       convertDocxToPdfBulk: () => withAuth(env, req, (user) => {
         requireSuperadmin(user);
         // Bulk conversion is OFFLOADED to Render (per-record async): dispatch the
-        // docx→PDF job and return a jobId to poll. Falls back to synchronous
-        // in-Worker conversion if Render isn't configured. The dedup read + the
+        // docx→PDF job and return a jobId to poll. The dedup read + the
         // generated_files index write stay in the Worker.
+        //
+        // SERVER-SIDE FILL: this path sends the record's fill DATA (the placeholder
+        // set with nested arrays loans/guarantors/contributors/expenses + scalars),
+        // NOT a pre-filled .docx. The frontend (api.js convertDocxToPdfBulk) posts
+        // those placeholders under `req.data`; the Worker resolves the template and
+        // Render fills it. So forward `req.data` — the 5th param of
+        // dispatchBulkPdfConvert is `data`. (Passing req.base64 here — undefined for
+        // this path — made Render fill with {} and produced a blank report PDF.)
         return docx.dispatchBulkPdfConvert(
-          env, req.docType, req.year, req.recordId, req.base64, req.fileName,
+          env, req.docType, req.year, req.recordId, req.data, req.fileName,
           user, { force: !!req.force }
         );
       }),
