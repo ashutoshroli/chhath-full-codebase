@@ -1,0 +1,25 @@
+{
+  "project_type": "SvelteKit static site (PWA) — public transparency portal for Navyuvak Chhath Puja Samiti, live at https://chhath.shaharpura.com",
+  "language": "TypeScript + Svelte 5",
+  "build_system": "Vite 8 + @sveltejs/adapter-static + @vite-pwa/sveltekit. Node pinned via nvm: export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\" (PREPEND).",
+  "test_framework": "vitest (run: npm test). Existing relevant tests: src/lib/seo.test.ts (SEO/OG/head), src/lib/pwaManifest.test.ts (manifest icon pattern).",
+  "build_command": "cd Public/frontend-v6 && npm run build",
+  "test_command": "cd Public/frontend-v6 && npm test",
+  "verification_instructions": "From Public/frontend-v6 with the nvm PATH prepended: (1) npm ci; (2) npm run check — svelte-check --fail-on-warnings, MUST stay 0 errors / 0 warnings; (3) npm test — vitest, all green; (4) npm run build — MUST stay within CI JS budget. After build, confirm build/manifest.webmanifest is byte-identical to before the change (only expected diff is none for manifest), and grep the CSP in vercel.json / built headers to confirm cloudflareinsights is present in script-src and connect-src.",
+  "snapshot_or_generated_files": "manifest.webmanifest and sitemap.xml are generated at build time (vite-plugin-pwa + routes/sitemap.xml/+server.ts). These must NOT change as a result of this task. No snapshot regen command needed for the changes here.",
+  "setup_instructions": "export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\"; cd Public/frontend-v6; npm ci (node_modules already present but run to be safe).",
+  "environment_constraints": "Scope ALL changes to Public/frontend-v6 ONLY. Do NOT touch Public/frontend-v2..v5, backend, or mgmt apps. Do NOT push or open a PR (orchestrator handles publishing). CI job public-frontend-v6 enforces: npm run check (0/0), npm test, npm run build, total client JS <= 700000 bytes AND a per-page critical-path budget. None of the planned edits add JS.",
+  "contribution_requirements": "vercel.json follows the Vercel JSON schema — do NOT add non-schema keys (e.g. a 'comment' key previously broke the schema). Only edit the Content-Security-Policy header VALUE. Keep the CSP a single valid string.",
+  "key_patterns": "v6 has FIVE skins (aurora, classic, festival, premium, slate) each with pages/Home.svelte + Shell.svelte. DEFAULT_SKIN_ID = 'premium' (src/lib/skins/skinMap.ts:13) — the default/statically-imported skin is what the prerendered HTML and crawlers see, so premium's home is the page Lighthouse scored. h1 status on home route: aurora/classic/festival Home.svelte already have <h1 class=\"sr-only\">{$tr('app_title')}</h1>; slate Home.svelte has a visible <h1>{$tr('master_calc')}</h1>; premium Home.svelte has NO h1 (it renders HeroBanner which uses only <p>). HeroBanner.svelte is used ONLY by premium. app_title = 'Chhath Puja' (i18n.ts:21). Full document title (premium Home <svelte:head> and everywhere) = 'Chhath Puja Transparency Portal — Navyuvak Chhath Puja Samiti'. Seo.svelte (rendered once from +layout.svelte) sets og:title/twitter:title from `title` which for the home path resolves to just $tr('app_title') = 'Chhath Puja' — this is the weak social title. og:image/twitter:image currently point at /icons/icon-512.png (512 square). static/screenshots/wide.png (1280x720) exists and is a valid >=1200x630 candidate; static/screenshots/narrow.png also exists.",
+  "relevant_files": [
+    "Public/frontend-v6/vercel.json (CSP header value — add cloudflareinsights to script-src + connect-src)",
+    "Public/frontend-v6/src/lib/skins/premium/pages/Home.svelte (add one <h1> matching other skins' sr-only pattern)",
+    "Public/frontend-v6/src/lib/components/Seo.svelte (og:title/twitter:title strong title; og:image/twitter:image + twitter:card)",
+    "Public/frontend-v6/src/lib/seo.test.ts (update/extend assertions for OG title/card/image)",
+    "Public/frontend-v6/src/lib/i18n.ts (app_title, master_calc — reference only, do not change)",
+    "Public/frontend-v6/src/lib/config.ts (config.siteUrl — reference)",
+    "Public/frontend-v6/src/lib/skins/aurora/pages/Home.svelte (h1 pattern reference)",
+    "Public/frontend-v6/.github/workflows/ci.yml (public-frontend-v6 job + JS budget, at repo root .github/workflows/ci.yml)"
+  ],
+  "directory_structure": "Public/frontend-v6/src/lib/skins/<skin>/{Shell.svelte,pages/*.svelte}; src/lib/components/ (Seo.svelte, HeroBanner.svelte, etc.); src/lib/seo.ts + seo.test.ts; src/routes/ (+layout.svelte renders <Seo/>, sitemap.xml/+server.ts); static/screenshots/{wide,narrow}.png; vite.config.ts (vite-plugin-pwa manifest); vercel.json (headers incl. CSP)."
+}

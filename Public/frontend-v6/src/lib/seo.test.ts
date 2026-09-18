@@ -117,6 +117,33 @@ describe('PR-42: the canonical names the page it is on', () => {
     }
   });
 
+  it('the social image is the wide screenshot, not the square app icon', () => {
+    const seo = read('lib/components/Seo.svelte');
+    // og:image / twitter:image feed the share card; the 512-square icon fails the
+    // >=1200x630 recommendation, so both point at the 1280x720 screenshot instead.
+    expect(seo, 'og:image/twitter:image must use the wide screenshot').toMatch(/screenshots\/wide\.png/);
+    expect(seo, 'the square app icon is no longer the social image')
+      .not.toMatch(/(og:image|twitter:image)[\s\S]*icon-512\.png/);
+    expect(existsSync(resolve(process.cwd(), 'static/screenshots/wide.png')),
+      'the referenced screenshot must actually exist').toBe(true);
+  });
+
+  it('exactly one summary_large_image twitter:card exists across app.html + Seo.svelte', () => {
+    const both = read('app.html') + read('lib/components/Seo.svelte');
+    const cards = both.match(/name="twitter:card"/g) || [];
+    expect(cards.length, 'a single twitter:card is the source of truth').toBe(1);
+    expect(both, 'the card must be the large-image variant for the wide screenshot')
+      .toMatch(/name="twitter:card"\s+content="summary_large_image"/);
+  });
+
+  it('the home social title is the fuller descriptive title, not the bare app_title', () => {
+    const seo = read('lib/components/Seo.svelte');
+    // og:title/twitter:title for the home route use social_title, a stronger share title
+    // than the bare app_title 'Chhath Puja'.
+    expect(seo, 'a dedicated social title must drive og:title/twitter:title').toMatch(/socialTitle/);
+    expect(seo).toMatch(/social_title/);
+  });
+
   it('app.html no longer hard-codes a competing og:title', () => {
     const html = read('app.html');
     expect(html, 'two og:title tags is worse than one wrong one').not.toMatch(/property="og:title"/);
@@ -235,5 +262,65 @@ describe('PR-42: an unknown URL is an error, and the shell is not empty', () => 
 
   it('verifyVerdict still handles idle, because the union keeps it', () => {
     expect(read('lib/api/verifyVerdict.ts')).toMatch(/status === 'loading' \|\| status === 'idle'/);
+  });
+});
+
+// --------------------------------------- 7. PWA / LIGHTHOUSE FIXES (social title, h1, CSP)
+
+describe('PWA/Lighthouse: the social title key is translatable', () => {
+  it('social_title exists in both the en and hi i18n blocks', () => {
+    const i18n = read('lib/i18n.ts');
+    // A new key must be present in both language blocks or a switch to hi drops it.
+    const occurrences = i18n.match(/social_title\s*:/g) || [];
+    expect(occurrences.length, 'social_title must be defined in both en and hi').toBe(2);
+  });
+});
+
+describe('PWA/Lighthouse: every skin home route has exactly one h1', () => {
+  const skins = ['aurora', 'classic', 'festival', 'premium', 'slate'];
+
+  it('the default (premium) home route has exactly one h1 (was zero in the audit)', () => {
+    const home = read('lib/skins/premium/pages/Home.svelte');
+    expect((home.match(/<h1/g) || []).length,
+      'premium home rendered no h1 — h1Count:0 in the live audit').toBe(1);
+  });
+
+  it('each of the five skins home route has exactly one h1 (no zero, no duplicate)', () => {
+    for (const skin of skins) {
+      const home = read(`lib/skins/${skin}/pages/Home.svelte`);
+      expect((home.match(/<h1/g) || []).length, `${skin} home must have exactly one h1`).toBe(1);
+    }
+  });
+});
+
+describe('PWA/Lighthouse: the CSP allows Cloudflare Web Analytics', () => {
+  const vercel = readFileSync(resolve(process.cwd(), 'vercel.json'), 'utf8');
+  const csp: string = (() => {
+    const json = JSON.parse(vercel);
+    for (const block of json.headers) {
+      const h = (block.headers || []).find((x: { key: string }) => x.key === 'Content-Security-Policy');
+      if (h) return h.value as string;
+    }
+    return '';
+  })();
+
+  it('script-src allows the Cloudflare Insights beacon script', () => {
+    const scriptSrc = csp.split(';').find((d) => d.trim().startsWith('script-src')) || '';
+    expect(scriptSrc, 'the beacon script host must be in script-src')
+      .toContain('https://static.cloudflareinsights.com');
+  });
+
+  it('connect-src allows the Cloudflare Insights beacon endpoint', () => {
+    const connectSrc = csp.split(';').find((d) => d.trim().startsWith('connect-src')) || '';
+    expect(connectSrc, 'the beacon endpoint must be in connect-src')
+      .toContain('https://cloudflareinsights.com');
+  });
+
+  it('the hardening directives are still intact and the CSP is one string', () => {
+    expect(typeof csp).toBe('string');
+    expect(csp).toMatch(/default-src 'self'/);
+    expect(csp).toMatch(/object-src 'none'/);
+    // No non-schema keys crept into vercel.json (a 'comment' key previously broke the schema).
+    expect(JSON.parse(vercel)).not.toHaveProperty('comment');
   });
 });

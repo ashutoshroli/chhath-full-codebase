@@ -22,17 +22,23 @@
   let title = $derived(
     meta ? (meta.path === '' ? $tr('app_title') : `${$tr(meta.titleKey)} — ${$tr('app_title')}`) : $tr('app_title')
   );
+  // Social share title: the home route's document title is the bare app_title ('Chhath Puja'),
+  // too weak a preview for a share card, so og:title/twitter:title use the fuller descriptive
+  // `social_title` there. Inner routes already get `${pageTitle} — ${app_title}` and keep it.
+  let socialTitle = $derived(meta && meta.path === '' ? $tr('social_title') : title);
   // A route with no entry in the table is not a page we want indexed — an unknown path under a
   // SPA fallback would otherwise be indexed as a copy of the home page.
   let indexable = $derived(!!meta);
-  const image = $derived(`${config.siteUrl.replace(/\/+$/, '')}/icons/icon-512.png`);
+  // Social preview image: the 1280x720 screenshot (>=1200x630 recommended) rather than the
+  // 512-square app icon, paired with a summary_large_image card (twitter:card in app.html).
+  const image = $derived(`${config.siteUrl.replace(/\/+$/, '')}/screenshots/wide.png`);
 </script>
 
 <svelte:head>
   <link rel="canonical" href={canonical} />
   <meta property="og:url" content={canonical} />
-  <meta property="og:title" content={title} />
-  <meta name="twitter:title" content={title} />
+  <meta property="og:title" content={socialTitle} />
+  <meta name="twitter:title" content={socialTitle} />
   {#if meta}
     <meta name="description" content={meta.description} />
     <meta property="og:description" content={meta.description} />

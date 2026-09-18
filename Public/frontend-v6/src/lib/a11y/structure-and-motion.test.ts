@@ -82,9 +82,11 @@ describe('PR-41: every page has exactly one h1', () => {
     it(`${skin}: no page is left without one`, () => {
       const missing = pagesOf(skin).filter((f) => {
         const src = read(`lib/skins/${skin}/pages/${f}`);
-        // PageHeading and DecadeBanner each render the h1 for the page that uses them — a plain
-        // search for `<h1` in the page file misses those and produces a false accusation.
-        return !/<h1\b/.test(src) && !src.includes('PageHeading') && !src.includes('DecadeBanner');
+        // PageHeading renders the h1 for the page that uses it — a plain search for `<h1` in
+        // the page file misses that and produces a false accusation. (DecadeBanner is NOT a
+        // heading provider: it renders no h1, so pages that show it still need their own — the
+        // default premium home now carries an sr-only <h1> directly.)
+        return !/<h1\b/.test(src) && !src.includes('PageHeading');
       });
       expect(missing, `${skin} pages with no h1`).toEqual([]);
     });
@@ -93,7 +95,7 @@ describe('PR-41: every page has exactly one h1', () => {
       for (const f of pagesOf(skin)) {
         const src = read(`lib/skins/${skin}/pages/${f}`);
         const own = (src.match(/<h1\b/g) || []).length;
-        const viaComponent = src.includes('PageHeading') || src.includes('DecadeBanner') ? 1 : 0;
+        const viaComponent = src.includes('PageHeading') ? 1 : 0;
         expect(own + viaComponent, `${skin}/${f} declares ${own + viaComponent} h1s`).toBeLessThanOrEqual(1);
       }
     });

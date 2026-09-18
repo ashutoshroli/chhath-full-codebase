@@ -19,6 +19,9 @@ export const T: Record<Lang, Dict> = {
   en: {
     // --- ported verbatim from frontend-v3 ---
     app_title: 'Chhath Puja',
+    // Fuller descriptive title for social previews (og:title / twitter:title) on the home
+    // route — the bare app_title 'Chhath Puja' is too weak a share title (audit PWA/SEO).
+    social_title: 'Chhath Puja Transparency Portal — Navyuvak Chhath Puja Samiti',
     app_subtitle: 'Transparency Portal',
     // --- User Guide page (/guide) ---
     guide_title: 'User Guide',
@@ -493,6 +496,7 @@ export const T: Record<Lang, Dict> = {
   hi: {
     // --- ported verbatim from frontend-v3 ---
     app_title: 'छठ पूजा',
+    social_title: 'छठ पूजा पारदर्शिता पोर्टल — नवयुवक छठ पूजा समिति',
     app_subtitle: 'पारदर्शिता पोर्टल',
     // --- User Guide page (/guide) ---
     guide_title: 'उपयोग गाइड',
