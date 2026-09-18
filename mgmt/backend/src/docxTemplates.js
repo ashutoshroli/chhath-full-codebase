@@ -1,7 +1,7 @@
 import { getSheetDataAsJSON, getSheetDataByColumn, getSheetDataByYear } from './crud.js';
 import { requireSuperadmin, requireYearAccess, requireStaffRole, PermissionError, ValidationError, InternalError } from './auth.js';
 import { getOrCreateFolder, uploadDocxFile, getFileBytesBase64, copyFile, convertDocxBytesToPdf, convertDocxBytesToPdfRaw } from './drive.js';
-import { r2Available, putToR2, keyForYear } from './r2.js';
+import { r2Available, putToR2, keyForGeneratedPdf, keyFromR2Url, isR2Url, deleteFromR2, GENERATED_PDF_CACHE_CONTROL } from './r2.js';
 import { logErrorAt } from './logger.js';
 import { consentPlaceholderFactory } from './consentPlaceholders.js';
 import { isTruthyFlag } from './flags.js';
@@ -259,6 +259,32 @@ async function recordGeneratedFile(env, docType, year, recordId, fileName, publi
   }
 }
 
+// Best-effort delete of the PREVIOUS R2 object on regeneration. Generated PDFs now
+// live at a DISTINCT per-generation key (keyForGeneratedPdf embeds Date.now()), so
+// re-generating a record leaves the old object behind. Delete it so distinct keys
+// do not orphan-leak R2 storage without bound.
+//
+// GUARDS:
+//   - `existingRow` is the generated_files row read BEFORE the UPSERT (via
+//     isFileGenerated), so its public_link still points at the OLD object.
+//   - Only touch R2 URLs (isR2Url): a legacy Drive-hosted public_link is NEVER
+//     passed to deleteFromR2.
+//   - Only delete when the old key DIFFERS from the new key (never delete the
+//     object we just wrote).
+//   - Never let a delete failure fail generation: wrapped in try/catch and logged
+//     non-fatally via logErrorAt, like the other best-effort paths here.
+async function deletePreviousR2Object(env, existingRow, newKey, ctx) {
+  try {
+    const oldLink = existingRow && existingRow.public_link;
+    if (!oldLink || !isR2Url(env, oldLink)) return;
+    const oldKey = keyFromR2Url(env, oldLink);
+    if (!oldKey || oldKey === newKey) return;
+    await deleteFromR2(env, oldKey);
+  } catch (err) {
+    await logErrorAt(env, 'backend-docx', 'deletePreviousR2Object', err, ctx || {}).catch(() => {});
+  }
+}
+
 // Clears the index row so the next generation becomes the canonical PDF. Used for
 // deliberate regeneration (corrected data, re-run report).
 export async function clearGeneratedFile(env, docType, year, recordId) {
@@ -357,8 +383,12 @@ export async function convertDocxToPdf(env, docType, year, recordId, base64, fil
 
   const force = !!(opts && opts.force);
 
+  // Read the existing row BEFORE any (re)generation so its public_link still
+  // points at the OLD R2 object; used to best-effort delete that object after the
+  // UPSERT rewrites the row to the new distinct key.
+  let existing = null;
   if (recordId) {
-    const existing = await isFileGenerated(env, docType, year, recordId);
+    existing = await isFileGenerated(env, docType, year, recordId);
     if (existing && !force) {
       return { success: true, skipped: true, publicLink: existing.public_link, fileName: existing.file_name };
     }
@@ -378,9 +408,13 @@ export async function convertDocxToPdf(env, docType, year, recordId, base64, fil
   if (r2Available(env)) {
     const { pdfBytes, fileName: name } = await convertDocxBytesToPdfRaw(env, base64, fileName || 'document.docx');
     pdfName = name;
-    const key = keyForYear(year, 'pdf', pdfName, docType);
-    publicLink = await putToR2(env, key, new Uint8Array(pdfBytes), 'application/pdf');
+    // Distinct per-generation key (embeds Date.now()) + a short revalidating
+    // Cache-Control so a regenerated PDF can never be served stale by the CDN.
+    const key = keyForGeneratedPdf(year, docType, pdfName);
+    publicLink = await putToR2(env, key, new Uint8Array(pdfBytes), 'application/pdf', GENERATED_PDF_CACHE_CONTROL);
     drivePath = key; // store the R2 key in drive_path so the move feature can find it
+    // Best-effort delete of the previous R2 object so distinct keys do not leak.
+    await deletePreviousR2Object(env, existing, key, { docType, year, recordId });
   } else {
     const genFolderId = await getOrCreateFolder(env, env.DRIVE_ROOT_FOLDER_ID, 'Generated PDFs');
     const typeFolderName = TYPE_FOLDER_NAMES[docType];
@@ -517,11 +551,17 @@ export async function applyPdfConvertResult(env, payload, result) {
 
   const bytes = base64ToBytes(pdfBase64, { label: pdfName, maxBytes: MAX_DOCX_BYTES * 3 });
 
+  // Read the existing row BEFORE the UPSERT so its public_link still points at the
+  // OLD R2 object; used to best-effort delete that object after the new one lands.
+  const existing = await isFileGenerated(env, docType, year, recordId);
+
   let publicLink, drivePath;
   if (r2Available(env)) {
-    const key = keyForYear(year, 'pdf', pdfName, docType);
-    publicLink = await putToR2(env, key, new Uint8Array(bytes), 'application/pdf');
+    // Distinct per-generation key + short revalidating Cache-Control (no stale CDN).
+    const key = keyForGeneratedPdf(year, docType, pdfName);
+    publicLink = await putToR2(env, key, new Uint8Array(bytes), 'application/pdf', GENERATED_PDF_CACHE_CONTROL);
     drivePath = key;
+    await deletePreviousR2Object(env, existing, key, { docType, year, recordId });
   } else {
     // R2 not configured: Render's raw-bytes path can't be indexed without a
     // public store. This should not happen (bulk offload requires R2) — record a
@@ -759,10 +799,15 @@ export async function applyPdfConvertBatchResult(env, payload, result) {
         out.push({ recordId, success: false, error: 'R2 not configured', ...(report ? { report } : {}) });
         continue;
       }
-      const key = keyForYear(year, 'pdf', pdfName, docType);
-      const publicLink = await putToR2(env, key, new Uint8Array(bytes), 'application/pdf');
+      // Read the existing row BEFORE the UPSERT so its public_link still points at
+      // the OLD R2 object; used to best-effort delete it after the new one lands.
+      const existing = await isFileGenerated(env, docType, year, recordId);
+      // Distinct per-generation key + short revalidating Cache-Control (no stale CDN).
+      const key = keyForGeneratedPdf(year, docType, pdfName);
+      const publicLink = await putToR2(env, key, new Uint8Array(bytes), 'application/pdf', GENERATED_PDF_CACHE_CONTROL);
       await recordGeneratedFile(env, docType, year, recordId, pdfName, publicLink, key).catch((err) =>
         logErrorAt(env, 'backend-docx', 'applyPdfConvertBatchResult:index', err, { docType, year, recordId }));
+      await deletePreviousR2Object(env, existing, key, { docType, year, recordId });
       out.push({ recordId, success: true, publicLink, fileName: pdfName, ...(report ? { report } : {}) });
     } catch (e) {
       out.push({ recordId, success: false, error: (e && e.message) || 'store failed', ...(report ? { report } : {}) });

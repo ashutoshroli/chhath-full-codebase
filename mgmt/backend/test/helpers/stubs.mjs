@@ -130,6 +130,48 @@ export function makeKV() {
   };
 }
 
+// R2 bucket stub. Mimics the SHAPE of the Cloudflare R2 binding used by src/r2.js:
+//   put(key, bytes, { httpMetadata: { contentType, cacheControl } })
+//   get(key) -> { arrayBuffer(), httpMetadata } | null
+//   delete(key)
+//   list({ prefix, cursor, limit }) -> { objects: [{ key, size }], truncated, cursor }
+// Backed by a Map so get/list reflect what was put. Records every put and delete
+// call so tests can assert on the key, the put options (contentType/cacheControl)
+// and which keys were deleted.
+export function makeR2() {
+  const store = new Map(); // key -> { bytes, httpMetadata }
+  const puts = [];         // { key, opts }
+  const deletes = [];      // key
+  return {
+    async put(key, bytes, opts = {}) {
+      puts.push({ key, opts });
+      store.set(key, { bytes, httpMetadata: (opts && opts.httpMetadata) || {} });
+      return { key };
+    },
+    async get(key) {
+      const e = store.get(key);
+      if (!e) return null;
+      return {
+        httpMetadata: e.httpMetadata,
+        async arrayBuffer() {
+          const b = e.bytes;
+          if (b instanceof Uint8Array) return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+          return b;
+        },
+      };
+    },
+    async delete(key) { deletes.push(key); store.delete(key); },
+    async list({ prefix = '', cursor, limit = 1000 } = {}) {
+      const objects = [...store.keys()].filter(k => k.startsWith(prefix)).map(key => ({ key, size: 0 }));
+      return { objects, truncated: false, cursor: null };
+    },
+    // Test-only introspection.
+    _store: store,
+    _puts: () => puts,
+    _deletes: () => deletes,
+  };
+}
+
 // Reads a schema file from mgmt/db/schema/ (so tests run against the REAL schema
 // and catch drift between the code and the committed DDL).
 export function schemaFor(name) {
