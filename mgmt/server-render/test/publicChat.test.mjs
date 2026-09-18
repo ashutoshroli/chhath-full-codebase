@@ -320,6 +320,139 @@ test('summary with the new sections still stays under its char bound on a large 
   assert.ok(s.length <= 6100, 'enriched summary must still be capped (~6000 chars) regardless of data size');
 });
 
+// ---- JOURNEY / 10-YEAR STORY (decade section) ----
+// A visitor asking about "hamari yatra" / the 10-year / decade story gets a real,
+// data-grounded section: DERIVED decade figures (span 2017 -> latest, grand total,
+// grand contributors, best/peak year, resold rows EXCLUDED) plus a bounded digest
+// of the real journeyEntries/journeyTagline when the backend shipped them. It is
+// the friendly EXTRA appended after the core sections, cache-only, and bounded.
+
+// Multi-year fixture spanning 2017..2024 (so the span is 2017 -> 2024). 2019 is the
+// peak year. USER0009 is a RESOLD row that must NOT inflate a contributor count.
+const JOURNEY_SAMPLE = {
+  users: [
+    { ID: 'USER0001', Name: 'Ramesh Verma' },
+    { ID: 'USER0002', Name: 'Suresh Gupta' },
+    { ID: 'USER0003', Name: 'Anil Prasad' },
+    { ID: 'USER0009', Name: 'Reseller Ji' },
+  ],
+  collections: [
+    { Year: 2017, Name: 'USER0001', Amount: 1000 },
+    { Year: 2018, Name: 'USER0001', Amount: 2000 },
+    { Year: 2018, Name: 'USER0002', Amount: 1000 },
+    { Year: 2019, Name: 'USER0001', Amount: 9000 }, // peak year total
+    { Year: 2019, Name: 'USER0002', Amount: 4000 },
+    { Year: 2024, Name: 'USER0003', Amount: 3000 },
+    // A resold row in 2024 — excluded from contributor counts AND its amount is a
+    // resell (still summed into the year total per the existing aggregation).
+    { Year: 2024, Name: 'USER0009', Amount: 500, Detail: 'Coconut basket', 'Is Resell': 'TRUE' },
+  ],
+};
+
+test('journey: summary emits the JOURNEY / 10-YEAR STORY header with the 2017 -> latest span, grand total, and best year', () => {
+  const s = summarizePortalData(JOURNEY_SAMPLE, 'hamari 10 saal ki yatra ke baare mein batao');
+  assert.match(s, /JOURNEY \/ 10-YEAR STORY/);
+  // Span runs from 2017 to the latest data year (2024).
+  assert.match(s, /Span: 2017 to 2024 \(8 years\)/);
+  // Grand total mirrors decadeStats (money-only, resold EXCLUDED):
+  // 1000+2000+1000+9000+4000+3000 = 20000 (the ₹500 resold row is not counted).
+  assert.match(s, /Total collected across the whole journey: ₹20,000/);
+  // 2019 is the peak year (9000 + 4000 = 13000).
+  assert.match(s, /Best\/peak year so far: 2019 with ₹13,000/);
+});
+
+test('journey: contributor counts EXCLUDE resold rows (a resold row does not inflate the count)', () => {
+  const s = summarizePortalData(JOURNEY_SAMPLE, 'poore decade ki journey batao');
+  // 2024 has ONE real contributor (Anil Prasad); the resold row (Reseller Ji) is
+  // excluded from BOTH the contributor count AND the money total (mirroring
+  // decadeStats), so the year shows ₹3,000 from 1 contributor.
+  assert.match(s, /2024: ₹3,000 \(1 contributors\)/);
+  // Grand contributors = 1(2017)+2(2018)+2(2019)+0(2020..2023)+1(2024) = 6.
+  assert.match(s, /from 6 contributor entries/);
+});
+
+test('journey: when journeyEntries + journeyTagline are present, the tagline and a `year — title` appear, WITHOUT the full content bodies', () => {
+  const data = {
+    ...JOURNEY_SAMPLE,
+    journeyTagline: { en: 'A decade of devotion and service.', hi: 'सेवा का एक दशक।' },
+    journeyEntries: [
+      { year: 2017, title_en: 'The First Ghat', title_hi: 'पहला घाट', content_en: 'SECRET_BODY_ONE full story text that must not be dumped', content_hi: 'गुप्त कहानी' },
+      { year: 2019, title_en: 'Record Turnout', title_hi: 'रिकॉर्ड भीड़', content_en: 'SECRET_BODY_TWO another long body', content_hi: 'लंबी कहानी' },
+    ],
+  };
+  const s = summarizePortalData(data, 'hamari yatra ki kahani');
+  assert.match(s, /Journey tagline: A decade of devotion and service\./);
+  assert.match(s, /Story highlights:/);
+  assert.match(s, /2017 — The First Ghat/);
+  assert.match(s, /2019 — Record Turnout/);
+  // The full content_en / content_hi bodies must NOT be dumped.
+  assert.doesNotMatch(s, /SECRET_BODY_ONE/);
+  assert.doesNotMatch(s, /SECRET_BODY_TWO/);
+});
+
+test('journey: when journeyEntries is absent, the DERIVED-figures narrative still appears (fallback path, no crash)', () => {
+  // JOURNEY_SAMPLE carries no journeyEntries/journeyTagline.
+  const s = summarizePortalData(JOURNEY_SAMPLE, 'decade story');
+  assert.match(s, /JOURNEY \/ 10-YEAR STORY/);
+  assert.match(s, /Total collected across the whole journey:/);
+  // No story digest lines when there are no entries.
+  assert.doesNotMatch(s, /Journey tagline:/);
+  assert.doesNotMatch(s, /Story highlights:/);
+});
+
+test('journey: buildFullContext also contains the JOURNEY / 10-YEAR STORY section', () => {
+  const s = buildFullContext(JOURNEY_SAMPLE, '');
+  assert.match(s, /JOURNEY \/ 10-YEAR STORY/);
+  assert.match(s, /Span: 2017 to 2024/);
+  assert.match(s, /Total collected across the whole journey: ₹20,000/);
+  assert.match(s, /Best\/peak year so far: 2019/);
+});
+
+test('journey: the year-scoped path carries a small decade-context line', () => {
+  // 2019 is present, so this routes through buildYearScopedContext.
+  const s = summarizePortalData(JOURNEY_SAMPLE, '2019 me kitna collection hua?');
+  assert.match(s, /only that year's data is shown below/); // confirm year-scoped branch
+  assert.match(s, /Decade context: the committee's journey runs 2017 to 2024/);
+  assert.match(s, /best year 2019/);
+  // The heavier full journey section (with the per-year growth list) is NOT on this path.
+  assert.doesNotMatch(s, /JOURNEY \/ 10-YEAR STORY/);
+});
+
+test('journey: the section is CACHE-ONLY — summarizePortalData never calls fetch (does not touch D1)', () => {
+  const orig = globalThis.fetch;
+  globalThis.fetch = () => { throw new Error('journey section must not fetch'); };
+  try {
+    let out;
+    assert.doesNotThrow(() => { out = summarizePortalData(JOURNEY_SAMPLE, 'hamari yatra ki poori kahani batao'); });
+    assert.match(out, /JOURNEY \/ 10-YEAR STORY/);
+    assert.match(out, /Span: 2017 to 2024/);
+  } finally { globalThis.fetch = orig; }
+});
+
+test('journey: the section never throws and emits nothing when there is genuinely no data', () => {
+  assert.doesNotThrow(() => summarizePortalData({}, 'hamari yatra'));
+  const s = summarizePortalData({}, 'hamari yatra');
+  assert.doesNotMatch(s, /JOURNEY \/ 10-YEAR STORY/);
+});
+
+test('journey: the section stays bounded — summary with the journey block still <= 6100 chars on a large multi-year dataset', () => {
+  const users = [];
+  const collections = [];
+  const journeyEntries = [];
+  for (let yi = 0; yi < 10; yi++) {
+    const year = 2017 + yi;
+    for (let i = 0; i < 400; i++) {
+      const uid = 'USER' + (yi * 1000 + i);
+      users.push({ ID: uid, Name: 'Person Number ' + (yi * 1000 + i) });
+      collections.push({ Year: year, Name: uid, Amount: (i + 1) });
+    }
+    journeyEntries.push({ year, title_en: 'Chapter ' + year + ' of a very long journey title that keeps going', title_hi: 'अध्याय', content_en: 'x'.repeat(5000), content_hi: 'y'.repeat(5000) });
+  }
+  const big = { users, collections, journeyEntries, journeyTagline: { en: 'z'.repeat(2000) } };
+  const s = summarizePortalData(big, 'hamari 10 saal ki yatra');
+  assert.ok(s.length <= 6100, 'summary with the journey section stays capped (~6000 chars)');
+});
+
 // ---- PHASE 1: year-scoped retrieval ----
 // When the question names a year that is present in the data, the summary is built
 // from ONLY that year's rows so the context stays bounded as years accumulate. A
