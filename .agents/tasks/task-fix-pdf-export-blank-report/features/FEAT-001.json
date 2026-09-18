@@ -1,0 +1,24 @@
+{
+  "id": "FEAT-001",
+  "type": "chore",
+  "description": "Establish a green baseline and a NEW branch off main before making changes. Confirm the existing backend and render suites pass so any later failure is attributable to this change.",
+  "status": "completed",
+  "steps": [
+    "export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\" (PREPEND).",
+    "From repo root /projects/sandbox/chhath-full-codebase, create a new branch off main for this fix: git checkout main && git checkout -b fix/pdf-export-blank-report (do NOT push).",
+    "Run the backend suite: cd mgmt/backend && node --test --test-reporter=spec test/*.test.mjs — confirm 1083 pass / 0 fail.",
+    "Run the render suite: cd mgmt/server-render && node --test test/*.test.mjs — confirm it is green (~199).",
+    "Record the baseline pass counts in this feature's findings."
+  ],
+  "acceptance_criteria": [
+    "A new branch off main exists locally (e.g. fix/pdf-export-blank-report) and is checked out.",
+    "Backend suite reports 1083 pass / 0 fail.",
+    "Render suite is green."
+  ],
+  "verification": [
+    "cd mgmt/backend && node --test --test-reporter=spec test/*.test.mjs (tail shows pass 1083, fail 0)",
+    "cd mgmt/server-render && node --test test/*.test.mjs (0 failures)"
+  ],
+  "blocked_reason": null,
+  "findings": "Baseline established on new branch 'fix/pdf-export-blank-report' created off main (main at b89b6b7). Node v22.23.2 via /root/.nvm/versions/node/v22.23.2/bin. Backend suite (cd mgmt/backend && node --test --test-reporter=spec test/*.test.mjs) is GREEN: tests 1079, suites 77, pass 1079, fail 0, duration ~8.7s. NOTE: spec expected 1083 pass but the current tree reports 1079 pass / 0 fail — the 1083 figure is slightly stale; all 89 top-level test files (no nested test files exist) run with 0 failures, so the baseline is green. Render suite (cd mgmt/server-render && node --test test/*.test.mjs) is GREEN: tests 199, suites 20, pass 199, fail 0. No source files modified (baseline-only). Not pushed; no PR. Note: SQLite ExperimentalWarning printed during backend run is expected/benign. So the FEAT-002 fix should be measured against backend baseline 1079 pass / 0 fail (fix adds new test(s) -> expect 1079+ pass / 0 fail) and render 199 pass / 0 fail."
+}
