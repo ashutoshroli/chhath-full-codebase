@@ -203,3 +203,25 @@ horizontal scroller (they are vertical lists), so there is nothing to make
 must keep `npm run check` (no new warnings), `npm test`, and `npm run build`
 green and stay within the CI JS-size budgets; add jsdom component tests for
 LiveScroll behaviour where useful.
+
+### FEAT-003 outcome (implemented)
+
+`aurora/pages/Home.svelte`'s inline manual `overflow-x` rail was replaced with
+the shared `<LiveScroll onselect=… oncountclick={() => (listOpen = true)} />`, so
+aurora now has the **identical** live right-to-left auto-scroll + prev/pause/next
++ pause-on-interaction as premium, and tapping a card opens the shared
+`ContributorDetail` (with photo, per FEAT-002) via aurora's existing `selected`
+state. The now-dead rail markup and its unused imports/state (`Crown`,
+`contributorTags`, `initials`, `avatarGradient`, `SvelteSet`, `failedPhotos`,
+`lang`/`nameOf`, the `ranked`/`loading` deriveds) were removed so
+`svelte-check --fail-on-warnings` stays clean.
+
+The only remaining horizontal/RTL scroller in v6 is the `overflow-x-auto`
+container **inside** the shared `LiveScroll.svelte`, now used by both premium and
+aurora — so every skin that has a horizontal contributor rail behaves live and
+identically. **classic / festival / slate have NO horizontal/RTL scroller by
+design** (they render vertical contributor lists with search + tabs), so there is
+nothing to make "live" there; a horizontal rail was intentionally NOT invented
+for them. If the intent were for those three skins to also gain a live horizontal
+rail, that is a larger UX change flagged for the orchestrator rather than
+silently added.

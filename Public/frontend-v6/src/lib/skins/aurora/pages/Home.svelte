@@ -1,32 +1,36 @@
 <script lang="ts">
   /**
    * Aurora home (NEW v6) — a bento-grid glass dashboard: a big budget tile,
-   * small stat tiles, and a scrollable contributor rail. Shared derive.
+   * small stat tiles, and a live contributor rail. Shared derive.
+   *
+   * The contributor rail is the shared <LiveScroll> (same component premium
+   * uses), so aurora gets the identical right-to-left auto-scroll + prev/pause/
+   * next controls + pause-on-interaction, and tapping a card opens the shared
+   * ContributorDetail card (with photo). It restyles per skin automatically via
+   * the themed `surface`/`chip`/`brand-*` classes.
    */
-  import { Crown, TrendingDown, TrendingUp, Landmark, Users } from '@lucide/svelte';
+  import { TrendingDown, TrendingUp, Landmark, Users } from '@lucide/svelte';
   import { portalState, year } from '$lib/stores/portal';
-  import { tr, lang } from '$lib/stores/lang';
-  import { computeFinancials, computeSummary, rankedContributors, contributorTags, ALL_YEARS, type Contributor } from '$lib/api/derive';
+  import { tr } from '$lib/stores/lang';
+  import { computeFinancials, computeSummary, rankedContributors, ALL_YEARS, type Contributor } from '$lib/api/derive';
   import type { Ranked } from '$lib/utils/ranking';
   import { fmt } from '$lib/utils/format';
-  import { initials, avatarGradient } from '$lib/utils/format';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import ContributorsListModal from '$lib/components/ContributorsListModal.svelte';
   import ContributorDetail from '$lib/components/ContributorDetail.svelte';
-  import { SvelteSet } from 'svelte/reactivity';
+  import LiveScroll from '$lib/components/LiveScroll.svelte';
   import { GLASS } from '../glass';
 
-  let loading = $derived($portalState.status === 'loading');
   let fin = $derived(computeFinancials($portalState.data, $year));
   let sum = $derived(computeSummary($portalState.data, $year));
-  let ranked = $derived(rankedContributors($portalState.data, $year));
   let yearLabel = $derived($year === ALL_YEARS ? $tr('all_years') : String($year));
-  const nameOf = (c: { name: string; nameHindi: string }) => ($lang === 'hi' && c.nameHindi ? c.nameHindi : c.name);
   let listOpen = $state(false);
   let selected = $state<Ranked<Contributor> | null>(null);
-  // Photos that failed to load — fall back to the initials avatar rather than
-  // hiding the image and leaving a blank gap.
-  let failedPhotos = $state(new SvelteSet<string>());
+
+  function onSelect(key: string) {
+    const ranked = rankedContributors($portalState.data, $year);
+    selected = ranked.find((r) => r.item.key === key) ?? null;
+  }
 </script>
 
 <svelte:head><title>Chhath Puja Transparency Portal — Navyuvak Chhath Puja Samiti</title></svelte:head>
@@ -88,49 +92,10 @@
     </div>
   </div>
 
-  <!-- Contributors rail -->
-  <div class="{GLASS} mt-3 p-4">
-    <div class="mb-3 flex items-center justify-between">
-      <h2 class="text-sm font-bold text-white">{$tr('contributors_live_scroll', { year: yearLabel })}</h2>
-      <button
-        type="button"
-        onclick={() => (listOpen = true)}
-        aria-label={$tr('summary_view_list_label')}
-        class="rounded text-right text-[10px] font-semibold text-violet-300/90 underline decoration-dotted underline-offset-2 transition hover:text-violet-200 focus:outline-none focus:ring-2 focus:ring-violet-400/50 cursor-pointer"
-      >{$tr('summary_view_list')}</button>
-    </div>
-    {#if loading}
-      <div class="flex gap-2.5 overflow-hidden">{#each Array(7) as _}<div class="h-28 w-24 shrink-0 animate-pulse rounded-xl bg-white/10"></div>{/each}</div>
-    {:else if ranked.length === 0}
-      <p class="py-6 text-center text-sm text-slate-400">{$tr('no_records_found')}</p>
-    {:else}
-      <div class="no-scrollbar flex gap-2.5 overflow-x-auto pb-1">
-        {#each ranked as entry (entry.item.key)}
-          {@const g = avatarGradient(entry.item.key)}
-          {@const tags = contributorTags(entry.item)}
-          <button type="button" onclick={() => (selected = entry)} aria-label={nameOf(entry.item)} class="relative w-24 shrink-0 rounded-xl border p-3 text-center transition active:scale-[.97] hover:ring-2 hover:ring-violet-400/50 focus-visible:ring-2 {entry.isTop ? 'border-amber-300/50 bg-amber-300/10' : 'border-white/10 bg-white/5'}">
-            {#if entry.isTop}<Crown class="absolute left-1/2 -top-2 h-4 w-4 -translate-x-1/2 fill-current text-amber-300" aria-label="Top {entry.rank}" />{/if}
-            {#if entry.item.photo && !failedPhotos.has(entry.item.key)}
-              <img src={entry.item.photo} alt={nameOf(entry.item)} loading="lazy" class="mx-auto h-10 w-10 rounded-full object-cover" onerror={() => failedPhotos.add(entry.item.key)} />
-            {:else}
-              <span class="mx-auto grid h-10 w-10 place-items-center rounded-full text-sm font-black text-white" style="background-image:linear-gradient(135deg,{g[0]},{g[1]})">{initials(nameOf(entry.item))}</span>
-            {/if}
-            <p class="mt-1.5 truncate text-[11px] font-semibold text-white">{nameOf(entry.item)}</p>
-            {#if entry.item.hasMoney}
-              <p class="text-xs font-black text-violet-200">{fmt(entry.item.amount)}</p>
-            {/if}
-            {#if tags.includes('material') || tags.includes('service')}
-              <p class="text-[9px] font-bold text-cyan-300">
-                {#if tags.includes('material')}{$tr('material')}{/if}{#if tags.includes('material') && tags.includes('service')} · {/if}{#if tags.includes('service')}{$tr('service')}{/if}
-              </p>
-            {/if}
-            {#if entry.item.count > 1}
-              <p class="text-[9px] font-semibold text-slate-400">{$tr('times_contributed', { count: entry.item.count })}</p>
-            {/if}
-          </button>
-        {/each}
-      </div>
-    {/if}
+  <!-- Contributors rail: shared live auto-scroll marquee (same as premium),
+       tap a card to open the detail card with photo. -->
+  <div class="mt-3">
+    <LiveScroll onselect={onSelect} oncountclick={() => (listOpen = true)} />
   </div>
 {/if}
 
