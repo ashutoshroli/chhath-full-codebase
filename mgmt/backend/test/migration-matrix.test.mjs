@@ -86,6 +86,9 @@ const DECLARED = {
 
   // ---- 2026-09-04 ----
   '2026-09-04/01-audit-sessions-logins.sql': { schema: 'audit.sql' },
+
+  // ---- 2026-09-18 ----
+  '2026-09-18/01-loan-consent-preview-templates.sql': { schema: 'templates.sql' },
 };
 
 // 2026-09-05 is already covered file-by-file, against the committed schema and twice over, by
