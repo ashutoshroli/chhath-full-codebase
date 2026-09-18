@@ -622,7 +622,7 @@ export function languageDirective(lang) {
   if (lang === 'hi') {
     return '\nReply ONLY in simple Hindi using the Devanagari script (unless the user clearly wrote in English), in one single language. Do NOT mix in words or characters from any other language or script — no Korean, Japanese, Chinese, or Spanish characters. Keep the answer coherent, factual and plain; if you are unsure, simply present the facts plainly rather than guessing.';
   }
-  return '\nReply in clear English, in one single language only. Do NOT insert words or characters from any other language or script. Keep the answer coherent, factual and plain; if you are unsure, simply present the facts plainly rather than guessing.';
+  return '\nReply in clear English, in one single language only. Do NOT insert words or characters from any other language or script — no Korean, Japanese, Chinese, or Spanish characters. Keep the answer coherent, factual and plain; if you are unsure, simply present the facts plainly rather than guessing.';
 }
 
 export function buildContextForProvider(provider, data, question, lang) {
@@ -671,49 +671,93 @@ function buildNameResolver(users) {
 //       matching computeSummary/contributorsForYear); grandTotal, grandContributors,
 //       and the best/peak year (highest total).
 // Shapes are defensive throughout: any missing field yields '' / 0, never throws.
+
+// A row is a MONEY contribution when its Contribution Type is '1' or '' (blank
+// defaults to money). Material ('2') and service ('3') rows contribute ₹0 to the
+// money total — mirrors isMoney in Public/frontend-v6/src/lib/api/derive.ts
+// contributorsForYear so the chatbot's journey totals match the public page.
+const isMoneyContribution = (c) => {
+  const t = ((c && c['Contribution Type']) ?? '1').toString();
+  return t === '1' || t === '';
+};
+
+const isResoldRow = (c) => {
+  const v = c && c['Is Resell'];
+  if (v === true) return true;
+  const s = (v ?? '').toString().trim().toLowerCase();
+  return s === 'true' || s === '1' || s === 'yes';
+};
+
+// Latest year present across collections, loans AND committee — mirrors the
+// frontend's availableYears() union so a year seen only in loans/committee still
+// extends the span. Returns 0 when no year is present anywhere.
+function latestJourneyYear(d) {
+  let max = 0;
+  const scan = (rows) => {
+    if (!Array.isArray(rows)) return;
+    for (const r of rows) {
+      const y = parseInt(r && r.Year, 10);
+      if (Number.isFinite(y) && y > max) max = y;
+    }
+  };
+  scan(d.collections);
+  scan(d.loans);
+  scan(d.committee);
+  return max;
+}
+
+// Per-year DERIVED figures for a single year, mirroring computeSummary/
+// contributorsForYear: total = Σ money-only Amount (resold + material/service
+// excluded); contributors = distinct non-resold people (keyed by ID/Name, any
+// contribution type, counted once).
+function journeyYearFigures(collections, year) {
+  let total = 0;
+  const people = new Set();
+  for (const c of collections) {
+    if (parseInt(c && c.Year, 10) !== year) continue;
+    if (isResoldRow(c)) continue;
+    if (isMoneyContribution(c)) total += num(c.Amount);
+    const id = ((c && (c.ID || c.Name)) || '').toString().trim();
+    if (id) people.add(id);
+  }
+  return { total, contributors: people.size };
+}
+
 // `opts.full` widens the per-year growth list a little for the full context.
 function buildJourneySection(data, opts) {
   const d = data || {};
   const o = opts || {};
   const collections = Array.isArray(d.collections) ? d.collections : [];
 
-  const truthyResell = (v) => v === 'TRUE' || v === true;
-
-  // Latest year actually present in the collections (0 when none).
-  const dataYears = collections.map(c => parseInt(c.Year)).filter(Boolean);
-  const latestDataYear = dataYears.length ? Math.max(...dataYears) : 0;
-
   const journeyEntries = Array.isArray(d.journeyEntries) ? d.journeyEntries : [];
   const hasEntries = journeyEntries.length > 0;
+
+  // Latest year present across collections/loans/committee (0 when none), mirroring
+  // the frontend's availableYears() which unions all three collections.
+  const latestDataYear = latestJourneyYear(d);
 
   // No data at all AND no story rows -> genuinely nothing to say.
   if (!latestDataYear && !hasEntries) return '';
 
   const startYear = DECADE_START_YEAR;
-  const endYear = Math.max(DECADE_START_YEAR, latestDataYear);
+  // Mirror decadeStats: endYear = max(2017, latest data year, current calendar
+  // year) so the span still ends at "now" even when the cached data lags the year.
+  const endYear = Math.max(DECADE_START_YEAR, latestDataYear, new Date().getFullYear());
 
-  // Per-year DERIVED figures (mirror decadeStats): total collected (money) + a
-  // contributor-entry count that EXCLUDES resold rows and counts each person ONCE
-  // per year (keyed by the row's ID/Name), matching contributorsForYear.
+  // Per-year DERIVED figures (mirror decadeStats/computeSummary): total collected
+  // (MONEY rows only — material/service contribute ₹0, matching contributorsForYear)
+  // + a contributor-entry count that EXCLUDES resold rows and counts each person
+  // ONCE per year (keyed by the row's ID/Name).
   const perYear = []; // { year, total, contributors }
   let grandTotal = 0;
   let grandContributors = 0;
   let best = null; // { year, total }
   for (let y = startYear; y <= endYear; y++) {
-    let total = 0;
-    const people = new Set();
-    for (const c of collections) {
-      if (parseInt(c.Year) !== y) continue;
-      if (truthyResell(c['Is Resell'])) continue;
-      total += num(c.Amount);
-      const id = (c.ID || c.Name || '').toString().trim();
-      if (id) people.add(id);
-    }
-    const contributors = people.size;
-    perYear.push({ year: y, total, contributors });
-    grandTotal += total;
-    grandContributors += contributors;
-    if (best === null || total > best.total) best = { year: y, total };
+    const fig = journeyYearFigures(collections, y);
+    perYear.push({ year: y, total: fig.total, contributors: fig.contributors });
+    grandTotal += fig.total;
+    grandContributors += fig.contributors;
+    if (best === null || fig.total > best.total) best = { year: y, total: fig.total };
   }
 
   const years = endYear - startYear + 1;
@@ -728,7 +772,10 @@ function buildJourneySection(data, opts) {
   const recent = perYear.slice(-(o.full ? 12 : 6));
   if (recent.length) {
     const growth = recent.map(r => `${r.year}: ${inr(r.total)} (${r.contributors} contributors)`).join('; ');
-    lines.push(`Recent years: ${growth}.`);
+    // These journey figures are MONEY contributions only (resold items and
+    // material/service contributions excluded), so they may be lower than the
+    // per-year "Year Y: collections" line above, which includes resold amounts.
+    lines.push(`Recent years (money contributions only; resold items and material/service excluded): ${growth}.`);
   }
 
   // Real story digest when present — tagline + up to ~6 `year — title` lines,
@@ -758,24 +805,20 @@ function buildJourneySection(data, opts) {
 function buildJourneyContextLine(data) {
   const d = data || {};
   const collections = Array.isArray(d.collections) ? d.collections : [];
-  const truthyResell = (v) => v === 'TRUE' || v === true;
-  const dataYears = collections.map(c => parseInt(c.Year)).filter(Boolean);
-  if (!dataYears.length) return '';
+  const latestDataYear = latestJourneyYear(d);
+  if (!latestDataYear) return '';
   const startYear = DECADE_START_YEAR;
-  const endYear = Math.max(DECADE_START_YEAR, Math.max(...dataYears));
+  const endYear = Math.max(DECADE_START_YEAR, latestDataYear, new Date().getFullYear());
   let grandTotal = 0;
   let best = null;
   for (let y = startYear; y <= endYear; y++) {
-    let total = 0;
-    for (const c of collections) {
-      if (parseInt(c.Year) !== y) continue;
-      if (truthyResell(c['Is Resell'])) continue;
-      total += num(c.Amount);
-    }
-    grandTotal += total;
-    if (best === null || total > best.total) best = { year: y, total };
+    const fig = journeyYearFigures(collections, y);
+    grandTotal += fig.total;
+    if (best === null || fig.total > best.total) best = { year: y, total: fig.total };
   }
-  const parts = [`Decade context: the committee's journey runs ${startYear} to ${endYear}, ${inr(grandTotal)} collected in total`];
+  // MONEY-only grand total (resold + material/service excluded), matching the
+  // public "Our Journey" page; may be lower than a resold-inclusive year total.
+  const parts = [`Decade context: the committee's journey runs ${startYear} to ${endYear}, ${inr(grandTotal)} collected in total (money contributions only)`];
   if (best) parts.push(`best year ${best.year} (${inr(best.total)})`);
   return parts.join(', ') + '.';
 }
