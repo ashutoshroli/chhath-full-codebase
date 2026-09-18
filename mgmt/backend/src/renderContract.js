@@ -113,13 +113,17 @@ export function planBatches(items, byteLengthOf, opts = {}) {
       // DIAGNOSTIC (temporary): the sentinel MAX_SAFE_INTEGER means the sizer's
       // JSON.stringify threw. Surface WHY so a live "8589934592.0 MB" report names its
       // cause (which key/type) instead of a mystery number. Remove once the cause is fixed.
-      let why = '';
-      if (bytes === Number.MAX_SAFE_INTEGER) {
-        const types = picked && typeof picked === 'object'
-          ? Object.keys(picked).map((k) => `${k}:${typeof picked[k]}`).join(',')
-          : typeof picked;
-        why = ` [sizer failed; keys=${types}]`;
+      let why = ` [bytes=${bytes}; pickedType=${typeof picked}`;
+      if (picked && typeof picked === 'object') {
+        try {
+          const s = JSON.stringify(picked, (_k, v) => (typeof v === 'bigint' ? v.toString() : v));
+          why += `; stringifyLen=${s == null ? 'null' : s.length}`;
+        } catch (e) {
+          why += `; stringifyTHREW=${(e && e.message) ? e.message.slice(0, 80) : 'yes'}`;
+        }
+        why += `; keys=${Object.keys(picked).slice(0, 15).join(',')}`;
       }
+      why += ']';
       rejected.push({
         item: it,
         error: `document is too large (${(bytes / 1048576).toFixed(1)} MB; limit ${MAX_ITEM_BYTES / 1048576} MB)${why}`,
