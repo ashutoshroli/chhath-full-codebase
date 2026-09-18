@@ -59,10 +59,12 @@ npx wrangler d1 execute chhath-core --remote --file \
   mgmt/db/cleanup/2026-09-17-dropdown-lists-id-fix/fix-dropdown-lists-id.sql
 ```
 
-The script wraps its statements in an explicit `BEGIN TRANSACTION;` ... `COMMIT;`,
-so the whole rebuild lands or none of it does — a mid-script failure after
-`DROP TABLE` rolls back and can never leave `dropdown_lists` gone, independent of
-how `wrangler d1 execute` batches statements.
+The script uses no explicit SQL transaction statements: Cloudflare D1 rejects raw
+`BEGIN TRANSACTION` / `COMMIT` / `SAVEPOINT` (it errors with "To execute a
+transaction, please use the state.storage.transaction() ... APIs instead of the
+SQL BEGIN TRANSACTION or SAVEPOINT statements."). Instead `wrangler d1 execute
+--file` applies the file's statements as a single batched unit, so the rebuild is
+submitted together. Because of the WARNING above, always complete step 0 first.
 
 ## Step 3 — post-check
 

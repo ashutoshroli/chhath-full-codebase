@@ -107,6 +107,20 @@ describe('fix-dropdown-lists-id.sql operator script', () => {
     db.close();
   });
 
+  test('uses no explicit SQL transaction statements (Cloudflare D1 rejects them)', () => {
+    // `wrangler d1 execute --file` errors on raw BEGIN TRANSACTION / COMMIT /
+    // SAVEPOINT — it applies the file's statements as one batch instead. Assert
+    // the executable SQL carries none of those forbidden transaction-control
+    // statements. Strip `-- ...` comment lines first so the header prose (which
+    // explains WHY they are absent, quoting the D1 error) does not trip the check.
+    const executableSql = FIX_SQL.split('\n')
+      .filter((line) => !line.trim().startsWith('--'))
+      .join('\n');
+    assert.doesNotMatch(executableSql, /\bBEGIN\s+TRANSACTION\b/i, 'no BEGIN TRANSACTION');
+    assert.doesNotMatch(executableSql, /\bCOMMIT\b/i, 'no COMMIT statement');
+    assert.doesNotMatch(executableSql, /\bSAVEPOINT\b/i, 'no SAVEPOINT');
+  });
+
   test('recreates both indexes from the committed schema', () => {
     const db = makeDriftedDb();
     db.exec(FIX_SQL);
