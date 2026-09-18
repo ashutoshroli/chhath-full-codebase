@@ -1,0 +1,15 @@
+{
+  "task_id": "task-chatbot-journey-language",
+  "task_description": "Improve the public AI chatbot (mgmt/server-render) so it answers questions about the committee's 10-year journey/decade story from 2017 to the latest year, and enforces single-language (Hindi Devanagari or English) anti-gibberish discipline in the system prompt as defense-in-depth for fallback models. Two code-level gaps that config cannot cover: (1) add a bounded JOURNEY / 10-YEAR STORY section to all three context builders in publicData.js, sourced from the cached portalData's journeyEntries/journeyTagline plus derived decade figures (2017 -> latest, per-year growth, grand total, best year, contributor counts); (2) thread a language directive through buildContextForProvider(provider, data, question, lang) instructing the model to answer in ONE language only and never mix scripts. Cache-only (no new fetch/D1), respect SUMMARY_MAX_CHARS (6000) / FULL_MAX_CHARS (80000), preserve all existing behavior, add node:test unit tests, keep the suite green.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "npm ci + npm test green: 221 tests, 221 pass, 0 fail (baseline 203 + 18 new/updated). Semantic review APPROVED at v2. Journey section is cache-only, bounded, and now mirrors frontend decadeStats exactly (2017 start; endYear=max(2017,latestDataYear,currentYear); latest year unions collections+loans+committee; money-only per-year+grand totals via isMoneyContribution matching contributorsForYear including default-money-when-absent; resold rows excluded from counts AND money totals; best year). Surfaces journeyEntries/journeyTagline titles-only (no content bodies). Language directive threaded via buildContextForProvider's existing lang arg (Hindi/Devanagari vs English, both forbidding script-mixing incl. Korean/Japanese/Chinese/Spanish); NO_DEV_INSTRUCTIONS_LINE and dataMode routing preserved. Tests assert concrete derived values, money-only exclusion (₹1,000 not ₹18,000), current-year span on stale data, no content-body leakage, cache-only (fetch stubbed to throw), and cap bounds — they would fail on revert. No Dockerfile for the render service, so docker_build skipped.",
+    "semantic_review": "APPROVED (v2) — .agents/tasks/task-chatbot-journey-language/2026-09-18-211059-review.md; v1 (NEEDS_CHANGES) at 2026-09-18-210254-review.md, all 3 blocking/confirmed issues resolved. Review iterations: 2 (max 3)."
+  }
+}
