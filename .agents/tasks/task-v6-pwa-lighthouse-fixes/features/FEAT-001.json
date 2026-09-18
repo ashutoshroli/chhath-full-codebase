@@ -1,0 +1,26 @@
+{
+  "id": "FEAT-001",
+  "type": "chore",
+  "description": "Establish a green baseline for Public/frontend-v6 before making changes. Confirm the existing build/check/test all pass so any later failure is attributable to this task's edits.",
+  "status": "completed",
+  "steps": [
+    "Prepend the nvm Node to PATH: export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\" (verify with node -v -> v22.23.2).",
+    "From Public/frontend-v6 run: npm ci (node_modules is present but run to guarantee a clean install).",
+    "Run npm run check and confirm svelte-check reports 0 errors / 0 warnings.",
+    "Run npm test and confirm all vitest suites pass (note the count of passing tests, especially seo.test.ts and pwaManifest.test.ts).",
+    "Run npm run build and confirm it succeeds. Record the total client JS size: BYTES=$(find build/_app/immutable -name '*.js' -type f -printf '%s\\n' | awk '{t+=$1} END {print t+0}'); echo $BYTES. Confirm it is <= 700000 (the CI budget).",
+    "Save a copy of the built manifest for later comparison: cp build/manifest.webmanifest /tmp/manifest.baseline.webmanifest (this is the reference to prove FEAT-002 does not change the manifest)."
+  ],
+  "acceptance_criteria": [
+    "node -v prints v22.23.2",
+    "npm run check exits 0 with 0 errors and 0 warnings",
+    "npm test exits 0 with all suites passing",
+    "npm run build exits 0 and total client JS bytes <= 700000",
+    "/tmp/manifest.baseline.webmanifest exists"
+  ],
+  "verification": [
+    "cd Public/frontend-v6 && export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\" && npm run check && npm test && npm run build"
+  ],
+  "blocked_reason": null,
+  "findings": "Green baseline established on branch fix/v6-pwa-lighthouse-scores; no source edits made. Environment: node -v = v22.23.2 (nvm PATH prepended). npm ci succeeded (4 low-severity audit advisories, not blocking). npm run check (svelte-kit sync && svelte-check --fail-on-warnings): exit 0, 0 errors / 0 warnings (one benign Vite configLoader:'native' warning about ./src/lib/ratings extension-less import printed to stderr but not a svelte-check warning). npm test (vitest): exit 0, 16 test files passed, 286 tests passed, 0 failed. Notable suites: src/lib/seo.test.ts and src/lib/pwaManifest.test.ts (3 tests) both pass; src/lib/tooling/firstLoadBytes.test.ts (10 tests) and src/lib/skins/critical-path.test.ts (29 tests) pass — the ::error:: lines in output are intentional negative-case fixtures inside firstLoadBytes.test.ts, not real failures. npm run build: exit 0. Total client JS = 621798 bytes (find build/_app/immutable -name '*.js' -type f), well under the 700000 CI budget (headroom ~78202 bytes). Saved build/manifest.webmanifest (2380 bytes) to /tmp/manifest.baseline.webmanifest as the reference for FEAT-002 no-change verification. BASELINE NUMBERS FOR LATER FEATURES: JS budget bytes=621798 (limit 700000); test count=286 across 16 files; manifest size=2380 bytes; manifest sha256=46731fcf3c1c3506d6a9919ec32592211f1d11adcf22fb750385bdf7063d34da. NOTE ON MANIFEST BASELINE: each execute_bash invocation gets an ephemeral /tmp that does NOT persist across tool calls/delegations, so a durable copy was ALSO saved to .agents/tasks/task-v6-pwa-lighthouse-fixes/manifest.baseline.webmanifest (byte-identical, 2380 bytes). FEAT-002 should compare the freshly built build/manifest.webmanifest against that durable copy (or its sha256 above), not against /tmp."
+}

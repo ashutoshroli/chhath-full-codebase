@@ -1,0 +1,14 @@
+{
+  "task_id": "task-v6-pwa-lighthouse-fixes",
+  "task_description": "Improve PWABuilder/Lighthouse scores for the live public frontend (Public/frontend-v6, chhath.shaharpura.com) with three targeted low-risk changes audited against the live site: (1) allow Cloudflare Web Analytics in the CSP to clear a real console error / Best-Practices penalty, (2) add a single semantic <h1> to the default (premium) skin's home route which currently has zero h1s (SEO + A11y), (3) strengthen og:title/twitter:title and upgrade the social preview image/card (SEO / social). Frontend-only, public-only, scoped to Public/frontend-v6. Keep npm run check 0/0, npm test green, npm run build within the JS budget, and the generated manifest unchanged.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "From Public/frontend-v6 (node v22.23.2): npm run check = 0 errors / 0 warnings; npm test = 295 passed / 16 files (baseline 286, +9 new); npm run build succeeded with total client JS = 622183 bytes <= 700000 CI budget; build/manifest.webmanifest sha256 = 46731fcf3c1c3506d6a9919ec32592211f1d11adcf22fb750385bdf7063d34da, byte-identical to baseline (manifest unchanged as required). Verified against prerendered build/index.html: home now has exactly one <h1 class=\"sr-only\">Chhath Puja</h1> (was 0), og:title/twitter:title = 'Chhath Puja Transparency Portal — Navyuvak Chhath Puja Samiti' (was 'Chhath Puja'), og:image/twitter:image = https://chhath.shaharpura.com/screenshots/wide.png (was icon-512.png), single twitter:card=summary_large_image. vercel.json CSP now lists https://static.cloudflareinsights.com (script-src) and https://cloudflareinsights.com (connect-src); all other directives byte-identical, single valid string, no non-schema keys. test_quality: the new seo.test.ts assertions read the actual source files (Seo.svelte, vercel.json, i18n.ts, each skin's Home.svelte) and would fail if the changes were reverted; the a11y structure-and-motion.test.ts change tightened (not weakened) the h1 heuristic after verifying DecadeBanner renders no h1. Docker not used (frontend-only SvelteKit static build; no Dockerfile for v6). Docker_build skipped accordingly."
+  }
+}
