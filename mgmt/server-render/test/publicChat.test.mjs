@@ -15,7 +15,7 @@ process.env.PUBLIC_API_BASE ||= 'https://public.test';
 process.env.CHAT_ALLOWED_ORIGINS ||= 'https://chhath.shaharpura.com';
 process.env.CHAT_RATE_MAX ||= '3';
 
-const { summarizePortalData, buildFullContext, buildContextForProvider, getPortalData, _resetCache } = await import('../src/lib/publicData.js');
+const { summarizePortalData, buildFullContext, buildContextForProvider, languageDirective, getPortalData, _resetCache } = await import('../src/lib/publicData.js');
 
 const SAMPLE = {
   collections: [
@@ -318,6 +318,221 @@ test('summary with the new sections still stays under its char bound on a large 
   }
   const s = summarizePortalData({ users, collections, expenses, loans, guarantors }, '');
   assert.ok(s.length <= 6100, 'enriched summary must still be capped (~6000 chars) regardless of data size');
+});
+
+// ---- JOURNEY / 10-YEAR STORY (decade section) ----
+// A visitor asking about "hamari yatra" / the 10-year / decade story gets a real,
+// data-grounded section: DERIVED decade figures (span 2017 -> latest, grand total,
+// grand contributors, best/peak year, resold rows EXCLUDED) plus a bounded digest
+// of the real journeyEntries/journeyTagline when the backend shipped them. It is
+// the friendly EXTRA appended after the core sections, cache-only, and bounded.
+
+// Multi-year fixture spanning 2017..2024 (so the span is 2017 -> 2024). 2019 is the
+// peak year. USER0009 is a RESOLD row that must NOT inflate a contributor count.
+const JOURNEY_SAMPLE = {
+  users: [
+    { ID: 'USER0001', Name: 'Ramesh Verma' },
+    { ID: 'USER0002', Name: 'Suresh Gupta' },
+    { ID: 'USER0003', Name: 'Anil Prasad' },
+    { ID: 'USER0009', Name: 'Reseller Ji' },
+  ],
+  collections: [
+    { Year: 2017, Name: 'USER0001', Amount: 1000 },
+    { Year: 2018, Name: 'USER0001', Amount: 2000 },
+    { Year: 2018, Name: 'USER0002', Amount: 1000 },
+    { Year: 2019, Name: 'USER0001', Amount: 9000 }, // peak year total
+    { Year: 2019, Name: 'USER0002', Amount: 4000 },
+    { Year: 2024, Name: 'USER0003', Amount: 3000 },
+    // A resold row in 2024 — excluded from contributor counts AND its amount is a
+    // resell (still summed into the year total per the existing aggregation).
+    { Year: 2024, Name: 'USER0009', Amount: 500, Detail: 'Coconut basket', 'Is Resell': 'TRUE' },
+  ],
+};
+
+// The decade span ends at max(2017, latest data year, CURRENT calendar year), so
+// even when the cached data lags the calendar (latest here is 2024) the span still
+// reaches "now" — mirroring decadeStats in derive.ts.
+const CURRENT_YEAR = new Date().getFullYear();
+const JOURNEY_END_YEAR = Math.max(2024, CURRENT_YEAR);
+const JOURNEY_SPAN_LEN = JOURNEY_END_YEAR - 2017 + 1;
+
+test('journey: summary emits the JOURNEY / 10-YEAR STORY header with the 2017 -> current-year span, grand total, and best year', () => {
+  const s = summarizePortalData(JOURNEY_SAMPLE, 'hamari 10 saal ki yatra ke baare mein batao');
+  assert.match(s, /JOURNEY \/ 10-YEAR STORY/);
+  // Span runs from 2017 to the current calendar year (>= latest data year 2024).
+  assert.match(s, new RegExp(`Span: 2017 to ${JOURNEY_END_YEAR} \\(${JOURNEY_SPAN_LEN} years\\)`));
+  // Grand total mirrors decadeStats (money-only, resold EXCLUDED):
+  // 1000+2000+1000+9000+4000+3000 = 20000 (the ₹500 resold row is not counted; the
+  // extra empty years up to the current year add ₹0).
+  assert.match(s, /Total collected across the whole journey: ₹20,000/);
+  // 2019 is the peak year (9000 + 4000 = 13000).
+  assert.match(s, /Best\/peak year so far: 2019 with ₹13,000/);
+});
+
+test('journey: contributor counts EXCLUDE resold rows (a resold row does not inflate the count)', () => {
+  const s = summarizePortalData(JOURNEY_SAMPLE, 'poore decade ki journey batao');
+  // 2024 has ONE real contributor (Anil Prasad); the resold row (Reseller Ji) is
+  // excluded from BOTH the contributor count AND the money total (mirroring
+  // decadeStats), so the year shows ₹3,000 from 1 contributor.
+  assert.match(s, /2024: ₹3,000 \(1 contributors\)/);
+  // Grand contributors = 1(2017)+2(2018)+2(2019)+0(2020..2023)+1(2024) = 6.
+  assert.match(s, /from 6 contributor entries/);
+});
+
+test('journey: when journeyEntries + journeyTagline are present, the tagline and a `year — title` appear, WITHOUT the full content bodies', () => {
+  const data = {
+    ...JOURNEY_SAMPLE,
+    journeyTagline: { en: 'A decade of devotion and service.', hi: 'सेवा का एक दशक।' },
+    journeyEntries: [
+      { year: 2017, title_en: 'The First Ghat', title_hi: 'पहला घाट', content_en: 'SECRET_BODY_ONE full story text that must not be dumped', content_hi: 'गुप्त कहानी' },
+      { year: 2019, title_en: 'Record Turnout', title_hi: 'रिकॉर्ड भीड़', content_en: 'SECRET_BODY_TWO another long body', content_hi: 'लंबी कहानी' },
+    ],
+  };
+  const s = summarizePortalData(data, 'hamari yatra ki kahani');
+  assert.match(s, /Journey tagline: A decade of devotion and service\./);
+  assert.match(s, /Story highlights:/);
+  assert.match(s, /2017 — The First Ghat/);
+  assert.match(s, /2019 — Record Turnout/);
+  // The full content_en / content_hi bodies must NOT be dumped.
+  assert.doesNotMatch(s, /SECRET_BODY_ONE/);
+  assert.doesNotMatch(s, /SECRET_BODY_TWO/);
+});
+
+test('journey: when journeyEntries is absent, the DERIVED-figures narrative still appears (fallback path, no crash)', () => {
+  // JOURNEY_SAMPLE carries no journeyEntries/journeyTagline.
+  const s = summarizePortalData(JOURNEY_SAMPLE, 'decade story');
+  assert.match(s, /JOURNEY \/ 10-YEAR STORY/);
+  assert.match(s, /Total collected across the whole journey:/);
+  // No story digest lines when there are no entries.
+  assert.doesNotMatch(s, /Journey tagline:/);
+  assert.doesNotMatch(s, /Story highlights:/);
+});
+
+test('journey: buildFullContext also contains the JOURNEY / 10-YEAR STORY section', () => {
+  const s = buildFullContext(JOURNEY_SAMPLE, '');
+  assert.match(s, /JOURNEY \/ 10-YEAR STORY/);
+  assert.match(s, new RegExp(`Span: 2017 to ${JOURNEY_END_YEAR}`));
+  assert.match(s, /Total collected across the whole journey: ₹20,000/);
+  assert.match(s, /Best\/peak year so far: 2019/);
+});
+
+test('journey: the year-scoped path carries a small decade-context line', () => {
+  // 2019 is present, so this routes through buildYearScopedContext.
+  const s = summarizePortalData(JOURNEY_SAMPLE, '2019 me kitna collection hua?');
+  assert.match(s, /only that year's data is shown below/); // confirm year-scoped branch
+  assert.match(s, new RegExp(`Decade context: the committee's journey runs 2017 to ${JOURNEY_END_YEAR}`));
+  assert.match(s, /best year 2019/);
+  // The heavier full journey section (with the per-year growth list) is NOT on this path.
+  assert.doesNotMatch(s, /JOURNEY \/ 10-YEAR STORY/);
+});
+
+test('journey: the section is CACHE-ONLY — summarizePortalData never calls fetch (does not touch D1)', () => {
+  const orig = globalThis.fetch;
+  globalThis.fetch = () => { throw new Error('journey section must not fetch'); };
+  try {
+    let out;
+    assert.doesNotThrow(() => { out = summarizePortalData(JOURNEY_SAMPLE, 'hamari yatra ki poori kahani batao'); });
+    assert.match(out, /JOURNEY \/ 10-YEAR STORY/);
+    assert.match(out, new RegExp(`Span: 2017 to ${JOURNEY_END_YEAR}`));
+  } finally { globalThis.fetch = orig; }
+});
+
+test('journey: the section never throws and emits nothing when there is genuinely no data', () => {
+  assert.doesNotThrow(() => summarizePortalData({}, 'hamari yatra'));
+  const s = summarizePortalData({}, 'hamari yatra');
+  assert.doesNotMatch(s, /JOURNEY \/ 10-YEAR STORY/);
+});
+
+test('journey: the section stays bounded — summary with the journey block still <= 6100 chars on a large multi-year dataset', () => {
+  const users = [];
+  const collections = [];
+  const journeyEntries = [];
+  for (let yi = 0; yi < 10; yi++) {
+    const year = 2017 + yi;
+    for (let i = 0; i < 400; i++) {
+      const uid = 'USER' + (yi * 1000 + i);
+      users.push({ ID: uid, Name: 'Person Number ' + (yi * 1000 + i) });
+      collections.push({ Year: year, Name: uid, Amount: (i + 1) });
+    }
+    journeyEntries.push({ year, title_en: 'Chapter ' + year + ' of a very long journey title that keeps going', title_hi: 'अध्याय', content_en: 'x'.repeat(5000), content_hi: 'y'.repeat(5000) });
+  }
+  const big = { users, collections, journeyEntries, journeyTagline: { en: 'z'.repeat(2000) } };
+  const s = summarizePortalData(big, 'hamari 10 saal ki yatra');
+  assert.ok(s.length <= 6100, 'summary with the journey section stays capped (~6000 chars)');
+});
+
+// ---- Review v1 fixes: money-only totals + current-year span ----
+
+// Issue #1 (money-only divergence): material ('2') and service ('3') rows carry an
+// Amount but must contribute ₹0 to the journey MONEY total, mirroring derive.ts
+// contributorsForYear/computeSummary. This fixture puts a ₹10,000 material row and
+// a ₹7,000 service row alongside a ₹1,000 money row in the SAME year; the journey
+// grand total must be the money-only ₹1,000, not ₹18,000.
+const JOURNEY_MIXED_TYPES = {
+  users: [
+    { ID: 'USER0001', Name: 'Money Giver' },
+    { ID: 'USER0002', Name: 'Material Giver' },
+    { ID: 'USER0003', Name: 'Service Giver' },
+  ],
+  collections: [
+    { Year: 2018, Name: 'USER0001', Amount: 1000, 'Contribution Type': '1' },        // money
+    { Year: 2018, Name: 'USER0002', Amount: 10000, 'Contribution Type': '2', Detail: 'Donated a generator' }, // material
+    { Year: 2018, Name: 'USER0003', Amount: 7000, 'Contribution Type': '3', Detail: 'Volunteered' },          // service
+  ],
+};
+
+test('journey (fix #1): a material/service row carrying an Amount does NOT inflate the journey money total', () => {
+  const s = summarizePortalData(JOURNEY_MIXED_TYPES, 'hamari yatra ka total kitna hai');
+  // Money-only grand total is ₹1,000 (the ₹10,000 material + ₹7,000 service Amounts
+  // are excluded, mirroring the public "Our Journey" page).
+  assert.match(s, /Total collected across the whole journey: ₹1,000 from/);
+  // The inflated ₹18,000 (or ₹17,000) all-amount total must NOT appear.
+  assert.doesNotMatch(s, /Total collected across the whole journey: ₹18,000/);
+  assert.doesNotMatch(s, /Total collected across the whole journey: ₹17,000/);
+  // But all three people still count as contributor entries for 2018 (count side is
+  // any non-resold row with an ID, regardless of contribution type).
+  assert.match(s, /from 3 contributor entries/);
+  // The best year (2018) reflects the money-only total too.
+  assert.match(s, /Best\/peak year so far: 2018 with ₹1,000/);
+});
+
+test('journey (fix #1): the year-scoped decade-context line is also money-only for mixed types', () => {
+  // Route through buildYearScopedContext by naming the present year.
+  const s = summarizePortalData(JOURNEY_MIXED_TYPES, '2018 me kitna aaya?');
+  assert.match(s, /only that year's data is shown below/);
+  // Decade context grand total is money-only ₹1,000, not the ₹18,000 all-amount sum.
+  assert.match(s, /₹1,000 collected in total \(money contributions only\)/);
+  assert.doesNotMatch(s, /₹18,000 collected in total/);
+});
+
+// Issue #2 (span omits current year): when the latest DATA year lags the calendar
+// (here 2020, well before "now"), the span must still end at the current calendar
+// year — mirroring decadeStats endYear = max(2017, dataMax, currentYear). A year
+// present ONLY in loans/committee (2021) must also be honoured via availableYears.
+const JOURNEY_STALE_DATA = {
+  users: [{ ID: 'USER0001', Name: 'Old Timer' }],
+  collections: [{ Year: 2020, Name: 'USER0001', Amount: 5000 }],
+  loans: [{ Year: 2021, Name: 'USER0001', Amount: 1000, 'Loan ID': 'L1' }],
+  committee: [{ Year: 2021, Name: 'USER0001' }],
+};
+
+test('journey (fix #2): the span ends at the CURRENT calendar year even when the data year lags', () => {
+  const nowYear = new Date().getFullYear();
+  const s = summarizePortalData(JOURNEY_STALE_DATA, 'poori decade journey batao');
+  // The span must reach the current calendar year, not stop at the 2020 data year.
+  assert.match(s, new RegExp(`Span: 2017 to ${nowYear} \\(`));
+  assert.doesNotMatch(s, /Span: 2017 to 2020/);
+  assert.doesNotMatch(s, /Span: 2017 to 2021/);
+});
+
+test('journey (fix #2): the latest data year unions loans/committee, not just collections', () => {
+  // With current year in the far future this would be moot, but the union still
+  // matters for endYear when a loans/committee year exceeds the collections year.
+  // Here 2021 (loans+committee) > 2020 (collections); the span floor is thus >= 2021
+  // (and, being <= now, is exactly the current calendar year).
+  const nowYear = new Date().getFullYear();
+  const s = summarizePortalData(JOURNEY_STALE_DATA, 'decade story');
+  assert.match(s, new RegExp(`Span: 2017 to ${Math.max(2021, nowYear)}`));
 });
 
 // ---- PHASE 1: year-scoped retrieval ----
@@ -738,21 +953,84 @@ test('routing: dataMode=full produces buildFullContext output, summary/missing p
   // The full provider routes through buildFullContext (whole dataset layout).
   assert.match(full, /COMPLETE public dataset/);
   assert.match(full, /ALL CONTRIBUTIONS/);
-  assert.equal(full, buildFullContext(FULL_SAMPLE, q));
+  // buildContextForProvider appends the single-language directive; the body is still
+  // exactly buildFullContext(...) with the directive tail.
+  assert.equal(full, buildFullContext(FULL_SAMPLE, q) + languageDirective('en'));
 
   // A summary (or missing) mode routes through the compact summarizePortalData.
   assert.doesNotMatch(summary, /ALL CONTRIBUTIONS/);
   assert.match(summary, /Top contributors/);
-  assert.equal(summary, summarizePortalData(FULL_SAMPLE, q));
+  assert.equal(summary, summarizePortalData(FULL_SAMPLE, q) + languageDirective('en'));
   // A missing dataMode defaults to summary — identical to the explicit summary.
   assert.equal(missing, summary);
 });
 
-test('routing: lang=hi appends the Hindi instruction to either mode', () => {
+test('routing: lang=hi appends the Hindi single-language directive to either mode', () => {
   const full = buildContextForProvider({ dataMode: 'full' }, FULL_SAMPLE, '', 'hi');
   const summary = buildContextForProvider({ dataMode: 'summary' }, FULL_SAMPLE, '', 'hi');
-  assert.match(full, /Reply in simple Hindi/);
-  assert.match(summary, /Reply in simple Hindi/);
+  assert.match(full, /Hindi/);
+  assert.match(full, /Devanagari/);
+  assert.match(summary, /Hindi/);
+  assert.match(summary, /Devanagari/);
+});
+
+// ---- FEAT-002: anti-gibberish / single-language discipline directive ----
+// Defense-in-depth against fallback models (e.g. mistral-nemotron) that produced
+// garbled multilingual gibberish. buildContextForProvider must append a directive
+// that is parameterized by `lang`: Hindi/Devanagari for 'hi', English otherwise,
+// and in BOTH cases forbid mixing in characters from other languages/scripts.
+
+test('lang directive: lang=hi forbids mixing other scripts and asks for Devanagari', () => {
+  const ctx = buildContextForProvider({ dataMode: 'summary' }, FULL_SAMPLE, 'q', 'hi');
+  // Hindi + Devanagari script instruction.
+  assert.match(ctx, /Hindi/);
+  assert.match(ctx, /Devanagari/);
+  // Anti-mixing wording: explicitly forbids characters from other languages/scripts.
+  assert.match(ctx, /Korean/);
+  assert.match(ctx, /Japanese/);
+  assert.match(ctx, /Chinese/);
+  assert.match(ctx, /Spanish/);
+  assert.match(ctx, /one single language/);
+});
+
+test('lang directive: lang=en gives the English single-language directive and does NOT ask for Hindi', () => {
+  const ctx = buildContextForProvider({ dataMode: 'summary' }, FULL_SAMPLE, 'q', 'en');
+  assert.match(ctx, /Reply in clear English/);
+  assert.match(ctx, /one single language/);
+  // Must NOT instruct a Hindi / Devanagari reply.
+  assert.doesNotMatch(ctx, /Hindi/);
+  assert.doesNotMatch(ctx, /Devanagari/);
+});
+
+test('lang directive: the appended directive is parameterized by lang (hi != en)', () => {
+  const hi = buildContextForProvider({ dataMode: 'summary' }, FULL_SAMPLE, 'q', 'hi');
+  const en = buildContextForProvider({ dataMode: 'summary' }, FULL_SAMPLE, 'q', 'en');
+  // The two differ — the directive is not a single static line.
+  assert.notEqual(hi, en);
+  // Isolate the differing tail (everything the summary itself shares is identical).
+  const base = summarizePortalData(FULL_SAMPLE, 'q');
+  assert.notEqual(hi.slice(base.length), en.slice(base.length));
+  assert.match(hi.slice(base.length), /Devanagari/);
+  assert.doesNotMatch(en.slice(base.length), /Devanagari/);
+});
+
+test('lang directive: dataMode selection still works with the directive appended', () => {
+  const q = '';
+  const full = buildContextForProvider({ dataMode: 'full' }, FULL_SAMPLE, q, 'hi');
+  const summary = buildContextForProvider({ dataMode: 'summary' }, FULL_SAMPLE, q, 'hi');
+  // full-only marker present in full mode, absent in summary mode.
+  assert.match(full, /ALL CONTRIBUTIONS/);
+  assert.doesNotMatch(summary, /ALL CONTRIBUTIONS/);
+  // Each equals the corresponding builder plus the same directive tail.
+  assert.equal(full, buildFullContext(FULL_SAMPLE, q) + languageDirective('hi'));
+  assert.equal(summary, summarizePortalData(FULL_SAMPLE, q) + languageDirective('hi'));
+});
+
+test('lang directive: NO_DEV_INSTRUCTIONS_LINE guardrail remains present for both langs', () => {
+  const hi = buildContextForProvider({ dataMode: 'summary' }, FULL_SAMPLE, 'q', 'hi');
+  const en = buildContextForProvider({ dataMode: 'summary' }, FULL_SAMPLE, 'q', 'en');
+  assert.match(hi, /NEVER give technical, developer, or integration instructions/);
+  assert.match(en, /NEVER give technical, developer, or integration instructions/);
 });
 
 // ---- FULL data-mode context (buildFullContext) ----

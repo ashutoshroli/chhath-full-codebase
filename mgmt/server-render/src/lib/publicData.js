@@ -78,6 +78,11 @@ const inr = (n) => `₹${Math.round(num(n)).toLocaleString('en-IN')}`;
 
 const SUMMARY_MAX_CHARS = 6000; // hard cap so the prompt can never blow the model's input
 
+// The founding year of the samiti's records — mirrors the frontend constant
+// DECADE_START_YEAR in Public/frontend-v6/src/lib/api/derive.ts so the chatbot's
+// "10-year story" span lines up exactly with the public "Our Journey" page.
+const DECADE_START_YEAR = 2017;
+
 export function summarizePortalData(data, question) {
   const d = data || {};
   const collections = Array.isArray(d.collections) ? d.collections : [];
@@ -264,6 +269,11 @@ export function summarizePortalData(data, question) {
   const docBlock = documentLinksBlock(data, question, { collections, nameOf, safeName });
   if (docBlock) lines.push(docBlock);
 
+  // JOURNEY / 10-YEAR STORY — the friendly extra, appended AFTER the core sections
+  // so it is what gets trimmed first if the SUMMARY_MAX_CHARS cap is hit. Cache-only.
+  const journeyBlock = buildJourneySection(data);
+  if (journeyBlock) lines.push(journeyBlock);
+
   let out = lines.join('\n');
   // Hard cap: never send an oversized prompt (a huge dataset was producing
   // Model HTTP 500). Trim from the end (per-year + person detail survive; the
@@ -438,6 +448,12 @@ function buildYearScopedContext(data, question, years) {
   const docBlock = documentLinksBlock(data, question, { collections: scopedCollections, nameOf, safeName });
   if (docBlock) lines.push(docBlock);
 
+  // A SMALL decade-context line so a year question still situates itself in the
+  // committee's journey — span + grand total + best year, no per-year list, to
+  // respect the 6000-char cap on this path. Cache-only.
+  const journeyLine = buildJourneyContextLine(data);
+  if (journeyLine) lines.push(journeyLine);
+
   let out = lines.join('\n');
   // Same hard cap the general path applies.
   if (out.length > SUMMARY_MAX_CHARS) out = out.slice(0, SUMMARY_MAX_CHARS) + '\n…(data truncated)';
@@ -575,6 +591,11 @@ export function buildFullContext(data, question) {
   const personBlock = personContributionsFor(question, collections, nameOf, generatedFiles);
   if (personBlock) lines.push(personBlock);
 
+  // JOURNEY / 10-YEAR STORY — the friendly extra, appended AFTER the full sections
+  // (a little wider per-year window in full mode). Cache-only.
+  const journeyBlock = buildJourneySection(data, { full: true });
+  if (journeyBlock) lines.push(journeyBlock);
+
   const out = lines.join('\n');
   // Bounded by a generous cap. If the full layout would blow the model's input,
   // degrade gracefully to the compact summary rather than truncating mid-record.
@@ -590,12 +611,26 @@ export function buildFullContext(data, question) {
 // the passed-in cached `data` — neither touches D1. Appends the Hindi instruction
 // when lang === 'hi'. Lives here (not in the express route) so it is a pure helper
 // importable without pulling in express/pg.
+// Anti-gibberish / single-language discipline directive appended to the system
+// context. Defense-in-depth: the primary provider (gemini-3.1-flash-lite) is clean,
+// but the provider chain in publicChat.js falls through to fallback models (NVIDIA
+// NIM / Groq / Cerebras) on 429/5xx/timeout, and one of those (mistral-nemotron) was
+// empirically producing garbled multilingual gibberish — Korean/Japanese/Spanish
+// characters mixed into Hindi. This tells the model to answer in ONE language only,
+// never mixing scripts. Parameterized by `lang` ('hi' => Hindi/Devanagari, else English).
+export function languageDirective(lang) {
+  if (lang === 'hi') {
+    return '\nReply ONLY in simple Hindi using the Devanagari script (unless the user clearly wrote in English), in one single language. Do NOT mix in words or characters from any other language or script — no Korean, Japanese, Chinese, or Spanish characters. Keep the answer coherent, factual and plain; if you are unsure, simply present the facts plainly rather than guessing.';
+  }
+  return '\nReply in clear English, in one single language only. Do NOT insert words or characters from any other language or script — no Korean, Japanese, Chinese, or Spanish characters. Keep the answer coherent, factual and plain; if you are unsure, simply present the facts plainly rather than guessing.';
+}
+
 export function buildContextForProvider(provider, data, question, lang) {
   const mode = (provider && provider.dataMode) || 'summary';
   let context = mode === 'full'
     ? buildFullContext(data, question)
     : summarizePortalData(data, question);
-  if (lang === 'hi') context += '\nReply in simple Hindi (Devanagari) unless the user writes in English.';
+  context += languageDirective(lang);
   return context;
 }
 
@@ -615,6 +650,177 @@ function buildNameResolver(users) {
     const v = (val || '').toString().trim();
     return byId.get(v) || v;
   };
+}
+
+// ---- JOURNEY / 10-YEAR STORY (the committee's decade, cache-only) --------------
+// A visitor asking about "hamari yatra" / the 10-year / decade / "since 2017" story
+// deserves a real, data-grounded answer instead of the model improvising from the
+// per-year totals. This is the friendly EXTRA appended AFTER the core sections in
+// each builder — it never replaces them and is what gets trimmed first under a cap.
+//
+// It is STRICTLY cache-only: it reads ONLY the passed-in `data` and NEVER fetches
+// or touches D1. It draws on BOTH:
+//   (a) real story content when the backend shipped it — data.journeyEntries
+//       ([{year, title_en, title_hi, content_en, content_hi}]) and
+//       data.journeyTagline ({en, hi}); a SHORT, bounded digest (tagline + up to a
+//       few `year — title` lines, TITLES ONLY, never the full content bodies), and
+//   (b) ALWAYS-available DERIVED decade figures computed from the cached
+//       collections, mirroring Public/frontend-v6/src/lib/api/derive.ts decadeStats:
+//       startYear = DECADE_START_YEAR (2017); endYear = max(2017, latest data year);
+//       per-year total collected + contributor-entry count (resold rows EXCLUDED,
+//       matching computeSummary/contributorsForYear); grandTotal, grandContributors,
+//       and the best/peak year (highest total).
+// Shapes are defensive throughout: any missing field yields '' / 0, never throws.
+
+// A row is a MONEY contribution when its Contribution Type is '1' or '' (blank
+// defaults to money). Material ('2') and service ('3') rows contribute ₹0 to the
+// money total — mirrors isMoney in Public/frontend-v6/src/lib/api/derive.ts
+// contributorsForYear so the chatbot's journey totals match the public page.
+const isMoneyContribution = (c) => {
+  const t = ((c && c['Contribution Type']) ?? '1').toString();
+  return t === '1' || t === '';
+};
+
+const isResoldRow = (c) => {
+  const v = c && c['Is Resell'];
+  if (v === true) return true;
+  const s = (v ?? '').toString().trim().toLowerCase();
+  return s === 'true' || s === '1' || s === 'yes';
+};
+
+// Latest year present across collections, loans AND committee — mirrors the
+// frontend's availableYears() union so a year seen only in loans/committee still
+// extends the span. Returns 0 when no year is present anywhere.
+function latestJourneyYear(d) {
+  let max = 0;
+  const scan = (rows) => {
+    if (!Array.isArray(rows)) return;
+    for (const r of rows) {
+      const y = parseInt(r && r.Year, 10);
+      if (Number.isFinite(y) && y > max) max = y;
+    }
+  };
+  scan(d.collections);
+  scan(d.loans);
+  scan(d.committee);
+  return max;
+}
+
+// Per-year DERIVED figures for a single year, mirroring computeSummary/
+// contributorsForYear: total = Σ money-only Amount (resold + material/service
+// excluded); contributors = distinct non-resold people (keyed by ID/Name, any
+// contribution type, counted once).
+function journeyYearFigures(collections, year) {
+  let total = 0;
+  const people = new Set();
+  for (const c of collections) {
+    if (parseInt(c && c.Year, 10) !== year) continue;
+    if (isResoldRow(c)) continue;
+    if (isMoneyContribution(c)) total += num(c.Amount);
+    const id = ((c && (c.ID || c.Name)) || '').toString().trim();
+    if (id) people.add(id);
+  }
+  return { total, contributors: people.size };
+}
+
+// `opts.full` widens the per-year growth list a little for the full context.
+function buildJourneySection(data, opts) {
+  const d = data || {};
+  const o = opts || {};
+  const collections = Array.isArray(d.collections) ? d.collections : [];
+
+  const journeyEntries = Array.isArray(d.journeyEntries) ? d.journeyEntries : [];
+  const hasEntries = journeyEntries.length > 0;
+
+  // Latest year present across collections/loans/committee (0 when none), mirroring
+  // the frontend's availableYears() which unions all three collections.
+  const latestDataYear = latestJourneyYear(d);
+
+  // No data at all AND no story rows -> genuinely nothing to say.
+  if (!latestDataYear && !hasEntries) return '';
+
+  const startYear = DECADE_START_YEAR;
+  // Mirror decadeStats: endYear = max(2017, latest data year, current calendar
+  // year) so the span still ends at "now" even when the cached data lags the year.
+  const endYear = Math.max(DECADE_START_YEAR, latestDataYear, new Date().getFullYear());
+
+  // Per-year DERIVED figures (mirror decadeStats/computeSummary): total collected
+  // (MONEY rows only — material/service contribute ₹0, matching contributorsForYear)
+  // + a contributor-entry count that EXCLUDES resold rows and counts each person
+  // ONCE per year (keyed by the row's ID/Name).
+  const perYear = []; // { year, total, contributors }
+  let grandTotal = 0;
+  let grandContributors = 0;
+  let best = null; // { year, total }
+  for (let y = startYear; y <= endYear; y++) {
+    const fig = journeyYearFigures(collections, y);
+    perYear.push({ year: y, total: fig.total, contributors: fig.contributors });
+    grandTotal += fig.total;
+    grandContributors += fig.contributors;
+    if (best === null || fig.total > best.total) best = { year: y, total: fig.total };
+  }
+
+  const years = endYear - startYear + 1;
+  const lines = [];
+  lines.push(`JOURNEY / 10-YEAR STORY (the committee's decade of Chhath Puja, from ${startYear} to ${endYear} — use this to answer questions about hamari yatra / the journey / the decade / how far we have come):`);
+  lines.push(`Span: ${startYear} to ${endYear} (${years} year${years === 1 ? '' : 's'}).`);
+  lines.push(`Total collected across the whole journey: ${inr(grandTotal)} from ${grandContributors} contributor entries.`);
+  if (best) lines.push(`Best/peak year so far: ${best.year} with ${inr(best.total)} collected.`);
+
+  // A compact per-year growth line for the recent years — bounded to the same
+  // ~6-year window the summary uses so tokens stay small (a little wider in full).
+  const recent = perYear.slice(-(o.full ? 12 : 6));
+  if (recent.length) {
+    const growth = recent.map(r => `${r.year}: ${inr(r.total)} (${r.contributors} contributors)`).join('; ');
+    // These journey figures are MONEY contributions only (resold items and
+    // material/service contributions excluded), so they may be lower than the
+    // per-year "Year Y: collections" line above, which includes resold amounts.
+    lines.push(`Recent years (money contributions only; resold items and material/service excluded): ${growth}.`);
+  }
+
+  // Real story digest when present — tagline + up to ~6 `year — title` lines,
+  // TITLES ONLY (never the full content_en/content_hi bodies) so it stays bounded.
+  if (hasEntries) {
+    const tagline = d.journeyTagline && typeof d.journeyTagline === 'object'
+      ? (d.journeyTagline.en || d.journeyTagline.hi || '').toString().trim()
+      : '';
+    if (tagline) lines.push(`Journey tagline: ${tagline}`);
+    const titles = journeyEntries.slice(0, 6).map(e => {
+      const r = e || {};
+      const yr = parseInt(r.year);
+      const title = (r.title_en || r.title_hi || '').toString().trim();
+      if (!title) return '';
+      return `${Number.isFinite(yr) ? `${yr} — ` : ''}${title}`;
+    }).filter(Boolean);
+    if (titles.length) lines.push(`Story highlights: ${titles.join('; ')}.`);
+  }
+
+  return lines.join('\n');
+}
+
+// A minimal one-line decade context for the year-scoped path (span + grand total +
+// best year, WITHOUT the per-year growth list) so a year question still situates
+// itself in the decade while respecting the 6000-char cap. Cache-only. '' when
+// there is genuinely no data.
+function buildJourneyContextLine(data) {
+  const d = data || {};
+  const collections = Array.isArray(d.collections) ? d.collections : [];
+  const latestDataYear = latestJourneyYear(d);
+  if (!latestDataYear) return '';
+  const startYear = DECADE_START_YEAR;
+  const endYear = Math.max(DECADE_START_YEAR, latestDataYear, new Date().getFullYear());
+  let grandTotal = 0;
+  let best = null;
+  for (let y = startYear; y <= endYear; y++) {
+    const fig = journeyYearFigures(collections, y);
+    grandTotal += fig.total;
+    if (best === null || fig.total > best.total) best = { year: y, total: fig.total };
+  }
+  // MONEY-only grand total (resold + material/service excluded), matching the
+  // public "Our Journey" page; may be lower than a resold-inclusive year total.
+  const parts = [`Decade context: the committee's journey runs ${startYear} to ${endYear}, ${inr(grandTotal)} collected in total (money contributions only)`];
+  if (best) parts.push(`best year ${best.year} (${inr(best.total)})`);
+  return parts.join(', ') + '.';
 }
 
 // A generated file's record_id is `<docType>-<year>-<rowIndex>`. Return the public
