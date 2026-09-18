@@ -1,0 +1,14 @@
+{
+  "task_id": "task-fix-dropdown-add-silent-dataloss",
+  "task_description": "List Management (#lists) ADD silently loses data: addDropdownListItem returns {success:true} but the new Category/Payment Mode/Loan Status/Village item never persists, while EDIT works. Root cause: dropdownLists.js write handlers never check the D1 .run() result (meta.changes), so a no-op/failed INSERT against a live dropdown_lists table whose `id` lost its INTEGER PRIMARY KEY AUTOINCREMENT (via a wrangler d1 export/restore, the reset RUNBOOK's recovery path) is masked as success. Fix = (a) harden add/update/delete to assert meta.changes and throw ValidationError (code + prove-first tests), (b) deliver operator SQL to rebuild the live table's id column and to revert the QA test edit to row id=1. Agent cannot deploy or touch live D1; the user applies the SQL then `git pull && npx wrangler deploy`.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null,
+  "verification": {
+    "build": "skipped",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "Full mgmt/backend suite green: 1078 pass / 0 fail / 77 suites (baseline was 1064; +11 dropdown-list-writes, +3 dropdown-lists-id-fix). Guard tests (schema-is-the-end-state, h10-m38-indexes-and-retention, migration-matrix, migration-target-databases, pr35-migration-ledger) all pass; no numbered migration was added so migration guards are unaffected. Test quality verified prove-first: with the src fix reverted, test/dropdown-list-writes.test.mjs reports 7 pass / 4 fail (the meta.changes guards + not-found assertions); restored to committed state it is 11/11 — the tests exercise the changed code paths and fail if the fix is reverted. The id-fix validation test loads the real operator SQL and asserts the rebuilt table regains INTEGER PRIMARY KEY AUTOINCREMENT with rows/ids preserved. build/docker skipped: deploy is the user's manual step (git pull && npx wrangler deploy); agent has no Cloudflare credentials and wrangler.toml has no local build step to run."
+  }
+}

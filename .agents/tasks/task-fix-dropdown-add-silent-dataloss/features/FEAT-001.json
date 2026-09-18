@@ -1,0 +1,21 @@
+{
+  "id": "FEAT-001",
+  "type": "chore",
+  "description": "Establish a green baseline for the mgmt/backend Worker test suite before changing any code. Confirms the ~1064-test suite (including the drift test test/schema-is-the-end-state.test.mjs) runs and passes as-is, so any later failure is attributable to this task's changes. Node 22 is required and PATH must be prepended.",
+  "status": "completed",
+  "steps": [
+    "export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\" so node/npm resolve to Node v22.23.2.",
+    "cd mgmt/backend. If node_modules is missing, run `npm ci` (or `npm install`).",
+    "Run the suite: `node --test --test-reporter=spec test/*.test.mjs` and record the pass/fail counts.",
+    "Explicitly confirm test/schema-is-the-end-state.test.mjs passes (the drift guard)."
+  ],
+  "acceptance_criteria": [
+    "The command `node --test --test-reporter=spec test/*.test.mjs` completes with 0 failing tests.",
+    "Recorded baseline pass count (~1064 tests) is captured in findings."
+  ],
+  "verification": [
+    "cd mgmt/backend && PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\" node --test --test-reporter=spec test/*.test.mjs"
+  ],
+  "blocked_reason": null,
+  "findings": "Baseline is GREEN. Environment: Node v22.23.2, npm 11.4.2, mgmt/backend/node_modules already present (no npm ci needed). On branch fix/dropdown-list-add-silent-dataloss at HEAD 8bc604f. Full suite `node --test --test-reporter=spec test/*.test.mjs`: tests 1064, suites 76, pass 1064, fail 0, cancelled 0, skipped 0, todo 0, duration ~8.77s. The drift guard test/schema-is-the-end-state.test.mjs run in isolation: tests 11, suites 4, pass 11, fail 0. No source files modified (verification-only). Any future failure is attributable to this task's changes. Note: node emits an ExperimentalWarning for SQLite (node:sqlite used by test/helpers/stubs.mjs) — this is expected noise, not a failure."
+}
