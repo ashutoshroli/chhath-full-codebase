@@ -1,0 +1,14 @@
+{
+  "task_id": "task-chatbot-budget-prompt-503",
+  "task_description": "Fix the public Chhath Puja chatbot failing after ~7 messages/day for ALL visitors. Root cause: the daily token budget (default 200,000/UTC-day) is exhausted by ~7 answers because the whole-portal system prompt (~28,000 tokens) is sent on every call; once tokenBudgetExceeded() trips, the endpoint returns HTTP 503 for everyone until UTC midnight, and the frontend masks the 503 behind the same generic 'something went wrong' error so it looks like a crash. Fix across mgmt/server-render (shrink per-answer prompt + raise CHAT_DAILY_TOKEN_BUDGET default) and Public/frontend-v6 (distinct 503/429 messages). New branch off main; do NOT push/PR.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "mgmt/server-render `npm test` = 229 pass / 0 fail (baseline 221 + 8 new, incl. the review-requested general-vs-year-scoped trade-off edge test). Public/frontend-v6 `npm run check` = 0 errors/0 warnings; `npm test` = 311 pass / 0 fail (baseline 309 + 2 new); `npm run build` succeeds; CI-authoritative client JS = 624,837 bytes (measured over build/_app/immutable exactly as the ci.yml `Bound the client bundle` job does; under the 700,000 budget with ~75 kB headroom). No Dockerfile for these subprojects (offline). Test quality: the Render large-dataset test (12 years x 60 contributors) would fail if SUMMARY_MAX_CHARS reverted from 3500 to 6000; the budget test asserts the 2,000,000 default and that tokenBudgetExceeded() still trips at config.chatDailyTokenBudget; the frontend status test would fail if the 503 branch reverted to the generic chat_error, and its PR#406 anchor regression guard exercises the unchanged linkify path. Semantic review v1 verdict APPROVED; the one non-blocking test-gap it flagged (concern #3) was addressed with the added edge test, and the build-size discrepancy (concern #4) was reconciled to the CI job's own measure."
+  }
+}

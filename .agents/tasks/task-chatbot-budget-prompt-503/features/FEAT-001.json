@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-001",
+  "type": "chore",
+  "description": "Environment setup and baseline verification for both subprojects. Confirms the toolchain works and both test suites are green before any change. (Orchestrator already verified: render 221 pass/0 fail; frontend check 0/0 + 309 vitest pass. This feature re-confirms in the coder's environment.)",
+  "status": "completed",
+  "steps": [
+    "export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\" (PREPEND) and confirm `node --version` reports v22.23.2.",
+    "cd mgmt/server-render && npm ci && npm test — confirm 221 pass / 0 fail baseline.",
+    "cd Public/frontend-v6 && npm ci && npm run check — confirm 0 errors / 0 warnings.",
+    "cd Public/frontend-v6 && npm test — confirm all vitest tests pass (baseline 309).",
+    "cd Public/frontend-v6 && npm run build — confirm the static build succeeds."
+  ],
+  "acceptance_criteria": [
+    "`cd mgmt/server-render && npm test` exits 0 with 221 pass / 0 fail.",
+    "`cd Public/frontend-v6 && npm run check` reports 0 errors and 0 warnings.",
+    "`cd Public/frontend-v6 && npm test` exits 0 with all tests passing.",
+    "`cd Public/frontend-v6 && npm run build` completes successfully."
+  ],
+  "verification": [
+    "Run `cd mgmt/server-render && npm ci && npm test` and confirm 221 pass / 0 fail.",
+    "Run `cd Public/frontend-v6 && npm ci && npm run check && npm test && npm run build` and confirm all pass."
+  ],
+  "blocked_reason": null,
+  "findings": "Verified by orchestrator: node v22.23.2. mgmt/server-render `npm ci && npm test` = 221 pass / 0 fail. Public/frontend-v6 `npm run check` = 0 errors/0 warnings; `npm test` = 309 pass (18 files); `npm run build` succeeds. Baseline green."
+}
