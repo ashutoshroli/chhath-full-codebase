@@ -35,7 +35,7 @@ export async function addDropdownListItem(env, type, englishValue, hindiLabel, u
   const res = await env.DB_CORE.prepare(
     'INSERT INTO dropdown_lists (list_type, english_value, hindi_label, active, sort_order) VALUES (?, ?, ?, ?, ?)'
   ).bind(type, englishValue.toString().trim(), (hindiLabel || '').toString().trim(), 1, maxOrder + 1).run();
-  if (!res || !res.meta || !res.meta.changes) throw ValidationError('Could not add the item. Please try again.');
+  if (!res.meta.changes) throw ValidationError('Could not add the item. Please try again.');
   return { success: true };
 }
 
@@ -50,7 +50,7 @@ export async function updateDropdownListItem(env, rowIndex, englishValue, hindiL
   if (!sets.length) return { success: true };
   vals.push(rowIndex);
   const res = await env.DB_CORE.prepare(`UPDATE dropdown_lists SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
-  if (!res || !res.meta || !res.meta.changes) throw ValidationError('Item not found.');
+  if (!res.meta.changes) throw ValidationError('Item not found.');
   return { success: true };
 }
 
@@ -58,7 +58,7 @@ export async function deleteDropdownListItem(env, rowIndex, user) {
   requireSuperadmin(user);
   if (!rowIndex) throw ValidationError('rowIndex required');
   const res = await env.DB_CORE.prepare('DELETE FROM dropdown_lists WHERE id = ?').bind(rowIndex).run();
-  if (!res || !res.meta || !res.meta.changes) throw ValidationError('Item not found.');
+  if (!res.meta.changes) throw ValidationError('Item not found.');
   return { success: true };
 }
 

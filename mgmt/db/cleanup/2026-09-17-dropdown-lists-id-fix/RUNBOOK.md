@@ -59,8 +59,10 @@ npx wrangler d1 execute chhath-core --remote --file \
   mgmt/db/cleanup/2026-09-17-dropdown-lists-id-fix/fix-dropdown-lists-id.sql
 ```
 
-All statements share one implicit transaction, so the whole rebuild lands or none
-of it does.
+The script wraps its statements in an explicit `BEGIN TRANSACTION;` ... `COMMIT;`,
+so the whole rebuild lands or none of it does — a mid-script failure after
+`DROP TABLE` rolls back and can never leave `dropdown_lists` gone, independent of
+how `wrangler d1 execute` batches statements.
 
 ## Step 3 — post-check
 
