@@ -1,0 +1,22 @@
+{
+  "id": "FEAT-001",
+  "type": "chore",
+  "description": "Establish a green baseline before making changes. Confirm dependencies are installed and the existing backend test suite passes so any later failure is attributable to this task.",
+  "status": "completed",
+  "steps": [
+    "export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\" for all commands.",
+    "In mgmt/backend, ensure deps are present: run `npm ls >/dev/null 2>&1 || npm install`.",
+    "Run the full backend suite: `cd mgmt/backend && node --test --test-reporter=spec test/*.test.mjs` and record the pass/fail counts (expected baseline ~1097 pass / 0 fail).",
+    "Confirm the migration guard tests specifically pass: migration-matrix.test.mjs, migration-target-databases.test.mjs, pr35-migration-ledger.test.mjs, h10-m38-indexes-and-retention.test.mjs.",
+    "Do NOT modify any source in this feature — baseline only."
+  ],
+  "acceptance_criteria": [
+    "`node --test --test-reporter=spec test/*.test.mjs` in mgmt/backend reports 0 failures and the pass count is recorded in findings.",
+    "The four migration guard test files are confirmed passing."
+  ],
+  "verification": [
+    "cd mgmt/backend && export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\" && node --test --test-reporter=spec test/*.test.mjs 2>&1 | tail -8"
+  ],
+  "blocked_reason": null,
+  "findings": "Baseline green. Deps already present (npm ls OK, no install needed). Full suite: node --test test/*.test.mjs reported tests 1097, pass 1097, fail 0, suites 83 (matches expected ~1097/0). Migration guard tests confirmed passing in a targeted run (migration-matrix, migration-target-databases, pr35-migration-ledger, h10-m38-indexes-and-retention): 64 tests, pass 64, fail 0. No source files modified. Env: PATH prepended /root/.nvm/versions/node/v22.23.2/bin (Node v22.23.2)."
+}

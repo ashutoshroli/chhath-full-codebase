@@ -1,0 +1,7 @@
+{
+  "task_id": "task-loan-consent-preview-templates",
+  "task_description": "Seed/replace the stored consent page template TEXT for both loan consent types (loaner_consent, guarantor_consent) with the user's exact new bilingual (Hindi+English) content via an idempotent DB migration on the chhath-templates D1 db, add the 4 missing placeholder tokens (LOAN_CONSENT_DATETIME, LOAN_STATUS, CONSENT_DATETIME, CONSENT_STATUS) the new text references wired to real loan_consents data, and verify the public Svelte consent preview page renders the new text while keeping the existing Accept / declaration-tick / Decline flow intact (no second UI).",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null
+}

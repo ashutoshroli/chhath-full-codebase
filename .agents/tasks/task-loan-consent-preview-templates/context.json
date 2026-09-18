@@ -1,0 +1,30 @@
+{
+  "project_type": "Cloudflare Workers backend (mgmt/backend, ESM .mjs/.js) + SvelteKit public/admin frontend (mgmt/frontend-svelte) + legacy React frontend; multi-D1-database data model. This is the Chhath Puja committee management portal.",
+  "language": "JavaScript (backend, ESM) + TypeScript/Svelte (frontend-svelte)",
+  "build_system": "npm per package. Backend has no build step (plain ESM run under Node/Workers). frontend-svelte uses Vite/SvelteKit (npm run build).",
+  "test_framework": "node:test (built-in) with node --test. Tests in mgmt/backend/test/*.test.mjs use in-memory node:sqlite (DatabaseSync) seeded from the REAL committed schema via helpers/stubs.mjs schemaFor(). No external test deps.",
+  "build_command": "Backend: none. Frontend consent page: cd mgmt/frontend-svelte && npm install && npm run build",
+  "test_command": "PATH must prepend /root/.nvm/versions/node/v22.23.2/bin. Backend: cd mgmt/backend && node --test --test-reporter=spec test/*.test.mjs (baseline 1097 pass / 0 fail).",
+  "verification_instructions": "1) export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\". 2) cd mgmt/backend && node --test --test-reporter=spec test/*.test.mjs — all must pass incl. migration-matrix, migration-target-databases, pr35-migration-ledger, h10-m38. 3) If frontend-svelte touched: cd mgmt/frontend-svelte && npm install && npm run build must succeed.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\"; cd mgmt/backend && npm install (already installed, node_modules present). Node v22.23.2, npx wrangler 4.135.0 available.",
+  "environment_constraints": "Migrations are guarded by tests that run the SQL in-memory against the committed schema (node:sqlite). D1 rejects explicit BEGIN/COMMIT/SAVEPOINT in --file scripts, so the migration SQL must contain NO explicit transaction statements. A live D1 database is NOT reachable from the sandbox; the migrate.mjs runner shells out to wrangler and is not exercised here — only the pure guard tests run.",
+  "contribution_requirements": "New migrations must: (a) live in a dated folder under mgmt/db/migration/; (b) name a REAL db from wrangler.toml in the header as 'wrangler d1 execute chhath-templates'; (c) be single-database + have executable SQL (kind 'runnable') so pr35-migration-ledger count assertions (multi-db===2, inert===6) stay intact; (d) be idempotent (applied twice with no error against the committed schema); (e) be registered in migration-matrix.test.mjs DECLARED with { schema: 'templates.sql' } (use a NEW folder 2026-09-18, NOT 2026-09-05 which is delegated to h10).",
+  "key_patterns": "Idempotent seed via DELETE-by-type then INSERT (no UNIQUE index on consent_page_templates.type, so ON CONFLICT is unavailable). Placeholder map is single source of truth in consentPlaceholders.js: buildConsentPlaceholders() (per-target) and consentPlaceholderFactory() (loan-level base + per-consent closure) MUST stay in sync. Reuse statusLabel(status,row) for *_STATUS tokens. The public consent Svelte page substitutes only [A-Z0-9_]+ bracket tokens; unknown tokens render as literal text.",
+  "relevant_files": [
+    "mgmt/backend/src/consentPlaceholders.js (ADD 4 tokens: LOAN_CONSENT_DATETIME, LOAN_STATUS, CONSENT_DATETIME, CONSENT_STATUS)",
+    "mgmt/backend/src/loans.js (getConsentByToken ~706 — confirms loaner_consent/guarantor_consent are the preview keys; no change expected)",
+    "mgmt/backend/src/settings.js (getConsentPageTemplate/updateConsentPageTemplate CRUD ~225-245)",
+    "mgmt/db/schema/templates.sql (consent_page_templates DDL)",
+    "mgmt/db/schema/loans_expenses.sql (loan_consents columns: created_at, responded_at, status, verification_status/remarks, decline_remarks)",
+    "mgmt/db/migration/2026-09-05/32-consent-decline-templates.sql (pattern: header + idempotent seed)",
+    "mgmt/db/migration/2026-09-01/02-templates.sql (pattern: templates-db migration header)",
+    "mgmt/backend/test/migration-matrix.test.mjs (must add new migration to DECLARED)",
+    "mgmt/backend/test/migration-target-databases.test.mjs (header db-name guard)",
+    "mgmt/backend/test/pr35-migration-ledger.test.mjs (count invariants)",
+    "mgmt/backend/test/h11-m14-batched-lookups.test.mjs (pattern for consent placeholder tests: baseEnv, seedMembers, loan_consents seed, DB_TEMPLATES seed)",
+    "mgmt/backend/test/helpers/stubs.mjs (baseEnv, seedMembers, schemaFor)",
+    "mgmt/frontend-svelte/src/routes/consent/[token]/+page.svelte (public preview page; substitutePlaceholders + existing accept/tick/decline UI — verify, no second UI)"
+  ],
+  "directory_structure": "mgmt/backend/src = Worker source (loans.js, settings.js, consentPlaceholders.js). mgmt/backend/test = node:test suites. mgmt/db/schema = committed DDL per D1 db. mgmt/db/migration/<date>/NN-*.sql = migrations (ledger-tracked). mgmt/frontend-svelte = SvelteKit app hosting the public /consent/[token] page."
+}
