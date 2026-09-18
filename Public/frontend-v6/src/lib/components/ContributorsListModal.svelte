@@ -1,9 +1,11 @@
 <script lang="ts">
   import { Crown } from '@lucide/svelte';
   import Modal from './Modal.svelte';
+  import ContributorDetail from './ContributorDetail.svelte';
   import { portalState, year } from '$lib/stores/portal';
   import { tr, lang } from '$lib/stores/lang';
-  import { rankedContributors, resoldItemsForYear, contributorTags, ALL_YEARS } from '$lib/api/derive';
+  import { rankedContributors, resoldItemsForYear, contributorTags, ALL_YEARS, type Contributor } from '$lib/api/derive';
+  import type { Ranked } from '$lib/utils/ranking';
   import { fmt, initials, avatarGradient } from '$lib/utils/format';
   import { SvelteSet } from 'svelte/reactivity';
 
@@ -26,6 +28,10 @@
   // Photos that failed to load — those rows fall back to the initials avatar
   // instead of hiding the image and leaving a blank gap.
   let failedPhotos = $state(new SvelteSet<string>());
+
+  // Tapping a row opens the shared ContributorDetail card (with photo) layered
+  // above this list modal. `use:dialog` manages focus for the topmost dialog.
+  let selected = $state<Ranked<Contributor> | null>(null);
 </script>
 
 <Modal {open} {onclose} title={$tr('contributors_live_scroll', { year: yearLabel })}>
@@ -59,12 +65,16 @@
         {#each ranked as entry (entry.item.key)}
           {@const grad = avatarGradient(entry.item.key)}
           {@const tags = contributorTags(entry.item)}
-          <li
-            class="flex items-center gap-3 rounded-xl border p-2.5
+          <li>
+            <button
+              type="button"
+              onclick={() => (selected = entry)}
+              aria-label={nameOf(entry.item)}
+              class="flex w-full items-center gap-3 rounded-xl border p-2.5 text-left transition active:scale-[.99] hover:ring-2 hover:ring-brand-500/40 focus-visible:ring-2
               {entry.isTop
                 ? 'border-gold/60 bg-gold/10'
                 : 'border-black/5 bg-black/[.02] dark:border-white/10 dark:bg-white/[.03]'}"
-          >
+            >
             <span class="relative">
               {#if entry.item.photo && !failedPhotos.has(entry.item.key)}
                 <img
@@ -116,6 +126,7 @@
                 </span>
               {/if}
             </span>
+            </button>
           </li>
         {/each}
       </ul>
@@ -136,3 +147,5 @@
     </ul>
   {/if}
 </Modal>
+
+<ContributorDetail entry={selected} onclose={() => (selected = null)} />

@@ -7,9 +7,11 @@
   import { Crown } from '@lucide/svelte';
   import { portalState, year } from '$lib/stores/portal';
   import { tr, lang } from '$lib/stores/lang';
-  import { computeFinancials, rankedContributors, resoldItemsForYear, contributorTags, ALL_YEARS } from '$lib/api/derive';
+  import { computeFinancials, rankedContributors, resoldItemsForYear, contributorTags, ALL_YEARS, type Contributor } from '$lib/api/derive';
+  import type { Ranked } from '$lib/utils/ranking';
   import { fmt } from '$lib/utils/format';
   import ErrorState from '$lib/components/ErrorState.svelte';
+  import ContributorDetail from '$lib/components/ContributorDetail.svelte';
 
   let loading = $derived($portalState.status === 'loading');
   let fin = $derived(computeFinancials($portalState.data, $year));
@@ -19,6 +21,7 @@
 
   let tab = $state<'contributors' | 'resold'>('contributors');
   let search = $state('');
+  let selected = $state<Ranked<Contributor> | null>(null);
   let filtered = $derived.by(() => {
     const q = search.trim().toLowerCase();
     if (!q) return ranked;
@@ -112,7 +115,12 @@
           {:else}
             {#each filtered as entry (entry.item.key)}
               {@const tags = contributorTags(entry.item)}
-              <div class="flex items-center justify-between gap-3 py-3">
+              <button
+                type="button"
+                onclick={() => (selected = entry)}
+                aria-label={nameOf(entry.item)}
+                class="flex w-full items-center justify-between gap-3 py-3 text-left transition hover:bg-black/[.02] focus-visible:ring-2 dark:hover:bg-white/[.03]"
+              >
                 <div class="min-w-0">
                   <div class="flex items-center gap-1.5 font-medium text-slate-800 dark:text-slate-100">
                     <span class="truncate">{nameOf(entry.item)}</span>
@@ -127,7 +135,7 @@
                     <span class="rounded-md bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">{tagLabel(t as 'material' | 'service')}</span>
                   {/each}
                 </div>
-              </div>
+              </button>
             {/each}
           {/if}
         </div>
@@ -148,3 +156,5 @@
     </div>
   </section>
 {/if}
+
+<ContributorDetail entry={selected} onclose={() => (selected = null)} />

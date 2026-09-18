@@ -34,6 +34,17 @@ export function safeUrl(v: unknown): string {
   return /^https?:\/\//i.test(raw) ? raw : '';
 }
 
+/**
+ * Whether to render a contributor's profile photo vs. the initials fallback.
+ * Show the photo only when there is a non-empty URL AND the image has not
+ * failed to load. Centralised so the decision is identical everywhere it is
+ * used (ContributorCard / ContributorsListModal / ContributorDetail) and can
+ * be unit-tested without a DOM.
+ */
+export function shouldShowPhoto(photo: string | null | undefined, failed: boolean): boolean {
+  return !!photo && !failed;
+}
+
 /** First character of a name, uppercased — used for avatar fallbacks. */
 export function initials(name: unknown): string {
   const s = (name ?? '').toString().trim();

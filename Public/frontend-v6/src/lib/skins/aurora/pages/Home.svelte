@@ -6,11 +6,13 @@
   import { Crown, TrendingDown, TrendingUp, Landmark, Users } from '@lucide/svelte';
   import { portalState, year } from '$lib/stores/portal';
   import { tr, lang } from '$lib/stores/lang';
-  import { computeFinancials, computeSummary, rankedContributors, contributorTags, ALL_YEARS } from '$lib/api/derive';
+  import { computeFinancials, computeSummary, rankedContributors, contributorTags, ALL_YEARS, type Contributor } from '$lib/api/derive';
+  import type { Ranked } from '$lib/utils/ranking';
   import { fmt } from '$lib/utils/format';
   import { initials, avatarGradient } from '$lib/utils/format';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import ContributorsListModal from '$lib/components/ContributorsListModal.svelte';
+  import ContributorDetail from '$lib/components/ContributorDetail.svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import { GLASS } from '../glass';
 
@@ -21,6 +23,7 @@
   let yearLabel = $derived($year === ALL_YEARS ? $tr('all_years') : String($year));
   const nameOf = (c: { name: string; nameHindi: string }) => ($lang === 'hi' && c.nameHindi ? c.nameHindi : c.name);
   let listOpen = $state(false);
+  let selected = $state<Ranked<Contributor> | null>(null);
   // Photos that failed to load — fall back to the initials avatar rather than
   // hiding the image and leaving a blank gap.
   let failedPhotos = $state(new SvelteSet<string>());
@@ -105,7 +108,7 @@
         {#each ranked as entry (entry.item.key)}
           {@const g = avatarGradient(entry.item.key)}
           {@const tags = contributorTags(entry.item)}
-          <div class="relative w-24 shrink-0 rounded-xl border p-3 text-center {entry.isTop ? 'border-amber-300/50 bg-amber-300/10' : 'border-white/10 bg-white/5'}">
+          <button type="button" onclick={() => (selected = entry)} aria-label={nameOf(entry.item)} class="relative w-24 shrink-0 rounded-xl border p-3 text-center transition active:scale-[.97] hover:ring-2 hover:ring-violet-400/50 focus-visible:ring-2 {entry.isTop ? 'border-amber-300/50 bg-amber-300/10' : 'border-white/10 bg-white/5'}">
             {#if entry.isTop}<Crown class="absolute left-1/2 -top-2 h-4 w-4 -translate-x-1/2 fill-current text-amber-300" aria-label="Top {entry.rank}" />{/if}
             {#if entry.item.photo && !failedPhotos.has(entry.item.key)}
               <img src={entry.item.photo} alt={nameOf(entry.item)} loading="lazy" class="mx-auto h-10 w-10 rounded-full object-cover" onerror={() => failedPhotos.add(entry.item.key)} />
@@ -124,7 +127,7 @@
             {#if entry.item.count > 1}
               <p class="text-[9px] font-semibold text-slate-400">{$tr('times_contributed', { count: entry.item.count })}</p>
             {/if}
-          </div>
+          </button>
         {/each}
       </div>
     {/if}
@@ -132,3 +135,4 @@
 {/if}
 
 <ContributorsListModal open={listOpen} onclose={() => (listOpen = false)} />
+<ContributorDetail entry={selected} onclose={() => (selected = null)} />

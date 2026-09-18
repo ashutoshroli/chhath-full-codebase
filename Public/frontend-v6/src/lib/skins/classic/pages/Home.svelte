@@ -6,9 +6,11 @@
   import { Crown } from '@lucide/svelte';
   import { portalState, year } from '$lib/stores/portal';
   import { tr, lang } from '$lib/stores/lang';
-  import { computeFinancials, rankedContributors, resoldItemsForYear, contributorTags, ALL_YEARS } from '$lib/api/derive';
+  import { computeFinancials, rankedContributors, resoldItemsForYear, contributorTags, ALL_YEARS, type Contributor } from '$lib/api/derive';
+  import type { Ranked } from '$lib/utils/ranking';
   import { fmt } from '$lib/utils/format';
   import ErrorState from '$lib/components/ErrorState.svelte';
+  import ContributorDetail from '$lib/components/ContributorDetail.svelte';
 
   let loading = $derived($portalState.status === 'loading');
   let fin = $derived(computeFinancials($portalState.data, $year));
@@ -18,6 +20,7 @@
 
   let tab = $state<'contributors' | 'resold'>('contributors');
   let search = $state('');
+  let selected = $state<Ranked<Contributor> | null>(null);
   let filtered = $derived.by(() => {
     const q = search.trim().toLowerCase();
     if (!q) return ranked;
@@ -122,7 +125,12 @@
       {:else}
         {#each filtered as entry (entry.item.key)}
           {@const tags = contributorTags(entry.item)}
-          <div class="flex items-center justify-between gap-3 border-b border-dashed border-gray-100 py-3 last:border-0 dark:border-gray-700">
+          <button
+            type="button"
+            onclick={() => (selected = entry)}
+            aria-label={nameOf(entry.item)}
+            class="flex w-full items-center justify-between gap-3 border-b border-dashed border-gray-100 py-3 text-left last:border-0 transition hover:bg-black/[.02] focus-visible:ring-2 dark:border-gray-700 dark:hover:bg-white/[.03]"
+          >
             <div class="min-w-0">
               <div class="flex items-center gap-1.5 font-semibold text-gray-800 dark:text-gray-100">
                 <span class="truncate">{nameOf(entry.item)}</span>
@@ -145,7 +153,7 @@
                 <span class="rounded bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">{tagLabel(t as 'material' | 'service')}</span>
               {/each}
             </div>
-          </div>
+          </button>
         {/each}
       {/if}
     </div>
@@ -164,3 +172,5 @@
     </div>
   {/if}
 {/if}
+
+<ContributorDetail entry={selected} onclose={() => (selected = null)} />
