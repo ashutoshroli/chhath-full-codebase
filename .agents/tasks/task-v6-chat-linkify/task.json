@@ -1,0 +1,20 @@
+{
+  "task_id": "task-v6-chat-linkify",
+  "task_description": "Fix the Public/frontend-v6 floating chat assistant: bot replies render URLs as raw text so links (markdown autolink <url>, bare urls, [label](url)) show angle brackets, overflow the message bubble, and are not clickable. Add an XSS-safe, dependency-free linkify tokenizer that turns http(s) URLs into real target=_blank rel=noopener anchors, keep non-link text escaped, and fix long-URL wrapping inside the bubble. Scope changes to Public/frontend-v6 only; keep npm run check 0/0, npm test green (with new linkify + XSS tests), and npm run build within the 700000-byte client-JS budget.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null,
+  "review": {
+    "verdict": "APPROVED",
+    "pass": "v1",
+    "artifact": ".agents/tasks/task-v6-chat-linkify/2026-09-18-195128-review.md",
+    "notes": "Two non-blocking nits only (over-broad TRAILING_PUNCT set; href not otherwise sanitized but safe via Svelte attribute escaping). XSS posture confirmed sound. No coder iteration required."
+  },
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "npm run check 0/0; npm test 18 files / 309 tests pass (incl. 12 linkify unit + 2 jsdom component tests); npm run build succeeds at 624073 bytes total client JS (< 700000 budget, +1894 from 622179 baseline); first-load worst 370103 < 420000. Test quality confirmed by mutation probe: reverting the Chatbot.svelte render to plain {m.text} makes the jsdom component test fail (no anchor rendered), proving it exercises the real fix. No Dockerfile path for v6 client build; docker_build not applicable."
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "project_type": "SvelteKit 5 (runes) + TypeScript + Tailwind static/PWA public frontend (Public/frontend-v6), the live chhath.shaharpura.com app",
+  "language": "TypeScript / Svelte 5",
+  "build_system": "Vite 8 (rolldown) via SvelteKit adapter-static; npm scripts",
+  "test_framework": "vitest 5 — default environment 'node' for pure TS; component tests opt in per file with the '// @vitest-environment jsdom' pragma and use svelte's mount/unmount/flushSync (see src/lib/components/ContributorDetail.test.ts). Test glob: src/**/*.{test,spec}.{js,ts}",
+  "build_command": "export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\"; cd Public/frontend-v6 && npm run build",
+  "test_command": "export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\"; cd Public/frontend-v6 && npm run check && npm test",
+  "verification_instructions": "From Public/frontend-v6: (1) npm ci (deps already installed). (2) npm run check — svelte-check --fail-on-warnings, MUST stay 0 errors / 0 warnings. (3) npm test — vitest run, all green including new linkify tests. (4) npm run build — must succeed and total client JS must stay < 700000 bytes. Measure total with: find build/_app/immutable -name '*.js' -printf '%s\\n' | awk '{s+=$1} END{print s}'. Baseline before this task = 622183 bytes (~77KB headroom).",
+  "snapshot_or_generated_files": "None checked in. build/ is generated output (gitignored). No snapshot fixtures.",
+  "setup_instructions": "PREPEND to PATH: export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\" (node v22.23.2). node_modules already present; run npm ci in Public/frontend-v6 only if needed.",
+  "environment_constraints": "Scope ALL changes to Public/frontend-v6 ONLY. Do NOT touch Public/frontend-v2..v5 or mgmt/. CI job 'public-frontend-v6' enforces total client JS budget <= 700000 bytes AND a per-page first-load budget (scripts/first-load-bytes.mjs --limit 420000). Prefer a tiny dependency-free implementation. IMPORTANT: DOMPurify is NOT a dependency in v6 (confirmed: 0 hits in package-lock.json and src). Do NOT add a markdown/linkify/sanitizer library — hand-roll a tokenizer that escapes all non-link text and only builds anchors for validated http(s) URLs. Do NOT push or open a PR.",
+  "contribution_requirements": "XSS safety is mandatory: bot text comes from an external Render chat endpoint (data.answer) and is UNTRUSTED. Never {@html} raw external text. Build tokens programmatically, HTML-escape all non-link text, and only emit <a> for validated http/https URLs (reject javascript:/data:/other schemes). Anchors must be target=\"_blank\" rel=\"noopener noreferrer\" (nofollow ugc acceptable). Keep svelte-check at 0/0.",
+  "key_patterns": "Pure logic is extracted to a module and unit-tested in 'node' env; component behavior is pinned with a jsdom component test that mounts the real .svelte and asserts on the rendered DOM (ContributorDetail.test.ts is the template). Tailwind utility classes on markup. Comments in this repo explain WHY a fix exists and cite the audit id.",
+  "relevant_files": [
+    "Public/frontend-v6/src/lib/components/Chatbot.svelte (BUG SITE: renders {m.text} plain inside a max-w-[80%] whitespace-pre-wrap bubble)",
+    "Public/frontend-v6/src/lib/components/ContributorDetail.test.ts (jsdom component-test PATTERN to copy)",
+    "Public/frontend-v6/src/lib/utils/format.ts (pure-helper module pattern)",
+    "Public/frontend-v6/vite.config.ts (vitest config: node default, jsdom pragma opt-in)",
+    "Public/frontend-v6/.github or repo .github/workflows/ci.yml (public-frontend-v6 job, 700000-byte budget at line ~317)"
+  ],
+  "directory_structure": "Public/frontend-v6/src/lib/{components,utils,api,stores,a11y,skins,tooling}; routes under src/routes. Chat lives in src/lib/components/Chatbot.svelte. New linkify helper should go under src/lib/chat/ (new dir) or src/lib/utils/ per the pure-helper convention."
+}
