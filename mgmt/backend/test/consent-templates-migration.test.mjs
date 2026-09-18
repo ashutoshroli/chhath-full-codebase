@@ -35,6 +35,23 @@ const MIGRATION = new URL(
 );
 const migrationSql = () => readFileSync(MIGRATION, 'utf8');
 
+// The verbatim source fixtures the migration seeds from. The test dir is
+// mgmt/backend/test, the fixtures live under <repo>/.agents/tasks/… — three
+// levels up. The migration's INSERT literal ends with a trailing newline, so
+// the stored text is byte-for-byte identical to the fixture INCLUDING that
+// trailing newline: assert raw equality (no trim).
+const FIXTURES = {
+  loaner_consent: new URL(
+    '../../../.agents/tasks/task-loan-consent-preview-templates/template-loaner_consent.txt',
+    import.meta.url,
+  ),
+  guarantor_consent: new URL(
+    '../../../.agents/tasks/task-loan-consent-preview-templates/template-guarantor_consent.txt',
+    import.meta.url,
+  ),
+};
+const fixtureText = (type) => readFileSync(FIXTURES[type], 'utf8');
+
 function freshDb() {
   const db = new DatabaseSync(':memory:');
   db.exec(schemaFor('templates.sql'));
@@ -101,6 +118,23 @@ describe('applying the migration seeds both consent types', () => {
       assert.ok(!textFor(db, 'loaner_consent').includes('OLD'));
     } finally { db.close(); }
   });
+});
+
+describe('the seeded text is byte-for-byte identical to the source fixtures', () => {
+  // The strongest guard against silent text corruption: a subtle regression
+  // that still keeps the headers/tokens/markers (e.g. a dropped middle
+  // paragraph, a smart-quote swap, a mis-escaped apostrophe) would sail past
+  // the anchor checks below but fails here. Raw equality — the migration's
+  // INSERT literal preserves the fixture's trailing newline, so no trim.
+  for (const type of ['loaner_consent', 'guarantor_consent']) {
+    test(`${type} stored text === fixture file content (raw, incl. trailing newline)`, () => {
+      const db = freshDb();
+      try {
+        db.exec(migrationSql());
+        assert.equal(textFor(db, type), fixtureText(type));
+      } finally { db.close(); }
+    });
+  }
 });
 
 describe('the seeded loaner_consent body', () => {
