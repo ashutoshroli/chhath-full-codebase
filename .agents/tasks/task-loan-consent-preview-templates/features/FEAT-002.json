@@ -1,0 +1,30 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Add the 4 consent placeholder tokens the new templates reference but that consentPlaceholders.js does not yet emit: LOAN_CONSENT_DATETIME, LOAN_STATUS (loan-level, from the loaner consent row) and CONSENT_DATETIME, CONSENT_STATUS (per-consent, from the target consent). Wire them to real loan_consents data and keep buildConsentPlaceholders() and consentPlaceholderFactory() in sync. Add a focused unit test. Depends on FEAT-001.",
+  "status": "completed",
+  "steps": [
+    "Edit mgmt/backend/src/consentPlaceholders.js. In buildConsentPlaceholders(): a helper `datetimeOf(c) => (c && (c.responded_at || c.created_at)) || ''` (responded_at is '' until a decision, so fall back to created_at). loanerConsent is already computed via `consents.find(c => c.role === 'loaner')`.",
+    "Add to the loan-level `placeholders` object (so they are safe in the factory base): `LOAN_CONSENT_DATETIME: datetimeOf(loanerConsent)` and `LOAN_STATUS: loanerConsent ? statusLabel(loanerConsent.status, loanerConsent) : ''`.",
+    "Add the per-target tokens next to the existing GUARANTOR_NAME/CONSENT_ID lines: `CONSENT_DATETIME: targetConsent ? datetimeOf(targetConsent) : ''` and `CONSENT_STATUS: targetConsent ? statusLabel(targetConsent.status, targetConsent) : ''`.",
+    "In consentPlaceholderFactory(): the returned per-consent closure currently overrides CONSENT_ID and GUARANTOR_NAME. Also override the per-consent tokens so a whole-loan iteration gets correct values: `CONSENT_DATETIME: targetConsent ? datetimeOf(targetConsent) : ''`, `CONSENT_STATUS: targetConsent ? statusLabel(targetConsent.status, targetConsent) : ''`. LOAN_CONSENT_DATETIME/LOAN_STATUS come from the base (loan-level) and need no per-consent override. Make `datetimeOf` reachable from both functions (module-scope helper or duplicate the tiny expression consistently).",
+    "Do NOT change statusLabel(); reuse it so *_STATUS render verification/decline remarks identically to GUARANTOR_n_STATUS.",
+    "Create mgmt/backend/test/consent-placeholders.test.mjs. Import buildConsentPlaceholders, consentPlaceholderFactory, statusLabel from ../src/consentPlaceholders.js. Build a minimal env exposing getFestivalDates deps (follow how h11-m14-batched-lookups.test.mjs and helpers/stubs.mjs baseEnv provide DB_CORE festival data; if getFestivalDates needs a settings row, seed it the same way, or pass an env whose DB_CORE returns empty so festival tokens are '' — the new tokens do not depend on festival data).",
+    "Test A (prove-first): construct a loan object and an allConsents array with a loaner consent {role:'loaner', status:'accepted', responded_at:'2026-10-20T10:00:00.000Z', consent_id:'LCN1', verification_status:'verified'} and a target guarantor consent {role:'guarantor', status:'declined', created_at:'2026-10-01', responded_at:'2026-10-05T09:00:00.000Z', consent_id:'GCN1', decline_remarks:'busy'}. Assert LOAN_CONSENT_DATETIME==='2026-10-20T10:00:00.000Z', LOAN_STATUS===statusLabel('accepted', loanerConsent) (contains 'Accepted' and 'Verified'), CONSENT_DATETIME==='2026-10-05T09:00:00.000Z', CONSENT_STATUS===statusLabel('declined', targetConsent) (contains 'Declined' and the remark).",
+    "Test B: a pending target consent with responded_at:'' and created_at:'2026-09-01' yields CONSENT_DATETIME==='2026-09-01' (fallback) and CONSENT_STATUS contains 'Pending'.",
+    "Test C: consentPlaceholderFactory(env, loan, allConsents, nameOf) then invoking the returned fn(targetConsent) produces the SAME CONSENT_DATETIME/CONSENT_STATUS as buildConsentPlaceholders for that same target, AND the same LOAN_CONSENT_DATETIME/LOAN_STATUS from the base — proving the two builders agree (this is the invariant the module exists to protect).",
+    "Run the new test and the full backend suite; both must be green."
+  ],
+  "acceptance_criteria": [
+    "buildConsentPlaceholders emits LOAN_CONSENT_DATETIME, LOAN_STATUS, CONSENT_DATETIME, CONSENT_STATUS with values derived from loan_consents rows (not blank when data exists).",
+    "consentPlaceholderFactory's per-consent closure emits identical CONSENT_DATETIME/CONSENT_STATUS to buildConsentPlaceholders for the same target consent.",
+    "`node --test test/consent-placeholders.test.mjs` passes and would FAIL if the new tokens were removed (prove-first).",
+    "Full backend suite still passes with 0 failures."
+  ],
+  "verification": [
+    "cd mgmt/backend && export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\" && node --test --test-reporter=spec test/consent-placeholders.test.mjs 2>&1 | tail -12",
+    "cd mgmt/backend && export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\" && node --test --test-reporter=spec test/*.test.mjs 2>&1 | tail -8"
+  ],
+  "blocked_reason": null,
+  "findings": "Added a module-scope helper datetimeOf(c) => (c && (c.responded_at || c.created_at)) || '' so buildConsentPlaceholders and consentPlaceholderFactory share one implementation. buildConsentPlaceholders now emits LOAN_CONSENT_DATETIME (datetimeOf(loanerConsent)) and LOAN_STATUS (statusLabel of loanerConsent, '' if none) in the loan-level placeholders object, plus CONSENT_DATETIME and CONSENT_STATUS from targetConsent. consentPlaceholderFactory's returned closure now also overrides CONSENT_DATETIME/CONSENT_STATUS alongside the existing CONSENT_ID/GUARANTOR_NAME overrides; LOAN_* come from the shared base. statusLabel unchanged and reused. Added test/consent-placeholders.test.mjs with prove-first tests A/B/C using baseEnv (DB_CORE core.sql schema; getFestivalDates returns blanks with no festival_dates row, so festival tokens are '' and the 4 new tokens are exercised independently). Verified prove-first: deleting the CONSENT_DATETIME line makes all 3 tests fail (3 fail), restoring makes them pass (3 pass). Full backend suite: 1100 pass / 0 fail (baseline 1097 + 3 new)."
+}

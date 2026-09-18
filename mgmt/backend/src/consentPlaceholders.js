@@ -44,6 +44,13 @@ export function statusLabel(s, c) {
 // audit L-8: un-exported — used only inside this module.
 const DOCUMENTED_GUARANTOR_SLOTS = 3;
 
+// The datetime a consent decision carries. responded_at is '' until a decision
+// is recorded, so fall back to created_at. Module-scoped so both
+// buildConsentPlaceholders and consentPlaceholderFactory agree on the value.
+function datetimeOf(c) {
+  return (c && (c.responded_at || c.created_at)) || '';
+}
+
 /**
  * Builds the complete consent placeholder map.
  *
@@ -91,6 +98,15 @@ export async function buildConsentPlaceholders(env, loan, allConsents, targetCon
     LOAN_CONSENT_ID: loanerConsent ? loanerConsent.consent_id : '',
     CONSENT_ID: targetConsent ? targetConsent.consent_id : '',
 
+    // Loan-level (loaner) consent date/time + status. Safe in the factory base.
+    LOAN_CONSENT_DATETIME: datetimeOf(loanerConsent),
+    LOAN_STATUS: loanerConsent ? statusLabel(loanerConsent.status, loanerConsent) : '',
+
+    // Per-target consent date/time + status (loaner OR guarantor doc). The
+    // factory overrides these per consent so a whole-loan iteration is correct.
+    CONSENT_DATETIME: targetConsent ? datetimeOf(targetConsent) : '',
+    CONSENT_STATUS: targetConsent ? statusLabel(targetConsent.status, targetConsent) : '',
+
     DIWALI_NEXT_DAY_DATE: festival['Diwali Next Day Date'] || '',
     DIWALI_NEXT_DAY_DAY_NAME: bilingual(diwali),
     NAHAY_KHAY_DATE: festival['Nahay-Khay Date'] || '',
@@ -127,5 +143,9 @@ export async function consentPlaceholderFactory(env, loan, allConsents, nameOf) 
   return (targetConsent) => Object.assign({}, base, {
     CONSENT_ID: targetConsent ? targetConsent.consent_id : '',
     GUARANTOR_NAME: targetConsent ? nameOf(targetConsent.person_id) : '',
+    // Per-consent date/time + status. LOAN_CONSENT_DATETIME/LOAN_STATUS are
+    // loan-level and stay as computed in the base.
+    CONSENT_DATETIME: targetConsent ? datetimeOf(targetConsent) : '',
+    CONSENT_STATUS: targetConsent ? statusLabel(targetConsent.status, targetConsent) : '',
   });
 }

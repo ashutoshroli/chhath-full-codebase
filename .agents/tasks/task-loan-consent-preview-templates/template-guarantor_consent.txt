@@ -1,0 +1,236 @@
+नवयुवक छठ पूजा समिति
+
+NAVYUVAK CHHATH PUJA SAMITI
+
+ऋण गारंटर Consent एवं नियम एवं शर्तें
+
+LOAN GUARANTOR CONSENT & TERMS AND CONDITIONS
+
+1. ऋण संबंधी विवरण / Loan Details
+
+Consent देने वाले गारंटर / Consenting Guarantor:
+"[GUARANTOR_NAME]"
+
+ऋण प्राप्तकर्ता / Loaner:
+"[LOANER_NAME]"
+
+मूलधन / ऋण राशि / Principal Loan Amount:
+"₹[LOAN_AMOUNT]"
+
+मासिक ब्याज दर / Monthly Interest Rate:
+"[MONTHLY_INTEREST_RATE]% प्रति माह / per month"
+
+न्यूनतम ब्याज अवधि / Minimum Interest Period:
+"[MINIMUM_TENURE_MONTHS] माह / months"
+
+अधिकतम भुगतान तिथि / Maximum Repayment Date:
+"[FINAL_REPAYMENT_DATE]"
+
+Consent Reference ID:
+"[CONSENT_ID]"
+
+---
+
+2. महत्वपूर्ण तिथियां एवं अवसर
+
+IMPORTANT DATES & OCCASIONS
+
+दीपावली के अगले दिन / Day After Diwali:
+"[DIWALI_NEXT_DAY_DATE]" — "[DIWALI_NEXT_DAY_DAY_NAME]"
+
+नहाय-खाय का दिन / Nahay-Khay Day:
+"[NAHAY_KHAY_DATE]" — "[NAHAY_KHAY_DAY_NAME]"
+
+अधिकतम भुगतान का अंतिम दिन / Final Repayment Day:
+"[FINAL_REPAYMENT_DATE]" — "[FINAL_REPAYMENT_DAY_NAME]"
+
+छठ पूजा के सुबह अर्घ्य का दिन / Chhath Morning Arghya Day:
+"[CHHATH_MORNING_ARGHYA_DATE]" — "[CHHATH_MORNING_ARGHYA_DAY_NAME]"
+
+«उपरोक्त तिथियां ऋण की अवधि, भुगतान की अंतिम सीमा तथा गारंटर संबंधी जिम्मेदारी को स्पष्ट करने के लिए दर्ज की गई हैं।
+
+The above dates are recorded to clearly define the loan period, final repayment deadline, and guarantor-related responsibility.»
+
+---
+
+3. ऋण का विवरण
+
+LOAN DETAILS
+
+नवयुवक छठ पूजा समिति के वर्ष "[FUND_YEAR]" की बची हुई राशि में से ₹[LOAN_AMOUNT]/- की राशि [LOANER_NAME] को [MONTHLY_INTEREST_RATE]% प्रति माह की ब्याज दर पर दी गई है।
+
+An amount of ₹[LOAN_AMOUNT]/- from the remaining funds of Navyuvak Chhath Puja Samiti for the year "[FUND_YEAR]" has been provided to [LOANER_NAME] at an interest rate of [MONTHLY_INTEREST_RATE]% per month.
+
+इस राशि के लिए मुझे गारंटर के रूप में नामित किया गया है।
+
+I have been designated as a Guarantor for this loan.
+
+---
+
+4. ऋण अवधि एवं ब्याज की शर्तें
+
+LOAN TENURE & INTEREST TERMS
+
+4.1 न्यूनतम ब्याज अवधि / Minimum Interest Period
+
+इस ऋण की न्यूनतम ब्याज अवधि "[MINIMUM_TENURE_MONTHS] माह" निर्धारित है।
+
+The minimum interest period for this loan is `[MINIMUM_TENURE_MONTHS] months.
+
+यदि "[LOANER_NAME]" न्यूनतम अवधि पूरी होने से पहले मूलधन वापस करता/करती है, तब भी पूरे "[MINIMUM_TENURE_MONTHS] माह" का निर्धारित ब्याज देना अनिवार्य होगा।
+
+If "[LOANER_NAME]" repays the principal before completion of the minimum period, the full interest for "[MINIMUM_TENURE_MONTHS] months" shall still be payable.
+
+अर्थात समय से पहले भुगतान करने पर भी न्यूनतम अवधि के ब्याज में कोई कमी नहीं की जाएगी।
+
+Therefore, early repayment shall not reduce the minimum interest payable.
+
+---
+
+4.2 अधिकतम भुगतान अवधि / Maximum Repayment Period
+
+इस ऋण की अधिकतम भुगतान अवधि "[FINAL_REPAYMENT_DATE]" तक निर्धारित है।
+
+The maximum repayment period for this loan is up to "[FINAL_REPAYMENT_DATE]".
+
+यह ऋण की निर्धारित अंतिम भुगतान तिथि होगी।
+
+This shall be the prescribed final repayment deadline.
+
+---
+
+4.3 अंतिम भुगतान दिवस / Final Repayment Day
+
+"[LOANER_NAME]" को "[FINAL_REPAYMENT_DATE]" तक मूलधन एवं उस समय तक देय ब्याज की पूरी राशि वापस करनी होगी।
+
+"[LOANER_NAME]" shall repay the complete principal amount along with all interest due up to "[FINAL_REPAYMENT_DATE]".
+
+---
+
+4.4 अंतिम तिथि तक भुगतान न होने की स्थिति
+
+FAILURE TO REPAY BY THE FINAL DATE
+
+यदि "[LOANER_NAME]" द्वारा "[FINAL_REPAYMENT_DATE]" तक पूरी राशि वापस नहीं की जाती है, तो समझौते के अनुसार गारंटर की भुगतान संबंधी जिम्मेदारी लागू होगी।
+
+If "[LOANER_NAME]" fails to repay the complete amount by "[FINAL_REPAYMENT_DATE]", the guarantor's payment responsibility shall apply as per this agreement.
+
+यदि "[CHHATH_MORNING_ARGHYA_DATE]" की सुबह तक भी भुगतान नहीं किया जाता है, तो तीनों गारंटरों की निर्धारित जिम्मेदारी के अनुसार समिति की देय राशि की भरपाई की जाएगी।
+
+If the payment is still not made by the morning of "[CHHATH_MORNING_ARGHYA_DATE]", the three guarantors shall be responsible for fulfilling the committee's due amount as per the agreed terms.
+
+---
+
+5. गारंटर की जिम्मेदारी
+
+GUARANTOR RESPONSIBILITY
+
+मैं, "[GUARANTOR_NAME]", यह स्वीकार करता/करती हूँ कि मैं "[LOANER_NAME]" के उक्त ऋण के लिए गारंटर हूँ।
+
+I, "[GUARANTOR_NAME]", acknowledge that I am a guarantor for the above-mentioned loan of "[LOANER_NAME]".
+
+यदि निर्धारित अंतिम समय तक ऋण की देय राशि वापस नहीं की जाती है, तो समझौते के अनुसार मेरी गारंटर संबंधी भुगतान जिम्मेदारी लागू होगी।
+
+If the amount due under the loan is not repaid within the prescribed time, my payment responsibility as a guarantor shall apply according to this agreement.
+
+इसमें कम-से-कम मूलधन "₹[LOAN_AMOUNT]" तथा "[MINIMUM_TENURE_MONTHS] माह" का न्यूनतम निर्धारित ब्याज शामिल होगा।
+
+This shall include, at minimum, the principal amount of "₹[LOAN_AMOUNT]" and the prescribed minimum interest for "[MINIMUM_TENURE_MONTHS] months".
+
+---
+
+6. तीनों गारंटर
+
+THREE GUARANTORS
+
+1. "[GUARANTOR_1_NAME]"
+2. "[GUARANTOR_2_NAME]"
+3. "[GUARANTOR_3_NAME]"
+
+प्रत्येक गारंटर अपनी Consent स्वतंत्र रूप से स्वीकार या अस्वीकार करेगा।
+
+Each guarantor shall independently accept or decline their consent.
+
+---
+
+7. Loaner की Final Acceptance
+
+LOANER FINAL ACCEPTANCE
+
+"[LOANER_NAME]" तब तक इस ऋण का Final Acceptance नहीं कर सकेगा/सकेगी जब तक सभी तीनों गारंटर अपनी Consent Accepted स्थिति में दर्ज नहीं कर देते।
+
+"[LOANER_NAME]" shall not be able to provide Final Acceptance until all three guarantors have marked their consent as Accepted.
+
+आवश्यक स्थिति / Required Status
+
+Guarantor 1: "[GUARANTOR_1_STATUS]"
+Guarantor 2: "[GUARANTOR_2_STATUS]"
+Guarantor 3: "[GUARANTOR_3_STATUS]"
+
+"3 / 3 GUARANTORS ACCEPTED"
+
+यदि किसी भी गारंटर का Status Pending या Declined है, तो Loaner's Final Acceptance Locked रहेगा।
+
+If any guarantor's status is Pending or Declined, the Loaner's Final Acceptance shall remain locked.
+
+---
+
+8. Consent की स्वतंत्रता
+
+VOLUNTARY CONSENT
+
+मैं पुष्टि करता/करती हूँ कि मैंने सभी शर्तें पढ़ी और समझी हैं तथा अपनी इच्छा से यह Consent स्वीकार करने का निर्णय लिया है।
+
+I confirm that I have read and understood all the terms and have voluntarily decided to provide this consent.
+
+मुझ पर किसी प्रकार का अनुचित दबाव डालकर Consent स्वीकार नहीं कराया गया है।
+
+I have not been forced or subjected to undue pressure to provide this consent.
+
+---
+
+9. डिजिटल Consent Record
+
+DIGITAL CONSENT RECORD
+
+मैं सहमत हूँ कि मेरे द्वारा दिया गया Consent डिजिटल रूप से रिकॉर्ड और सुरक्षित किया जा सकता है।
+
+I agree that my consent may be digitally recorded and securely stored.
+
+Consent Record में निम्न जानकारी रखी जा सकती है:
+
+The Consent Record may contain:
+
+- नाम / Name
+- भूमिका / Role
+- Consent Status
+- Consent Date & Time
+- Consent Reference ID
+- ऋण संबंधी विवरण / Loan Details
+- डिजिटल/तकनीकी रिकॉर्ड / Digital & Technical Record
+
+---
+
+10. मेरी अंतिम घोषणा
+
+FINAL DECLARATION
+
+☐ मैंने ऊपर दिए गए ऋण संबंधी सभी विवरण, नियम एवं शर्तें तथा गारंटर के रूप में अपनी जिम्मेदारियां ध्यानपूर्वक पढ़ ली हैं और समझ ली हैं। मैं अपनी स्वेच्छा से इस ऋण के लिए गारंटर के रूप में Consent स्वीकार करता/करती हूँ।
+
+☐ I have carefully read and understood all the above loan details, terms and conditions, and my responsibilities as a guarantor. I voluntarily provide my consent as a guarantor for this loan.
+
+Consent विकल्प / Consent Options
+
+[ ACCEPT CONSENT ]
+
+[ DECLINE CONSENT ]
+
+---
+
+Consent Record
+
+नाम / Name: "[GUARANTOR_NAME]"
+भूमिका / Role: "Guarantor"
+Status: "[CONSENT_STATUS]"
+Consent Date & Time: "[CONSENT_DATETIME]"
+Reference ID: "[CONSENT_ID]"

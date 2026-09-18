@@ -1,0 +1,20 @@
+{
+  "task_id": "task-loan-consent-preview-templates",
+  "task_description": "Seed/replace the stored consent page template TEXT for both loan consent types (loaner_consent, guarantor_consent) with the user's exact new bilingual (Hindi+English) content via an idempotent DB migration on the chhath-templates D1 db, add the 4 missing placeholder tokens (LOAN_CONSENT_DATETIME, LOAN_STATUS, CONSENT_DATETIME, CONSENT_STATUS) the new text references wired to real loan_consents data, and verify the public Svelte consent preview page renders the new text while keeping the existing Accept / declaration-tick / Decline flow intact (no second UI).",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null,
+  "review": {
+    "verdict": "APPROVED",
+    "pass": "v1",
+    "review_file": ".agents/tasks/task-loan-consent-preview-templates/2026-09-18-163637-review.md",
+    "notes": "v1 APPROVED with one non-blocking issue (migration test lacked a byte-exact fixture assertion). Fixed in commit d49e3e3 by adding byte-for-byte fixture assertions for both types, proven to fail on any interior text change. No blocking issues remained."
+  },
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "Full backend suite 1114 pass / 0 fail (baseline 1097 + 3 placeholder tests + 14 migration tests, incl. 2 post-review byte-exact fixture assertions). Guard tests (migration-matrix, migration-target-databases, pr35-migration-ledger, h10-m38) green; ledger kind counts intact (inert 6, multi-db 2). frontend-svelte build succeeds with no consent-page code change. Independently verified the seeded loaner_consent/guarantor_consent text round-trips byte-for-byte identical to the user's provided fixtures (len 8832, exact), the stray backtick is preserved, apostrophes escaped correctly, and the migration is idempotent + self-healing. Test quality: FEAT-002 tests are prove-first (fail if a token is removed, confirmed by the coder); FEAT-003 tests assert real seeded rows, idempotency on re-apply, and a token-drift guard tying seeded tokens to the keys the code emits. No Dockerfile involved in this change; docker build not applicable."
+  }
+}
