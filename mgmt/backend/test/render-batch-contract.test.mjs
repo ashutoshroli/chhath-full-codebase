@@ -184,6 +184,45 @@ describe('a dispatch is split so it always fits', () => {
   });
 });
 
+describe('dataByteLength runs in a Worker with no Buffer (the real bulk bug)', () => {
+  // The bulk "8589934592.0 MB" reject was NOT a BigInt — it was dataByteLength using
+  // Buffer.byteLength, which THREW in the Cloudflare Worker (no nodejs_compat, so Buffer
+  // is undefined). The catch returned MAX_SAFE_INTEGER, and MAX_SAFE_INTEGER / 1048576 =
+  // 8589934592. Simulate the Worker by removing Buffer and confirm a plain record still
+  // sizes correctly instead of hitting the sentinel.
+  test('a normal record sizes correctly even when Buffer is undefined', () => {
+    const savedBuffer = globalThis.Buffer;
+    try {
+      // eslint-disable-next-line no-global-assign
+      globalThis.Buffer = undefined;
+      const data = { RECEIPT_NO: 'NCS-2026-39', NAME: 'Sujit', MOBILE: 9128220837, AMOUNT: '100', YEAR: '2026' };
+      const n = dataByteLength(data);
+      assert.ok(n > 0 && n < 2000, `expected a real byte length, got ${n}`);
+      assert.notEqual(n, Number.MAX_SAFE_INTEGER, 'must not fall back to the reject sentinel when Buffer is absent');
+    } finally {
+      globalThis.Buffer = savedBuffer;
+    }
+  });
+
+  test('planBatches accepts a batch of records with no Buffer present', () => {
+    const savedBuffer = globalThis.Buffer;
+    try {
+      globalThis.Buffer = undefined;
+      const items = Array.from({ length: 6 }, (_, i) => ({
+        recordId: `receipt-2017-${625 + i}`,
+        data: { RECEIPT_NO: `NCS-2017-${i}`, NAME: `N${i}`, MOBILE: 9128220837, AMOUNT: '100', YEAR: '2017' },
+      }));
+      const { rejected } = planBatches(items, (d) => dataByteLength(d), {
+        perBatchBytes: 200000,
+        of: (it) => it.data,
+      });
+      assert.equal(rejected.length, 0, `no record should be rejected; got ${JSON.stringify(rejected.map(r => r.error))}`);
+    } finally {
+      globalThis.Buffer = savedBuffer;
+    }
+  });
+});
+
 describe('dataByteLength survives a BigInt in the record data', () => {
   // Reported from live bulk generation: EVERY receipt failed with
   // "document is too large (8589934592.0 MB; limit 2 MB)". 8589934592 is exactly

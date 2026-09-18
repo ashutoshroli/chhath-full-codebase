@@ -72,7 +72,13 @@ export const MAX_DATA_ITEM_BYTES = MAX_ITEM_BYTES;
 export function dataByteLength(data) {
   if (data === undefined || data === null) return 0;
   try {
-    return Buffer.byteLength(JSON.stringify(data, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)), 'utf8');
+    const json = JSON.stringify(data, (_k, v) => (typeof v === 'bigint' ? v.toString() : v));
+    // TextEncoder, NOT Buffer.byteLength: this runs in the Cloudflare Worker, which does
+    // not enable `nodejs_compat`, so `Buffer` is undefined and `Buffer.byteLength(...)`
+    // THREW on every record — the catch returned MAX_SAFE_INTEGER and bulk generation
+    // rejected every document as "8589934592.0 MB". TextEncoder is the Workers-native
+    // way (used everywhere else in this codebase) and gives the true UTF-8 byte length.
+    return new TextEncoder().encode(json).length;
   } catch (e) {
     return Number.MAX_SAFE_INTEGER;
   }
@@ -107,26 +113,11 @@ export function planBatches(items, byteLengthOf, opts = {}) {
   let currentBytes = 0;
 
   for (const it of items || []) {
-    const picked = pick(it);
-    const bytes = byteLengthOf(picked);
+    const bytes = byteLengthOf(pick(it));
     if (bytes > MAX_ITEM_BYTES) {
-      // DIAGNOSTIC (temporary): the sentinel MAX_SAFE_INTEGER means the sizer's
-      // JSON.stringify threw. Surface WHY so a live "8589934592.0 MB" report names its
-      // cause (which key/type) instead of a mystery number. Remove once the cause is fixed.
-      let why = ` [bytes=${bytes}; pickedType=${typeof picked}`;
-      if (picked && typeof picked === 'object') {
-        try {
-          const s = JSON.stringify(picked, (_k, v) => (typeof v === 'bigint' ? v.toString() : v));
-          why += `; stringifyLen=${s == null ? 'null' : s.length}`;
-        } catch (e) {
-          why += `; stringifyTHREW=${(e && e.message) ? e.message.slice(0, 80) : 'yes'}`;
-        }
-        why += `; keys=${Object.keys(picked).slice(0, 15).join(',')}`;
-      }
-      why += ']';
       rejected.push({
         item: it,
-        error: `document is too large (${(bytes / 1048576).toFixed(1)} MB; limit ${MAX_ITEM_BYTES / 1048576} MB)${why}`,
+        error: `document is too large (${(bytes / 1048576).toFixed(1)} MB; limit ${MAX_ITEM_BYTES / 1048576} MB)`,
       });
       continue;
     }
