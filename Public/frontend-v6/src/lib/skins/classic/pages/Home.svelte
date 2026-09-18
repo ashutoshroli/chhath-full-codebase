@@ -128,7 +128,6 @@
           <button
             type="button"
             onclick={() => (selected = entry)}
-            aria-label={nameOf(entry.item)}
             class="flex w-full items-center justify-between gap-3 border-b border-dashed border-gray-100 py-3 text-left last:border-0 transition hover:bg-black/[.02] focus-visible:ring-2 dark:border-gray-700 dark:hover:bg-white/[.03]"
           >
             <div class="min-w-0">

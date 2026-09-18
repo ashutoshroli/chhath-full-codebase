@@ -69,7 +69,6 @@
             <button
               type="button"
               onclick={() => (selected = entry)}
-              aria-label={nameOf(entry.item)}
               class="flex w-full items-center gap-3 rounded-xl border p-2.5 text-left transition active:scale-[.99] hover:ring-2 hover:ring-brand-500/40 focus-visible:ring-2
               {entry.isTop
                 ? 'border-gold/60 bg-gold/10'
