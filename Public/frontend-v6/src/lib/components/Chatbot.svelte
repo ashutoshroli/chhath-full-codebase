@@ -79,7 +79,21 @@
       if (res.ok && data && data.ok && data.answer) {
         messages = [...messages, { role: 'bot', text: String(data.answer) }];
       } else {
-        messages = [...messages, { role: 'bot', text: $tr('chat_error') }];
+        // Surface the real reason instead of masking every non-ok response with
+        // the generic error. The server sends HTTP 503 when its daily budget is
+        // exhausted or it is momentarily busy, and 429 for the per-IP rate limit;
+        // 502/other stays on the generic message. Prefer the server's own error
+        // string when present, otherwise fall back to a localized message.
+        const serverError = data && typeof data.error === 'string' ? data.error : '';
+        let text: string;
+        if (res.status === 503) {
+          text = serverError || $tr('chat_limit');
+        } else if (res.status === 429) {
+          text = serverError || $tr('chat_busy');
+        } else {
+          text = $tr('chat_error');
+        }
+        messages = [...messages, { role: 'bot', text }];
       }
     } catch {
       messages = [...messages, { role: 'bot', text: $tr('chat_error') }];

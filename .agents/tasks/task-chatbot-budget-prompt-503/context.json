@@ -1,0 +1,28 @@
+{
+  "project_type": "Monorepo: (a) Node.js Express service mgmt/server-render (public chatbot backend, deployed on Render.com); (b) SvelteKit 5 static public frontend Public/frontend-v6 (chat widget + portal), deployed on Vercel via CI.",
+  "language": "JavaScript (ESM) for server-render; TypeScript + Svelte 5 for frontend-v6",
+  "build_system": "npm in each subproject. PATH must PREPEND /root/.nvm/versions/node/v22.23.2/bin (node v22.23.2).",
+  "test_framework": "server-render: node:test (.mjs files in mgmt/server-render/test/, run via `npm test`). frontend-v6: vitest with jsdom (co-located *.test.ts), plus svelte-check via `npm run check`.",
+  "build_command": "server-render: `cd mgmt/server-render && npm ci` (no separate build). frontend-v6: `cd Public/frontend-v6 && npm ci && npm run build`.",
+  "test_command": "server-render: `cd mgmt/server-render && npm test` (baseline 221 pass / 0 fail). frontend-v6: `cd Public/frontend-v6 && npm run check` (0 errors/0 warnings) + `npm test` (vitest, baseline 309 pass).",
+  "verification_instructions": "1) Render: `cd mgmt/server-render && npm ci && npm test` must stay green (>=221 + new tests). 2) Frontend: `cd Public/frontend-v6 && npm ci && npm run check` (0/0) + `npm test` (all pass) + `npm run build`. 3) CI job `public-frontend-v6` enforces client JS-size budget: total bytes must stay <= 700,000 (baseline ~638,706 B). After build, verify total client JS bytes under budget.",
+  "snapshot_or_generated_files": "frontend-v6 build outputs to .svelte-kit/output (gitignored / build artifact). No checked-in snapshots to regenerate.",
+  "setup_instructions": "export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\"; then npm ci in each subproject as above.",
+  "environment_constraints": "Work happens on a NEW branch off main (do NOT push/PR). Both suites run fully offline (fetch stubbed in server tests; jsdom in FE). No DB migration involved. Model switch to Gemini primary is already live in provider config.",
+  "contribution_requirements": "Keep both suites green. Render context builders stay CACHE-ONLY (no new fetch/D1). Preserve ID->name resolution, per-person blocks, document links, year-scoped retrieval, resell double-count note, and the PR#407 JOURNEY section + single-language directive. Do NOT change the frontend send/timeout/linkify logic from PR#406 (links must still render).",
+  "key_patterns": "Server 503 responses: budget exhausted returns HTTP 503 {ok:false,error:'The chatbot has reached today\u2019s usage limit...'}; busy/concurrency returns 503 'busy right now'; per-IP rate limit returns 429; model failure returns 502. Frontend Chatbot.svelte currently shows generic $tr('chat_error') for ALL non-ok responses, masking the 503 reason. i18n keys live in Public/frontend-v6/src/lib/i18n.ts (en + hi objects), consumed via $tr(). Budget logic in chatGuards.js tokenBudgetExceeded()/recordTokens(); default budget in config.js (~line 89) chatDailyTokenBudget = parseInt(opt('CHAT_DAILY_TOKEN_BUDGET','200000'),10)||200000. Prompt built by summarizePortalData()/buildYearScopedContext()/buildFullContext() in publicData.js with SUMMARY_MAX_CHARS=6000 and per-section caps (currently slice(0,6) years, top 10 contributors/year, committee slice(0,8), etc).",
+  "relevant_files": [
+    "mgmt/server-render/src/config.js",
+    "mgmt/server-render/src/lib/chatGuards.js",
+    "mgmt/server-render/src/lib/publicData.js",
+    "mgmt/server-render/src/routes/publicChat.js",
+    "mgmt/server-render/test/publicChat.test.mjs",
+    "mgmt/server-render/test/chatAbuseControls.test.mjs",
+    "Public/frontend-v6/src/lib/components/Chatbot.svelte",
+    "Public/frontend-v6/src/lib/components/Chatbot.linkify.test.ts",
+    "Public/frontend-v6/src/lib/i18n.ts",
+    "Public/frontend-v6/src/lib/api/client.ts",
+    ".github/workflows/ci.yml"
+  ],
+  "directory_structure": "mgmt/server-render/src/{config.js,server.js,routes/,lib/} + test/*.mjs; Public/frontend-v6/src/lib/{components/,stores/,api/,i18n.ts} with co-located *.test.ts; .github/workflows/ci.yml has the public-frontend-v6 JS-size-budget job."
+}

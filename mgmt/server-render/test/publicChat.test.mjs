@@ -1221,3 +1221,77 @@ test('clientIpFrom reads the hop our proxy observed, not the one the caller clai
   assert.equal(clientIpFrom({ 'x-forwarded-for': 'anything-i-like, 10.0.0.1' }, '10.0.0.9'), '10.0.0.1');
   assert.equal(clientIpFrom({}, '10.0.0.9'), '10.0.0.9');
 });
+
+// ---- FEAT-002: a LARGE multi-year dataset must not blow the (reduced) prompt ----
+// The same-day lockout root cause was an oversized GENERAL (no-year) prompt that
+// grew with every year of data. After FEAT-002 the general path is bounded hard
+// (SUMMARY_MAX_CHARS reduced; narrower per-year/committee/contributor windows), so
+// even a decade-plus of many rows produces a compact prompt — while STILL carrying
+// recent per-year totals + a JOURNEY digest, and the year-scoped path still answers
+// an older year in full. These pin the shrink so it cannot silently regress.
+function buildBigDataset() {
+  const collections = [];
+  const expenses = [];
+  const committee = [];
+  const users = [];
+  // 12 years, 60 contributors/year, 20 committee members/year, expenses per year.
+  const startYear = 2013;
+  const endYear = 2024;
+  let uid = 0;
+  for (let y = startYear; y <= endYear; y++) {
+    for (let p = 0; p < 60; p++) {
+      const id = `USER${String(uid++).padStart(5, '0')}`;
+      users.push({ ID: id, Name: `Contributor ${y}-${p}` });
+      collections.push({ Year: y, Name: id, Amount: 100 + p * 10 });
+    }
+    for (let e = 0; e < 8; e++) {
+      expenses.push({ Year: y, Amount: 500 + e * 50, Discription: `Expense item ${e} for ${y}` });
+    }
+    for (let c = 0; c < 20; c++) {
+      const cid = `USER${String(uid++).padStart(5, '0')}`;
+      users.push({ ID: cid, Name: `Committee ${y}-${c}` });
+      committee.push({ Year: y, Name: cid, Role: 'Member' });
+    }
+  }
+  return { collections, expenses, committee, users, loans: [] };
+}
+
+test('FEAT-002: large multi-year general summary stays under the reduced cap yet keeps totals + journey', () => {
+  const big = buildBigDataset();
+  const s = summarizePortalData(big, '');
+  // (1) Bounded: under the reduced SUMMARY_MAX_CHARS (3500) plus small truncation slack.
+  assert.ok(s.length <= 3600, `general summary must be compact regardless of data size (got ${s.length})`);
+  // (2) Still carries recent per-year totals and a journey digest.
+  assert.match(s, /Year 20\d\d: collections/);
+  assert.match(s, /JOURNEY|Total collected across the whole journey/);
+});
+
+test('FEAT-002: a year-scoped question on an OLDER year still returns that year’s totals', () => {
+  const big = buildBigDataset();
+  // 2016 is well outside the recent-3-year window used by the general path, so this
+  // proves the year-scoped retrieval path still surfaces older years on demand.
+  const s = summarizePortalData(big, 'How much was collected in 2016?');
+  assert.match(s, /Year 2016: collections/);
+  // Year-scoped context is explicitly narrowed to the asked year.
+  assert.match(s, /2016/);
+  // And it stays bounded too.
+  assert.ok(s.length <= 3600, `year-scoped summary must also stay compact (got ${s.length})`);
+});
+
+// Semantic-review concern #3: pin BOTH sides of the FEAT-002 trade-off on the SAME
+// older year. The GENERAL (no literal year) path was narrowed to the most recent 3
+// years, so an older year (2016, outside that window) is intentionally ABSENT from
+// the general summary — yet naming the literal year routes through the year-scoped
+// path (detectYears -> buildYearScopedContext) which DOES surface it. This locks the
+// intended behavior so a future accidental widening or narrowing is caught.
+test('FEAT-002: older year is absent from the GENERAL summary but present when the year is named (trade-off edge)', () => {
+  const big = buildBigDataset();
+  // GENERAL (no literal year): 2016 is outside the recent-3-year window and must NOT appear.
+  const general = summarizePortalData(big, '');
+  assert.doesNotMatch(general, /Year 2016: collections/);
+  // The window boundary is real, not just an absence: a recent in-window year IS present.
+  assert.match(general, /Year 2024: collections/);
+  // Year-scoped (names 2016): the SAME older year IS surfaced on demand.
+  const scoped = summarizePortalData(big, 'How much was collected in 2016?');
+  assert.match(scoped, /Year 2016: collections/);
+});

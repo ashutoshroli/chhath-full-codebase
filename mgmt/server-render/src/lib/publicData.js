@@ -76,7 +76,13 @@ export function _resetCache() { _cache = null; }
 const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
 const inr = (n) => `₹${Math.round(num(n)).toLocaleString('en-IN')}`;
 
-const SUMMARY_MAX_CHARS = 6000; // hard cap so the prompt can never blow the model's input
+// Hard cap so the per-answer prompt can never blow the model's input OR the daily
+// token budget. Kept tight (~3500 chars ≈ ~900 tokens of data) after FEAT-002:
+// the old 6000-char/whole-portal dump cost ~28k tokens per answer and exhausted
+// the daily budget in ~7 answers, 503'ing every visitor until UTC midnight. Trim
+// is from the END, so the per-year totals + PERSON DETAILS block survive and the
+// JOURNEY digest (appended last) is what gets cut first.
+const SUMMARY_MAX_CHARS = 3500;
 
 // The founding year of the samiti's records — mirrors the frontend constant
 // DECADE_START_YEAR in Public/frontend-v6/src/lib/api/derive.ts so the chatbot's
@@ -137,8 +143,10 @@ export function summarizePortalData(data, question) {
   lines.push(NO_DEV_INSTRUCTIONS_LINE);
   lines.push(`Years with records: ${years.join(', ') || 'none'}.`);
 
-  // Per-year totals (cap to the most recent ~6 years to bound tokens).
-  for (const y of years.slice(0, 6)) {
+  // Per-year totals (cap to the most recent ~3 years to bound tokens — a no-year
+  // question is general, and a user who wants an older year names it, hitting the
+  // year-scoped path).
+  for (const y of years.slice(0, 3)) {
     const cols = collections.filter(c => parseInt(c.Year) === y);
     const exps = expenses.filter(e => parseInt(e.Year) === y);
     const totalCol = cols.reduce((s, c) => s + num(c.Amount), 0);
@@ -148,8 +156,8 @@ export function summarizePortalData(data, question) {
 
   // Top contributors PER YEAR — aggregated per PERSON (so someone with several
   // entries appears ONCE with their combined total, never duplicated), real names,
-  // for each of the most recent ~6 years. Public info (shown on the portal).
-  for (const y of years.slice(0, 6)) {
+  // for each of the most recent ~3 years. Public info (shown on the portal).
+  for (const y of years.slice(0, 3)) {
     const totals = new Map(); // realName -> summed amount for the year
     for (const c of collections) {
       if (parseInt(c.Year) !== y) continue;
@@ -158,7 +166,7 @@ export function summarizePortalData(data, question) {
       if (!nm) continue;
       totals.set(nm, (totals.get(nm) || 0) + num(c.Amount));
     }
-    const top = [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10)
+    const top = [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5)
       .map(([nm, amt]) => `${nm} (${inr(amt)})`);
     if (top.length) lines.push(`Top contributors ${y}: ${top.join(', ')}.`);
   }
@@ -168,17 +176,17 @@ export function summarizePortalData(data, question) {
   if (committee.length) {
     const cYears = [...new Set(committee.map(m => parseInt(m.Year || m.year)).filter(Boolean))].sort((a, b) => b - a);
     if (cYears.length) {
-      for (const y of cYears.slice(0, 8)) {
+      for (const y of cYears.slice(0, 3)) {
         const names = [...new Set(
           committee.filter(m => parseInt(m.Year || m.year) === y)
             .map(m => nameOf((m.Name || m.name || '').toString().trim()))
             .filter(Boolean)
-        )];
+        )].slice(0, 8);
         if (names.length) lines.push(`Committee ${y} (${names.length} members): ${names.join(', ')}.`);
       }
     } else {
       // No year on the rows — fall back to a single de-duplicated list.
-      const names = [...new Set(committee.map(m => nameOf((m.Name || m.name || '').toString().trim())).filter(Boolean))].slice(0, 60);
+      const names = [...new Set(committee.map(m => nameOf((m.Name || m.name || '').toString().trim())).filter(Boolean))].slice(0, 8);
       lines.push(`Committee members (${names.length}): ${names.join(', ')}.`);
     }
   }
@@ -189,11 +197,11 @@ export function summarizePortalData(data, question) {
     lines.push(`Loans on record: ${loans.length}, total principal ${inr(totalLoan)}.`);
   }
 
-  // EXPENSES per-year detail — for the recent ~6 years, list what the money was
+  // EXPENSES per-year detail — for the recent ~3 years, list what the money was
   // spent on, grouped by the app's `Discription` field (NOTE its spelling; there
   // is NO public Category field) so repeated descriptions collapse into one summed
   // line. Capped to the top few items per year to keep the prompt small. Public.
-  for (const y of years.slice(0, 6)) {
+  for (const y of years.slice(0, 3)) {
     const byDesc = new Map(); // description -> summed amount for the year
     for (const e of expenses) {
       if (parseInt(e.Year) !== y) continue;
@@ -201,16 +209,16 @@ export function summarizePortalData(data, question) {
       if (!desc) continue;
       byDesc.set(desc, (byDesc.get(desc) || 0) + num(e.Amount));
     }
-    const items = [...byDesc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
+    const items = [...byDesc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5)
       .map(([desc, amt]) => `${desc} (${inr(amt)})`);
     if (items.length) lines.push(`Expenses ${y}: ${items.join(', ')}.`);
   }
 
-  // LOANS per-year detail — for the recent ~6 years, each loan as the borrower's
+  // LOANS per-year detail — for the recent ~3 years, each loan as the borrower's
   // real name + amount + interest rate + tenure (+ 'Loan ID' when present). There
   // is NO public Status field, so none is invented. Bounded per year. Public.
   const loanYears = [...new Set(loans.map(l => parseInt(l.Year)).filter(Boolean))].sort((a, b) => b - a);
-  for (const y of loanYears.slice(0, 6)) {
+  for (const y of loanYears.slice(0, 3)) {
     const items = loans.filter(l => parseInt(l.Year) === y).slice(0, 10).map(l => {
       const who = safeName((l.Name || '').toString().trim()) || 'unknown borrower';
       const rate = (l['Intrest Rate'] || '').toString().trim();
@@ -767,9 +775,10 @@ function buildJourneySection(data, opts) {
   lines.push(`Total collected across the whole journey: ${inr(grandTotal)} from ${grandContributors} contributor entries.`);
   if (best) lines.push(`Best/peak year so far: ${best.year} with ${inr(best.total)} collected.`);
 
-  // A compact per-year growth line for the recent years — bounded to the same
-  // ~6-year window the summary uses so tokens stay small (a little wider in full).
-  const recent = perYear.slice(-(o.full ? 12 : 6));
+  // A compact per-year growth line for the recent years — the DEFAULT (non-full)
+  // summary digest stays short (~3 years) so tokens stay small; full mode keeps a
+  // wider window since it has its own generous cap.
+  const recent = perYear.slice(-(o.full ? 12 : 3));
   if (recent.length) {
     const growth = recent.map(r => `${r.year}: ${inr(r.total)} (${r.contributors} contributors)`).join('; ');
     // These journey figures are MONEY contributions only (resold items and
@@ -778,14 +787,15 @@ function buildJourneySection(data, opts) {
     lines.push(`Recent years (money contributions only; resold items and material/service excluded): ${growth}.`);
   }
 
-  // Real story digest when present — tagline + up to ~6 `year — title` lines,
-  // TITLES ONLY (never the full content_en/content_hi bodies) so it stays bounded.
+  // Real story digest when present — tagline + up to ~4 `year — title` lines in the
+  // default digest (~6 in full mode), TITLES ONLY (never the full content_en/
+  // content_hi bodies) so it stays bounded.
   if (hasEntries) {
     const tagline = d.journeyTagline && typeof d.journeyTagline === 'object'
       ? (d.journeyTagline.en || d.journeyTagline.hi || '').toString().trim()
       : '';
     if (tagline) lines.push(`Journey tagline: ${tagline}`);
-    const titles = journeyEntries.slice(0, 6).map(e => {
+    const titles = journeyEntries.slice(0, o.full ? 6 : 4).map(e => {
       const r = e || {};
       const yr = parseInt(r.year);
       const title = (r.title_en || r.title_hi || '').toString().trim();

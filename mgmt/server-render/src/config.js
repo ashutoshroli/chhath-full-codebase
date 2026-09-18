@@ -79,7 +79,13 @@ export const config = {
   // Absolute ceilings for an anonymous endpoint where every request costs money. The per-IP
   // window catches one greedy caller; these catch the total.
   chatMaxConcurrent: parseInt(opt('CHAT_MAX_CONCURRENT', '4'), 10) || 4,
-  chatDailyTokenBudget: parseInt(opt('CHAT_DAILY_TOKEN_BUDGET', '200000'), 10) || 200000,
+  // UTC-day token ceiling for the whole anonymous endpoint. With the compact
+  // summary prompt (~3-4k tokens/answer after the FEAT-002 shrink), 2,000,000
+  // tokens/day serves roughly 500+ answers before the endpoint locks out — a
+  // realistic launch margin instead of the old 200,000 default, which the whole-
+  // portal prompt exhausted in ~7 answers and 503'd every visitor until UTC
+  // midnight. Operators can still raise (or lower) it on Render via the env var.
+  chatDailyTokenBudget: parseInt(opt('CHAT_DAILY_TOKEN_BUDGET', '2000000'), 10) || 2000000,
   // How long a public chat log is kept. What is stored is the visitor's own words plus a
   // pseudonym linking the conversation to a person, so this is a privacy commitment, not
   // housekeeping — schema.sql used to describe it as "optional".
