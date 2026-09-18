@@ -873,12 +873,18 @@ async function getPortalSummary(env) {
 // any other table in the misc DB, per the "no extra data" requirement) ----
 //
 // `popups.active` is a TEXT column, so a bound 1 is stored as '1' and the sheet
-// migration wrote 'True'. Accept every form — see mgmt/backend/src/popups.js.
+// migration wrote 'True'. Accept every form — see mgmt/backend/src/flags.js.
+//
+// Live-data addendum: the D1 table rebuild can store a bound 1 as the decimal string
+// '1.0', so after the keyword forms we also accept the decimal spelling of ON: a numeric
+// string that equals 1 ('1.0' -> true). '0.0' parses to 0 and non-1 numbers like '2' stay
+// OFF. Kept identical to the mgmt copies (see mgmt/backend/test/l13-q4-helper-parity.test.mjs).
 function isTruthyFlag(v) {
   if (v === true || v === 1) return true;
   if (v === false || v === 0 || v === null || v === undefined) return false;
   const s = v.toString().trim().toLowerCase();
-  return s === '1' || s === 'true' || s === 'yes';
+  if (s === '1' || s === 'true' || s === 'yes') return true;
+  return Number(s) === 1;
 }
 
 // Legacy rows use '2026-08-22 14:31:00' (space-separated, no timezone); such a stamp

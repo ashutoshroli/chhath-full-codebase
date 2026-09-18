@@ -64,7 +64,7 @@ const TRUTHY_CASES = [
   true, false, 1, 0, null, undefined,
   '1', '0', 'true', 'True', 'TRUE', ' true ', 'false', 'False',
   'yes', 'YES', ' yes ', 'no', '', '   ', 'y', 'n', 't', 'f',
-  2, -1, 'active', 'x', '1.0',
+  2, -1, 'active', 'x', '1.0', '0.0', ' 1.0 ', '1.5', '-1', '0',
 ];
 
 test('isTruthyFlag: mgmt-frontend and Public-backend copies match the mgmt-backend source of truth', () => {

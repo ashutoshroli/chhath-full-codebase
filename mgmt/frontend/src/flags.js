@@ -28,9 +28,19 @@
 // deployments), so this is a comment-enforced invariant like the other
 // deliberately-duplicated helpers. A test asserts the two agree on every form
 // either one has ever been given.
+//
+// Live-data addendum (List Management "No values found." bug): the dropdown_lists id
+// rebuild stored a bound 1 as the DECIMAL-formatted string '1.0' (D1 TEXT affinity
+// re-serialized the number). useDropdownList.js filters rows through isTruthyFlag(r.Active),
+// and the old set-based check dropped '1.0', so the Village tab rendered "No values found."
+// for rows that were correctly in D1 (Shaharpura, Gardih, id=1 "Lighting"). We therefore
+// also accept the decimal spelling of ON: a numeric string that equals 1 ('1.0' -> true).
+// Everything already OFF stays OFF — '0.0' parses to 0, and non-1 numbers like '2' / '-1' /
+// '1.5' are still rejected exactly as before.
 export function isTruthyFlag(v) {
   if (v === true || v === 1) return true;
   if (v === false || v === 0 || v === null || v === undefined) return false;
   const s = v.toString().trim().toLowerCase();
-  return s === 'true' || s === '1' || s === 'yes';
+  if (s === 'true' || s === '1' || s === 'yes') return true;
+  return Number(s) === 1;
 }
