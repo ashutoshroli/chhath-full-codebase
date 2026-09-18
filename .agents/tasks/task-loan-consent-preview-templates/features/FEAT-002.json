@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "feat",
   "description": "Add the 4 consent placeholder tokens the new templates reference but that consentPlaceholders.js does not yet emit: LOAN_CONSENT_DATETIME, LOAN_STATUS (loan-level, from the loaner consent row) and CONSENT_DATETIME, CONSENT_STATUS (per-consent, from the target consent). Wire them to real loan_consents data and keep buildConsentPlaceholders() and consentPlaceholderFactory() in sync. Add a focused unit test. Depends on FEAT-001.",
-  "status": "pending",
+  "status": "completed",
   "steps": [
     "Edit mgmt/backend/src/consentPlaceholders.js. In buildConsentPlaceholders(): a helper `datetimeOf(c) => (c && (c.responded_at || c.created_at)) || ''` (responded_at is '' until a decision, so fall back to created_at). loanerConsent is already computed via `consents.find(c => c.role === 'loaner')`.",
     "Add to the loan-level `placeholders` object (so they are safe in the factory base): `LOAN_CONSENT_DATETIME: datetimeOf(loanerConsent)` and `LOAN_STATUS: loanerConsent ? statusLabel(loanerConsent.status, loanerConsent) : ''`.",
@@ -26,5 +26,5 @@
     "cd mgmt/backend && export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\" && node --test --test-reporter=spec test/*.test.mjs 2>&1 | tail -8"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "Added a module-scope helper datetimeOf(c) => (c && (c.responded_at || c.created_at)) || '' so buildConsentPlaceholders and consentPlaceholderFactory share one implementation. buildConsentPlaceholders now emits LOAN_CONSENT_DATETIME (datetimeOf(loanerConsent)) and LOAN_STATUS (statusLabel of loanerConsent, '' if none) in the loan-level placeholders object, plus CONSENT_DATETIME and CONSENT_STATUS from targetConsent. consentPlaceholderFactory's returned closure now also overrides CONSENT_DATETIME/CONSENT_STATUS alongside the existing CONSENT_ID/GUARANTOR_NAME overrides; LOAN_* come from the shared base. statusLabel unchanged and reused. Added test/consent-placeholders.test.mjs with prove-first tests A/B/C using baseEnv (DB_CORE core.sql schema; getFestivalDates returns blanks with no festival_dates row, so festival tokens are '' and the 4 new tokens are exercised independently). Verified prove-first: deleting the CONSENT_DATETIME line makes all 3 tests fail (3 fail), restoring makes them pass (3 pass). Full backend suite: 1100 pass / 0 fail (baseline 1097 + 3 new)."
 }
