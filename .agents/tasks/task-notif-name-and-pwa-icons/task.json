@@ -1,0 +1,14 @@
+{
+  "task_id": "task-notif-name-and-pwa-icons",
+  "task_description": "Two launch bugs: (BUG 1) new-contribution mgmt push notification shows the raw USER#### id code instead of the person's display name — resolve the code to the users.Name display name in mgmt/backend/src/push.js notifyNewContribution. (BUG 2) PWA app-shortcut icons render as blank white squares in Android because they point at a transparent PNG — point Public/frontend-v6 manifest shortcuts at an opaque shortcut icon. Fixes are independent and could be parallelized. No DB migration needed. Agent does not deploy or push.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "Backend node:test 1118 pass / 0 fail (baseline 1114 + 4 new prove-first tests; reverting push.js to raw payload.Name fails 2 tests). frontend-v6: npm run check 0 errors/0 warnings, npm test 286 passed (3 new prove-first tests), npm run build succeeds within JS-size budget. Built manifest.webmanifest confirms all 5 shortcuts point at the new opaque /icons/icon-shortcut-192.png (PNG color type 2 RGB, verified opaque) and none at the transparent icon-192.png; asset ships to build/icons/. No Dockerfile for these projects, so docker build skipped."
+  }
+}

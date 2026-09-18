@@ -33,6 +33,7 @@
 
 import { ValidationError } from './auth.js';
 import { logErrorAt, logWarn } from './logger.js';
+import { userByIdCode } from './lookups.js';
 
 // The crypto library is imported LAZILY, on the first actual send. The Worker
 // test suite deliberately runs with nothing installed ("no dependencies, nothing
@@ -214,6 +215,32 @@ export async function broadcast(env, ctx, payload) {
 }
 
 /**
+ * Compose the notification body for a new contribution.
+ *
+ * A COLLECTIONS row's `Name` field stores a `USER####` id CODE, not a display
+ * name (see tableRegistry.js). So resolve it to the contributor's display name
+ * via userByIdCode — the same fail-soft pattern email.js/whatsapp.js use — and
+ * only fall back to the raw value (a blank string, a resell/material detail, or
+ * an unresolved code) when the lookup returns nothing.
+ *
+ * Kept as its own exported helper so the body wording can be unit-tested without
+ * configured VAPID keys (broadcast() no-ops when push is unconfigured).
+ */
+export async function composeNewContributionBody(env, payload) {
+  const code = (payload && (payload.Name ?? '')).toString().trim();
+  const contributor = code ? await userByIdCode(env, code) : null;
+  const name = (contributor && (contributor.Name ?? '').toString().trim()) || code;
+  const amountRaw = payload && payload.Amount;
+  const amount = Number(amountRaw);
+
+  // Money contributions read "₹501 by Name"; material/service rows have no
+  // amount, so fall back to a neutral wording rather than printing "₹NaN".
+  return Number.isFinite(amount) && amount > 0
+    ? `Naya contribution mila: \u20B9${amount.toLocaleString('en-IN')}${name ? ' by ' + name : ''}`
+    : `Naya contribution mila${name ? ': ' + name : ''}`;
+}
+
+/**
  * The notification shown when a new contribution is recorded. Called from the
  * saveRecord router handler for COLLECTIONS only (never from the CSV bulk
  * import, which would notify once per imported row).
@@ -223,16 +250,8 @@ export async function broadcast(env, ctx, payload) {
 export async function notifyNewContribution(env, ctx, payload) {
   try {
     if (!pushConfigured(env)) return { skipped: true };
-    const name = (payload && (payload.Name ?? '')).toString().trim();
-    const amountRaw = payload && payload.Amount;
-    const amount = Number(amountRaw);
     const year = (payload && (payload.Year ?? '')).toString().trim();
-
-    // Money contributions read "₹501 by Name"; material/service rows have no
-    // amount, so fall back to a neutral wording rather than printing "₹NaN".
-    const body = Number.isFinite(amount) && amount > 0
-      ? `Naya contribution mila: \u20B9${amount.toLocaleString('en-IN')}${name ? ' by ' + name : ''}`
-      : `Naya contribution mila${name ? ': ' + name : ''}`;
+    const body = await composeNewContributionBody(env, payload);
 
     return await broadcast(env, ctx, {
       title: 'Naya contribution',
