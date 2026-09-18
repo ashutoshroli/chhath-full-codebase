@@ -15,7 +15,7 @@ process.env.PUBLIC_API_BASE ||= 'https://public.test';
 process.env.CHAT_ALLOWED_ORIGINS ||= 'https://chhath.shaharpura.com';
 process.env.CHAT_RATE_MAX ||= '3';
 
-const { summarizePortalData, buildFullContext, buildContextForProvider, getPortalData, _resetCache } = await import('../src/lib/publicData.js');
+const { summarizePortalData, buildFullContext, buildContextForProvider, languageDirective, getPortalData, _resetCache } = await import('../src/lib/publicData.js');
 
 const SAMPLE = {
   collections: [
@@ -871,21 +871,84 @@ test('routing: dataMode=full produces buildFullContext output, summary/missing p
   // The full provider routes through buildFullContext (whole dataset layout).
   assert.match(full, /COMPLETE public dataset/);
   assert.match(full, /ALL CONTRIBUTIONS/);
-  assert.equal(full, buildFullContext(FULL_SAMPLE, q));
+  // buildContextForProvider appends the single-language directive; the body is still
+  // exactly buildFullContext(...) with the directive tail.
+  assert.equal(full, buildFullContext(FULL_SAMPLE, q) + languageDirective('en'));
 
   // A summary (or missing) mode routes through the compact summarizePortalData.
   assert.doesNotMatch(summary, /ALL CONTRIBUTIONS/);
   assert.match(summary, /Top contributors/);
-  assert.equal(summary, summarizePortalData(FULL_SAMPLE, q));
+  assert.equal(summary, summarizePortalData(FULL_SAMPLE, q) + languageDirective('en'));
   // A missing dataMode defaults to summary — identical to the explicit summary.
   assert.equal(missing, summary);
 });
 
-test('routing: lang=hi appends the Hindi instruction to either mode', () => {
+test('routing: lang=hi appends the Hindi single-language directive to either mode', () => {
   const full = buildContextForProvider({ dataMode: 'full' }, FULL_SAMPLE, '', 'hi');
   const summary = buildContextForProvider({ dataMode: 'summary' }, FULL_SAMPLE, '', 'hi');
-  assert.match(full, /Reply in simple Hindi/);
-  assert.match(summary, /Reply in simple Hindi/);
+  assert.match(full, /Hindi/);
+  assert.match(full, /Devanagari/);
+  assert.match(summary, /Hindi/);
+  assert.match(summary, /Devanagari/);
+});
+
+// ---- FEAT-002: anti-gibberish / single-language discipline directive ----
+// Defense-in-depth against fallback models (e.g. mistral-nemotron) that produced
+// garbled multilingual gibberish. buildContextForProvider must append a directive
+// that is parameterized by `lang`: Hindi/Devanagari for 'hi', English otherwise,
+// and in BOTH cases forbid mixing in characters from other languages/scripts.
+
+test('lang directive: lang=hi forbids mixing other scripts and asks for Devanagari', () => {
+  const ctx = buildContextForProvider({ dataMode: 'summary' }, FULL_SAMPLE, 'q', 'hi');
+  // Hindi + Devanagari script instruction.
+  assert.match(ctx, /Hindi/);
+  assert.match(ctx, /Devanagari/);
+  // Anti-mixing wording: explicitly forbids characters from other languages/scripts.
+  assert.match(ctx, /Korean/);
+  assert.match(ctx, /Japanese/);
+  assert.match(ctx, /Chinese/);
+  assert.match(ctx, /Spanish/);
+  assert.match(ctx, /one single language/);
+});
+
+test('lang directive: lang=en gives the English single-language directive and does NOT ask for Hindi', () => {
+  const ctx = buildContextForProvider({ dataMode: 'summary' }, FULL_SAMPLE, 'q', 'en');
+  assert.match(ctx, /Reply in clear English/);
+  assert.match(ctx, /one single language/);
+  // Must NOT instruct a Hindi / Devanagari reply.
+  assert.doesNotMatch(ctx, /Hindi/);
+  assert.doesNotMatch(ctx, /Devanagari/);
+});
+
+test('lang directive: the appended directive is parameterized by lang (hi != en)', () => {
+  const hi = buildContextForProvider({ dataMode: 'summary' }, FULL_SAMPLE, 'q', 'hi');
+  const en = buildContextForProvider({ dataMode: 'summary' }, FULL_SAMPLE, 'q', 'en');
+  // The two differ — the directive is not a single static line.
+  assert.notEqual(hi, en);
+  // Isolate the differing tail (everything the summary itself shares is identical).
+  const base = summarizePortalData(FULL_SAMPLE, 'q');
+  assert.notEqual(hi.slice(base.length), en.slice(base.length));
+  assert.match(hi.slice(base.length), /Devanagari/);
+  assert.doesNotMatch(en.slice(base.length), /Devanagari/);
+});
+
+test('lang directive: dataMode selection still works with the directive appended', () => {
+  const q = '';
+  const full = buildContextForProvider({ dataMode: 'full' }, FULL_SAMPLE, q, 'hi');
+  const summary = buildContextForProvider({ dataMode: 'summary' }, FULL_SAMPLE, q, 'hi');
+  // full-only marker present in full mode, absent in summary mode.
+  assert.match(full, /ALL CONTRIBUTIONS/);
+  assert.doesNotMatch(summary, /ALL CONTRIBUTIONS/);
+  // Each equals the corresponding builder plus the same directive tail.
+  assert.equal(full, buildFullContext(FULL_SAMPLE, q) + languageDirective('hi'));
+  assert.equal(summary, summarizePortalData(FULL_SAMPLE, q) + languageDirective('hi'));
+});
+
+test('lang directive: NO_DEV_INSTRUCTIONS_LINE guardrail remains present for both langs', () => {
+  const hi = buildContextForProvider({ dataMode: 'summary' }, FULL_SAMPLE, 'q', 'hi');
+  const en = buildContextForProvider({ dataMode: 'summary' }, FULL_SAMPLE, 'q', 'en');
+  assert.match(hi, /NEVER give technical, developer, or integration instructions/);
+  assert.match(en, /NEVER give technical, developer, or integration instructions/);
 });
 
 // ---- FULL data-mode context (buildFullContext) ----

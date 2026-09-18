@@ -611,12 +611,26 @@ export function buildFullContext(data, question) {
 // the passed-in cached `data` — neither touches D1. Appends the Hindi instruction
 // when lang === 'hi'. Lives here (not in the express route) so it is a pure helper
 // importable without pulling in express/pg.
+// Anti-gibberish / single-language discipline directive appended to the system
+// context. Defense-in-depth: the primary provider (gemini-3.1-flash-lite) is clean,
+// but the provider chain in publicChat.js falls through to fallback models (NVIDIA
+// NIM / Groq / Cerebras) on 429/5xx/timeout, and one of those (mistral-nemotron) was
+// empirically producing garbled multilingual gibberish — Korean/Japanese/Spanish
+// characters mixed into Hindi. This tells the model to answer in ONE language only,
+// never mixing scripts. Parameterized by `lang` ('hi' => Hindi/Devanagari, else English).
+export function languageDirective(lang) {
+  if (lang === 'hi') {
+    return '\nReply ONLY in simple Hindi using the Devanagari script (unless the user clearly wrote in English), in one single language. Do NOT mix in words or characters from any other language or script — no Korean, Japanese, Chinese, or Spanish characters. Keep the answer coherent, factual and plain; if you are unsure, simply present the facts plainly rather than guessing.';
+  }
+  return '\nReply in clear English, in one single language only. Do NOT insert words or characters from any other language or script. Keep the answer coherent, factual and plain; if you are unsure, simply present the facts plainly rather than guessing.';
+}
+
 export function buildContextForProvider(provider, data, question, lang) {
   const mode = (provider && provider.dataMode) || 'summary';
   let context = mode === 'full'
     ? buildFullContext(data, question)
     : summarizePortalData(data, question);
-  if (lang === 'hi') context += '\nReply in simple Hindi (Devanagari) unless the user writes in English.';
+  context += languageDirective(lang);
   return context;
 }
 
