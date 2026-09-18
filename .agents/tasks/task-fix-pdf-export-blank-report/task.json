@@ -1,7 +1,14 @@
 {
   "task_id": "task-fix-pdf-export-blank-report",
   "task_description": "Fix the More -> PDF Export Annual Report producing a blank (template-only, no data) PDF. Root cause: mgmt/backend/src/index.js convertDocxToPdfBulk handler forwards req.base64 (undefined) instead of req.data as the placeholder-set argument to dispatchBulkPdfConvert, so the Render pdf_convert job fills the report template with an empty object and every loop/scalar renders blank. Fix: forward req.data; add prove-first tests (handler wiring contract, Render-job data preservation, Render loop fill). Keep existing suites green. User must redeploy the mgmt Worker for the fix to take effect.",
-  "status": "in_progress",
+  "status": "completed",
   "feature_order": ["FEAT-001", "FEAT-002"],
-  "blocked_reason": null
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "No compile step (plain ESM). Backend suite 1086 pass / 0 fail (1079 baseline + 7 new). Render suite 203 pass / 0 fail (199 baseline + 4 new, incl. docxRender parity/drift test). Test quality verified by reading the tests: pdf-export-report-data.test.mjs drives the REAL dispatchBulkPdfConvert, captures the outbound Render pdf_convert job via a fetch stub matching renderJobs.createAndDispatchJob's POST /jobs contract, and deep-equals payload.data against the full non-empty placeholder object (arrays intact) + a control pinning the {} symptom; report-loops-fill.test.mjs builds a real .docx with PizZip and asserts the actual fillDocxTemplateFromBase64/FromBytes renders loop rows for a non-empty array and the {^contributors} fallback for empty/{}; pdf-export-bulk-data-wiring.test.mjs is a source-level contract that fails if the handler is reverted to req.base64 (coder confirmed the revert-check). docker_build skipped: no deploy creds; validation is host-based per environment constraints."
+  }
 }
