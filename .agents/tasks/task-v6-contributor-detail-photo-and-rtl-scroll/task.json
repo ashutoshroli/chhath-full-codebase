@@ -1,0 +1,14 @@
+{
+  "task_id": "task-v6-contributor-detail-photo-and-rtl-scroll",
+  "task_description": "Public frontend only (Public/frontend-v6, the LIVE chhath.shaharpura.com SvelteKit app). Three UX fixes that must work in ALL skins: (1) show the contributor's profile photo in the Contributor Details card (with initials fallback), (2) make the details card open cleanly from the correct anchored position on tap, in every theme, and (3) make every right-to-left/horizontal contributor scroller live and identical across themes. No backend/API changes; scoped to Public/frontend-v6 only. Do NOT push or open a PR.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "From Public/frontend-v6 (node v22.23.2): npm run check = 0 errors / 0 warnings; npm test = 15 files, 283 tests passed (12 new across ContributorDetail.test.ts + LiveScroll.test.ts); npm run build succeeded. CI JS budgets hold: total immutable JS 621966 bytes (< 700000) and worst first-load 367869 bytes (< 420000). Docker build not applicable (static SvelteKit app; no Dockerfile in v6 build path). Test quality reviewed: ContributorDetail.test.ts asserts photo-present -> <img src>, photo='' -> initials, and img-error -> initials fallback (would fail if the photo <img> were removed); LiveScroll.test.ts asserts prev/next drive scrollBy(±240), pause/play flips aria-pressed, card click fires onselect(key), and view-list fires oncountclick (would fail if control/onselect wiring were removed). Both are genuine behavioral tests, not static assertions."
+  }
+}
