@@ -37,10 +37,15 @@
 -- APPLY (run the PRE-FLIGHT detection in RUNBOOK.md FIRST):
 --   npx wrangler d1 execute chhath-core --remote --file mgmt/db/cleanup/2026-09-17-dropdown-lists-id-fix/fix-dropdown-lists-id.sql
 --
--- The statements are wrapped in an explicit BEGIN TRANSACTION; ... COMMIT; so the
--- whole rebuild lands, or none of it does — atomicity is self-contained and does
--- not depend on how `wrangler d1 execute --file` batches statements. A mid-script
--- failure after DROP TABLE rolls back, so dropdown_lists can never be left gone.
+-- This script deliberately does NOT use explicit SQL transaction statements.
+-- Cloudflare D1 (via `wrangler d1 execute`) rejects raw BEGIN TRANSACTION / COMMIT
+-- / SAVEPOINT with:
+--   "To execute a transaction, please use the state.storage.transaction() or
+--    state.storage.transactionSync() APIs instead of the SQL BEGIN TRANSACTION or
+--    SAVEPOINT statements."
+-- Instead, `wrangler d1 execute --file` applies all of the file's statements as a
+-- single batched unit, so the rebuild is submitted together without any forbidden
+-- transaction-control statements.
 --
 -- NOTE — a FRESH database is already correct
 -- ------------------------------------------
@@ -54,8 +59,6 @@
 -- mgmt/db/migration/2026-09-05/12-column-types-integer.sql PART 2
 -- (CREATE new / INSERT SELECT / DROP / RENAME / recreate indexes).
 -- ============================================================================
-
-BEGIN TRANSACTION;
 
 -- 1. New table with the CORRECT shape (matches mgmt/db/schema/core.sql exactly).
 CREATE TABLE dropdown_lists_new (
@@ -79,5 +82,3 @@ ALTER TABLE dropdown_lists_new RENAME TO dropdown_lists;
 -- 4. Recreate the indexes the schema declares.
 CREATE INDEX idx_dropdown_lists_list_type ON dropdown_lists(list_type);
 CREATE INDEX idx_dropdown_lists_active ON dropdown_lists(active);
-
-COMMIT;
