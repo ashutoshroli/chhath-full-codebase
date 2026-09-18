@@ -9,20 +9,26 @@
   import { chatUrl } from '$lib/api/client';
   import { lang, tr } from '$lib/stores/lang';
   import { browser } from '$app/environment';
+  import { untrack } from 'svelte';
+  import { linkifyTokens } from '$lib/chat/linkify';
 
   interface Msg {
     role: 'user' | 'bot';
     text: string;
   }
 
-  let open = $state(false);
+  // Test seam: a jsdom component test can seed the transcript and open state
+  // without driving the network. Defaults keep production behaviour identical.
+  let { open: openInit = false, seedMessages = [] as Msg[] } = $props();
+
+  let open = $state(untrack(() => openInit));
   let input = $state('');
   let sending = $state(false);
   /** Hard deadline for one chat round-trip (audit PUB-FE-01). */
   const CHAT_TIMEOUT_MS = 30_000;
-  let messages = $state<Msg[]>([]);
+  let messages = $state<Msg[]>(untrack(() => [...seedMessages]));
   let listEl: HTMLDivElement | undefined = $state();
-  let welcomed = false;
+  let welcomed = untrack(() => seedMessages.length > 0);
 
   // On first open, greet the visitor with a welcome message so the chat is never
   // empty. Localized via $tr; seeded once per mount.
@@ -149,15 +155,35 @@
       aria-label={$tr('ask_assistant')}
       class="flex-1 space-y-2 overflow-y-auto p-3"
     >
+      <!-- audit PUB-FE-02: bot replies were rendered as plain `{m.text}`, so URLs
+           from the chat endpoint (`data.answer`, UNTRUSTED external content) were
+           not clickable, markdown autolink `<https://...>` showed its literal
+           angle brackets, and a long unbroken URL blew past `max-w-[80%]` and
+           spilled outside the bubble/panel because `whitespace-pre-wrap` does not
+           break unbroken strings. Fix: linkifyTokens() turns the reply into
+           text/link tokens — text renders via `{tok.value}` (Svelte escapes) and
+           links via a real <a> (Svelte escapes the href), so NO {@html} touches
+           raw external text and only validated http(s) URLs become anchors.
+           `break-words`/overflow-wrap makes long URLs wrap inside the bubble. -->
       {#each messages as m}
         <div class="flex {m.role === 'user' ? 'justify-end' : 'justify-start'}">
           <div
-            class="max-w-[80%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm
+            class="max-w-[80%] whitespace-pre-wrap break-words [overflow-wrap:anywhere] rounded-2xl px-3 py-2 text-sm
               {m.role === 'user'
               ? 'bg-brand-500 text-white'
               : 'bg-black/5 text-slate-800 dark:bg-white/10 dark:text-slate-100'}"
           >
-            {m.text}
+            {#if m.role === 'bot'}
+              {#each linkifyTokens(m.text) as tok}
+                {#if tok.type === 'link'}<a
+                    href={tok.href}
+                    target="_blank"
+                    rel="noopener noreferrer nofollow ugc"
+                    class="font-medium underline break-words [overflow-wrap:anywhere] text-brand-700 hover:text-brand-800 dark:text-brand-300 dark:hover:text-brand-200"
+                    >{tok.label}</a
+                  >{:else}{tok.value}{/if}
+              {/each}
+            {:else}{m.text}{/if}
           </div>
         </div>
       {/each}

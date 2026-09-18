@@ -1,0 +1,24 @@
+{
+  "id": "FEAT-001",
+  "type": "chore",
+  "description": "Environment setup and baseline verification for Public/frontend-v6. Confirm the toolchain works and the current build/check/test baseline is green before making changes.",
+  "status": "completed",
+  "steps": [
+    "PREPEND to PATH: export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\" (node v22.23.2 must be on PATH).",
+    "cd Public/frontend-v6. node_modules is already present; run `npm ci` only if a dependency issue appears.",
+    "Run `npm run check` and confirm 0 errors / 0 warnings (svelte-check --fail-on-warnings).",
+    "Run `npm test` and confirm all existing vitest suites pass.",
+    "Run `npm run build` and confirm it succeeds. Measure total client JS with: find build/_app/immutable -name '*.js' -printf '%s\\n' | awk '{s+=$1} END{print s}'. Record the number (baseline observed = 622183 bytes; budget = 700000)."
+  ],
+  "acceptance_criteria": [
+    "`npm run check` reports 0 errors and 0 warnings",
+    "`npm test` passes with no failures",
+    "`npm run build` completes successfully and total client JS is under 700000 bytes",
+    "Baseline JS byte total is recorded in findings"
+  ],
+  "verification": [
+    "export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\"; cd Public/frontend-v6 && npm run check && npm test && npm run build"
+  ],
+  "blocked_reason": null,
+  "findings": "Baseline verified GREEN on node v22.23.2 in Public/frontend-v6 (node_modules already present, no npm ci needed).\n- `npm run check`: svelte-check found 0 errors and 0 warnings (--fail-on-warnings). Note: a harmless non-blocking Vite configLoader warning about importing './src/lib/ratings' without a file extension is printed but does NOT count as a svelte-check warning; exit code 0.\n- `npm test`: 16 test files, 295 tests, all passed (exit 0). Slowest suite is src/lib/skins/lazy.test.ts (~13.5s). Total run ~14.4s.\n- `npm run build`: succeeded via @sveltejs/adapter-static, wrote to build/.\n- Total client JS: `find build/_app/immutable -name '*.js' -printf '%s\\n' | awk '{s+=$1} END{print s}'` = 622179 bytes. Under 700000 budget (~77.8KB headroom). Orchestrator observed 622183; the 4-byte delta is normal run-to-run variance.\nNo source files modified. Nothing committed/pushed per instructions."
+}
