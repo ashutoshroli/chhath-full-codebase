@@ -1,0 +1,25 @@
+{
+  "project_type": "Cloudflare Worker backend (mgmt/backend), Render Node service (mgmt/server-render), React+Vite frontend (mgmt/frontend). Committee management portal for a Chhath Puja organization.",
+  "language": "JavaScript (ES modules), JSX",
+  "build_system": "npm per package. Backend Worker deploys via Cloudflare Git integration (auto-deploy on push to main; NO GitHub Actions deploy workflow, only .github/workflows/ci.yml). Render service + frontend deployed by the user.",
+  "test_framework": "Backend + Render: node:test (node --test --test-reporter=spec). Frontend: vitest. Backend tests use in-memory D1 via node:sqlite (test/helpers/stubs.mjs: makeD1, makeKV, schemaFor) and monkeypatch globalThis.fetch to intercept Render dispatch.",
+  "build_command": "Backend: (no build; Worker bundle). Frontend: cd mgmt/frontend && npm run build. Render: node src/server.js (no build).",
+  "test_command": "Backend: export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\" && cd mgmt/backend && node --test --test-reporter=spec test/*.test.mjs (baseline 1090 pass / 0 fail). Render: cd mgmt/server-render && npm test (~203). Frontend: cd mgmt/frontend && npx vitest run.",
+  "verification_instructions": "1) Run backend suite (must stay 1090+ pass, 0 fail). 2) Run render suite (~203, keep green). 3) Run frontend vitest if PdfExport is touched. 4) New prove-first tests must fail on current main behavior and pass after the fix.",
+  "snapshot_or_generated_files": "None checked in. Generated report PDFs live only in R2 at runtime; not committed. Keep any drift/parity tests green (backend tests read the REAL db/schema/*.sql via schemaFor()).",
+  "setup_instructions": "export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\" (PREPEND). Node v22.23.2 already installed. Backend tests need no npm install (use built-in node:sqlite). Frontend/render may need npm ci if node_modules absent.",
+  "environment_constraints": "Agent has NO Cloudflare/Render creds; cannot deploy, purge CDN, or query live R2. Cannot push/PR (orchestrator publishes). Live English report is ALREADY cached blank by Cloudflare CDN for up to 4h (max-age=14400). Work happens on a NEW branch off main.",
+  "contribution_requirements": "Create a NEW branch off main (do NOT reuse fix/pdf-export-blank-report). Keep backend (~1090) and render (~203) suites green. Prove-first tests. Never use em dashes in code comments/docs.",
+  "key_patterns": "R2 keys are the single source of truth for CDN caching. putToR2(env, key, bytes, contentType) in mgmt/backend/src/r2.js sets ONLY httpMetadata.contentType (no cacheControl). Generated PDF key is FIXED/timestamp-free: keyForYear(year,'pdf',pdfName,docType) => e.g. 2026/pdf/report_en/Chhath-Puja-Report-2026.pdf, so regeneration OVERWRITES the same object at the same URL and any CDN/browser cache keeps serving old bytes. PRECEDENT in the SAME file: keyForUserPhoto and keyForDonationQr already embed Date.now() so 'a stale CDN copy is never served after a re-upload'. All three PDF write sites use keyForYear(year,'pdf',pdfName,docType) + putToR2: convertDocxToPdf (sync, ~L379-383), applyPdfConvertResult (Render single callback, ~L520-524), applyPdfConvertBatchResult (Render batch callback, ~L760-764). applyDocxRenderResult (collectionQueue.js) delegates to applyPdfConvertResult, so fixing these three covers receipts/certificates/samaan/consent/reports/auto-generate. The R2->Drive move (storage.js moveOneUrl) derives the key via keyFromR2Url(env, public_link) so it works with ANY key shape as long as generated_files.public_link/drive_path point at the CURRENT object (the recordGeneratedFile UPSERT already rewrites both each regen). generated_files has UNIQUE(doc_type, year, record_id).",
+  "relevant_files": [
+    "mgmt/backend/src/r2.js (putToR2, keyForYear, keyForUserPhoto/keyForDonationQr precedent, deleteFromR2, keyFromR2Url)",
+    "mgmt/backend/src/docxTemplates.js (convertDocxToPdf ~L379, applyPdfConvertResult ~L520, applyPdfConvertBatchResult ~L760, recordGeneratedFile UPSERT ~L219)",
+    "mgmt/backend/src/collectionQueue.js (applyDocxRenderResult delegates to applyPdfConvertResult ~L645)",
+    "mgmt/backend/src/storage.js (moveOneUrl / moveYearToDrive read public_link, derive key via keyFromR2Url ~L94-180)",
+    "mgmt/frontend/src/views/PdfExport.jsx (renders a.href=res.publicLink and href=f.public_link ~L156,229)",
+    "mgmt/backend/test/helpers/stubs.mjs (makeD1, makeKV, schemaFor)",
+    "mgmt/backend/test/r2-safename-unicode.test.mjs (pattern for testing key builders)",
+    "mgmt/backend/test/pdf-export-report-data.test.mjs (pattern for driving dispatch + intercepting Render fetch)"
+  ],
+  "directory_structure": "mgmt/backend (Cloudflare Worker: src/*.js, test/*.test.mjs), mgmt/server-render (Render Node service that fills docx + converts to PDF), mgmt/frontend (React+Vite admin UI), mgmt/db/schema (real SQL DDL used by tests). Public/ is the marketing site (not in scope)."
+}

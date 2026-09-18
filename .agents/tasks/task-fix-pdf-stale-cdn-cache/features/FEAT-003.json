@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-003",
+  "type": "fix",
+  "description": "Frontend defense-in-depth cache-busting for the PDF Export links. Even with distinct keys from FEAT-002, the 'Already Generated' list and the freshly-generated link in mgmt/frontend/src/views/PdfExport.jsx render whatever URL the backend returns; appending a cache-buster derived from the record's generated_at (or the current timestamp for a just-generated file) guarantees the browser tab that opens the report cannot reuse a previously cached response for that exact URL. This is independent of FEAT-002 and cheap, but it does NOT replace it (it only affects in-app links, not the underlying object). Keep it minimal and consistent with the existing anchor rendering.",
+  "status": "completed",
+  "steps": [
+    "In mgmt/frontend/src/views/PdfExport.jsx, add a tiny helper that appends a cache-buster query param to a URL (e.g. withCacheBuster(url, token) -> url + (url.includes('?') ? '&' : '?') + 'v=' + encodeURIComponent(token)), guarding against null/empty urls.",
+    "Apply it to the freshly-generated download at a.href = res.publicLink (~L156-157): use a token like Date.now() or res.generated_at if present.",
+    "Apply it to the 'Already Generated' list anchors href={f.public_link} (~L229): use f.generated_at (fall back to f.id) as the token so the buster is stable per generation but changes when the file is regenerated.",
+    "Do not alter any other behavior of the component (labels, layout, warnings).",
+    "Add a vitest under mgmt/frontend/src/ (or the project's existing test location) asserting the rendered href for a previously-generated file carries the ?v=<token> buster, and that a URL already containing a query uses '&'. If there is no existing PdfExport test harness, add a focused component/unit test for the withCacheBuster helper and, if feasible with the existing setup, a render test for the anchor href. Follow whatever vitest/RTL pattern the frontend already uses; if none exists for views, a pure-function unit test of withCacheBuster is acceptable."
+  ],
+  "acceptance_criteria": [
+    "The freshly-generated report link and every 'Already Generated' anchor href carry a ?v=<token> cache-buster.",
+    "withCacheBuster correctly uses '&' when the URL already has a query string and is a no-op for empty/null urls.",
+    "A vitest asserts the buster is present on the rendered href (or on withCacheBuster output).",
+    "cd mgmt/frontend && npx vitest run passes (no regressions)."
+  ],
+  "verification": [
+    "cd mgmt/frontend && npx vitest run  # green, new test passes",
+    "cd mgmt/frontend && npm run build  # builds clean"
+  ],
+  "blocked_reason": null,
+  "findings": "Added exported pure helper withCacheBuster(url, token) to mgmt/frontend/src/views/PdfExport.jsx: no-op for empty/null url or missing (undefined/null/empty) token; appends '?v=' (or '&v=' when a query already exists) with encodeURIComponent(token). Applied to a.href for the freshly-generated download (token: res.generated_at || Date.now()) and to the 'Already Generated' anchor href (token: f.generated_at || f.id). No other behavior touched (labels, layout, warnings, generate flow unchanged). Test file src/views/PdfExport.test.jsx: mocks ../api.js (which has no heavy static deps), unit-tests the helper (plain-url ?v=, &v= when query present, token encoding incl. injection-safe '&'/'=', no-op on missing token, empty/null url safe, numeric token) AND a render test asserting the rendered anchor href carries ?v=<encoded generated_at>. node_modules already present so no npm ci needed. Verified: npx vitest run = 48 passed (4 files), 7 new; npm run build clean (PdfExport-*.js emitted). Frontend-only change; backend (1097) and render (203) suites untouched by this feature."
+}

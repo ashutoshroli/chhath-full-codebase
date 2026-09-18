@@ -1,0 +1,24 @@
+{
+  "task_id": "task-fix-pdf-stale-cdn-cache",
+  "task_description": "Fix the launch bug where the English Annual Report (More -> PDF Export) still shows blank to the user even though the server-side PDF is correct. Root cause is CDN cache staleness, not a data problem: generated PDFs are written to a FIXED, timestamp-free R2 key, so regeneration overwrites the same public URL and Cloudflare's CDN serves the old (blank) English copy for up to 4h (max-age=14400). Adopt the codebase's own keyForUserPhoto/keyForDonationQr precedent: make each generated-PDF (re)generation a DISTINCT object key (self-busts CDN + browser caches), set a short revalidating Cache-Control as defense in depth, delete the previous object on regen to avoid R2 orphan leaks, and add a frontend cache-buster on the in-app PDF links. Keep the public-portal Verified Record links and the R2->Drive move working via the existing recordGeneratedFile UPSERT that rewrites public_link/drive_path.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "Backend node:test 1097 pass / 0 fail (1090 baseline + 7 new). Render node:test 203 pass / 0 fail. Frontend vitest 48 pass / 0 fail (7 new in PdfExport.test.jsx). Frontend `npm run build` clean. No Dockerfile for these services (Cloudflare Worker + Render Node + Vite), so docker_build is not applicable. Test quality verified: pdf-regen-stale-cdn.test.mjs drives the real applyPdfConvertResult twice through the real UPSERT + delete path and asserts distinct URLs, old-key deletion, new-key retention, and that a Drive legacy link is never deleted; it fails on baseline (prove-first) and would fail if the fix were reverted. Diff vs main: 7 files, +449/-14."
+  },
+  "review": {
+    "verdict": "APPROVED",
+    "pass": "v1",
+    "file": ".agents/tasks/task-fix-pdf-stale-cdn-cache/2026-09-18-131600-review.md",
+    "non_blocking_issues": [
+      "Delete-previous runs before the recordGeneratedFile UPSERT commits in convertDocxToPdf/applyPdfConvertResult; a failed UPSERT would downgrade a stale link to a dangling one (moveOneUrl already models the safe apply-then-delete order). Non-blocking; does not regress the primary bug.",
+      "A crash between putToR2 and the UPSERT orphans the freshly-written object (bounded storage leak).",
+      "Concurrent regenerations of the same record can double-orphan the earlier new object (low frequency, no stale-content impact).",
+      "Frontend cache-buster falls back to stable f.id when generated_at is absent, weakening only the redundant frontend layer (backend distinct key still guarantees freshness)."
+    ]
+  }

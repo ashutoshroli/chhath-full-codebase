@@ -86,6 +86,29 @@ export function keyForYear(year, subdir, fileName, docType) {
   return parts.join('/');
 }
 
+// Generated-PDF key (year-wise, one nesting level per docType). Unlike
+// keyForYear(year,'pdf',...) which produces a FIXED, timestamp-free key, this
+// embeds a per-generation token (Date.now()) so every (re)generation of the SAME
+// report/receipt/certificate becomes a DISTINCT object at a DISTINCT public URL.
+// Same precedent as keyForUserPhoto/keyForDonationQr above: a stale CDN (or
+// browser) copy can never be served after a re-upload, because the URL that was
+// cached no longer exists. This is what fixes the "English Annual Report still
+// blank" case: the old key was overwritten in place and Cloudflare kept serving
+// the previously cached blank bytes for up to 4h (cf-cache-status: HIT).
+//
+// The 2026/pdf/<docType>/ prefix is KEPT INTACT so the Superadmin "Move <year> to
+// Drive" prefix listing in storage.js still finds the object. Only the file-name
+// segment carries the timestamp:
+//   keyForGeneratedPdf(2026, 'report_en', 'Chhath-Puja-Report-2026.pdf')
+//   -> "2026/pdf/report_en/1737000000000_Chhath-Puja-Report-2026.pdf"
+export function keyForGeneratedPdf(year, docType, fileName) {
+  const y = parseInt(year);
+  const yr = Number.isFinite(y) && y > 0 ? String(y) : 'unknown-year';
+  const type = safeName(docType, 'misc');
+  const name = `${Date.now()}_${safeName(fileName, 'file')}`;
+  return `${yr}/pdf/${type}/${name}`;
+}
+
 // Popup key (no year — popups are year-independent and never moved to Drive).
 export function keyForPopup(fileName) {
   return `popups/${Date.now()}_${safeName(fileName, 'popup.jpg')}`;
@@ -123,12 +146,34 @@ export function yearPrefix(year) {
 // ---- R2 operations (all no-throw-friendly; callers handle the fallback) ----
 
 // Stores bytes at `key`. Returns the public URL.
-export async function putToR2(env, key, bytes, contentType) {
-  await env.R2_FILES.put(key, bytes, {
-    httpMetadata: { contentType: contentType || 'application/octet-stream' },
-  });
+//
+// `cacheControl` (optional) is written into httpMetadata.cacheControl so R2 sets
+// a Cache-Control response header on the object. Generated PDFs pass a short,
+// revalidating value ('public, max-age=60, must-revalidate') as belt-and-braces
+// on top of the distinct-key scheme: even a FRESH url is not held long by any
+// CDN/browser cache, so a corrected PDF propagates within a minute rather than
+// hours. Omitted (contentType only) for every existing non-PDF caller
+// (userPhoto/donationQr/popups/seo/consent), so their behaviour is unchanged.
+// Accepts a plain string OR an options object { contentType, cacheControl } for
+// forward flexibility; both are backward-compatible with the old
+// putToR2(env, key, bytes, contentType) signature.
+export async function putToR2(env, key, bytes, contentType, cacheControl) {
+  let ct = contentType;
+  let cc = cacheControl;
+  if (contentType && typeof contentType === 'object') {
+    ct = contentType.contentType;
+    cc = contentType.cacheControl;
+  }
+  const httpMetadata = { contentType: ct || 'application/octet-stream' };
+  if (cc) httpMetadata.cacheControl = cc;
+  await env.R2_FILES.put(key, bytes, { httpMetadata });
   return r2PublicUrl(env, key);
 }
+
+// The revalidating Cache-Control for generated PDFs (see keyForGeneratedPdf /
+// putToR2). Short max-age + must-revalidate so a regenerated PDF is never held
+// stale by a cache for long.
+export const GENERATED_PDF_CACHE_CONTROL = 'public, max-age=60, must-revalidate';
 
 // Reads an object back as an ArrayBuffer (used by the R2->Drive move). Returns
 // null if the object is missing.

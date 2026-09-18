@@ -9,6 +9,18 @@ function amountText(n) {
   return 'Rs. ' + new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(n || 0);
 }
 
+// Defense-in-depth cache-buster for the PDF links this view opens. Even with distinct
+// per-generation R2 keys from the backend, a fixed URL that the browser (or the CDN edge)
+// has already cached could be served stale when clicked from inside the app. Appending a
+// ?v=<token> derived from the file's generation time (or the current timestamp for a
+// just-generated file) makes each rendered link a distinct request URL. Pure and a no-op
+// for empty/null urls or a missing token.
+export function withCacheBuster(url, token) {
+  if (!url) return url;
+  if (token === undefined || token === null || token === '') return url;
+  return url + (url.includes('?') ? '&' : '?') + 'v=' + encodeURIComponent(token);
+}
+
 export default function PdfExport() {
   const [years, setYears] = useState(null);
   const [year, setYear] = useState('');
@@ -154,7 +166,7 @@ export default function PdfExport() {
       }
 
       const a = document.createElement('a');
-      a.href = res.publicLink;
+      a.href = withCacheBuster(res.publicLink, res.generated_at || Date.now());
       a.target = '_blank';
       a.rel = 'noreferrer';
       a.style.display = 'none';
@@ -226,7 +238,7 @@ export default function PdfExport() {
             {previous.map((f, i) => (
               <a
                 key={f.id || i}
-                href={f.public_link}
+                href={withCacheBuster(f.public_link, f.generated_at || f.id)}
                 target="_blank"
                 rel="noreferrer"
                 style={{

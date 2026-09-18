@@ -1,0 +1,24 @@
+{
+  "id": "FEAT-001",
+  "type": "chore",
+  "description": "Environment setup and baseline confirmation. Establish a clean NEW branch off main and confirm the existing test suites are green before any code change, so the prove-first tests in FEAT-002 can be attributed to the fix.",
+  "status": "completed",
+  "steps": [
+    "Run `export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\"` in every shell (PREPEND).",
+    "From /projects/sandbox/chhath-full-codebase, confirm current branch and create a NEW branch off main: `git checkout main && git pull --ff-only` (if network allows; otherwise use local main) then `git checkout -b fix/pdf-stale-cdn-cache`. Do NOT reuse fix/pdf-export-blank-report. Do NOT push.",
+    "Run the backend suite: `cd mgmt/backend && node --test --test-reporter=spec test/*.test.mjs`. Confirm baseline ~1090 pass / 0 fail.",
+    "Run the render suite: `cd mgmt/server-render && npm test` (npm ci first only if node_modules missing). Confirm ~203 pass / 0 fail. If npm ci is blocked by network, record that and proceed (render code is not modified by this task).",
+    "Record the exact baseline counts in this feature's findings."
+  ],
+  "acceptance_criteria": [
+    "A new branch fix/pdf-stale-cdn-cache exists off main with a clean working tree.",
+    "Backend suite reports 0 failures (~1090 pass) on the fresh branch.",
+    "Render suite result recorded (pass count or a note that npm ci was network-blocked)."
+  ],
+  "verification": [
+    "cd mgmt/backend && node --test --test-reporter=spec test/*.test.mjs  # 0 fail",
+    "git rev-parse --abbrev-ref HEAD  # fix/pdf-stale-cdn-cache"
+  ],
+  "blocked_reason": null,
+  "findings": "Branch: created NEW branch fix/pdf-stale-cdn-cache off main (git rev-parse --abbrev-ref HEAD => fix/pdf-stale-cdn-cache). Did NOT reuse fix/pdf-export-blank-report. Network WAS available: git pull --ff-only fast-forwarded local main 03aee64..f7d6f82 (2 commits, incl. the prior task-fix-pdf-export-blank-report tracking + istruthyflag decimal fix) before branching, so the new branch is off the up-to-date main. Backend baseline: node --test --test-reporter=spec test/*.test.mjs => tests 1090, suites 80, pass 1090, fail 0 (duration ~8.3s). No npm install needed (built-in node:sqlite). Render baseline: node_modules already present, npm test => tests 203, suites 22, pass 203, fail 0 (duration ~0.7s). npm ci NOT required (deps present). Working tree clean; only untracked item is the task-tracking dir .agents/tasks/task-fix-pdf-stale-cdn-cache/ (no product code changes). Did NOT push (no creds; orchestrator publishes)."
+}
