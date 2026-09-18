@@ -1,0 +1,27 @@
+{
+  "project_type": "Monorepo: Cloudflare Worker backend (mgmt/backend, plain ESM JS) + SvelteKit static PWA public frontend (Public/frontend-v6, TypeScript + Tailwind + vite-plugin-pwa)",
+  "language": "JavaScript (backend, ESM .js/.mjs), TypeScript + Svelte (frontend-v6)",
+  "build_system": "backend: none (Worker source run directly by node:test, no deps installed in CI); frontend-v6: npm + vite (SvelteKit adapter-static)",
+  "test_framework": "backend: node:test (node --test) with stubs in mgmt/backend/test/helpers/stubs.mjs (D1 over node:sqlite via makeD1/schemaFor, KV via makeKV, R2 via makeR2); frontend-v6: vitest (environment node, jsdom opt-in per file)",
+  "build_command": "frontend-v6: cd Public/frontend-v6 && npm ci && npm run build. backend has no build step.",
+  "test_command": "backend: cd mgmt/backend && node --test --test-reporter=spec test/*.test.mjs (baseline 1114 pass / 0 fail). frontend-v6: cd Public/frontend-v6 && npm run check && npm test",
+  "verification_instructions": "Backend: run full node:test suite, expect all pass, 0 fail (baseline 1114/0). Frontend-v6: npm run check (svelte-check --fail-on-warnings), npm test (vitest run), npm run build; then inspect .svelte-kit/output/client/manifest.webmanifest to confirm each shortcut icon points at the intended opaque asset. CI job public-frontend-v6 enforces JS-size budgets so build must stay green.",
+  "snapshot_or_generated_files": "frontend-v6 build generates .svelte-kit/output/client/manifest.webmanifest from the vite.config.ts manifest block (vite-plugin-pwa). It is NOT checked in; verify by rebuilding. No committed snapshots for the manifest.",
+  "setup_instructions": "PREPEND PATH: export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\" (node v22.23.2, npm 11.4.2). Backend needs no install. frontend-v6: npm ci (already run once, node_modules present).",
+  "environment_constraints": "No Cloudflare credentials; agent does NOT deploy. Backend web-push-browser dep is never installed in tests (push code is lazy-imported and only reached when VAPID keys are set, which tests never set). Do NOT push or open PRs — orchestrator publishes.",
+  "contribution_requirements": "Keep backend suite green including guard/drift tests (schema-is-the-end-state, migration-matrix). Keep frontend-v6 check+test+build green under the public-frontend-v6 JS-size budget. Prove-first tests for behavioral fixes.",
+  "key_patterns": "Name resolution: mgmt/backend/src/lookups.js exports userByIdCode(env, idCode) -> USERS row (header-keyed: row.Name is the display name, row.ID is the id code). A COLLECTIONS row's 'Name' field stores a USER#### id CODE, not a display name (see tableRegistry.js collections map: 'Name'->'name'; users map: 'ID'->'id_code','Name'->'name'). Established callers that resolve the code to a display name from a COLLECTIONS payload: email.js:141 and whatsapp.js:573 both do `await userByIdCode(env, (payload.Name||'').toString().trim())` and read contributor.Name; both log-and-continue when not found, and skip resell rows (isTruthyFlag(payload['Is Resell'])). Test stubs seed users via: core.prepare('INSERT INTO users (id_code, name, email, mobile) VALUES (?,?,?,?)').bind('USER0001','Kuldeep',...).run(); schemaFor('core.sql') is the users schema.",
+  "relevant_files": [
+    "mgmt/backend/src/push.js (BUG1: notifyNewContribution composes body with raw payload.Name)",
+    "mgmt/backend/src/lookups.js (userByIdCode name-resolution helper to use)",
+    "mgmt/backend/src/tableRegistry.js (collections/users column maps; DB_CORE holds users)",
+    "mgmt/backend/src/index.js (~line 898 saveRecord handler calls push.notifyNewContribution(env, ctx, req.payload) for COLLECTIONS)",
+    "mgmt/backend/src/email.js:141 and mgmt/backend/src/whatsapp.js:573 (pattern for resolving payload.Name -> contributor.Name, resell/not-found handling)",
+    "mgmt/backend/test/helpers/stubs.mjs (makeD1/makeKV/schemaFor)",
+    "mgmt/backend/test/email-collection-resend.test.mjs (pattern for seeding users + COLLECTIONS payload)",
+    "Public/frontend-v6/vite.config.ts (BUG2: manifest.shortcuts icons point at transparent /icons/icon-192.png)",
+    "Public/frontend-v6/static/icons/ (icon-192.png/-512.png/-512-maskable.png; icon-192 is RGBA color-type 6, transparent background)",
+    "Public/frontend-v6/src/lib/ratings.ts (IARC id imported by vite.config.ts)"
+  ],
+  "directory_structure": "mgmt/backend = Cloudflare mgmt Worker (src/*.js, test/*.test.mjs, db/schema/*.sql). Public/frontend-v6 = LIVE public SvelteKit PWA (src/, static/icons/, vite.config.ts owns the PWA manifest). Ignore Public/frontend, -v2..-v5, mgmt/frontend-svelte."
+}
