@@ -1,0 +1,7 @@
+{
+  "task_id": "task-fix-dropdown-add-silent-dataloss",
+  "task_description": "List Management (#lists) ADD silently loses data: addDropdownListItem returns {success:true} but the new Category/Payment Mode/Loan Status/Village item never persists, while EDIT works. Root cause: dropdownLists.js write handlers never check the D1 .run() result (meta.changes), so a no-op/failed INSERT against a live dropdown_lists table whose `id` lost its INTEGER PRIMARY KEY AUTOINCREMENT (via a wrangler d1 export/restore, the reset RUNBOOK's recovery path) is masked as success. Fix = (a) harden add/update/delete to assert meta.changes and throw ValidationError (code + prove-first tests), (b) deliver operator SQL to rebuild the live table's id column and to revert the QA test edit to row id=1. Agent cannot deploy or touch live D1; the user applies the SQL then `git pull && npx wrangler deploy`.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null
+}
