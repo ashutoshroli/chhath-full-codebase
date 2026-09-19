@@ -14,6 +14,24 @@
     <meta name="apple-mobile-web-app-title" content="Chhath Puja" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 
+    <!-- Google Tag Manager (container GTM-N6BF7NP7). GA4 and Microsoft Clarity
+         run as TAGS INSIDE this single container, so only ONE snippet is
+         installed. Hardcoded id: app.html is a static template that cannot read
+         Vite env. gtm.js loads from Google's CDN and is not bundled. -->
+    <script>
+      (function (w, d, s, l, i) {
+        w[l] = w[l] || [];
+        w[l].push({ 'gtm.start': new Date().getTime(), event: 'gtm.js' });
+        var f = d.getElementsByTagName(s)[0],
+          j = d.createElement(s),
+          dl = l != 'dataLayer' ? '&l=' + l : '';
+        j.async = true;
+        j.src = 'https://www.googletagmanager.com/gtm.js?id=' + i + dl;
+        f.parentNode.insertBefore(j, f);
+      })(window, document, 'script', 'dataLayer', 'GTM-N6BF7NP7');
+    </script>
+    <!-- End Google Tag Manager -->
+
     <!-- Default SEO / social preview (per-page <title>/<meta> override these). -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Chhath Puja Transparency Portal" />
@@ -72,6 +90,17 @@
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover" class="bg-slate-100 dark:bg-ink">
+    <!-- Google Tag Manager (noscript) -->
+    <noscript
+      ><iframe
+        src="https://www.googletagmanager.com/ns.html?id=GTM-N6BF7NP7"
+        height="0"
+        width="0"
+        style="display: none; visibility: hidden"
+        title="Google Tag Manager"
+      ></iframe
+    ></noscript>
+    <!-- End Google Tag Manager (noscript) -->
     <div style="display: contents">%sveltekit.body%</div>
   </body>
 </html>

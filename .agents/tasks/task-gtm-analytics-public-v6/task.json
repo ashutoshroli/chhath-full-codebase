@@ -1,0 +1,7 @@
+{
+  "task_id": "task-gtm-analytics-public-v6",
+  "task_description": "Install Google Tag Manager (container GTM-N6BF7NP7) into the live public-v6 SvelteKit portal so GTM, and the GA4 + Microsoft Clarity tags it fires, start receiving data. GTM was completely absent from the site, which is why all three dashboards are empty. Add the GTM head <script> + <body> <noscript> iframe in app.html, SSR-safe SPA page-view tracking via afterNavigate in the root layout, extend the strict vercel.json CSP so GTM/GA/Clarity are not blocked, and add source-scan + unit tests. Scope strictly to Public/frontend-v6; no new npm dependency; keep check 0/0, tests green, build within budget.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001"],
+  "blocked_reason": null
+}

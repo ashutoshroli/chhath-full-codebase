@@ -1,0 +1,23 @@
+{
+  "project_type": "SvelteKit static-adapter SPA (public Chhath Puja transparency portal, live at chhath.shaharpura.com)",
+  "language": "TypeScript + Svelte 5",
+  "build_system": "npm + Vite 8 (rolldown). SvelteKit adapter-static. PATH must PREPEND /root/.nvm/versions/node/v22.23.2/bin.",
+  "test_framework": "vitest (jsdom). Tests colocated under src/**/*.test.ts. Source-scan style tests read files with node:fs and assert on their text (see src/lib/seo.test.ts, src/lib/pwaManifest.test.ts).",
+  "build_command": "cd Public/frontend-v6 && export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\" && npm run build",
+  "test_command": "cd Public/frontend-v6 && export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\" && npm test",
+  "verification_instructions": "From Public/frontend-v6: `npm ci` (node_modules already present, can skip), `npm run check` must stay 0 errors / 0 warnings (svelte-check --fail-on-warnings), `npm test` (vitest) all green, `npm run build` succeeds and stays within the client-JS-size budget (<= 700000 bytes, enforced by scripts/first-load-bytes.mjs; GTM snippet is external from Google CDN so it does not count against the bundle).",
+  "snapshot_or_generated_files": "None checked in. Build output goes to build/ (gitignored). Budget checked by scripts/first-load-bytes.mjs against build/.",
+  "setup_instructions": "export PATH=\"/root/.nvm/versions/node/v22.23.2/bin:$PATH\"; cd Public/frontend-v6; node_modules already present (npm ci if needed).",
+  "environment_constraints": "Scope ALL changes to Public/frontend-v6 ONLY. Do NOT touch frontend-v2..v5 or mgmt apps. Do NOT add any npm dependency (GTM is a script snippet + a dataLayer push). All window/document/dataLayer access must be browser-guarded (SSR/prerender safe). CI job public-frontend-v6 enforces the JS-size budget.",
+  "contribution_requirements": "Keep npm run check at 0/0. Keep vercel.json a valid schema with NO non-schema keys (a prior 'comment' key broke the Vercel schema). CSP is a single valid string.",
+  "key_patterns": "app.html is a static template (cannot read Vite env directly) with a no-flash theme <script> in <head> and %sveltekit.head%; body is <body data-sveltekit-preload-data=\"hover\" class=\"bg-slate-100 dark:bg-ink\"><div style=\"display: contents\">%sveltekit.body%</div></body>. Root layout src/routes/+layout.svelte uses onMount + $app/environment browser guard + $app/navigation. CSP lives in vercel.json under headers -> source '/(.*)' -> Content-Security-Policy value (single string). Existing seo.test.ts already has a 'CSP allows Cloudflare Web Analytics' describe block to mirror.",
+  "relevant_files": [
+    "Public/frontend-v6/src/app.html",
+    "Public/frontend-v6/src/routes/+layout.svelte",
+    "Public/frontend-v6/vercel.json",
+    "Public/frontend-v6/src/lib/seo.test.ts",
+    "Public/frontend-v6/src/lib/pwaManifest.test.ts",
+    "Public/frontend-v6/src/lib/tooling/firstLoadBytes.test.ts"
+  ],
+  "directory_structure": "Public/frontend-v6/src/app.html (static HTML template); src/routes/+layout.svelte (root layout, overlays, PWA register, navigation); src/lib/** (components, stores, utils, colocated *.test.ts); vercel.json (headers incl. CSP); scripts/first-load-bytes.mjs (budget gate)."
+}
