@@ -20,7 +20,8 @@
   import { startSync } from '$lib/sync';
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
-  import { goto } from '$app/navigation';
+  import { goto, afterNavigate } from '$app/navigation';
+  import { pushPageView } from '$lib/analytics/pageview';
 
   let { children } = $props();
 
@@ -33,6 +34,15 @@
   // discoverable by PWABuilder/browsers). app.html also carries a static
   // fallback link for pre-hydration crawlers.
   let webManifestLink = $derived(pwaInfo ? pwaInfo.webManifest.linkTag : '');
+
+  // Google Tag Manager SPA page-view tracking. afterNavigate fires on every
+  // client-side route change (and the initial navigation); pushPageView is a
+  // no-op outside the browser and before GTM's dataLayer exists, so this is
+  // SSR/prerender safe. GA4 + Clarity page views fire off this dataLayer event.
+  afterNavigate(() => {
+    if (!browser) return;
+    pushPageView($page.url.pathname + $page.url.search, document.title);
+  });
 
   // The QR printed on every receipt / certificate opens the portal at the ROOT
   // with `?record=<id>` (see mgmt qrCode.js publicRecordUrl). Forward those to
