@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+  />
+
+  <title>Coming Soon | Chhath Puja 2026</title>
+
+  <meta
+    name="description"
+    content="Chhath Puja — Shaharpura, Gardih. 10 Years of Chhath Puja. Launching 08 November 2026 at 07:00 PM IST."
+  />
+
+  <meta name="theme-color" content="#080401" />
+
+  <style>
+    :root {
+      --orange: #f27a1a;
+      --gold: #ffd36a;
+      --gold2: #ffad42;
+      --cream: #fff6e5;
+      --muted: #c7b49c;
+      --dark: #080401;
+      --card: rgba(20, 9, 3, 0.68);
+      --border: rgba(255, 179, 71, 0.28);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      min-height: 100%;
+    }
+
+    body {
+      min-height: 100vh;
+      min-height: 100svh;
+      overflow-x: hidden;
+      color: var(--cream);
+      background:
+        radial-gradient(
+          circle at 50% 25%,
+          rgba(242, 122, 26, 0.22),
+          transparent 35%
+        ),
+        radial-gradient(
+          circle at 80% 90%,
+          rgba(255, 179, 71, 0.1),
+          transparent 30%
+        ),
+        linear-gradient(145deg, #050201, #160803 55%, #080401);
+      font-family:
+        Inter,
+        ui-sans-serif,
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+    }
+
+    /* ---------- Background ---------- */
+
+    .bg {
+      position: fixed;
+      inset: 0;
+      overflow: hidden;
+      z-index: -5;
+      pointer-events: none;
+    }
+
+    .orb {
+      position: absolute;
+      width: 420px;
+      height: 420px;
+      border-radius: 50%;
+      background: rgba(242, 122, 26, 0.09);
+      filter: blur(80px);
+      animation: float 10s ease-in-out infinite alternate;
+    }
+
+    .orb.one {
+      left: -160px;
+      top: -120px;
+    }
+
+    .orb.two {
+      right: -180px;
+      bottom: -160px;
+      animation-delay: -4s;
+    }
+
+    @keyframes float {
+      from {
+        transform: translate3d(0, 0, 0) scale(1);
+      }
+
+      to {
+        transform: translate3d(35px, 25px, 0) scale(1.12);
+      }
+    }
+
+    /* ---------- Stars ---------- */
+
+    .stars {
+      position: absolute;
+      inset: 0;
+      opacity: 0.4;
+      background-image:
+        radial-gradient(
+          circle,
+          rgba(255, 211, 106, 0.9) 1px,
+          transparent 1.5px
+        ),
+        radial-gradient(
+          circle,
+          rgba(255, 179, 71, 0.55) 1px,
+          transparent 1.5px
+        );
+      background-size: 95px 95px, 145px 145px;
+      background-position: 10px 20px, 50px 80px;
+    }
+
+    /* ---------- Top lights ---------- */
+
+    .lights {
+      position: fixed;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 55px;
+      display: flex;
+      justify-content: space-around;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    .bulb {
+      width: 7px;
+      height: 7px;
+      margin-top: 17px;
+      border-radius: 50%;
+      background: var(--gold);
+      box-shadow:
+        0 0 7px var(--gold),
+        0 0 20px rgba(255, 179, 71, 0.8);
+      animation: blink 1.8s ease-in-out infinite alternate;
+    }
+
+    .bulb:nth-child(2n) {
+      animation-delay: .35s;
+    }
+
+    .bulb:nth-child(3n) {
+      animation-delay: .7s;
+    }
+
+    @keyframes blink {
+      from {
+        opacity: .35;
+        transform: scale(.75);
+      }
+
+      to {
+        opacity: 1;
+        transform: scale(1.15);
+      }
+    }
+
+    /* ---------- Main ---------- */
+
+    main {
+      min-height: 100svh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 80px 18px 70px;
+    }
+
+    .container {
+      width: min(920px, 100%);
+      text-align: center;
+    }
+
+    /* ---------- Branding ---------- */
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 26px;
+      color: var(--gold);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+    }
+
+    .brand-icon {
+      width: 36px;
+      height: 36px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      background: rgba(255, 179, 71, .07);
+      box-shadow: 0 0 25px rgba(242, 122, 26, .15);
+      font-size: 18px;
+    }
+
+    /* ---------- 10 Years ---------- */
+
+    .years {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 18px;
+      margin-bottom: 10px;
+      color: var(--gold);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: .2em;
+    }
+
+    .years-line {
+      width: 75px;
+      height: 1px;
+      background: linear-gradient(
+        90deg,
+        transparent,
+        var(--gold)
+      );
+    }
+
+    .years-line.right {
+      background: linear-gradient(
+        90deg,
+        var(--gold),
+        transparent
+      );
+    }
+
+    .ten {
+      font-size: clamp(42px, 9vw, 76px);
+      line-height: .8;
+      font-weight: 900;
+      background: linear-gradient(
+        180deg,
+        #fff9e9,
+        var(--gold),
+        var(--orange)
+      );
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    /* ---------- Heading ---------- */
+
+    .coming {
+      margin-top: 25px;
+      color: var(--gold2);
+      font-size: clamp(12px, 2vw, 15px);
+      font-weight: 800;
+      letter-spacing: .38em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin-top: 7px;
+      font-size: clamp(52px, 10vw, 105px);
+      line-height: .92;
+      letter-spacing: -.065em;
+      font-weight: 950;
+      background:
+        linear-gradient(
+          180deg,
+          #fff9eb 0%,
+          #ffd77c 45%,
+          #f27a1a 100%
+        );
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      text-shadow:
+        0 0 50px rgba(242, 122, 26, .13);
+    }
+
+    .tagline {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: clamp(15px, 2.5vw, 21px);
+      line-height: 1.6;
+    }
+
+    .tagline strong {
+      color: var(--cream);
+    }
+
+    /* ---------- Diya ---------- */
+
+    .diya-area {
+      width: 110px;
+      height: 95px;
+      position: relative;
+      margin: 24px auto 20px;
+    }
+
+    .flame {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      width: 27px;
+      height: 44px;
+      transform: translateX(-50%);
+      border-radius: 50% 50% 45% 45% / 65% 65% 35% 35%;
+      background:
+        radial-gradient(
+          circle at 50% 70%,
+          #fffde8 0 16%,
+          #ffd86d 32%,
+          #ff9d24 65%,
+          #f27a1a
+        );
+      filter:
+        drop-shadow(0 0 9px #ffd36a)
+        drop-shadow(0 0 22px rgba(242, 122, 26, .8));
+      animation: flame 1s ease-in-out infinite alternate;
+    }
+
+    @keyframes flame {
+      from {
+        transform: translateX(-50%) rotate(-5deg) scale(.95);
+      }
+
+      to {
+        transform: translateX(-50%) rotate(5deg) scale(1.08);
+      }
+    }
+
+    .diya {
+      position: absolute;
+      bottom: 8px;
+      left: 50%;
+      width: 78px;
+      height: 35px;
+      transform: translateX(-50%);
+      border-radius: 50% 50% 45% 45%;
+      background: linear-gradient(
+        #e67920,
+        #7d2c08
+      );
+      box-shadow:
+        inset 0 6px 10px rgba(255, 220, 140, .22),
+        0 10px 30px rgba(242, 122, 26, .35);
+    }
+
+    .diya::after {
+      content: "";
+      position: absolute;
+      left: 10px;
+      right: 10px;
+      top: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #451504;
+    }
+
+    /* ---------- Launch Card ---------- */
+
+    .launch-card {
+      width: min(650px, 100%);
+      margin: 0 auto;
+      padding: 22px;
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      background:
+        linear-gradient(
+          145deg,
+          rgba(255,255,255,.075),
+          rgba(255,255,255,.025)
+        );
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      box-shadow:
+        0 30px 90px rgba(0,0,0,.4),
+        inset 0 1px 0 rgba(255,255,255,.08);
+    }
+
+    .launch-label {
+      color: #a99680;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .25em;
+      text-transform: uppercase;
+    }
+
+    .date {
+      margin-top: 7px;
+      font-size: clamp(22px, 5vw, 34px);
+      font-weight: 900;
+    }
+
+    .date span {
+      color: var(--orange);
+    }
+
+    .time {
+      margin-top: 5px;
+      color: var(--gold);
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: .12em;
+    }
+
+    /* ---------- Countdown ---------- */
+
+    .countdown {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 11px;
+      margin-top: 20px;
+    }
+
+    .time-box {
+      padding: 17px 8px;
+      border-radius: 17px;
+      border: 1px solid rgba(255,179,71,.13);
+      background: rgba(0,0,0,.25);
+    }
+
+    .number {
+      display: block;
+      color: var(--cream);
+      font-size: clamp(25px, 5vw, 40px);
+      font-weight: 900;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .unit {
+      display: block;
+      margin-top: 8px;
+      color: #9e8b77;
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+    }
+
+    /* ---------- Hindi ---------- */
+
+    .hindi {
+      margin-top: 25px;
+      color: #d9c4a8;
+      font-size: clamp(15px, 2.5vw, 19px);
+      line-height: 1.7;
+    }
+
+    .hindi strong {
+      color: var(--gold);
+    }
+
+    /* ---------- Location ---------- */
+
+    .location {
+      margin-top: 18px;
+      color: #9e8b77;
+      font-size: 13px;
+    }
+
+    .location strong {
+      color: var(--cream);
+    }
+
+    /* ---------- Footer ---------- */
+
+    footer {
+      position: fixed;
+      left: 15px;
+      right: 15px;
+      bottom: 14px;
+      text-align: center;
+      color: #6f5e4e;
+      font-size: 9px;
+      letter-spacing: .08em;
+    }
+
+    /* ---------- Live ---------- */
+
+    .live-title {
+      color: #76f0a5 !important;
+      background: none !important;
+      -webkit-text-fill-color: #76f0a5 !important;
+    }
+
+    .live-badge {
+      display: inline-block;
+      margin-top: 20px;
+      padding: 9px 18px;
+      border: 1px solid rgba(118,240,165,.35);
+      border-radius: 999px;
+      color: #76f0a5;
+      background: rgba(118,240,165,.07);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .12em;
+    }
+
+    .hide {
+      display: none;
+    }
+
+    /* ---------- Mobile ---------- */
+
+    @media (max-width: 600px) {
+
+      main {
+        padding:
+          70px
+          14px
+          60px;
+      }
+
+      .brand {
+        font-size: 9px;
+        letter-spacing: .1em;
+      }
+
+      .brand-icon {
+        width: 30px;
+        height: 30px;
+        font-size: 15px;
+      }
+
+      .years {
+        gap: 10px;
+        font-size: 10px;
+      }
+
+      .years-line {
+        width: 45px;
+      }
+
+      .ten {
+        font-size: 55px;
+      }
+
+      .coming {
+        margin-top: 19px;
+        letter-spacing: .25em;
+      }
+
+      h1 {
+        font-size: clamp(50px, 16vw, 78px);
+      }
+
+      .tagline {
+        font-size: 14px;
+      }
+
+      .diya-area {
+        transform: scale(.82);
+        margin-top: 12px;
+        margin-bottom: 5px;
+      }
+
+      .launch-card {
+        padding: 17px 11px;
+        border-radius: 18px;
+      }
+
+      .date {
+        font-size: 21px;
+      }
+
+      .time {
+        font-size: 11px;
+      }
+
+      .countdown {
+        gap: 6px;
+      }
+
+      .time-box {
+        padding: 14px 3px;
+        border-radius: 12px;
+      }
+
+      .number {
+        font-size: 24px;
+      }
+
+      .unit {
+        font-size: 7px;
+        letter-spacing: .1em;
+      }
+
+      .hindi {
+        font-size: 14px;
+      }
+
+      footer {
+        font-size: 8px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation: none !important;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- Background -->
+  <div class="bg">
+    <div class="stars"></div>
+    <div class="orb one"></div>
+    <div class="orb two"></div>
+  </div>
+
+  <!-- Decorative lights -->
+  <div class="lights">
+    <span class="bulb"></span>
+    <span class="bulb"></span>
+    <span class="bulb"></span>
+    <span class="bulb"></span>
+    <span class="bulb"></span>
+    <span class="bulb"></span>
+    <span class="bulb"></span>
+    <span class="bulb"></span>
+    <span class="bulb"></span>
+    <span class="bulb"></span>
+    <span class="bulb"></span>
+    <span class="bulb"></span>
+  </div>
+
+  <main>
+
+    <div class="container">
+
+      <!-- Committee -->
+      <div class="brand">
+        <span class="brand-icon">🪔</span>
+        <span>Navyuvak Chhath Puja Samiti</span>
+      </div>
+
+      <!-- 10 Years -->
+      <div class="years">
+        <span class="years-line"></span>
+        <span>2017</span>
+        <span class="ten">10</span>
+        <span>2026</span>
+        <span class="years-line right"></span>
+      </div>
+
+      <div
+        style="
+          color:#d6bd98;
+          font-size:12px;
+          font-weight:800;
+          letter-spacing:.28em;
+          margin-top:4px;
+        "
+      >
+        YEARS OF CHHATH PUJA
+      </div>
+
+      <!-- Heading -->
+      <div class="coming">
+        Something Beautiful Is Coming
+      </div>
+
+      <h1 id="mainTitle">
+        COMING<br />
+        SOON
+      </h1>
+
+      <p class="tagline">
+        A more transparent · A more connected ·
+        <strong>A brighter tomorrow</strong>
+      </p>
+
+      <!-- Diya -->
+      <div class="diya-area">
+        <div class="flame"></div>
+        <div class="diya"></div>
+      </div>
+
+      <!-- Launch -->
+      <section class="launch-card">
+
+        <div class="launch-label">
+          Official Website Launch
+        </div>
+
+        <div class="date">
+          <span>08</span> November 2026
+        </div>
+
+        <div class="time">
+          SUNDAY &nbsp;•&nbsp; 07:00 PM IST
+        </div>
+
+        <!-- Countdown -->
+        <div
+          class="countdown"
+          id="countdown"
+        >
+
+          <div class="time-box">
+            <span
+              class="number"
+              id="days"
+            >00</span>
+
+            <span class="unit">
+              Days
+            </span>
+          </div>
+
+          <div class="time-box">
+            <span
+              class="number"
+              id="hours"
+            >00</span>
+
+            <span class="unit">
+              Hours
+            </span>
+          </div>
+
+          <div class="time-box">
+            <span
+              class="number"
+              id="minutes"
+            >00</span>
+
+            <span class="unit">
+              Minutes
+            </span>
+          </div>
+
+          <div class="time-box">
+            <span
+              class="number"
+              id="seconds"
+            >00</span>
+
+            <span class="unit">
+              Seconds
+            </span>
+          </div>
+
+        </div>
+
+      </section>
+
+      <p class="hindi">
+        <strong>छठ की आस्था, अब डिजिटल विश्वास के साथ</strong>
+        <br />
+        वही परंपरा · वही सेवा · एक नया डिजिटल रूप
+      </p>
+
+      <p class="location">
+        <strong>शहरपूरा, गरडीह</strong>
+        · झारखंड
+      </p>
+
+      <!-- Appears after launch -->
+      <div
+        id="liveBadge"
+        class="live-badge hide"
+      >
+        ● LIVE NOW
+      </div>
+
+    </div>
+
+  </main>
+
+  <footer>
+    © 2026 Navyuvak Chhath Puja Samiti
+    · Seva · Sanskriti · Samarpan
+  </footer>
+
+
+  <script>
+
+    /*
+      =====================================================
+      CHHATH PUJA 2026 LAUNCH COUNTDOWN
+      =====================================================
+
+      Date:
+      08 November 2026
+
+      Time:
+      07:00 PM
+
+      Timezone:
+      India Standard Time (IST)
+      UTC +05:30
+    */
+
+    const launchTime =
+      new Date(
+        "2026-11-08T19:00:00+05:30"
+      ).getTime();
+
+
+    const days =
+      document.getElementById("days");
+
+    const hours =
+      document.getElementById("hours");
+
+    const minutes =
+      document.getElementById("minutes");
+
+    const seconds =
+      document.getElementById("seconds");
+
+    const countdown =
+      document.getElementById("countdown");
+
+    const title =
+      document.getElementById("mainTitle");
+
+    const liveBadge =
+      document.getElementById("liveBadge");
+
+
+    function pad(number) {
+      return String(number).padStart(2, "0");
+    }
+
+
+    function updateCountdown() {
+
+      const now =
+        Date.now();
+
+      const difference =
+        launchTime - now;
+
+
+      /*
+        Launch time reached
+      */
+
+      if (difference <= 0) {
+
+        countdown.classList.add("hide");
+
+        title.innerHTML =
+          "LIVE<br>NOW";
+
+        title.classList.add(
+          "live-title"
+        );
+
+        liveBadge.classList.remove(
+          "hide"
+        );
+
+        return;
+      }
+
+
+      /*
+        Calculate remaining time
+      */
+
+      const totalSeconds =
+        Math.floor(
+          difference / 1000
+        );
+
+
+      const remainingDays =
+        Math.floor(
+          totalSeconds / 86400
+        );
+
+
+      const remainingHours =
+        Math.floor(
+          (totalSeconds % 86400) / 3600
+        );
+
+
+      const remainingMinutes =
+        Math.floor(
+          (totalSeconds % 3600) / 60
+        );
+
+
+      const remainingSeconds =
+        totalSeconds % 60;
+
+
+      /*
+        Update UI
+      */
+
+      days.textContent =
+        pad(remainingDays);
+
+      hours.textContent =
+        pad(remainingHours);
+
+      minutes.textContent =
+        pad(remainingMinutes);
+
+      seconds.textContent =
+        pad(remainingSeconds);
+    }
+
+
+    /*
+      Initial update
+    */
+
+    updateCountdown();
+
+
+    /*
+      Update every second
+    */
+
+    setInterval(
+      updateCountdown,
+      1000
+    );
+
+  </script>
+
+</body>
+</html>
