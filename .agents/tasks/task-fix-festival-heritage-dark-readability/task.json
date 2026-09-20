@@ -1,0 +1,14 @@
+{
+  "task_id": "task-fix-festival-heritage-dark-readability",
+  "task_description": "Fix the two unreadable dark themes on the public v6 SvelteKit portal (Public/frontend-v6): Festival Dark (festival-dark) and Heritage Serif Dark (heritage-serif-dark) render light/cream text on white cards on the Home contributor list. Root cause is a CSS specificity bug in src/app.css where the generic `:root.dark { --surface-bg: 255 255 255 }` rule overrides the two festival-skin dark themes' intended dark opaque --surface-bg (declared with a lower-specificity plain attribute selector). Fix by raising ONLY those two theme blocks' selector specificity (`:root[data-theme='...']`) so their dark surface wins, plus a guard test. CSS-only + a test file; zero new JS bytes; all other themes unchanged. Scoped to Public/frontend-v6 only; new branch off main; do not push/PR.",
+  "status": "completed",
+  "feature_order": ["FEAT-001"],
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "npm run check = 0 errors/0 warnings. npm test = 20 files / 317 tests pass (311 pre-existing on main + 6 new guard tests); the earlier '326' baseline was measured on the feat/public-v6-gtm-analytics branch which carries extra GTM analytics test files not present on main, so no tests were dropped. npm run build succeeds; total client JS = 668233 bytes (<= 700000 budget); first-load-bytes --limit 420000 passes (worst 370863 B, index.html). Test quality verified by reverting the fix: the new theme-dark-contrast.test.ts correctly fails 4/6 (selector + dark-surface/light-ink assertions) when the selectors are un-hardened, and passes with the fix. Diff is exactly 2 lines in app.css (selector specificity) + one new test file. No Dockerfile relevant to this SvelteKit app; docker skipped."
+  }
+}

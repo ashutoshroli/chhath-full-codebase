@@ -272,7 +272,7 @@
   /* Festival Dark — the festive maroon/gold scheme on a dark maroon-charcoal
      canvas (festival skin). Same accents as light Festival; --fest-ink is now a
      warm cream so body text reads on the dark surfaces. */
-  [data-theme='festival-dark'] {
+  :root[data-theme='festival-dark'] {
     --surface-bg: 42 20 24; /* deep maroon-charcoal */
     --surface-alpha: 0.8;
     --surface-border: 245 184 64;
@@ -292,7 +292,7 @@
   /* Heritage Serif Dark — the editorial serif look on a deep charcoal canvas,
      forest green + antique gold; --fest-ink is a light stone so body text reads
      on the dark surfaces. */
-  [data-theme='heritage-serif-dark'] {
+  :root[data-theme='heritage-serif-dark'] {
     --surface-bg: 26 32 29; /* charcoal with a faint green tint */
     --surface-alpha: 0.85;
     --surface-border: 217 119 6;
