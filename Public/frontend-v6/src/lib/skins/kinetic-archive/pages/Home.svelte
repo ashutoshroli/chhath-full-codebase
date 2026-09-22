@@ -1,0 +1,16 @@
+<script lang="ts">
+ import { portalState,year } from '$lib/stores/portal'; import { tr } from '$lib/stores/lang'; import { computeFinancials, rankedContributors, type Contributor } from '$lib/api/derive'; import { fmt } from '$lib/utils/format'; import { ArrowUpRight, Users, WalletCards, ReceiptText, Landmark } from '@lucide/svelte';
+ let data=$derived($portalState.data); let fin=$derived(computeFinancials(data,$year)); let ranked=$derived(rankedContributors(data,$year)); let money=$derived(ranked.filter(x=>x.item.amount>0));
+</script>
+<svelte:head><title>Chhath Puja — {$tr('app_title')}</title></svelte:head>
+<div class="kinetic-command"><div class="kinetic-kicker">01 / PUBLIC LEDGER</div><h1 class="kinetic-title">Chhath Puja.</h1></div><p class="kinetic-subtitle">{$tr('social_title')}</p>
+<div class="kinetic-grid kinetic-grid--home">
+ <section class="kinetic-panel kinetic-panel--blue" style="grid-column:span 7"><div class="kinetic-label">{$tr('total_budget')}</div><div class="kinetic-number">{fmt(fin.totalBudget)}</div><p style="margin:12px 0 0;max-width:520px">{$tr('budget_overview')} / {$year==='All'?$tr('all_years'):$year}</p></section>
+ <section class="kinetic-panel kinetic-panel--yellow" style="grid-column:span 5"><div class="kinetic-label">{$tr('net_surplus')}</div><div class="kinetic-number">{fmt(fin.netSurplus)}</div><div class="kinetic-micro" style="margin-top:10px">{fin.utilizedPct.toFixed(1)}% utilized</div><div class="kinetic-meter" style="margin-top:10px"><span style={`width:${Math.min(100,Math.max(0,fin.utilizedPct))}%`}></span></div></section>
+ <section class="kinetic-panel" style="grid-column:span 4"><Users/><div class="kinetic-label">{$tr('contributors_list')}</div><div class="kinetic-number">{ranked.length}</div></section>
+ <section class="kinetic-panel" style="grid-column:span 4"><WalletCards/><div class="kinetic-label">{$tr('total_expense')}</div><div class="kinetic-number">{fmt(fin.totalExpense)}</div></section>
+ <section class="kinetic-panel kinetic-panel--pink" style="grid-column:span 4"><Landmark/><div class="kinetic-label">{$tr('past_loan_returned')}</div><div class="kinetic-number">{fmt(fin.pastLoanReturned)}</div></section>
+ <section class="kinetic-panel" style="grid-column:span 8"><div class="kinetic-kicker">TOP LEDGER ENTRIES</div><div class="kinetic-list" style="margin-top:8px">{#each money.slice(0,8) as r,i}<div class="kinetic-row"><div class="kinetic-index">{i+1}</div><div><div class="kinetic-name">{r.item.name}</div><div class="kinetic-micro">{r.item.village}</div></div><div class="kinetic-amount">+{fmt(r.item.amount)}</div></div>{/each}</div></section>
+ <section class="kinetic-panel kinetic-panel--teal" style="grid-column:span 4"><div class="kinetic-stamp">OPEN LEDGER</div><h2 style="font-size:30px;line-height:.95;margin:28px 0 12px;font-weight:950">Every entry. Visible.</h2><p class="kinetic-micro" style="color:var(--ka-ink)">Faith / Unity / Transparency — a public record designed for clarity.</p></section>
+</div>
+<style>@media(max-width:900px){.kinetic-grid--home section{grid-column:span 1!important}}</style>
