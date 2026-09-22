@@ -1,0 +1,94 @@
+:global(:root[data-theme='surya-ghat']) .surya-page > h1,
+:global(:root[data-theme='surya-ghat']) .surya-page h1 {
+  color: #f5d27f !important;
+  letter-spacing: -.025em;
+  text-shadow: 0 8px 30px rgb(230 166 67 / .12);
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page h2,
+:global(:root[data-theme='surya-ghat']) .surya-page h3 {
+  color: #e8f3f0 !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page a {
+  color: #72d1cc;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page a:hover { color: #f2c866; }
+
+:global(:root[data-theme='surya-ghat']) .surya-page table {
+  color: #e8f3f0;
+  background: rgb(8 27 38 / .72);
+  border-color: rgb(76 198 194 / .20);
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page th {
+  color: #f3cf78 !important;
+  background: rgb(76 198 194 / .08) !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page td {
+  color: #d8e8e4 !important;
+  border-color: rgb(76 198 194 / .14) !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page .text-brand-500,
+:global(:root[data-theme='surya-ghat']) .surya-page .text-brand-600,
+:global(:root[data-theme='surya-ghat']) .surya-page .text-brand-700 {
+  color: #f0b84d !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page .bg-brand-500,
+:global(:root[data-theme='surya-ghat']) .surya-page .bg-brand-600 {
+  background-color: #c98b2c !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page .text-emerald-700,
+:global(:root[data-theme='surya-ghat']) .surya-page .text-emerald-600,
+:global(:root[data-theme='surya-ghat']) .surya-page .text-emerald-500 {
+  color: #70e7b7 !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page .bg-emerald-50,
+:global(:root[data-theme='surya-ghat']) .surya-page .bg-emerald-100 {
+  background-color: rgb(44 170 130 / .12) !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page .bg-amber-50,
+:global(:root[data-theme='surya-ghat']) .surya-page .bg-orange-50,
+:global(:root[data-theme='surya-ghat']) .surya-page .bg-yellow-50 {
+  background-color: rgb(230 166 67 / .10) !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page .text-rose-500,
+:global(:root[data-theme='surya-ghat']) .surya-page .text-red-500,
+:global(:root[data-theme='surya-ghat']) .surya-page .text-red-600 {
+  color: #ff9b9b !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page [class*='divide-y'] > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgb(76 198 194 / .16) !important;
+}
+
+/* Page-specific identity: each route gets a subtle Chhath editorial marker. */
+:global(:root[data-theme='surya-ghat']) .surya-expenses::before,
+:global(:root[data-theme='surya-ghat']) .surya-loans::before,
+:global(:root[data-theme='surya-ghat']) .surya-committee::before,
+:global(:root[data-theme='surya-ghat']) .surya-downloads::before,
+:global(:root[data-theme='surya-ghat']) .surya-decade::before,
+:global(:root[data-theme='surya-ghat']) .surya-donate::before,
+:global(:root[data-theme='surya-ghat']) .surya-verify::before {
+  content: '';
+  display: block;
+  height: 2px;
+  width: 4.5rem;
+  margin-bottom: .85rem;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #e6a643, #4cc6c2);
+  box-shadow: 0 0 20px rgb(230 166 67 / .16);
+}
+
+@media (max-width: 640px) {
+  :global(:root[data-theme='surya-ghat']) .surya-page h1 { font-size: 1.25rem; }
+  :global(:root[data-theme='surya-ghat']) .surya-page h2 { font-size: 1.05rem; }
+}
