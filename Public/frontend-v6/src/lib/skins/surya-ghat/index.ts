@@ -1,5 +1,5 @@
 import type { Skin } from '../types';
-import Shell from './Shell.svelte';
+import Shell from './SuryaShell.svelte';
 import Home from './pages/Home.svelte';
 import Expenses from './pages/Expenses.svelte';
 import Loans from './pages/Loans.svelte';
