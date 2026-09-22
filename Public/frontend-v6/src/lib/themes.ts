@@ -1,4 +1,4 @@
-/** Theme registry. Adding a theme requires one entry plus its visual token block/skin mapping. */
+/** Theme registry. `THEMES` preserves the existing gallery list; `ALL_THEMES` adds newly authored themes. */
 export type ThemeMode = 'light' | 'dark';
 
 export interface ThemeDef {
@@ -27,15 +27,25 @@ export const THEMES: ThemeDef[] = [
   { id: 'pastel-zen', labelKey: 'theme_pastel_zen', mode: 'light', originKey: 'theme_origin_calm', swatch: ['#fafafa', '#ffffff', '#f97316'] },
   { id: 'heritage-serif', labelKey: 'theme_heritage_serif', mode: 'light', originKey: 'theme_origin_heritage', swatch: ['#fdfbf7', '#ffffff', '#064e3b'] },
   { id: 'festival-dark', labelKey: 'theme_festival_dark', mode: 'dark', originKey: 'theme_origin_new', swatch: ['#1a0d10', '#2a1418', '#f5b840'] },
-  { id: 'heritage-serif-dark', labelKey: 'theme_heritage_serif_dark', mode: 'dark', originKey: 'theme_origin_heritage', swatch: ['#0f1211', '#1a201d', '#d97706'] },
-  { id: 'surya-ghat', labelKey: 'Surya Ghat', mode: 'dark', originKey: 'theme_origin_new', swatch: ['#04111a', '#091822', '#ea4'] }
+  { id: 'heritage-serif-dark', labelKey: 'theme_heritage_serif_dark', mode: 'dark', originKey: 'theme_origin_heritage', swatch: ['#0f1211', '#1a201d', '#d97706'] }
 ];
+
+export const SURYA_GHAT_THEME: ThemeDef = {
+  id: 'surya-ghat',
+  labelKey: 'Surya Ghat',
+  mode: 'dark',
+  originKey: 'theme_origin_new',
+  swatch: ['#04111a', '#091822', '#e6a643']
+};
+
+/** Complete gallery/validation registry, including newly authored themes. */
+export const ALL_THEMES: ThemeDef[] = [...THEMES, SURYA_GHAT_THEME];
 
 export const DEFAULT_LIGHT = 'sunrise';
 export const DEFAULT_DARK = 'warm-night';
 export const THEME_KEY = 'cpm_public_v5_theme';
 
-const byId = new Map(THEMES.map((t) => [t.id, t]));
+const byId = new Map(ALL_THEMES.map((t) => [t.id, t]));
 export function getTheme(id: string | null | undefined): ThemeDef | undefined { return id ? byId.get(id) : undefined; }
 export function isValidThemeId(id: unknown): id is string { return typeof id === 'string' && byId.has(id); }
 export function pickDefaultTheme(prefersDark: boolean | null, rnd: number = Math.random()): string {
