@@ -1,20 +1,19 @@
-import { Home, ReceiptText, Landmark, Users, Download, HeartHandshake, BookOpen } from '@lucide/svelte';
+import { Home, ReceiptText, Landmark, Users, Download, HeartHandshake, BookOpen, History } from '@lucide/svelte';
 
 export interface NavItem {
   href: string;
-  key: string; // i18n key
+  key: string;
   icon: typeof Home;
 }
 
-/** The three tabs that are always shown directly in the bottom bar. */
+/** Primary navigation: the journey is a first-class destination in the new skin. */
 export const NAV_PRIMARY: NavItem[] = [
   { href: '/', key: 'nav_home', icon: Home },
   { href: '/expenses', key: 'nav_expenses', icon: ReceiptText },
-  { href: '/loans', key: 'nav_loans', icon: Landmark }
+  { href: '/loans', key: 'nav_loans', icon: Landmark },
+  { href: '/decade', key: 'journey_title', icon: History }
 ];
 
-/** Items grouped under the mobile "More" tab (a popover). On desktop these are
- *  shown inline alongside the primary items (see NAV_ITEMS). */
 export const NAV_MORE: NavItem[] = [
   { href: '/downloads', key: 'nav_downloads', icon: Download },
   { href: '/committee', key: 'nav_committee', icon: Users },
@@ -22,9 +21,5 @@ export const NAV_MORE: NavItem[] = [
   { href: '/guide', key: 'guide_title', icon: BookOpen }
 ];
 
-/** The full, flat nav list — used by the DESKTOP navs, which show every item
- *  inline (no "More" grouping on desktop). */
 export const NAV_ITEMS: NavItem[] = [...NAV_PRIMARY, ...NAV_MORE];
-
-/** Paths owned by the "More" popover — used to light up the More tab as active. */
 export const NAV_MORE_PATHS = NAV_MORE.map((i) => i.href);

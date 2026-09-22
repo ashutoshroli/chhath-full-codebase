@@ -1,0 +1,81 @@
+<script lang="ts">
+  import { portalState } from '$lib/stores/portal';
+  import { tr as translate, lang } from '$lib/stores/lang';
+  import { decadeStats, journeyEntries, journeyTagline } from '$lib/api/derive';
+  import { fmt } from '$lib/utils/format';
+  import { CalendarDays } from '@lucide/svelte';
+
+  let stats = $derived(decadeStats($portalState.data));
+  let story = $derived(journeyEntries($portalState.data));
+  let tagline = $derived(journeyTagline($portalState.data));
+</script>
+
+<svelte:head>
+  <title>Our Journey — {$translate('app_title')}</title>
+</svelte:head>
+
+<div class="kinetic-command">
+  <div class="kinetic-kicker">06 / 2017 → {stats.endYear}</div>
+  <h1 class="kinetic-title">Our Journey.</h1>
+</div>
+
+<p class="kinetic-subtitle">{tagline[$lang] || $translate('decade_closing_h')}</p>
+
+<div class="kinetic-grid kinetic-grid--3">
+  <section class="kinetic-panel kinetic-panel--blue">
+    <CalendarDays />
+    <div class="kinetic-label">YEARS ON RECORD</div>
+    <div class="kinetic-number">{stats.endYear - stats.startYear + 1}</div>
+  </section>
+  <section class="kinetic-panel kinetic-panel--yellow">
+    <div class="kinetic-label">RECORDED CONTRIBUTION</div>
+    <div class="kinetic-number">{fmt(stats.grandTotal)}</div>
+  </section>
+  <section class="kinetic-panel kinetic-panel--teal">
+    <div class="kinetic-label">YEAR-WISE ENTRIES</div>
+    <div class="kinetic-number">{stats.grandContributors}</div>
+  </section>
+</div>
+
+<section class="kinetic-panel" style="margin-top:14px">
+  <div class="kinetic-kicker">FINANCIAL TIMELINE</div>
+  <div style="overflow:auto;margin-top:10px">
+    <table class="kinetic-table">
+      <thead>
+        <tr><th>YEAR</th><th>CONTRIBUTION</th><th>ENTRIES</th></tr>
+      </thead>
+      <tbody>
+        {#each stats.years as row}
+          <tr>
+            <td>
+              <strong>{row.year}</strong>
+              {#if row.isCurrent}<span class="kinetic-chip" style="margin-left:8px">LIVE</span>{/if}
+            </td>
+            <td>{fmt(row.total)}</td>
+            <td>{row.contributors}</td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="kinetic-panel" style="margin-top:14px">
+  <div class="kinetic-kicker">STORY / ARCHIVE</div>
+  <div class="kinetic-timeline" style="margin-top:18px">
+    {#each story as entry}
+      <article class="kinetic-timeline-item">
+        <div class="kinetic-year">{entry.year || '—'}</div>
+        <h2 style="font-size:24px;line-height:1;margin:6px 0;font-weight:950">
+          {$lang === 'hi' && entry.titleHi ? entry.titleHi : entry.titleEn}
+        </h2>
+        <p class="kinetic-micro" style="text-transform:none;white-space:normal">
+          {$lang === 'hi' && entry.contentHi ? entry.contentHi : entry.contentEn}
+        </p>
+      </article>
+    {/each}
+    {#if story.length === 0}
+      <div class="kinetic-micro">{$translate('decade_timeline_paper_d')}</div>
+    {/if}
+  </div>
+</section>
