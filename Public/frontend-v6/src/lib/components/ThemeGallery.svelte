@@ -6,7 +6,7 @@
    */
   import { Check, Sun, Moon } from '@lucide/svelte';
   import Modal from './Modal.svelte';
-  import { THEMES } from '$lib/themes';
+  import { ALL_THEMES } from '$lib/themes';
   import { themeId } from '$lib/stores/theme';
   import { tr } from '$lib/stores/lang';
 
@@ -21,7 +21,7 @@
   <p class="mb-3 text-xs text-slate-500 dark:text-slate-400">{$tr('choose_theme_help')}</p>
 
   <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
-    {#each THEMES as theme}
+    {#each ALL_THEMES as theme}
       {@const active = $themeId === theme.id}
       <button
         type="button"
