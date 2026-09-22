@@ -17,7 +17,13 @@
 
 <a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[200] focus:rounded-lg focus:bg-amber-500 focus:px-4 focus:py-2 focus:text-sm focus:font-bold focus:text-slate-950">{$tr('skip_to_content')}</a>
 
-<div class="surya-shell min-h-screen">
+<!-- Keep the Surya palette on the shell itself as well as <html>. The page components
+     intentionally consume CSS variables, so inheriting them here makes the skin robust
+     against CSS ordering/chunking and prevents a white fallback surface or invisible text. -->
+<div
+  class="surya-shell min-h-screen"
+  style="--surface-bg: 12 31 42; --surface-alpha: .96; --surface-border: 230 166 67; --surface-border-alpha: .22; --accent: 230 166 67; --accent-2: 76 198 194; --fest-ink: 235 244 241; --fest-pos: 110 231 183; --fest-banner-from: #061822; --fest-banner-to: #07515a;"
+>
   <div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden" aria-hidden="true">
     <div class="absolute left-1/2 top-[-11rem] h-[28rem] w-[28rem] -translate-x-1/2 rounded-full bg-amber-400/10 blur-3xl"></div>
     <div class="absolute -bottom-32 -left-20 h-80 w-80 rounded-full bg-teal-400/10 blur-3xl"></div>
