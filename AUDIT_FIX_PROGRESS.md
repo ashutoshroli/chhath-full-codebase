@@ -7,7 +7,7 @@
 > pending, and what was deliberately left for later (and where that is tracked).
 
 **Status — against the plan's 48 PRs: 48 done.** Two items inside PR-47 are recorded as **decisions rather than upgrades**, and are named in §2 and §4 (C18) instead of being left to look finished: react-router stays on 6.x, and `packageManager` is not pinned. (react-router since upgraded to v7 — C18 closed.)
-Separately, **71 GitHub PRs** have been merged for this effort (#311–#384). Those two numbers are not the same thing, and revisions of this file before #356 wrongly treated them as one. Several merged PRs were docs/runbook updates (#340, #343, #346, #352, #371), CI fix-ups (#330, #345), or carry-over items outside the 48 (#348, #356, #368, #369, #372). Others are a **slice** of a plan PR rather than a whole one. **The plan count is the one to read for progress.**
+Separately, **71 GitHub PRs** have been merged for this effort (#311–#384). Those two numbers are not the same thing, and revisions of this file before #356 wrongly treated them as one. Several merged PRs were docs/runbook updates (#340, #343, #346, #352, #371), CI fix-ups (#330, #345), or carry-over items outside the 48 (#348, #356, #368, #369, #372). Others are a **slice** of a plan PRs rather than a whole one. **The plan count is the one to read for progress.**
 
 Wave progress: **W0+W1 ✅ 17/17 (every P0 closed)** · **W2 ✅ 8/8 (every PUB-BE closed)** · **W3 ✅ 7/7** · **W4 ✅ 3/3** · **W5 ✅ 6/6** · **W6 ✅ 4/4** · **W7 ✅ 3/3**
 
