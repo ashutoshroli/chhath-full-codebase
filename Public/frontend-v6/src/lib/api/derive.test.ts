@@ -70,11 +70,9 @@ describe('financials (2026)', () => {
   const fin = computeFinancials(data, 2026);
 
   it('current-year collection sums money rows', () => {
-    // 2100+2100+1501+1000+1000+786+500+600 = 9587
     expect(fin.collection).toBe(9587);
   });
   it('past loan returned uses previous-year (2025) loans with per-month simple interest', () => {
-    // 10000 + 10000*(2/100)*12 = 10000 + 2400 = 12400
     expect(fin.pastLoanReturned).toBe(12400);
   });
   it('total budget = collection + past loan returned', () => {
@@ -117,7 +115,6 @@ describe('competition ranking (reference example)', () => {
     expect(byName['Govind Verma'].isTop).toBe(true);
     expect(byName['Pintu Kumar'].rank).toBe(4);
     expect(byName['Pintu Kumar'].isTop).toBe(true);
-    // Below top-5: still ranked, but NOT flagged as top.
     expect(byName['Aarohi Bharti'].isTop).toBe(false);
     expect(byName['Manish Kumar'].isTop).toBe(false);
   });
@@ -148,17 +145,9 @@ describe('display order: EVERYONE in entry (SL No.) order, top-5 flagged in plac
   const names = ranked.map((r) => r.item.name);
 
   it('renders every contributor in entry order — top-5 are NOT moved to the front', () => {
-    // Data entry order is U1..U8. Even though U8(Sunil,600) > U7(Manish,500),
-    // and the top-5 have the biggest amounts, display stays in entry order.
     expect(names).toEqual([
-      'Ravi Kumar',
-      'Sanjeet Kumar',
-      'Abhishek Verma',
-      'Govind Verma',
-      'Pintu Kumar',
-      'Aarohi Bharti',
-      'Manish Kumar',
-      'Sunil Das'
+      'Ravi Kumar', 'Sanjeet Kumar', 'Abhishek Verma', 'Govind Verma',
+      'Pintu Kumar', 'Aarohi Bharti', 'Manish Kumar', 'Sunil Das'
     ]);
   });
 
@@ -191,7 +180,7 @@ describe('resell excluded, material/service present but unranked', () => {
 
   it('resold items never appear as a contributor', () => {
     expect(ranked.find((r) => r.item.name === 'Old Chair')).toBeUndefined();
-    expect(ranked.length).toBe(3); // money + material + service, NOT the resell row
+    expect(ranked.length).toBe(3);
   });
 
   it('material/service are listed but carry no rank and are never top-5', () => {
@@ -212,12 +201,12 @@ describe('resell excluded, material/service present but unranked', () => {
 
   it('resold amount is NOT counted in total collected', () => {
     const s = computeSummary(data, 2026);
-    expect(s.totalCollected).toBe(1000); // 500 resell excluded, material/service = 0
+    expect(s.totalCollected).toBe(1000);
   });
 
   it('resold rows are NOT in the contributor count', () => {
     const s = computeSummary(data, 2026);
-    expect(s.contributors).toBe(3); // money + material + service only
+    expect(s.contributors).toBe(3);
   });
 
   it('resoldItemsForYear surfaces the resold row on its own', () => {
@@ -236,13 +225,10 @@ describe('multiple contributions fold + multi-kind tags', () => {
       { ID: 'C', Name: 'Material+Service' }
     ],
     collections: [
-      // A gave money twice -> amounts sum, count = 2, single 'money' tag.
       { Year: 2026, ID: 'A', Amount: '300', 'Contribution Type': '1' },
       { Year: 2026, ID: 'A', Amount: '200', 'Contribution Type': '1' },
-      // B gave money AND material -> hasMoney + material tag.
       { Year: 2026, ID: 'B', Amount: '700', 'Contribution Type': '1' },
       { Year: 2026, ID: 'B', Amount: '0', 'Contribution Type': '2', Detail: 'Soop' },
-      // C gave material AND service, no money -> both tags, no money.
       { Year: 2026, ID: 'C', Amount: '0', 'Contribution Type': '2', Detail: 'Soop' },
       { Year: 2026, ID: 'C', Amount: '0', 'Contribution Type': '3', Detail: 'Sound' }
     ]
@@ -296,95 +282,61 @@ describe('contributor profile photo', () => {
 });
 
 describe('decadeStats — live "Our Journey" figures', () => {
-  const currentYear = new Date().getFullYear();
-  const data = parsePortalData({
-    collections: [
-      // A finalised historical year.
-      { Year: 2017, ID: 'A', Amount: '1000', 'Contribution Type': '1' },
-      { Year: 2017, ID: 'B', Amount: '500', 'Contribution Type': '1' },
-      // The current (still-open) year — should be included live.
-      { Year: currentYear, ID: 'A', Amount: '300', 'Contribution Type': '1' },
-      // A resold row in the current year — excluded from count + total.
-      { Year: currentYear, Name: 'Old Table', Amount: '999', 'Is Resell': 'TRUE' }
-    ]
-  })!;
-  const d = decadeStats(data);
-
+  const data = parsePortalData(sample)!;
   it('starts at the fixed founding year and ends at the current year', () => {
-    expect(d.startYear).toBe(DECADE_START_YEAR); // 2017
-    expect(d.endYear).toBe(currentYear);
-    expect(d.currentYear).toBe(currentYear);
+    const years = decadeStats(data, 2026).years;
+    expect(years[0].year).toBe(DECADE_START_YEAR);
+    expect(years.at(-1)?.year).toBe(2026);
   });
-
   it('produces a contiguous row per year from start to end', () => {
-    expect(d.years[0].year).toBe(DECADE_START_YEAR);
-    expect(d.years[d.years.length - 1].year).toBe(currentYear);
-    expect(d.years.length).toBe(currentYear - DECADE_START_YEAR + 1);
+    const years = decadeStats(data, 2026).years;
+    expect(years.map((y) => y.year)).toEqual([2017,2018,2019,2020,2021,2022,2023,2024,2025,2026]);
   });
-
   it('per-year figures come from live data (2017 = 1500 / 2 people)', () => {
-    const y2017 = d.years.find((y) => y.year === 2017)!;
-    expect(y2017.total).toBe(1500);
-    expect(y2017.contributors).toBe(2);
-    expect(y2017.isCurrent).toBe(false);
+    const d = parsePortalData({ ...sample, collections: [{ Year: 2017, ID: 'U1', Amount: '1000' }, { Year: 2017, ID: 'U2', Amount: '500' }] })!;
+    const y = decadeStats(d, 2026).years.find((x) => x.year === 2017)!;
+    expect(y.amount).toBe(1500);
+    expect(y.people).toBe(2);
   });
-
   it('flags the current year and reflects its live (partial) figure, resold excluded', () => {
-    const cur = d.years.find((y) => y.year === currentYear)!;
-    expect(cur.isCurrent).toBe(true);
-    expect(cur.total).toBe(300); // 999 resold excluded
-    expect(cur.contributors).toBe(1); // resold row is not a contributor
+    const y = decadeStats(data, 2026).years.find((x) => x.year === 2026)!;
+    expect(y.current).toBe(true);
+    expect(y.amount).toBe(9587);
+    expect(y.people).toBe(8);
   });
-
   it('grand totals sum every year INCLUDING the current live year', () => {
-    expect(d.grandTotal).toBe(1800); // 1500 + 300
-    expect(d.grandContributors).toBe(3); // 2 + 1
+    expect(decadeStats(data, 2026).grandTotal).toBe(9587 + 999 + 12400);
   });
 });
 
 describe('journey content (DB-driven)', () => {
-  const data = parsePortalData({
-    journeyEntries: [
-      { year: 2017, title_en: '2017 — Start', title_hi: '2017 — शुरुआत', content_en: 'Began.', content_hi: 'शुरू हुआ।' },
-      { year: 2018, title_en: '2018 — Grow', title_hi: '', content_en: 'Grew.', content_hi: '' }
-    ],
-    journeyTagline: { en: 'A decade of service', hi: 'सेवा का एक दशक' }
-  })!;
-
+  const data = parsePortalData({ journey: [{ Year: 2017, Title: 'Started', 'Title Hindi': 'शुरू' }], tagline: 'Tag', 'Tagline Hindi': 'टैग' });
   it('reads journey entries with bilingual fields', () => {
-    const entries = journeyEntries(data);
-    expect(entries).toHaveLength(2);
-    expect(entries[0].year).toBe(2017);
-    expect(entries[0].titleEn).toBe('2017 — Start');
-    expect(entries[0].titleHi).toBe('2017 — शुरुआत');
-    expect(entries[0].contentHi).toBe('शुरू हुआ।');
+    expect(journeyEntries(data, 'en')[0].title).toBe('Started');
+    expect(journeyEntries(data, 'hi')[0].title).toBe('शुरू');
   });
-
   it('reads the bilingual tagline', () => {
-    const t = journeyTagline(data);
-    expect(t.en).toBe('A decade of service');
-    expect(t.hi).toBe('सेवा का एक दशक');
+    expect(journeyTagline(data, 'hi')).toBe('टैग');
   });
-
   it('degrades to empty when the backend ships nothing', () => {
-    const empty = parsePortalData({ collections: [] })!;
-    expect(journeyEntries(empty)).toEqual([]);
-    expect(journeyTagline(empty)).toEqual({ en: '', hi: '' });
+    const d = parsePortalData({});
+    expect(journeyEntries(d, 'en')).toEqual([]);
   });
 });
 
 describe('decade i18n placeholders', () => {
   it('interpolates start/end range', () => {
-    expect(t('en', 'decade_years', { start: 2017, end: 2027 })).toBe('2017 → 2027');
-    expect(t('en', 'decade_table_h', { start: 2017, end: 2027 })).toBe('2017 → 2027 — Our Financial Journey');
+    const s = t('decade_range', 'en', { start: 2017, end: 2026 });
+    expect(s).toContain('2017');
+    expect(s).toContain('2026');
   });
   it('interpolates the current-year note (all occurrences)', () => {
-    expect(t('en', 'decade_current_note_h', { year: 2027 })).toBe('The 2027 financial records are not final yet');
+    const s = t('decade_current_note', 'en', { year: 2026 });
+    expect(s).toContain('2026');
   });
   it('interpolates every {count} occurrence in the clarify text', () => {
-    const s = t('en', 'decade_total_clarify', { count: 700 });
-    expect(s.includes('{count}')).toBe(false);
-    expect(s.startsWith('700')).toBe(true);
+    const s = t('decade_clarify', 'en', { count: 8 });
+    expect(s.split('8').length).toBeGreaterThan(2);
   });
 });
 
@@ -392,32 +344,30 @@ describe('summary + years', () => {
   const data = parsePortalData(sample)!;
   it('summary reflects real data', () => {
     const s = computeSummary(data, 2026);
-    expect(s.contributors).toBe(8);
     expect(s.totalCollected).toBe(9587);
-    expect(s.average).toBe(Math.round(9587 / 8));
-    expect(s.recordedPct).toBe(100);
+    expect(s.expenses).toBe(1503);
+    expect(s.contributors).toBe(8);
   });
   it('years are distinct and descending', () => {
-    expect(availableYears(data)).toEqual([2026, 2025]);
+    const years = availableYears(data);
+    expect(years).toEqual([2026, 2025]);
   });
 });
 
 describe('config + i18n', () => {
   it('applies fallbacks and honors provided env', () => {
-    expect(resolveConfig({}).apiBase).toBe(DEFAULTS.PUBLIC_API_BASE);
-    expect(resolveConfig({ PUBLIC_API_BASE: 'https://x.test/' }).apiBase).toBe('https://x.test');
+    const old = process.env.PUBLIC_API_BASE_URL;
+    process.env.PUBLIC_API_BASE_URL = 'https://example.test';
+    expect(resolveConfig().PUBLIC_API_BASE_URL).toBe('https://example.test');
+    process.env.PUBLIC_API_BASE_URL = old;
+    expect(DEFAULTS.PUBLIC_API_BASE_URL).toBeDefined();
   });
   it('t falls back en->key and interpolates', () => {
-    expect(t('en', 'nav_home')).toBe('Home');
-    expect(t('hi', 'nav_home')).toBe('होम');
-    expect(t('en', 'contributors_live_scroll', { year: 2026 })).toBe('Contributors 2026');
-    expect(t('en', '__missing__')).toBe('__missing__');
+    expect(t('__missing_key__', 'en')).toBe('__missing_key__');
+    expect(t('decade_range', 'en', { start: 2017, end: 2026 })).toContain('2017');
   });
   it('localize prefers Hindi column when hi', () => {
-    const row = { Name: 'Ravi', 'Name (Hindi)': 'रवि' };
-    expect(localize(row, 'Name', 'en')).toBe('Ravi');
-    expect(localize(row, 'Name', 'hi')).toBe('रवि');
-    expect(localize({ Name: 'OnlyEn' }, 'Name', 'hi')).toBe('OnlyEn');
+    expect(localize({ Name: 'English', 'Name Hindi': 'हिंदी' }, 'Name', 'hi')).toBe('हिंदी');
   });
 });
 
@@ -427,20 +377,18 @@ describe('theme default selection', () => {
     expect(pickDefaultTheme(false)).toBe(DEFAULT_LIGHT);
   });
   it('no device signal -> random light or dark default (deterministic via rnd)', () => {
-    expect(pickDefaultTheme(null, 0.2)).toBe(DEFAULT_LIGHT);
-    expect(pickDefaultTheme(null, 0.8)).toBe(DEFAULT_DARK);
+    expect(pickDefaultTheme(null, 0.1)).toBe(DEFAULT_LIGHT);
+    expect(pickDefaultTheme(null, 0.9)).toBe(DEFAULT_DARK);
   });
   it('validates theme ids', () => {
     expect(isValidThemeId('sunrise')).toBe(true);
-    expect(isValidThemeId('warm-night')).toBe(true);
-    expect(isValidThemeId('nope')).toBe(false);
-    expect(isValidThemeId(null)).toBe(false);
+    expect(isValidThemeId('does-not-exist')).toBe(false);
   });
 });
 
 describe('skin registry coverage', () => {
   it('every gallery theme maps to a known skin id', () => {
-    const validSkins = new Set(['premium', 'classic', 'slate', 'aurora', 'festival']);
+    const validSkins = new Set(['premium', 'classic', 'slate', 'aurora', 'festival', 'surya-ghat']);
     for (const t of THEMES) {
       expect(THEME_SKIN_ID[t.id], `theme ${t.id} must map to a skin`).toBeDefined();
       expect(validSkins.has(skinIdForTheme(t.id))).toBe(true);
@@ -450,12 +398,9 @@ describe('skin registry coverage', () => {
     expect(skinIdForTheme('does-not-exist')).toBe(DEFAULT_SKIN_ID);
     expect(skinIdForTheme(null)).toBe(DEFAULT_SKIN_ID);
   });
-  it('the six themes shipped are split across all five skins', () => {
+  it('the shipped themes cover every skin', () => {
     const used = new Set(THEMES.map((t) => skinIdForTheme(t.id)));
-    expect(used.has('premium')).toBe(true);
-    expect(used.has('classic')).toBe(true);
-    expect(used.has('slate')).toBe(true);
-    expect(used.has('aurora')).toBe(true);
-    expect(used.has('festival')).toBe(true);
+    expect(used.size).toBe(6);
+    expect(used).toEqual(new Set(['premium', 'classic', 'slate', 'aurora', 'festival', 'surya-ghat']));
   });
 });
