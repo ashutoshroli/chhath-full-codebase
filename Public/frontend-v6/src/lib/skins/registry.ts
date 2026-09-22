@@ -41,7 +41,8 @@ const LOADERS: Record<LazySkinId, () => Promise<Skin>> = {
   classic: () => import('./classic').then((m) => m.classicSkin),
   slate: () => import('./slate').then((m) => m.slateSkin),
   aurora: () => import('./aurora').then((m) => m.auroraSkin),
-  festival: () => import('./festival').then((m) => m.festivalSkin)
+  festival: () => import('./festival').then((m) => m.festivalSkin),
+  'surya-ghat': () => import('./surya-ghat').then((m) => m.suryaGhatSkin)
 };
 
 /** Does this skin need fetching, or is it the statically-bundled default? */
