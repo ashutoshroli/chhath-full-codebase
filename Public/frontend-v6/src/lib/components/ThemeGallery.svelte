@@ -32,16 +32,9 @@
             ? 'border-brand-500 ring-2 ring-brand-500/30'
             : 'border-black/10 hover:border-brand-400 dark:border-white/10'}"
       >
-        <!-- Mini preview: gradient backdrop + a faux card + accent bar -->
         <div class="relative h-24 w-full" style="background-image: linear-gradient(135deg, {theme.swatch[0]}, {theme.swatch[0]});">
-          <div
-            class="absolute inset-0"
-            style="background-image: linear-gradient(160deg, {theme.swatch[0]} 0%, {theme.swatch[0]} 100%);"
-          ></div>
-          <div
-            class="absolute left-2 right-2 top-2 h-8 rounded-lg shadow"
-            style="background: {theme.swatch[1]}; border: 1px solid rgba(0,0,0,.06);"
-          ></div>
+          <div class="absolute inset-0" style="background-image: linear-gradient(160deg, {theme.swatch[0]} 0%, {theme.swatch[0]} 100%);"></div>
+          <div class="absolute left-2 right-2 top-2 h-8 rounded-lg shadow" style="background: {theme.swatch[1]}; border: 1px solid rgba(0,0,0,.06);"></div>
           <div class="absolute left-2 top-3.5 h-1.5 w-10 rounded-full" style="background: {theme.swatch[2]};"></div>
           <div class="absolute bottom-2 left-2 flex gap-1">
             <span class="h-4 w-8 rounded" style="background: {theme.swatch[2]};"></span>
