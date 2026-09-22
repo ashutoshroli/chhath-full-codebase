@@ -28,13 +28,7 @@ export const THEMES: ThemeDef[] = [
   { id: 'heritage-serif', labelKey: 'theme_heritage_serif', mode: 'light', originKey: 'theme_origin_heritage', swatch: ['#fdfbf7', '#ffffff', '#064e3b'] },
   { id: 'festival-dark', labelKey: 'theme_festival_dark', mode: 'dark', originKey: 'theme_origin_new', swatch: ['#1a0d10', '#2a1418', '#f5b840'] },
   { id: 'heritage-serif-dark', labelKey: 'theme_heritage_serif_dark', mode: 'dark', originKey: 'theme_origin_heritage', swatch: ['#0f1211', '#1a201d', '#d97706'] },
-  {
-    id: 'surya-ghat',
-    labelKey: 'theme_festival_dark',
-    mode: 'dark',
-    originKey: 'theme_origin_new',
-    swatch: ['#04111a', '#091822', '#e6a643']
-  }
+  { id: 'surya-ghat', labelKey: 'Surya Ghat', mode: 'dark', originKey: 'theme_origin_new', swatch: ['#04111a', '#091822', '#ea4'] }
 ];
 
 export const DEFAULT_LIGHT = 'sunrise';
