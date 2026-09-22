@@ -9,6 +9,7 @@
   import StatusBanner from '$lib/components/StatusBanner.svelte';
   import FooterLinks from '$lib/components/FooterLinks.svelte';
   import '$lib/skins/surya-ghat/Skin.css';
+  import '$lib/skins/surya-ghat/PageTheme.css';
 
   let { children } = $props();
   const isActive = (href: string, path: string) => (href === '/' ? path === '/' : path.startsWith(href));
