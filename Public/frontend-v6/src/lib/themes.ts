@@ -168,6 +168,14 @@ export const THEMES: ThemeDef[] = [
     mode: 'dark',
     originKey: 'theme_origin_heritage',
     swatch: ['#0f1211', '#1a201d', '#d97706']
+  },
+  {
+    // Brand-new (v6): premium Chhath river-night / Surya Ghat visual system.
+    id: 'surya-ghat',
+    labelKey: 'Surya Ghat',
+    mode: 'dark',
+    originKey: 'theme_origin_new',
+    swatch: ['#04131d', '#0c1f2a', '#e6a643']
   }
 ];
 

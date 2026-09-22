@@ -3,12 +3,12 @@
  * and reused by the component registry. The registry resolves these skin ids to
  * the actual Skin objects.
  */
-export type SkinId = 'premium' | 'classic' | 'slate' | 'aurora' | 'festival';
+export type SkinId = 'premium' | 'classic' | 'slate' | 'aurora' | 'festival' | 'surya-ghat';
 
 /**
  * `satisfies` rather than `: SkinId` on purpose (audit PR-45): the annotation
  * would widen this to the whole union, and `registry.ts` needs the LITERAL type
- * to exclude the default skin from its lazy-loader table.
+ * to exclude the default skin from the lazy-loader table.
  */
 export const DEFAULT_SKIN_ID = 'premium' satisfies SkinId;
 
@@ -34,7 +34,8 @@ export const THEME_SKIN_ID: Record<string, SkinId> = {
   'heritage-serif': 'festival',
   // Dark variants — same festival skin as their light counterparts.
   'festival-dark': 'festival',
-  'heritage-serif-dark': 'festival'
+  'heritage-serif-dark': 'festival',
+  'surya-ghat': 'surya-ghat'
 };
 
 export function skinIdForTheme(themeId: string | null | undefined): SkinId {

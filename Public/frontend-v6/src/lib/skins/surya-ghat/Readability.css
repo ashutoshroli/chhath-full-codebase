@@ -1,0 +1,89 @@
+:global(:root[data-theme='surya-ghat']) .surya-page {
+  color: #ebf4f1 !important;
+  --surface-bg: 12 31 42;
+  --fest-ink: 235 244 241;
+}
+
+/* Shared pages contain utility classes such as bg-white/90 and text-white.
+   A Surya Ghat page must never render those as a white card or white-on-white text. */
+:global(:root[data-theme='surya-ghat']) .surya-page [class*='bg-white'],
+:global(:root[data-theme='surya-ghat']) .surya-page [class*='bg-slate-50'],
+:global(:root[data-theme='surya-ghat']) .surya-page [class*='bg-slate-100'] {
+  background-color: #0c1f2a !important;
+  color: #ebf4f1 !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page [class*='text-white'] {
+  color: #e8f3f0 !important;
+}
+
+/* The budget hero intentionally remains a light-text hero. */
+:global(:root[data-theme='surya-ghat']) .surya-home > div:first-of-type [class*='text-white'] {
+  color: #ffffff !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page [class*='text-slate-950'],
+:global(:root[data-theme='surya-ghat']) .surya-page [class*='text-slate-900'],
+:global(:root[data-theme='surya-ghat']) .surya-page [class*='text-slate-800'],
+:global(:root[data-theme='surya-ghat']) .surya-page [class*='text-slate-700'],
+:global(:root[data-theme='surya-ghat']) .surya-page [class*='text-slate-600'],
+:global(:root[data-theme='surya-ghat']) .surya-page [class*='text-slate-500'],
+:global(:root[data-theme='surya-ghat']) .surya-page [class*='text-slate-400'] {
+  color: #d6e5e1 !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page input,
+:global(:root[data-theme='surya-ghat']) .surya-page select,
+:global(:root[data-theme='surya-ghat']) .surya-page textarea {
+  background: #081b26 !important;
+  color: #f0f7f5 !important;
+  border-color: rgb(76 198 194 / .42) !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page input::placeholder,
+:global(:root[data-theme='surya-ghat']) .surya-page textarea::placeholder {
+  color: rgb(203 221 218 / .65) !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page [class*='border-slate-200'],
+:global(:root[data-theme='surya-ghat']) .surya-page [class*='border-slate-300'],
+:global(:root[data-theme='surya-ghat']) .surya-page [class*='border-black'] {
+  border-color: rgb(112 180 181 / .24) !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page [class*='divide-slate-200'] > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgb(112 180 181 / .20) !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page table,
+:global(:root[data-theme='surya-ghat']) .surya-page tbody,
+:global(:root[data-theme='surya-ghat']) .surya-page tr {
+  background: #0c1f2a !important;
+  color: #e8f3f0 !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page th {
+  background: #103342 !important;
+  color: #f3cf78 !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page td {
+  color: #d8e8e4 !important;
+  border-color: rgb(76 198 194 / .18) !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page [class*='bg-emerald-50'],
+:global(:root[data-theme='surya-ghat']) .surya-page [class*='bg-emerald-100'] {
+  background: rgb(44 170 130 / .12) !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page [class*='bg-amber-50'],
+:global(:root[data-theme='surya-ghat']) .surya-page [class*='bg-orange-50'],
+:global(:root[data-theme='surya-ghat']) .surya-page [class*='bg-yellow-50'] {
+  background: rgb(230 166 67 / .10) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :global(:root[data-theme='surya-ghat']) .surya-page,
+  :global(:root[data-theme='surya-ghat']) .surya-page * { scroll-behavior: auto !important; }
+}

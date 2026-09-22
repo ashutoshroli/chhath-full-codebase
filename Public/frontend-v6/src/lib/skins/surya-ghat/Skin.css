@@ -1,0 +1,159 @@
+:global(:root[data-theme='surya-ghat']) {
+  color-scheme: dark;
+  --surface-bg: 12 31 42;
+  --surface-alpha: 0.96;
+  --surface-border: 230 166 67;
+  --surface-border-alpha: 0.22;
+  --accent: 230 166 67;
+  --accent-2: 76 198 194;
+  --page-from: #03131d;
+  --page-via: #062c38;
+  --page-to: #021018;
+  --page-sun: 0;
+  --fest-ink: 235 244 241;
+  --fest-pos: 110 231 183;
+  --fest-banner-from: #061822;
+  --fest-banner-to: #07515a;
+}
+
+:global(:root[data-theme='surya-ghat']) body {
+  background: #021018;
+  color: #ebf4f1;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-shell {
+  min-height: 100dvh;
+  color: #ebf4f1;
+  background:
+    radial-gradient(65rem 28rem at 50% -8%, rgb(230 166 67 / .12), transparent 62%),
+    radial-gradient(38rem 30rem at -10% 45%, rgb(76 198 194 / .10), transparent 62%),
+    radial-gradient(34rem 26rem at 110% 70%, rgb(8 112 124 / .10), transparent 62%),
+    linear-gradient(180deg, #04131d 0%, #031019 45%, #020d15 100%);
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-shell::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  opacity: .45;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 34px, rgb(255 255 255 / .018) 35px 36px),
+    linear-gradient(115deg, transparent 0 44%, rgb(76 198 194 / .035) 45% 46%, transparent 47%),
+    linear-gradient(65deg, transparent 0 56%, rgb(230 166 67 / .028) 57% 58%, transparent 59%);
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-main { max-width: 1120px; }
+
+/* Shared festival pages supply the portal data/content. This skin owns the visual surface. */
+:global(:root[data-theme='surya-ghat']) .surya-page,
+:global(:root[data-theme='surya-ghat']) .surya-page * { --tw-ring-color: rgb(230 166 67 / .45); }
+
+:global(:root[data-theme='surya-ghat']) .surya-page .bg-white,
+:global(:root[data-theme='surya-ghat']) .surya-page .bg-white\/70,
+:global(:root[data-theme='surya-ghat']) .surya-page .bg-white\/80,
+:global(:root[data-theme='surya-ghat']) .surya-page .bg-slate-50,
+:global(:root[data-theme='surya-ghat']) .surya-page .bg-slate-100 {
+  background-color: rgb(12 31 42 / .96) !important;
+  color: #ebf4f1;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page .dark\:bg-ink {
+  background-color: rgb(12 31 42 / .96) !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page .text-slate-950,
+:global(:root[data-theme='surya-ghat']) .surya-page .text-slate-900,
+:global(:root[data-theme='surya-ghat']) .surya-page .text-slate-800,
+:global(:root[data-theme='surya-ghat']) .surya-page .text-slate-700,
+:global(:root[data-theme='surya-ghat']) .surya-page .text-slate-600,
+:global(:root[data-theme='surya-ghat']) .surya-page .text-slate-500,
+:global(:root[data-theme='surya-ghat']) .surya-page .text-slate-400 {
+  color: #d6e5e1 !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page .text-black { color: #f4faf8 !important; }
+
+:global(:root[data-theme='surya-ghat']) .surya-page .border-black\/5,
+:global(:root[data-theme='surya-ghat']) .surya-page .border-black\/10,
+:global(:root[data-theme='surya-ghat']) .surya-page .border-slate-200,
+:global(:root[data-theme='surya-ghat']) .surya-page .border-slate-300 {
+  border-color: rgb(112 180 181 / .22) !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgb(112 180 181 / .20) !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page input,
+:global(:root[data-theme='surya-ghat']) .surya-page select,
+:global(:root[data-theme='surya-ghat']) .surya-page textarea {
+  background-color: rgb(8 27 38 / .96) !important;
+  color: #f0f7f5 !important;
+  border-color: rgb(76 198 194 / .38) !important;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .025);
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page input::placeholder,
+:global(:root[data-theme='surya-ghat']) .surya-page textarea::placeholder {
+  color: rgb(203 221 218 / .62) !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page input:focus,
+:global(:root[data-theme='surya-ghat']) .surya-page select:focus,
+:global(:root[data-theme='surya-ghat']) .surya-page textarea:focus {
+  border-color: rgb(230 166 67 / .85) !important;
+  box-shadow: 0 0 0 3px rgb(230 166 67 / .12);
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page .surface {
+  background-color: rgb(12 31 42 / .82);
+  border-color: rgb(76 198 194 / .22);
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page [class*='rounded-2xl'],
+:global(:root[data-theme='surya-ghat']) .surya-page [class*='rounded-xl'] { border-radius: 1.15rem; }
+
+:global(:root[data-theme='surya-ghat']) .surya-page [class*='shadow'] {
+  box-shadow: 0 18px 55px rgb(0 0 0 / .26);
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page button:hover,
+:global(:root[data-theme='surya-ghat']) .surya-page a:hover { transform: translateY(-1px); }
+
+:global(:root[data-theme='surya-ghat']) .surya-home > div:first-of-type {
+  border: 1px solid rgb(230 166 67 / .22);
+  box-shadow: 0 24px 70px rgb(0 0 0 / .28), inset 0 1px 0 rgb(255 255 255 / .05);
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-home .text-4xl {
+  letter-spacing: -.035em;
+  text-shadow: 0 8px 30px rgb(230 166 67 / .16);
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-home .divide-y > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgb(76 198 194 / .18) !important;
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-home button[aria-pressed='true'] {
+  background: linear-gradient(135deg, rgb(230 166 67 / .18), rgb(76 198 194 / .10));
+  color: #ffd783 !important;
+  border: 1px solid rgb(230 166 67 / .28);
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-home .bg-emerald-500,
+:global(:root[data-theme='surya-ghat']) .surya-home .bg-emerald-600 { background-color: #48c6a0 !important; }
+
+@keyframes surya-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+:global(:root[data-theme='surya-ghat']) .surya-page { animation: surya-rise .45s ease both; }
+
+@media (prefers-reduced-motion: reduce) {
+  :global(:root[data-theme='surya-ghat']) .surya-page { animation: none; }
+  :global(:root[data-theme='surya-ghat']) .surya-page button:hover,
+  :global(:root[data-theme='surya-ghat']) .surya-page a:hover { transform: none; }
+}
