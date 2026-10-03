@@ -87,7 +87,7 @@
     <p class="lede">छठ पूजा पारदर्शिता पोर्टल — नवयुवक छठ पूजा समिति</p>
   </section>
 
-  {#if error}<div class="notice" role="status">{error} <button on:click={() => location.reload()}>Retry</button></div>{/if}
+  {#if error}<div class="notice" role="status">{error} <button onclick={() => location.reload()}>Retry</button></div>{/if}
   {#if loading}
     <div class="loading" aria-label="Loading public records"><span></span><span></span><span></span></div>
   {:else}
