@@ -31,7 +31,7 @@
   <h1>A decade of<br /><span>showing up.</span></h1>
   <p class="lede">छठी मैया के आशीर्वाद, समुदाय के सहयोग और पारदर्शिता की यात्रा।</p>
   <div class="year-strip" aria-label="Choose a year">
-    {#each years as y}<button class:active={active===y} on:click={() => selectYear(y)}>{y}</button>{/each}
+    {#each years as y}<button class:active={active===y} onclick={() => selectYear(y)}>{y}</button>{/each}
   </div>
   <section class="journey-feature"><p class="eyebrow">YEAR IN FOCUS</p><strong class="journey-year">{active}</strong><h2>One community. A shared commitment.</h2><p>Every contribution and every recorded expense is part of our shared story.</p><div class="journey-stat"><span>Contribution records</span><strong>{counts}</strong></div></section>
   <a class="back-link" href="/">← Back to public ledger</a>
