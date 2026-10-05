@@ -42,6 +42,37 @@
     });
   }
 
+  // Shrinks a profile photo before upload. Phone photos are 2-5 MB, but the public portal only
+  // shows them as 40-80px avatars; ~480px JPEG (~30-50 KB) is plenty and keeps every page light.
+  // Falls back to the untouched file if the browser cannot decode it (e.g. HEIC), so the server's
+  // own validation message still applies.
+  async function compressPhoto(file: File, maxDim = 480, quality = 0.82): Promise<{ dataUrl: string; name: string }> {
+    const original = await fileToBase64(file);
+    const fallback = { dataUrl: original, name: file.name };
+    try {
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const im = new Image();
+        im.onload = () => resolve(im);
+        im.onerror = () => reject(new Error('decode'));
+        im.src = original;
+      });
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return fallback;
+      ctx.fillStyle = '#ffffff'; // PNG transparency would turn black as JPEG
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', quality);
+      if (dataUrl.length >= original.length) return fallback; // never make it bigger
+      return { dataUrl, name: (file.name || 'photo').replace(/\.[^.]+$/, '') + '.jpg' };
+    } catch {
+      return fallback;
+    }
+  }
+
   let search = $state('');
   let showAdd = $state(false);
   let form = $state<any>({ ...BLANK });
@@ -84,8 +115,8 @@
     if (!file.type.startsWith('image/')) { alert('Please choose an image file.'); return; }
     uploadingPhoto = true;
     try {
-      const dataUrl = await fileToBase64(file);
-      const res: any = await api.uploadUserPhoto(dataUrl, file.name, editing ? editing.ID : '');
+      const { dataUrl, name } = await compressPhoto(file);
+      const res: any = await api.uploadUserPhoto(dataUrl, name, editing ? editing.ID : '');
       form = { ...form, Photo: res.url || res.photo || '' };
     } catch (err) {
       alert((err as Error).message);
