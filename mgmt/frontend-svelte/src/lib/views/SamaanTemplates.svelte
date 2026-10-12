@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatIST } from '$lib/istTime';
   // Ported from React views/SamaanTemplates.jsx — thin wrapper over the shared
   // TemplateEditor with material (samaan)-specific config.
   import { api } from '$lib/api';
@@ -7,7 +8,7 @@
   const SAMPLE_PLACEHOLDERS = {
     SAMAAN_NO: 'NCS-SAMAAN-2026-1', NAME: 'Ramesh Verma', DATE: '2026-08-10',
     FATHER_NAME: 'Suresh Verma', VILLAGE: 'Shaharpura', ITEM_DETAIL: '5kg Flour, 2kg Sugar',
-    YEAR: '2026', GENERATED_AT: new Date().toLocaleString('en-IN')
+    YEAR: '2026', GENERATED_AT: formatIST()
   };
   const PLACEHOLDER_HINTS = ['SAMAAN_NO', 'NAME', 'DATE', 'FATHER_NAME', 'VILLAGE', 'ITEM_DETAIL', 'YEAR', 'GENERATED_AT', 'QR_CODE'];
 

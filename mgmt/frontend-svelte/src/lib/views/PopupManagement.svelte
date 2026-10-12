@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatIST, fromISTInputValue, parseStamp, toISTInputValue } from '$lib/istTime';
   // Ported from React views/PopupManagement.jsx — create/edit popups (title,
   // roles, active window, ordered image/text/link slides with upload) + a live
   // preview and a "preview as public" check. List view with status warnings.
@@ -29,32 +30,13 @@
   let __slideKeySeq = 0;
   const newSlide = (data?: any) => ({ ...BLANK_SLIDE, ...(data || {}), _key: `sl_${Date.now()}_${__slideKeySeq++}` });
 
-  function fromLocalInputValue(local: string): string {
-    if (!local) return '';
-    const d = new Date(local);
-    return isNaN(d.getTime()) ? '' : d.toISOString();
-  }
-
-  function normalizeStamp(raw: string): Date | null {
-    const hasZone = /([zZ]|[+-]\d{2}:?\d{2})$/.test(raw);
-    let d = new Date(raw.replace(' ', 'T') + (hasZone ? '' : 'Z'));
-    if (!isNaN(d.getTime())) return d;
-    d = new Date(raw);
-    return isNaN(d.getTime()) ? null : d;
-  }
-
-  function toLocalInputValue(iso: unknown): string {
-    if (!iso) return '';
-    const d = normalizeStamp(iso.toString().trim());
-    if (!d) return '';
-    const pad = (n: number) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  }
+  // Start/end are entered and shown in IST regardless of the device timezone.
+  const fromLocalInputValue = fromISTInputValue;
+  const toLocalInputValue = toISTInputValue;
 
   function fmtStamp(v: unknown): string | null {
-    if (!v) return null;
-    const d = normalizeStamp(v.toString().trim());
-    return d ? d.toLocaleString('en-IN') : null;
+    if (!v || !parseStamp(v)) return null;
+    return formatIST(v);
   }
 
   const str = (v: unknown) => (v === undefined || v === null ? '' : v.toString());
@@ -206,7 +188,6 @@
     }
   }
 
-  const localTz = typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : '';
   let livePreviewSlides = $derived(slides.filter((s) => s.imageUrl || (s.text || '').trim()));
 </script>
 
@@ -249,7 +230,7 @@
       <input id={`${uid}-f3`} type="datetime-local" value={form.endAt} oninput={(e) => (form = { ...form, endAt: (e.currentTarget as HTMLInputElement).value })} />
       <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">
         You can leave both empty — the popup will then run with no time limit.
-        The time is in your phone's local time ({localTz}).
+        The time is Indian Standard Time (IST).
       </div>
     </div>
   </div>

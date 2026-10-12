@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatIST, formatISTDate } from '$lib/istTime';
   // Ported from React views/ConsentReview.jsx — Superadmin review of accepted/
   // declined consents: photo/signature/geo/device evidence + approve/reject.
   import { api, fmt } from '$lib/api';
@@ -71,7 +72,7 @@
             {r.role === 'loaner' ? 'Loan Receiver' : 'Guarantor'} — Loan: {r.loanerName} ({fmt(r.loanAmount)}, {r.loanYear})
           </div>
           <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
-            Responded: {r.responded_at ? new Date(r.responded_at).toLocaleString('en-IN') : '-'}
+            Responded: {r.responded_at ? formatIST(r.responded_at) : '-'}
           </div>
         </div>
         <span class="badge {r.status === 'accepted' ? 'badge-ok' : 'badge-warn'}">{r.status === 'accepted' ? 'Accepted' : 'Declined'}</span>
@@ -116,7 +117,7 @@
           </span>
           {#if r.verification_status && r.verification_status !== 'pending'}
             <span style="font-size:0.75rem; color:var(--text-muted);">
-              by {r.verified_by} on {r.verified_at ? new Date(r.verified_at).toLocaleDateString('en-IN') : ''}{r.verification_remarks ? ` — "${r.verification_remarks}"` : ''}
+              by {r.verified_by} on {r.verified_at ? formatISTDate(r.verified_at) : ''}{r.verification_remarks ? ` — "${r.verification_remarks}"` : ''}
             </span>
           {/if}
         </div>

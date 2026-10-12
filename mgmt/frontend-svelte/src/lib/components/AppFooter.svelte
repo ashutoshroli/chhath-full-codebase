@@ -1,10 +1,11 @@
 <script lang="ts">
+  import { currentYearIST } from '$lib/istTime';
   // Ported from React AppFooter.jsx — identical inline styles.
   interface Props {
     compact?: boolean;
   }
   let { compact = false }: Props = $props();
-  const year = new Date().getFullYear();
+  const year = currentYearIST();
 </script>
 
 <footer

@@ -4,6 +4,7 @@ import { usePolling } from '../usePolling.js';
 import Modal from '../components/Modal.jsx';
 import CleanupPanel from '../components/CleanupPanel.jsx';
 import { isTruthyFlag } from '../flags.js';
+import { formatIST } from '../istTime.js';
 
 const PLACEHOLDER_HINT = 'Placeholders: {Name} {NameHindi} {Amount} {Year} {PaymentMethod} {Village} {VillageHindi} {FatherName} {FatherNameHindi} {Detail}';
 
@@ -500,9 +501,9 @@ function MessageLog() {
           {m.remarks && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Remarks: {m.remarks}</div>}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, gap: 8, flexWrap: 'wrap' }}>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              {m.created_at}
+              {formatIST(m.created_at)}
               {m.attempts > 0 && <> · {m.attempts} attempt{m.attempts === 1 ? '' : 's'}</>}
-              {m.sent_at && <> · finished {m.sent_at}</>}
+              {m.sent_at && <> · finished {formatIST(m.sent_at)}</>}
             </div>
             {
 }

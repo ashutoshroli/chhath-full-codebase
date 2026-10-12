@@ -1,12 +1,11 @@
 <script lang="ts">
+  import { istFileStamp } from '$lib/istTime';
   // Ported from React views/Backup.jsx — download a full DB backup as a zip
   // (built client-side with PizZip) and restore from a zip/json, one DB at a time.
   import { api, reportClientError } from '$lib/api';
 
   function tsStamp(): string {
-    const d = new Date();
-    const p = (n: number) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+    return istFileStamp();
   }
 
   function downloadBlob(blob: Blob, filename: string) {

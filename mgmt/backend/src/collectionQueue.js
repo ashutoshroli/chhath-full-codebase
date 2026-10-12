@@ -41,6 +41,7 @@ import { triggerCollectionMessages } from './whatsapp.js';
 import { triggerCollectionEmail } from './email.js';
 import { logErrorAt, logWarn } from './logger.js';
 import { randomId } from './random.js';
+import { formatIST } from './istTime.js';
 
 const MAX_ATTEMPTS = 3;          // a job that keeps failing is parked as 'failed'
 const CLAIM_BATCH = 5;           // jobs processed per cron tick (keeps within CPU limits)
@@ -531,7 +532,7 @@ async function runOneJob(env, job) {
     let placeholders = {};
     if (fetcher) {
       const data = await fetcher(env, job.row_index, year);
-      placeholders = { ...(data && data.placeholders ? data.placeholders : {}), GENERATED_AT: new Date().toLocaleString('en-IN') };
+      placeholders = { ...(data && data.placeholders ? data.placeholders : {}), GENERATED_AT: formatIST() };
     }
     const docNoKey = DOC_NO_KEY[docType];
     const fileName = `${docType}-${(docNoKey && placeholders[docNoKey]) || recordId}.docx`;

@@ -446,7 +446,7 @@ const app = {
     if (!savedAt) { if (existing) existing.remove(); return; }
     if (existing) return;
     let when = '';
-    try { when = new Date(savedAt).toLocaleString(); } catch (e) { when = ''; }
+    try { when = new Date(savedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST'; } catch (e) { when = ''; }
     const bar = document.createElement('div');
     bar.id = 'stale-data-notice';
     bar.setAttribute('role', 'status');

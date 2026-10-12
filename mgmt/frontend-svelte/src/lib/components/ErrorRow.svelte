@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatIST } from '$lib/istTime';
   // Ported from the ErrorRow sub-component of React views/ErrorLog.jsx — one
   // logged error with expandable stack/context, AI-status badge, and actions
   // (Fix using AI / Report to WhatsApp).
@@ -53,7 +54,7 @@
   <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
     <span class="badge" style={badgeStyle(r.source)}>{r.source}</span>
     <span style="font-size:0.75rem; color:var(--text-muted);">
-      {r.created_at ? new Date(r.created_at).toLocaleString('en-IN') : ''}
+      {r.created_at ? formatIST(r.created_at) : ''}
     </span>
   </div>
   <p style="font-size:0.85rem; margin:6px 0; word-break:break-word;"><strong>Page:</strong> {r.page || '-'}</p>

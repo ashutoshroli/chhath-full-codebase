@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatIST } from '$lib/istTime';
   // Ported from React ReceiptModal.jsx — previews a receipt/certificate/material
   // doc from its saved template, generates a filled DOCX->PDF (server), and falls
   // back to an html2canvas+jsPDF image PDF when no .docx template exists.
@@ -31,7 +32,7 @@
   let data = $state<any>(null);
   let loading = $state(true);
   let error = $state('');
-  const generatedAt = new Date().toLocaleString('en-IN');
+  const generatedAt = formatIST();
   let downloading = $state(false);
   let qrCode = $state('');
   let qrWarning = $state(false);

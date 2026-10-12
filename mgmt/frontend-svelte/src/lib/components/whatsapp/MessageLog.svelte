@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatIST } from '$lib/istTime';
   // Ported from the MessageLog sub-component of React views/WhatsApp.jsx —
   // person/group message log with a stuck-message banner and resend. 12s poll.
   import { api } from '$lib/api';
@@ -68,7 +69,7 @@
       {#if m.remarks}<div style="font-size:0.8rem; color:var(--text-muted);">Remarks: {m.remarks}</div>{/if}
       <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px; gap:8px; flex-wrap:wrap;">
         <div style="font-size:0.75rem; color:var(--text-muted);">
-          {m.created_at}{#if m.attempts > 0} · {m.attempts} attempt{m.attempts === 1 ? '' : 's'}{/if}{#if m.sent_at} · finished {m.sent_at}{/if}
+          {formatIST(m.created_at)}{#if m.attempts > 0} · {m.attempts} attempt{m.attempts === 1 ? '' : 's'}{/if}{#if m.sent_at} · finished {formatIST(m.sent_at)}{/if}
         </div>
         {#if m.status !== 'sent'}
           <button class="btn-submit" style="width:auto; padding:4px 12px; font-size:0.8rem;" onclick={() => resend(m)} disabled={resendingId === m.message_id}>

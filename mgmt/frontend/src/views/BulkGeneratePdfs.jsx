@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, reportClientError } from '../api.js';
+import { formatIST } from '../istTime.js';
 
 const RETRY_ATTEMPTS = 3;
 const BASE_BACKOFF_MS = 1500;
@@ -134,7 +135,7 @@ export default function BulkGeneratePdfs() {
       recordId: rec.recordId,
       data: {
         ...rec.placeholders,
-        GENERATED_AT: new Date().toLocaleString('en-IN'),
+        GENERATED_AT: formatIST(),
       },
       fileName: `${rec.fileNameHint}.docx`,
     });

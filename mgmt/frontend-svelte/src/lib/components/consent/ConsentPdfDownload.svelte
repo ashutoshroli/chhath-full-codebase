@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatIST } from '$lib/istTime';
   // Ported from the ConsentPdfDownload sub-component of React views/ConsentPage.jsx
   // — after a decision, if a public .docx consent template exists, fills it
   // (lazy docxFill) with a QR and downloads the converted PDF.
@@ -58,7 +59,7 @@
     error = '';
     try {
       const { fillDocxTemplateFromRow, getLastRenderReport } = await safeImport(() => import('$lib/docxFill'), 'docxFill');
-      const filledBase64 = await fillDocxTemplateFromRow(templateRow, { ...placeholders, GENERATED_AT: new Date().toLocaleString('en-IN'), QR_CODE: qrCode });
+      const filledBase64 = await fillDocxTemplateFromRow(templateRow, { ...placeholders, GENERATED_AT: formatIST(), QR_CODE: qrCode });
 
       const rep = getLastRenderReport();
       if (rep.missingTags.length) {

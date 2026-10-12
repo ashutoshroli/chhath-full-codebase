@@ -4,6 +4,7 @@ import { logError, logErrorAt, logWarn } from './logger.js';
 import { waNumber } from './phone.js';
 import { isTruthyFlag } from './flags.js';
 import { ipKey } from './ipPseudonym.js'; // C12
+import { formatIST } from './istTime.js';
 
 // The actual INSERT now lives in logger.js so that whatsapp.js / docxTemplates.js /
 // index.js can all use the SAME writer (they each had their own, and two of the
@@ -205,7 +206,7 @@ export async function reportErrorToWhatsApp(env, errorId) {
     throw ValidationError('No Superadmin WhatsApp/Mobile number is registered in USERS.');
   }
 
-  const msg = `⚠️ Error Report\nPage: ${row.page}\nSource: ${row.source}\nMessage: ${row.message}\nTime: ${row.created_at}\nRef: ${row.error_id}`;
+  const msg = `⚠️ Error Report\nPage: ${row.page}\nSource: ${row.source}\nMessage: ${row.message}\nTime: ${formatIST(row.created_at)} IST\nRef: ${row.error_id}`;
 
   // Claim the row FIRST (conditional UPDATE — D1's write is atomic per statement,
   // so meta.changes === 0 means a concurrent call already claimed it) to stop a

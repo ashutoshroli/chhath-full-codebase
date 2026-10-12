@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatIST } from '$lib/istTime';
   // Ported from React views/EmailOfficial.jsx — official mailbox (chhath@...):
   // inbox/sent list, read a thread, compose/reply with attachments. 60s poll.
   import DOMPurify from 'dompurify';
@@ -11,9 +12,7 @@
   const uid = newUid();
 
   function fmtDate(s: string): string {
-    if (!s) return '';
-    const d = new Date(s);
-    return isNaN(d.getTime()) ? s : d.toLocaleString();
+    return formatIST(s);
   }
 
   let box = $state('inbox');

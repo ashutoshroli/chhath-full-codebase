@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { currentYearIST } from '$lib/istTime';
   // Ported from React views/Expenses.jsx — expenses ledger for a year with
   // add/edit/delete (EXPENSES sheet); invalidates expenses: and home: caches.
   import { api, fmt } from '$lib/api';
@@ -84,7 +85,7 @@
           Category: form.Category
         });
       } else {
-        await api.saveRecord('EXPENSES', { Year: year === 'All' ? new Date().getFullYear() : year, ...form });
+        await api.saveRecord('EXPENSES', { Year: year === 'All' ? currentYearIST() : year, ...form });
       }
       invalidate('expenses:');
       invalidate('home:');

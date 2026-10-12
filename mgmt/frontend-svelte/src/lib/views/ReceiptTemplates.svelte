@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatIST } from '$lib/istTime';
   // Ported from React views/ReceiptTemplates.jsx — thin wrapper over the shared
   // TemplateEditor with receipt-specific config (heading, placeholders, api).
   import { api } from '$lib/api';
@@ -7,7 +8,7 @@
   const SAMPLE_PLACEHOLDERS = {
     RECEIPT_NO: 'NCS-2026-1', NAME: 'Ramesh Verma', DATE: '2026-08-10', YEAR: '2026',
     FATHER_NAME: 'Suresh Verma', VILLAGE: 'Shaharpura', DESIGNATION: '', MOBILE: '9876543210',
-    AMOUNT: '501', DETAIL: 'Cash contribution', GENERATED_AT: new Date().toLocaleString('en-IN')
+    AMOUNT: '501', DETAIL: 'Cash contribution', GENERATED_AT: formatIST()
   };
   const PLACEHOLDER_HINTS = ['RECEIPT_NO', 'NAME', 'DATE', 'YEAR', 'FATHER_NAME', 'VILLAGE', 'DESIGNATION', 'MOBILE', 'AMOUNT', 'DETAIL', 'GENERATED_AT', 'QR_CODE'];
 

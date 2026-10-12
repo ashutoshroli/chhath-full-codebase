@@ -21,6 +21,7 @@
   let updatedLabel = $derived(
     $portalState.savedAt
       ? new Intl.DateTimeFormat($lang === 'hi' ? 'hi-IN' : 'en-IN', {
+          timeZone: 'Asia/Kolkata',
           day: '2-digit',
           month: 'short',
           hour: '2-digit',

@@ -6,6 +6,7 @@ import { api, reportClientError } from '../api.js';
 import { safeImport } from '../chunkGuard.js';
 import { generateQrDataUrl, publicRecordUrl } from '../qrCode.js';
 import ReportErrorButton from '../components/ReportErrorButton.jsx';
+import { formatIST } from '../istTime.js';
 
 
 const MAX_SIGNATURE_BYTES = 1024 * 1024;
@@ -442,7 +443,7 @@ function ConsentPdfDownload({ role, fundYear, placeholders, consentId, docTypeFr
     setError('');
     try {
       const { fillDocxTemplateFromRow, getLastRenderReport } = await safeImport(() => import('../docxFill.js'), 'docxFill');
-      const filledBase64 = await fillDocxTemplateFromRow(templateRow, { ...placeholders, GENERATED_AT: new Date().toLocaleString('en-IN'), QR_CODE: qrCode });
+      const filledBase64 = await fillDocxTemplateFromRow(templateRow, { ...placeholders, GENERATED_AT: formatIST(), QR_CODE: qrCode });
 
       const rep = getLastRenderReport();
       if (rep.missingTags.length) {

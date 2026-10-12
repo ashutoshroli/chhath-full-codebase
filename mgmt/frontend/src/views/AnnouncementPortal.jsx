@@ -1,17 +1,13 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { isTruthyFlag } from '../flags.js';
-
-function fmtDateTimeLocal(d) {
-  const pad = (n) => n.toString().padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
+import { formatIST, fromISTInputValue, toISTInputValue } from '../istTime.js';
 
 export default function AnnouncementPortal({ years }) {
   const [year, setYear] = useState((years && years[0]) || '');
   const [pin, setPin] = useState('');
   const [neverExpires, setNeverExpires] = useState(true);
-  const [expiresAt, setExpiresAt] = useState(fmtDateTimeLocal(new Date(Date.now() + 6 * 60 * 60 * 1000)));
+  const [expiresAt, setExpiresAt] = useState(toISTInputValue(Date.now() + 6 * 60 * 60 * 1000));
   const [generating, setGenerating] = useState(false);
   const [generatedLink, setGeneratedLink] = useState(null);
   const [links, setLinks] = useState([]);
@@ -44,7 +40,7 @@ export default function AnnouncementPortal({ years }) {
     setGenerating(true);
     setError('');
     try {
-      const res = await api.generateAnnouncementLink(year, pin.trim(), neverExpires ? null : new Date(expiresAt).toISOString());
+      const res = await api.generateAnnouncementLink(year, pin.trim(), neverExpires ? null : fromISTInputValue(expiresAt));
       setGeneratedLink({ url: `${baseUrl}/announce/${res.token}`, pin: pin.trim() });
       setPin('');
       refreshLinks();
@@ -163,7 +159,7 @@ export default function AnnouncementPortal({ years }) {
                 color: l.status === 'active' ? '#065F46' : l.status === 'expired' ? '#92400E' : '#991B1B',
               }}>{l.status}</span></div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                {l.ExpiresAt ? `Expires: ${new Date(l.ExpiresAt).toLocaleString('en-IN')}` : 'Never expires'} · By {l.CreatedBy}
+                {l.ExpiresAt ? `Expires: ${formatIST(l.ExpiresAt)}` : 'Never expires'} · By {l.CreatedBy}
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>

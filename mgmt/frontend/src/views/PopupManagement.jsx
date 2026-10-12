@@ -5,6 +5,7 @@ import { prepareImageForUpload } from '../imagePrep.js';
 import Modal from '../components/Modal.jsx';
 import PopupSlideshow from '../components/PopupSlideshow.jsx';
 import { driveImageUrl, driveImgOnError } from '../driveUrl.js';
+import { formatIST, fromISTInputValue, parseStamp, toISTInputValue } from '../istTime.js';
 
 const ROLES = ['Superadmin', 'Admin', 'Subadmin', 'Public'];
 const DEFAULT_DURATION_MS = 5000;
@@ -22,32 +23,13 @@ function clampDurationMs(ms) {
 let __slideKeySeq = 0;
 const newSlide = (data) => ({ ...BLANK_SLIDE, ...(data || {}), _key: `sl_${Date.now()}_${__slideKeySeq++}` });
 
-function fromLocalInputValue(local) {
-  if (!local) return '';
-  const d = new Date(local);
-  return isNaN(d.getTime()) ? '' : d.toISOString();
-}
-
-function normalizeStamp(raw) {
-  const hasZone = /([zZ]|[+-]\d{2}:?\d{2})$/.test(raw);
-  let d = new Date(raw.replace(' ', 'T') + (hasZone ? '' : 'Z'));
-  if (!isNaN(d.getTime())) return d;
-  d = new Date(raw);
-  return isNaN(d.getTime()) ? null : d;
-}
-
-function toLocalInputValue(iso) {
-  if (!iso) return '';
-  const d = normalizeStamp(iso.toString().trim());
-  if (!d) return '';
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
+// Start/end are entered and shown in IST regardless of the device timezone.
+const fromLocalInputValue = fromISTInputValue;
+const toLocalInputValue = toISTInputValue;
 
 function fmtStamp(v) {
-  if (!v) return null;
-  const d = normalizeStamp(v.toString().trim());
-  return d ? d.toLocaleString('en-IN') : null;
+  if (!v || !parseStamp(v)) return null;
+  return formatIST(v);
 }
 
 const str = (v) => (v === undefined || v === null ? '' : v.toString());
@@ -238,7 +220,7 @@ export default function PopupManagement() {
             <input type="datetime-local" value={form.endAt} onChange={e => setForm({ ...form, endAt: e.target.value })} />
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
               You can leave both empty — the popup will then run with no time limit.
-              The time is in your phone's local time ({Intl.DateTimeFormat().resolvedOptions().timeZone}).
+              The time is Indian Standard Time (IST).
             </div>
           </div>
         </div>

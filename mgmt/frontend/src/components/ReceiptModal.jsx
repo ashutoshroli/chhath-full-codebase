@@ -8,6 +8,7 @@ import { renderReceiptTemplate, PAGE_SIZES_MM } from '../receiptTemplate.js';
 import { generateQrDataUrl, publicRecordUrl } from '../qrCode.js';
 import Modal from './Modal.jsx';
 import ReportErrorButton from './ReportErrorButton.jsx';
+import { formatIST } from '../istTime.js';
 
 const DOC_CONFIG = {
   receipt: { label: 'Receipt', docNoKey: 'RECEIPT_NO', fetch: (rowIndex, year) => api.getReceiptData(rowIndex, year) },
@@ -67,7 +68,7 @@ export default function ReceiptModal({ row, year, open, onClose, docType = 'rece
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [generatedAt] = useState(() => new Date().toLocaleString('en-IN'));
+  const [generatedAt] = useState(() => formatIST());
   const [downloading, setDownloading] = useState(false);
   const [qrCode, setQrCode] = useState('');
   const [qrWarning, setQrWarning] = useState(false);
