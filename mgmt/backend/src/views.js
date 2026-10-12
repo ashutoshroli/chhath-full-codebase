@@ -3,6 +3,7 @@ import { fromColumnRow } from './tableRegistry.js';
 import { requireSuperadmin, ValidationError } from './auth.js';
 import { usersByIdCodes, loansByLoanIds, loansForBorrowers } from './lookups.js';
 import { parseAmt } from './money.js'; // audit L-13: shared, was duplicated here
+import { currentYearIST } from './istTime.js';
 
 // audit M-19 — this used to do FIVE full table scans, shipping every row of
 // COLLECTIONS, LOANS, COMMITEE MEMBERS, EXPENSES and MANUAL YEARS into the isolate
@@ -189,7 +190,7 @@ export async function getUserHistory(env, userId) {
 }
 
 export async function getYearContributors(env, year) {
-  const targetYear = (!year || year === 'All') ? new Date().getFullYear() : parseInt(year);
+  const targetYear = (!year || year === 'All') ? currentYearIST() : parseInt(year);
   // Phase 1: WHERE year=? (indexed). targetYear is always a concrete year here
   // (never 'All'), so this is a scoped read.
   const rows = await getSheetDataByYear(env, 'COLLECTIONS', targetYear);

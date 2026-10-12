@@ -4,6 +4,7 @@ import { usePolling } from '../usePolling.js';
 import Modal from '../components/Modal.jsx';
 import CleanupPanel from '../components/CleanupPanel.jsx';
 import { isTruthyFlag } from '../flags.js';
+import { formatIST } from '../istTime.js';
 
 const LOAN_PLACEHOLDER_HINTS = {
   consent_group: 'Placeholders: {LoanerName} {LoanerNameHindi} {Amount} {Tenure} {InterestRate} {Guarantor1} {Guarantor2} {Guarantor3} {LoanerConsentLink} {Guarantor1ConsentLink} {Guarantor2ConsentLink} {Guarantor3ConsentLink}',
@@ -425,9 +426,9 @@ function MailLog() {
           {m.remarks && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Remarks: {m.remarks}</div>}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, gap: 8, flexWrap: 'wrap' }}>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              {m.created_at}
+              {formatIST(m.created_at)}
               {m.attempts > 0 && <> · {m.attempts} attempt{m.attempts === 1 ? '' : 's'}</>}
-              {m.sent_at && <> · finished {m.sent_at}</>}
+              {m.sent_at && <> · finished {formatIST(m.sent_at)}</>}
             </div>
             {m.status !== 'sent' && (
               <button
@@ -477,7 +478,7 @@ function EmailLog() {
           {m.remarks && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Remarks: {m.remarks}</div>}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, gap: 8, flexWrap: 'wrap' }}>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              {m.created_at}{m.attempts > 0 && <> · {m.attempts} attempt{m.attempts === 1 ? '' : 's'}</>}
+              {formatIST(m.created_at)}{m.attempts > 0 && <> · {m.attempts} attempt{m.attempts === 1 ? '' : 's'}</>}
             </div>
             {m.status !== 'sent' && (
               <button className="btn-submit" style={{ width: 'auto', padding: '4px 12px', fontSize: '0.8rem' }} onClick={() => resend(m)} disabled={resendingId === m.message_id}>

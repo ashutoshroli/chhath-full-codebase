@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatIST } from '$lib/istTime';
   // Ported from React views/BulkGeneratePdfs.jsx — bulk-generate PDFs for all
   // receipt/certificate/material/consent records of a year: fill each docx
   // (concurrency pool), convert in batches with retry/backoff, track per-type
@@ -143,7 +144,7 @@
       recordId: rec.recordId,
       data: {
         ...rec.placeholders,
-        GENERATED_AT: new Date().toLocaleString('en-IN')
+        GENERATED_AT: formatIST()
       },
       fileName: `${rec.fileNameHint}.docx`
     });

@@ -4,11 +4,12 @@ import DOMPurify from 'dompurify';
 import { api } from '../api.js';
 import { renderReceiptTemplate, PAGE_SIZES_MM } from '../receiptTemplate.js';
 import { generateQrDataUrl, publicRecordUrl } from '../qrCode.js';
+import { formatIST } from '../istTime.js';
 
 const SAMPLE_PLACEHOLDERS = {
   SAMAAN_NO: 'NCS-SAMAAN-2026-1', NAME: 'Ramesh Verma', DATE: '2026-08-10',
   FATHER_NAME: 'Suresh Verma', VILLAGE: 'Shaharpura', ITEM_DETAIL: '5kg Flour, 2kg Sugar',
-  YEAR: '2026', GENERATED_AT: new Date().toLocaleString('en-IN'),
+  YEAR: '2026', GENERATED_AT: formatIST(),
 };
 
 const PLACEHOLDER_HINTS = ['SAMAAN_NO', 'NAME', 'DATE', 'FATHER_NAME', 'VILLAGE', 'ITEM_DETAIL', 'YEAR', 'GENERATED_AT', 'QR_CODE'];

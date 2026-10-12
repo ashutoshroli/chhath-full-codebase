@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatIST, fromISTInputValue, toISTInputValue } from '$lib/istTime';
   // Ported from React views/AnnouncementPortal.jsx — generate/revoke PIN-gated
   // announcement links per year and manage custom announcements per year.
   import { api } from '$lib/api';
@@ -13,11 +14,6 @@
   }
   let { years }: Props = $props();
 
-  function fmtDateTimeLocal(d: Date): string {
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  }
-
   // audit PR-40: deliberate one-time capture. This is EDITABLE local state seeded from a
   // prop; making it `$derived` would discard whatever the operator has typed every time the
   // parent re-rendered. The prop is re-read where it genuinely needs to be (see the $effect).
@@ -25,7 +21,7 @@
   let year = $state((years && years[0]) || '');
   let pin = $state('');
   let neverExpires = $state(true);
-  let expiresAt = $state(fmtDateTimeLocal(new Date(Date.now() + 6 * 60 * 60 * 1000)));
+  let expiresAt = $state(toISTInputValue(Date.now() + 6 * 60 * 60 * 1000));
   let generating = $state(false);
   let generatedLink = $state<{ url: string; pin: string } | null>(null);
   let links = $state<any[]>([]);
@@ -79,7 +75,7 @@
     generating = true;
     error = '';
     try {
-      const res: any = await api.generateAnnouncementLink(year, pin.trim(), neverExpires ? null : new Date(expiresAt).toISOString());
+      const res: any = await api.generateAnnouncementLink(year, pin.trim(), neverExpires ? null : fromISTInputValue(expiresAt));
       generatedLink = { url: `${baseUrl}/announce/${res.token}`, pin: pin.trim() };
       pin = '';
       refreshLinks();
@@ -191,7 +187,7 @@
       <div>
         <div style="font-weight:600;">Year {l.Year} <span style="margin-left:8px; font-size:0.7rem; padding:2px 8px; border-radius:12px; background:{l.status === 'active' ? '#D1FAE5' : l.status === 'expired' ? '#FEF3C7' : '#FEE2E2'}; color:{l.status === 'active' ? '#065F46' : l.status === 'expired' ? '#92400E' : '#991B1B'};">{l.status}</span></div>
         <div style="font-size:0.75rem; color:var(--text-muted);">
-          {l.ExpiresAt ? `Expires: ${new Date(l.ExpiresAt).toLocaleString('en-IN')}` : 'Never expires'} · By {l.CreatedBy}
+          {l.ExpiresAt ? `Expires: ${formatIST(l.ExpiresAt)}` : 'Never expires'} · By {l.CreatedBy}
         </div>
       </div>
       <div style="display:flex; gap:8px;">

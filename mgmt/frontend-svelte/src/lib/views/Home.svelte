@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { currentYearIST, todayIST } from '$lib/istTime';
   // Ported from React views/Home.jsx — budget overview + collections list for a
   // year: add/edit/delete COLLECTIONS, contributor history, auto doc generation
   // (receipt/certificate/samaan) enqueued to the background queue, resell entries.
@@ -41,7 +42,7 @@
   const RENDER_CAP = 300;
   const BLANK = () => ({
     Name: '', Amount: '', 'Payment Mode': 'Cash', UTR: '',
-    Date: new Date().toISOString().slice(0, 10), 'Contribution Type': '1',
+    Date: todayIST(), 'Contribution Type': '1',
     Detail: '', 'Certificate Or Receipt': 'Receipt', 'Is Resell': false
   });
 
@@ -163,7 +164,7 @@
         // is not sent keeps its stored value.
         await api.updateRecord('COLLECTIONS', editing.__rowIndex, { Year: editing.Year, ...payload });
       } else {
-        genYear = year === 'All' ? new Date().getFullYear() : year;
+        genYear = year === 'All' ? currentYearIST() : year;
         const res: any = await api.saveRecord('COLLECTIONS', { Year: genYear, ...payload });
         savedRowIndex = res.rowIndex;
       }
@@ -217,7 +218,7 @@
     editing = r;
     form = {
       Name: r.Name, Amount: r.Amount, 'Payment Mode': r['Payment Mode'] || 'Cash', UTR: r.UTR || '',
-      Date: r.Date || new Date().toISOString().slice(0, 10),
+      Date: r.Date || todayIST(),
       'Contribution Type': (r['Contribution Type'] ?? '').toString() || '1', Detail: r.Detail || '',
       'Certificate Or Receipt': r['Certificate Or Receipt'] || 'Receipt',
       'Is Resell': r['Is Resell'] === 'TRUE' || r['Is Resell'] === true

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { currentYearIST } from '$lib/istTime';
   // Ported from React views/Loans.jsx — surplus loan distribution for a year:
   // list loans + guarantors, issue new loan (receiver + 3 guarantors from that
   // year's contributors, budget check), edit terms, delete, consent modal.
@@ -71,7 +72,7 @@
     if (key === budgetKey) return;
     budgetKey = key;
     if (!showAdd || editing) { available = null; return; }
-    const loanYear = String(year === 'All' ? new Date().getFullYear() : year);
+    const loanYear = String(year === 'All' ? currentYearIST() : year);
     api.getLoanBudget(loanYear)
       .then((r: any) => (available = r && typeof r.available === 'number' ? r.available : null))
       .catch(() => (available = null));
@@ -198,7 +199,7 @@
     }
     saving = true;
     try {
-      const loanYear = year === 'All' ? new Date().getFullYear() : year;
+      const loanYear = year === 'All' ? currentYearIST() : year;
       await api.saveLoan(
         { Year: loanYear, Name: receiver, Amount, 'Intrest Rate': form.Rate, Tenure: form.Tenure, 'Final Repayment Date': FinalRepaymentDate, Status: 'Active' },
         [g1, g2, g3].map((g) => ({ Year: loanYear, Loaner: receiver, Guarantor: g }))
@@ -297,7 +298,7 @@
     <h3 id="dlg-loans-285-title" style="margin-bottom:5px;">{editing ? 'Edit Loan Terms' : 'Issue Loan'}</h3>
     {#if !editing}
       <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:15px;">
-        Receiver and Guarantors can only be selected from {year === 'All' ? new Date().getFullYear() : year}'s contributors.
+        Receiver and Guarantors can only be selected from {year === 'All' ? currentYearIST() : year}'s contributors.
       </p>
     {/if}
     {#if editing}

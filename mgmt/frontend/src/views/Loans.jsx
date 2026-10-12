@@ -9,6 +9,7 @@ import { canAddView } from '../permissions.js';
 import { useDropdownList } from '../useDropdownList.js';
 import LoanConsentModal from '../components/LoanConsentModal.jsx';
 import { personOptions } from '../personOption.js';
+import { currentYearIST } from '../istTime.js';
 
 export default function Loans({ year, users, committee, role, editable }) {
   const { data, loading, error, refresh } = useViewData(`loans:${year}`, () => api.getLoans(year), [year]);
@@ -24,7 +25,7 @@ export default function Loans({ year, users, committee, role, editable }) {
 
   useEffect(() => {
     if (!showAdd || editing) { setAvailable(null); return; }
-    const loanYear = year === 'All' ? new Date().getFullYear() : year;
+    const loanYear = year === 'All' ? currentYearIST() : year;
     api.getLoanBudget(loanYear).then(r => setAvailable(r && typeof r.available === 'number' ? r.available : null)).catch(() => setAvailable(null));
   }, [showAdd, editing, year]);
 
@@ -93,7 +94,7 @@ export default function Loans({ year, users, committee, role, editable }) {
     }
     setSaving(true);
     try {
-      const loanYear = year === 'All' ? new Date().getFullYear() : year;
+      const loanYear = year === 'All' ? currentYearIST() : year;
       await api.saveLoan(
         { Year: loanYear, Name: receiver, Amount, 'Intrest Rate': Rate, Tenure, 'Final Repayment Date': FinalRepaymentDate, Status: 'Active' },
         [g1, g2, g3].map(g => ({ Year: loanYear, Loaner: receiver, Guarantor: g }))
@@ -188,7 +189,7 @@ export default function Loans({ year, users, committee, role, editable }) {
         <h3 style={{ marginBottom: 5 }}>{editing ? 'Edit Loan Terms' : 'Issue Loan'}</h3>
         {!editing && (
           <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 15 }}>
-            Receiver and Guarantors can only be selected from {year === 'All' ? new Date().getFullYear() : year}'s contributors.
+            Receiver and Guarantors can only be selected from {year === 'All' ? currentYearIST() : year}'s contributors.
           </p>
         )}
         {editing && (

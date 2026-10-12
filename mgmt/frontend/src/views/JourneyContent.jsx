@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
+import { currentYearIST } from '../istTime.js';
 
 // "Journey Content" — manages the public "Our Journey / 10 Years of Chhath" story:
 // the bilingual tagline (portal_settings journey_tagline_en/_hi), the per-year
@@ -109,7 +110,7 @@ export default function JourneyContent() {
   }, []);
 
   const startNew = () => {
-    const nextYear = entries.length ? Math.max(...entries.map((e) => Number(e.year) || 0)) + 1 : new Date().getFullYear();
+    const nextYear = entries.length ? Math.max(...entries.map((e) => Number(e.year) || 0)) + 1 : currentYearIST();
     setForm({ ...BLANK, year: String(nextYear) });
     setEditingOpen(true);
   };

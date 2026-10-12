@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { usePolling } from '../usePolling.js';
+import { formatIST } from '../istTime.js';
 
 
 const STATUS_FILTERS = [
@@ -20,9 +21,7 @@ const STATUS_COLOR = {
 
 function fmtTime(iso) {
   if (!iso) return '—';
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return iso;
-  return d.toLocaleString();
+  return formatIST(iso);
 }
 
 export default function QueueMonitor() {

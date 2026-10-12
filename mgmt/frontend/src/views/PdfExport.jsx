@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, reportClientError } from '../api.js';
+import { formatIST } from '../istTime.js';
 
 
 const DOC_TYPE_FOR_MODE = { en: 'report_en', hi: 'report_hi', both: 'report_both' };
@@ -142,7 +143,7 @@ export default function PdfExport() {
         TOTAL_EXPENSES: amountText(home.totExp),
         TOTAL_BUDGET: amountText(home.totBudget),
         SURPLUS: amountText(home.surplus),
-        GENERATED_AT: new Date().toLocaleString('en-IN'),
+        GENERATED_AT: formatIST(),
         loans, guarantors, contributors, expenses: expenseRows,
       };
 
@@ -249,7 +250,7 @@ export default function PdfExport() {
               >
                 <span>{MODE_LABEL_FOR_DOC_TYPE[f.doc_type] || f.doc_type} — {f.file_name}</span>
                 <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                  {f.generated_at ? new Date(f.generated_at).toLocaleString('en-IN') : ''}
+                  {f.generated_at ? formatIST(f.generated_at) : ''}
                 </span>
               </a>
             ))}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { currentYearIST } from '$lib/istTime';
   // "Journey Content" — manages the public "Our Journey / 10 Years of Chhath"
   // story: the bilingual tagline (portal_settings journey_tagline_en/_hi) and the
   // per-year entries (journey_entries). Parity with the React JourneyContent.jsx.
@@ -124,7 +125,7 @@
   });
 
   function startNew() {
-    const nextYear = entries.length ? Math.max(...entries.map((e) => Number(e.year) || 0)) + 1 : new Date().getFullYear();
+    const nextYear = entries.length ? Math.max(...entries.map((e) => Number(e.year) || 0)) + 1 : currentYearIST();
     form = { ...BLANK, year: String(nextYear) };
     editingOpen = true;
   }

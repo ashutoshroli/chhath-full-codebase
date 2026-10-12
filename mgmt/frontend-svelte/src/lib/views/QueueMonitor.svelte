@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatIST } from '$lib/istTime';
   // Ported from React views/QueueMonitor.jsx — Superadmin view of all background
   // PDF/WhatsApp jobs with status counts, filters, retry, and 10s polling.
   import { api } from '$lib/api';
@@ -21,9 +22,7 @@
 
   function fmtTime(iso: string): string {
     if (!iso) return '—';
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return iso;
-    return d.toLocaleString();
+    return formatIST(iso);
   }
 
   let data = $state<any>(null);

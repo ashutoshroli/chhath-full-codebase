@@ -3,12 +3,11 @@ import DOMPurify from 'dompurify';
 import { api } from '../api.js';
 import { usePolling } from '../usePolling.js';
 import Modal from '../components/Modal.jsx';
+import { formatIST } from '../istTime.js';
 
 
 function fmtDate(s) {
-  if (!s) return '';
-  const d = new Date(s);
-  return isNaN(d) ? s : d.toLocaleString();
+  return formatIST(s);
 }
 
 function BodyView({ html, text }) {

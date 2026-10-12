@@ -7,6 +7,7 @@ import Modal from '../components/Modal.jsx';
 import RowActions from '../components/RowActions.jsx';
 import TransliterateInput from '../components/TransliterateInput.jsx';
 import { canAddView } from '../permissions.js';
+import { currentYearIST } from '../istTime.js';
 
 const BLANK = { Discription: '', 'Discription (Hindi)': '', Amount: '', Category: 'Other' };
 
@@ -41,7 +42,7 @@ export default function Expenses({ year, role, editable }) {
         // from the keys it receives, so an unsent column is left alone.
         await api.updateRecord('EXPENSES', editing.__rowIndex, { Year: editing.Year, Discription: form.Discription, 'Discription (Hindi)': form['Discription (Hindi)'], Amount: form.Amount, Category: form.Category });
       } else {
-        await api.saveRecord('EXPENSES', { Year: year === 'All' ? new Date().getFullYear() : year, ...form });
+        await api.saveRecord('EXPENSES', { Year: year === 'All' ? currentYearIST() : year, ...form });
       }
       invalidate('expenses:');
       invalidate('home:');

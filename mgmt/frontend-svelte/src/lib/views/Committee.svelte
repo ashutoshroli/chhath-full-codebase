@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { currentYearIST } from '$lib/istTime';
   // Ported from React views/Committee.jsx — list committee members for a year,
   // add/edit/delete (COMMITEE MEMBERS sheet), same cache invalidation.
   import { api } from '$lib/api';
@@ -84,7 +85,7 @@
           'View Role (Hindi)': form['View Role (Hindi)']
         });
       } else {
-        await api.saveRecord('COMMITEE MEMBERS', { Year: year === 'All' ? new Date().getFullYear() : year, ...form });
+        await api.saveRecord('COMMITEE MEMBERS', { Year: year === 'All' ? currentYearIST() : year, ...form });
       }
       invalidate('committee:');
       closeModal();

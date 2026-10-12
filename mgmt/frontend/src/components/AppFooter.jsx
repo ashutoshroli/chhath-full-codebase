@@ -1,5 +1,7 @@
+import { currentYearIST } from '../istTime.js';
+
 export default function AppFooter({ compact = false }) {
-  const year = new Date().getFullYear();
+  const year = currentYearIST();
   return (
     <footer
       style={{

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatIST } from '$lib/istTime';
   // Ported from the inner DownloadItem of React views/DownloadCenter.jsx — one
   // downloadable record: generate (fill docx -> convert to PDF) or link out.
   import { api, reportClientError } from '$lib/api';
@@ -23,7 +24,7 @@
       // DATA; the Worker resolves the template and Render fills it (+QR) then converts. The
       // per-record render report (blank placeholders) comes BACK on the result.
       const fileName = `${item.fileNameHint}.docx`;
-      const data = { ...item.placeholders, GENERATED_AT: new Date().toLocaleString('en-IN') };
+      const data = { ...item.placeholders, GENERATED_AT: formatIST() };
       const res: any = await api.convertDocxToPdfBulk(item.docType, item.year, item.recordId, data, fileName);
 
       const missing = res && res.report && Array.isArray(res.report.missingTags) ? res.report.missingTags : [];

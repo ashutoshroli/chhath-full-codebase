@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
+import { currentYearIST } from '../istTime.js';
 
 export default function FestivalDates({ years }) {
-  const [year, setYear] = useState((years && years[0]) || new Date().getFullYear());
+  const [year, setYear] = useState((years && years[0]) || currentYearIST());
   const [dates, setDates] = useState({ diwali: '', nahayKhay: '', chhathArghya: '' });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

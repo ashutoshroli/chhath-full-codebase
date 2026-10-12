@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { currentYearIST } from '$lib/istTime';
   // Ported from React FestivalDates.jsx — per-year festival dates used in loan
   // consent placeholders (Diwali next day, Nahay-Khay, Chhath morning arghya).
   import { api } from '$lib/api';
@@ -16,7 +17,7 @@
   // prop; making it `$derived` would discard whatever the operator has typed every time the
   // parent re-rendered. The prop is re-read where it genuinely needs to be (see the $effect).
   // svelte-ignore state_referenced_locally
-  let year = $state<string | number>((years && years[0]) || new Date().getFullYear());
+  let year = $state<string | number>((years && years[0]) || currentYearIST());
   let dates = $state({ diwali: '', nahayKhay: '', chhathArghya: '' });
   let loading = $state(true);
   let saving = $state(false);

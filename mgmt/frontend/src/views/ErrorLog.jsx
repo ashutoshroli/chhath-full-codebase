@@ -3,6 +3,7 @@ import { api } from '../api.js';
 import { isTruthyFlag } from '../flags.js';
 import CleanupPanel from '../components/CleanupPanel.jsx';
 import AiFixModal from '../components/AiFixModal.jsx';
+import { formatIST } from '../istTime.js';
 
 const SOURCE_COLORS = {
   backend: { bg: '#FEE2E2', fg: '#991B1B' },
@@ -49,7 +50,7 @@ function ErrorRow({ r, onReport, onAiFix, busy, aiFix }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
         <span className="badge" style={badgeStyle(r.source)}>{r.source}</span>
         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-          {r.created_at ? new Date(r.created_at).toLocaleString('en-IN') : ''}
+          {r.created_at ? formatIST(r.created_at) : ''}
         </span>
       </div>
       <p style={{ fontSize: '0.85rem', margin: '6px 0', wordBreak: 'break-word' }}><strong>Page:</strong> {r.page || '-'}</p>

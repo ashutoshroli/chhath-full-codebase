@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api, reportClientError } from '../api.js';
 import { useDropdownList } from '../useDropdownList.js';
+import { formatIST } from '../istTime.js';
 
 function DownloadItem({ item, onGenerated, canGenerate }) {
   const [busy, setBusy] = useState(false);
@@ -17,7 +18,7 @@ function DownloadItem({ item, onGenerated, canGenerate }) {
       // (+ a server-generated QR) then converts. The per-record render report (blank
       // placeholders) comes BACK on the result.
       const fileName = `${item.fileNameHint}.docx`;
-      const data = { ...item.placeholders, GENERATED_AT: new Date().toLocaleString('en-IN') };
+      const data = { ...item.placeholders, GENERATED_AT: formatIST() };
       const res = await api.convertDocxToPdfBulk(item.docType, item.year, item.recordId, data, fileName);
 
       const missing = res && res.report && Array.isArray(res.report.missingTags) ? res.report.missingTags : [];
