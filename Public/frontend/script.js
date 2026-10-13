@@ -657,7 +657,9 @@ const app = {
     const totCol = curCol.reduce((s, c) => s + parseAmt(c.Amount), 0);
 
     let pastRet = 0;
-    const prevLoans = isAll ? app.data.loans : app.data.loans.filter(l => parseInt(l.Year) === (tYear - 1));
+    // Only loans marked Repaid count — money that has not come back is not budget.
+    const repaidLoans = app.data.loans.filter(l => String(l.Status || '').trim().toLowerCase() === 'repaid');
+    const prevLoans = isAll ? repaidLoans : repaidLoans.filter(l => parseInt(l.Year) === (tYear - 1));
     
     prevLoans.forEach(l => {
       let principal = parseAmt(l.Amount);

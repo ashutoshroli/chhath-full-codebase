@@ -7,6 +7,10 @@ import { isTruthyFlag } from '../flags.js';
 import { formatIST } from '../istTime.js';
 
 const LOAN_PLACEHOLDER_HINTS = {
+  repaid_loaner_personal: 'Sent to the loaner when the loan is marked Repaid. Placeholders (subject + body): {LoanerName} {LoanerNameHindi} {Name} {NameHindi} {Year} {Amount} {InterestRate} {Tenure} {InterestAmount} {TotalAmount} {CashAmount} {OnlineAmount} {RepaidDate} {Guarantor1} {Guarantor2} {Guarantor3}',
+  repaid_guarantor_personal: 'Sent to each guarantor when the loan is marked Repaid ({Name} = the guarantor). Placeholders (subject + body): {LoanerName} {LoanerNameHindi} {Name} {NameHindi} {Year} {Amount} {InterestRate} {Tenure} {InterestAmount} {TotalAmount} {CashAmount} {OnlineAmount} {RepaidDate} {Guarantor1} {Guarantor2} {Guarantor3}',
+  repaid_undo_loaner_personal: 'Sent to the loaner when a repayment is undone. Placeholders (subject + body): {LoanerName} {LoanerNameHindi} {Name} {NameHindi} {Year} {Amount} {InterestRate} {Tenure} {InterestAmount} {TotalAmount} {CashAmount} {OnlineAmount} {RepaidDate} {Guarantor1} {Guarantor2} {Guarantor3}',
+  repaid_undo_guarantor_personal: 'Sent to each guarantor when a repayment is undone ({Name} = the guarantor). Placeholders (subject + body): {LoanerName} {LoanerNameHindi} {Name} {NameHindi} {Year} {Amount} {InterestRate} {Tenure} {InterestAmount} {TotalAmount} {CashAmount} {OnlineAmount} {RepaidDate} {Guarantor1} {Guarantor2} {Guarantor3}',
   consent_group: 'Placeholders: {LoanerName} {LoanerNameHindi} {Amount} {Tenure} {InterestRate} {Guarantor1} {Guarantor2} {Guarantor3} {LoanerConsentLink} {Guarantor1ConsentLink} {Guarantor2ConsentLink} {Guarantor3ConsentLink}',
   consent_personal_loaner: 'Placeholders: {Name} {NameHindi} {FatherName} {FatherNameHindi} {Village} {VillageHindi} {Amount} {Tenure} {InterestRate} {Guarantor1} {Guarantor2} {Guarantor3} {ConsentLink}',
   consent_personal_guarantor: 'Placeholders: {Name} {NameHindi} {FatherName} {FatherNameHindi} {Village} {VillageHindi} {LoanerName} {LoanerNameHindi} {Amount} {Tenure} {InterestRate} {ConsentLink}',
@@ -35,6 +39,10 @@ const LOAN_TEMPLATE_TYPES = [
   // backend; they were missing from this list so the committee could not edit them).
   ['consent_declined_loaner_personal', 'Declined — Loaner'],
   ['consent_rejected_loaner_personal', 'Rejected — Loaner'],
+  ['repaid_loaner_personal', 'Repaid — Loaner'],
+  ['repaid_guarantor_personal', 'Repaid — Guarantor'],
+  ['repaid_undo_loaner_personal', 'Undo Repaid — Loaner'],
+  ['repaid_undo_guarantor_personal', 'Undo Repaid — Guarantor'],
   ['otp', 'OTP'],
 ];
 

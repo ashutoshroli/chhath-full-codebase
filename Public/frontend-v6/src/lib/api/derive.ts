@@ -5,7 +5,7 @@
  * headline numbers match the existing portals to the rupee:
  *
  *   Current Year Collection = Σ parseAmt(collection.Amount)         [year-filtered]
- *   Past Loan Returned      = Σ (principal + principal*(rate/100)*tenure)
+ *   Past Loan Returned      = Σ (principal + principal*(rate/100)*tenure), REPAID loans only
  *       where principal = parseAmt(Amount), rate = parseAmt('Intrest Rate'||'Interest Rate')
  *       (per-month simple interest), tenure = parseAmt(Tenure).
  *       Per-year: loans of (year-1). Lifetime/All: all loans.
@@ -105,10 +105,12 @@ export interface Financials {
 export function computeFinancials(data: PortalData, sel: YearSel): Financials {
   const collection = collectionsForYear(data, sel).reduce((s, c) => s + parseAmt(c.Amount), 0);
 
-  // Past Loan Returned: per-year uses the PREVIOUS year's loans; All uses all.
-  const prevLoans = isAll(sel)
-    ? data.loans || []
-    : (data.loans || []).filter((l) => yint(l.Year) === sel - 1);
+  // Past Loan Returned: per-year uses the PREVIOUS year's loans; All uses all — and only
+  // loans marked Repaid. Money that has not come back is not budget (same rule as mgmt).
+  const repaid = (data.loans || []).filter(
+    (l) => String(l.Status ?? '').trim().toLowerCase() === 'repaid'
+  );
+  const prevLoans = isAll(sel) ? repaid : repaid.filter((l) => yint(l.Year) === sel - 1);
   const pastLoanReturned = prevLoans.reduce((s, l) => s + loanTotalWithInterest(l).total, 0);
 
   const totalBudget = collection + pastLoanReturned;

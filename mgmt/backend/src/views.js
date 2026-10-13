@@ -94,7 +94,9 @@ export async function getHomeData(env, year) {
   // --- Totals, computed in SQL ---
   // COALESCE so an empty year yields 0 rather than NULL. The loan formula is the
   // same one the old JS loop used: principal + principal * (rate/100) * tenure,
-  // summed over the PREVIOUS year's loans (whose repayment lands in this year).
+  // summed over the PREVIOUS year's loans (whose repayment lands in this year) —
+  // and only those actually marked Repaid: money that has not come back is not budget.
+  // Same rule as loans.js loanYearBudget and the public portal's derive.ts.
   const [colAgg, expAgg, loanAgg] = await Promise.all([
     env.DB_COLLECTIONS.prepare(
       isAll
@@ -108,8 +110,8 @@ export async function getHomeData(env, year) {
     ).bind(...(isAll ? [] : [y])).first(),
     env.DB_LOANS_EXPENSES.prepare(
       isAll
-        ? `SELECT COALESCE(SUM(COALESCE(amount,0) + COALESCE(amount,0) * (COALESCE(intrest_rate,0) / 100.0) * COALESCE(tenure,0)), 0) AS total FROM loans`
-        : `SELECT COALESCE(SUM(COALESCE(amount,0) + COALESCE(amount,0) * (COALESCE(intrest_rate,0) / 100.0) * COALESCE(tenure,0)), 0) AS total FROM loans WHERE year = ?`
+        ? `SELECT COALESCE(SUM(COALESCE(amount,0) + COALESCE(amount,0) * (COALESCE(intrest_rate,0) / 100.0) * COALESCE(tenure,0)), 0) AS total FROM loans WHERE status = 'Repaid'`
+        : `SELECT COALESCE(SUM(COALESCE(amount,0) + COALESCE(amount,0) * (COALESCE(intrest_rate,0) / 100.0) * COALESCE(tenure,0)), 0) AS total FROM loans WHERE year = ? AND status = 'Repaid'`
     ).bind(...(isAll ? [] : [y - 1])).first(),
   ]);
 

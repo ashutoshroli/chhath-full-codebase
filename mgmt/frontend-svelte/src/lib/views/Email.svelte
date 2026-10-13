@@ -20,6 +20,10 @@
     ['consent_verified_personal', 'Verified — Personal'],
     ['loan_passed_personal', 'Loan Passed — Loaner'],
     ['disbursement', 'Disbursement'],
+    ['repaid_loaner_personal', 'Repaid — Loaner'],
+    ['repaid_guarantor_personal', 'Repaid — Guarantor'],
+    ['repaid_undo_loaner_personal', 'Undo Repaid — Loaner'],
+    ['repaid_undo_guarantor_personal', 'Undo Repaid — Guarantor'],
     ['otp', 'OTP']
   ];
 

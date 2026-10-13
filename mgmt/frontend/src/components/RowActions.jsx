@@ -1,9 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
 import { canEdit, canDelete } from '../permissions.js';
 
-export default function RowActions({ role, onEdit, onDelete, disabled }) {
+// `extraItems`: [{ key, label, icon, onClick, color }] shown above Edit/Delete. The
+// caller decides who may see them (they are NOT gated by `disabled` / canEdit), so
+// a workflow action such as "Mark as Repaid" can follow its own rules.
+export default function RowActions({ role, onEdit, onDelete, disabled, extraItems = [] }) {
   const showEdit = !disabled && canEdit(role) && onEdit;
   const showDelete = !disabled && canDelete(role) && onDelete;
+  const extras = (extraItems || []).filter(Boolean);
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -16,7 +20,7 @@ export default function RowActions({ role, onEdit, onDelete, disabled }) {
     return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
   }, [open]);
 
-  if (!showEdit && !showDelete) return null;
+  if (!showEdit && !showDelete && extras.length === 0) return null;
 
   const pick = (fn) => (e) => { e.stopPropagation(); setOpen(false); fn(); };
 
@@ -42,15 +46,21 @@ export default function RowActions({ role, onEdit, onDelete, disabled }) {
             border: '1px solid #eee', minWidth: 130, overflow: 'hidden',
           }}
         >
+          {extras.map((it, i) => (
+            <button key={it.key || i} type="button" role="menuitem" onClick={pick(it.onClick)}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 12px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem', color: it.color || '#111', borderTop: i > 0 ? '1px solid #f1f1f1' : 'none', whiteSpace: 'nowrap' }}>
+              <span className="material-icons-round" style={{ fontSize: 16 }}>{it.icon || 'chevron_right'}</span> {it.label}
+            </button>
+          ))}
           {showEdit && (
             <button type="button" role="menuitem" onClick={pick(onEdit)}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 12px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem', color: '#111' }}>
+              style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 12px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem', color: '#111', borderTop: extras.length ? '1px solid #f1f1f1' : 'none' }}>
               <span className="material-icons-round" style={{ fontSize: 16 }}>edit</span> Edit
             </button>
           )}
           {showDelete && (
             <button type="button" role="menuitem" onClick={pick(onDelete)}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 12px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--danger, #dc2626)', borderTop: showEdit ? '1px solid #f1f1f1' : 'none' }}>
+              style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 12px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--danger, #dc2626)', borderTop: (showEdit || extras.length) ? '1px solid #f1f1f1' : 'none' }}>
               <span className="material-icons-round" style={{ fontSize: 16 }}>delete</span> Delete
             </button>
           )}

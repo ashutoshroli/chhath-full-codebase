@@ -406,6 +406,8 @@ export const api = {
   resendConsent: (consentId) => call('resendConsent', { consentId }),
   replaceGuarantor: (loanId, oldConsentId, newPersonId) => call('replaceGuarantor', { loanId, oldConsentId, newPersonId }),
   markLoanDisbursed: (loanId, cashAmount, onlineAmount) => call('markLoanDisbursed', { loanId, cashAmount, onlineAmount }),
+  markLoanRepaid: (loanId, cashAmount, onlineAmount, repaidDate) => call('markLoanRepaid', { loanId, cashAmount, onlineAmount, repaidDate }),
+  undoLoanRepaid: (loanId) => call('undoLoanRepaid', { loanId }),
 
   getLoanTemplates: (type) => call('getLoanTemplates', { type }),
   addLoanTemplate: (type, text, messageType, fileLink) => call('addLoanTemplate', { type, text, messageType, fileLink }),

@@ -15,6 +15,10 @@
   let { loanType }: Props = $props();
 
   const LOAN_PLACEHOLDER_HINTS: Record<string, string> = {
+    repaid_loaner_personal: 'Sent to the loaner when the loan is marked Repaid. Placeholders (subject + body): {LoanerName} {LoanerNameHindi} {Name} {NameHindi} {Year} {Amount} {InterestRate} {Tenure} {InterestAmount} {TotalAmount} {CashAmount} {OnlineAmount} {RepaidDate} {Guarantor1} {Guarantor2} {Guarantor3}',
+    repaid_guarantor_personal: 'Sent to each guarantor when the loan is marked Repaid ({Name} = the guarantor). Placeholders (subject + body): {LoanerName} {LoanerNameHindi} {Name} {NameHindi} {Year} {Amount} {InterestRate} {Tenure} {InterestAmount} {TotalAmount} {CashAmount} {OnlineAmount} {RepaidDate} {Guarantor1} {Guarantor2} {Guarantor3}',
+    repaid_undo_loaner_personal: 'Sent to the loaner when a repayment is undone. Placeholders (subject + body): {LoanerName} {LoanerNameHindi} {Name} {NameHindi} {Year} {Amount} {InterestRate} {Tenure} {InterestAmount} {TotalAmount} {CashAmount} {OnlineAmount} {RepaidDate} {Guarantor1} {Guarantor2} {Guarantor3}',
+    repaid_undo_guarantor_personal: 'Sent to each guarantor when a repayment is undone ({Name} = the guarantor). Placeholders (subject + body): {LoanerName} {LoanerNameHindi} {Name} {NameHindi} {Year} {Amount} {InterestRate} {Tenure} {InterestAmount} {TotalAmount} {CashAmount} {OnlineAmount} {RepaidDate} {Guarantor1} {Guarantor2} {Guarantor3}',
     consent_group: 'Placeholders: {LoanerName} {LoanerNameHindi} {Amount} {Tenure} {InterestRate} {Guarantor1} {Guarantor2} {Guarantor3} {LoanerConsentLink} {Guarantor1ConsentLink} {Guarantor2ConsentLink} {Guarantor3ConsentLink}',
     consent_personal_loaner: 'Placeholders: {Name} {NameHindi} {FatherName} {FatherNameHindi} {Village} {VillageHindi} {Amount} {Tenure} {InterestRate} {Guarantor1} {Guarantor2} {Guarantor3} {ConsentLink}',
     consent_personal_guarantor: 'Placeholders: {Name} {NameHindi} {FatherName} {FatherNameHindi} {Village} {VillageHindi} {LoanerName} {LoanerNameHindi} {Amount} {Tenure} {InterestRate} {ConsentLink}',

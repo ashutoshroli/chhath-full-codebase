@@ -89,6 +89,13 @@ const DECLARED = {
 
   // ---- 2026-09-18 ----
   '2026-09-18/01-loan-consent-preview-templates.sql': { schema: 'templates.sql' },
+
+  // ---- 2026-10-13 — loan Mark as Repaid ----
+  '2026-10-13/01-loan-repaid-columns.sql': {
+    alreadyInSchema: 'adds the loans.repaid_* columns, which loans_expenses.sql already declares',
+    inSchema: 'loans_expenses.sql',
+  },
+  '2026-10-13/02-loan-repaid-templates.sql': { schema: 'loans_expenses.sql' },
 };
 
 // 2026-09-05 is already covered file-by-file, against the committed schema and twice over, by
@@ -228,7 +235,7 @@ describe('a migration already reflected in the schema is recorded as such', () =
       let message = null;
       const db = new DatabaseSync(':memory:');
       try {
-        db.exec(schemaFor('whatsapp_index.sql'));
+        db.exec(schemaFor(decl.inSchema || 'whatsapp_index.sql'));
         db.exec(readMigration(key));
       } catch (e) { message = e.message; } finally { db.close(); }
       assert.ok(message, `${key} applied cleanly — its declaration is now wrong, remove it`);
