@@ -36,16 +36,21 @@ function seed(env, { years = [2025, 2026], perYear = 5 } = {}) {
     }
     env.DB_LOANS_EXPENSES.prepare(
       'INSERT INTO loans (year, name, amount, intrest_rate, tenure, loan_id, status) VALUES (?,?,?,?,?,?,?)')
-      .bind(y, 'USER0001', 20000 + y, 2, 12, `LN-${y}`, 'Active').run();
+      .bind(y, 'USER0001', 20000 + y, 2, 12, `LN-${y}`, 'Repaid').run();
+    // Not yet repaid: must NOT count as a past return (the money has not come back).
+    env.DB_LOANS_EXPENSES.prepare(
+      'INSERT INTO loans (year, name, amount, intrest_rate, tenure, loan_id, status) VALUES (?,?,?,?,?,?,?)')
+      .bind(y, 'USER0002', 7000 + y, 3, 6, `LN-${y}-open`, 'Active').run();
   }
 }
 
-// The OLD implementation, reproduced exactly, to compare against.
+// The OLD implementation, reproduced exactly, to compare against — plus the rule that
+// only loans marked Repaid count as returned.
 function expectedTotalsInJs(rows, expenses, prevLoans) {
   const totCol = rows.reduce((s, c) => s + parseAmt(c.amount), 0);
   const totExp = expenses.reduce((s, e) => s + parseAmt(e.amount), 0);
   let pastRet = 0;
-  prevLoans.forEach(l => {
+  prevLoans.filter(l => l.status === 'Repaid').forEach(l => {
     const principal = parseAmt(l.amount);
     const rate = parseAmt(l.intrest_rate);
     const tenure = parseAmt(l.tenure);
@@ -173,8 +178,8 @@ test('P-2: NULL amounts, rates and tenures are treated as zero (not NaN)', async
   env.DB_LOANS_EXPENSES.prepare('INSERT INTO expenses (year, discription, amount) VALUES (?,?,?)')
     .bind(2026, 'x', null).run();
   // A loan with no rate/tenure — common for a legacy row.
-  env.DB_LOANS_EXPENSES.prepare('INSERT INTO loans (year, name, amount, intrest_rate, tenure, loan_id) VALUES (?,?,?,?,?,?)')
-    .bind(2025, 'USER0001', 1000, null, null, 'LN-X').run();
+  env.DB_LOANS_EXPENSES.prepare('INSERT INTO loans (year, name, amount, intrest_rate, tenure, loan_id, status) VALUES (?,?,?,?,?,?,?)')
+    .bind(2025, 'USER0001', 1000, null, null, 'LN-X', 'Repaid').run();
 
   const res = await getHomeData(env, 2026);
   assert.equal(res.totCol, 500, 'a NULL amount contributes 0');

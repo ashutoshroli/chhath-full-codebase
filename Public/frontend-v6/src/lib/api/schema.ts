@@ -70,7 +70,8 @@ export const loanRow = row.extend({
   'Loan ID': cell,
   'Intrest Rate': cell,
   'Interest Rate': cell,
-  Tenure: cell
+  Tenure: cell,
+  Status: cell
 });
 
 export const guarantorRow = row.extend({

@@ -78,7 +78,9 @@ const LOAN_CONSENTS_PUBLIC_COLS = ['loan_id', 'role', 'status', 'person_id', 'co
 const COMMITTEE_PUBLIC_COLS   = ['year', 'name', 'view_role', 'view_role_hindi'];
 const COLLECTIONS_PUBLIC_COLS = ['year', 'name', 'amount', 'detail', 'contribution_type', 'certificate_or_receipt', 'is_resell'];
 const EXPENSES_PUBLIC_COLS    = ['year', 'amount', 'discription', 'discription_hindi'];
-const LOANS_PUBLIC_COLS       = ['year', 'name', 'amount', 'intrest_rate', 'tenure', 'loan_id'];
+// `status` (Active / Repaid) is needed because the budget counts last year's loans only once
+// they are Repaid. It is a plain workflow state — no money split, no personal data.
+const LOANS_PUBLIC_COLS       = ['year', 'name', 'amount', 'intrest_rate', 'tenure', 'loan_id', 'status'];
 const GENERATED_FILES_PUBLIC_COLS = ['doc_type', 'year', 'record_id', 'public_link'];
 
 // The ONLY loan_guarantors columns the public portal is allowed to see (audit H-5,

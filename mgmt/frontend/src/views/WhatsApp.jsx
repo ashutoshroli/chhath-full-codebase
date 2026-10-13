@@ -9,6 +9,12 @@ import { formatIST } from '../istTime.js';
 const PLACEHOLDER_HINT = 'Placeholders: {Name} {NameHindi} {Amount} {Year} {PaymentMethod} {Village} {VillageHindi} {FatherName} {FatherNameHindi} {Detail}';
 
 const LOAN_PLACEHOLDER_HINTS = {
+  repaid_group: 'Sent to the WA groups when a loan is marked Repaid. Placeholders: {LoanerName} {LoanerNameHindi} {Name} {NameHindi} {Year} {Amount} {InterestRate} {Tenure} {InterestAmount} {TotalAmount} {CashAmount} {OnlineAmount} {RepaidDate} {Guarantor1} {Guarantor2} {Guarantor3}',
+  repaid_loaner_personal: 'Sent personally to the loaner when the loan is marked Repaid. Placeholders: {LoanerName} {LoanerNameHindi} {Name} {NameHindi} {Year} {Amount} {InterestRate} {Tenure} {InterestAmount} {TotalAmount} {CashAmount} {OnlineAmount} {RepaidDate} {Guarantor1} {Guarantor2} {Guarantor3}',
+  repaid_guarantor_personal: 'Sent personally to each guarantor when the loan is marked Repaid ({Name} = the guarantor). Placeholders: {LoanerName} {LoanerNameHindi} {Name} {NameHindi} {Year} {Amount} {InterestRate} {Tenure} {InterestAmount} {TotalAmount} {CashAmount} {OnlineAmount} {RepaidDate} {Guarantor1} {Guarantor2} {Guarantor3}',
+  repaid_undo_group: 'Sent to the WA groups when a Superadmin undoes a repayment. Placeholders: {LoanerName} {LoanerNameHindi} {Name} {NameHindi} {Year} {Amount} {InterestRate} {Tenure} {InterestAmount} {TotalAmount} {CashAmount} {OnlineAmount} {RepaidDate} {Guarantor1} {Guarantor2} {Guarantor3}',
+  repaid_undo_loaner_personal: 'Sent personally to the loaner when a repayment is undone. Placeholders: {LoanerName} {LoanerNameHindi} {Name} {NameHindi} {Year} {Amount} {InterestRate} {Tenure} {InterestAmount} {TotalAmount} {CashAmount} {OnlineAmount} {RepaidDate} {Guarantor1} {Guarantor2} {Guarantor3}',
+  repaid_undo_guarantor_personal: 'Sent personally to each guarantor when a repayment is undone ({Name} = the guarantor). Placeholders: {LoanerName} {LoanerNameHindi} {Name} {NameHindi} {Year} {Amount} {InterestRate} {Tenure} {InterestAmount} {TotalAmount} {CashAmount} {OnlineAmount} {RepaidDate} {Guarantor1} {Guarantor2} {Guarantor3}',
   consent_group: 'Placeholders: {LoanerName} {LoanerNameHindi} {Amount} {Tenure} {InterestRate} {Guarantor1} {Guarantor2} {Guarantor3} {LoanerConsentLink} {Guarantor1ConsentLink} {Guarantor2ConsentLink} {Guarantor3ConsentLink}',
   consent_personal_loaner: 'Placeholders: {Name} {NameHindi} {FatherName} {FatherNameHindi} {Village} {VillageHindi} {Amount} {Tenure} {InterestRate} {Guarantor1} {Guarantor2} {Guarantor3} {ConsentLink}',
   consent_personal_guarantor: 'Placeholders: {Name} {NameHindi} {FatherName} {FatherNameHindi} {Village} {VillageHindi} {LoanerName} {LoanerNameHindi} {Amount} {Tenure} {InterestRate} {ConsentLink}',
@@ -45,6 +51,12 @@ const LOAN_TEMPLATE_TYPES = [
   ['consent_declined_loaner_personal', 'Declined — Loaner Personal'],
   ['consent_rejected_group', 'Rejected — Group'],
   ['consent_rejected_loaner_personal', 'Rejected — Loaner Personal'],
+  ['repaid_group', 'Repaid — Group'],
+  ['repaid_loaner_personal', 'Repaid — Loaner Personal'],
+  ['repaid_guarantor_personal', 'Repaid — Guarantor Personal'],
+  ['repaid_undo_group', 'Undo Repaid — Group'],
+  ['repaid_undo_loaner_personal', 'Undo Repaid — Loaner Personal'],
+  ['repaid_undo_guarantor_personal', 'Undo Repaid — Guarantor Personal'],
   ['otp', 'OTP'],
 ];
 

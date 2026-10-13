@@ -103,8 +103,15 @@ CREATE TABLE loans (
   loan_id TEXT,
   loan_status TEXT,
   final_repayment_date TEXT,
-  cash_amount REAL,          -- stays REAL: fractional money.
-  online_amount REAL,        -- stays REAL: fractional money.
+  cash_amount REAL,          -- stays REAL: fractional money. DISBURSEMENT split.
+  online_amount REAL,        -- stays REAL: fractional money. DISBURSEMENT split.
+  -- Repayment (migration 2026-10-13/01). Written ONLY by markLoanRepaid, cleared by
+  -- undoLoanRepaid. Cash + Online always equals principal + interest (no partials).
+  repaid_cash_amount REAL CHECK (repaid_cash_amount IS NULL OR repaid_cash_amount >= 0),
+  repaid_online_amount REAL CHECK (repaid_online_amount IS NULL OR repaid_online_amount >= 0),
+  repaid_date TEXT,          -- YYYY-MM-DD (IST), the date the money came back
+  repaid_at TEXT,            -- UTC ISO, when it was recorded
+  repaid_by TEXT,            -- login name that recorded it
   -- audit M-35: money is never negative. NULL allowed (legacy/blank).
   CHECK (amount IS NULL OR amount >= 0)
 );

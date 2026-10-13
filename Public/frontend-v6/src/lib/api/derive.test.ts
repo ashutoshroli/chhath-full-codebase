@@ -45,7 +45,11 @@ const sample = {
     { Year: 2025, ID: 'U1', Amount: '999', 'Contribution Type': '1' }
   ],
   expenses: [{ Year: 2026, Amount: '1503', Discription: 'Decoration' }],
-  loans: [{ Year: 2025, ID: 'U1', Amount: '10000', 'Intrest Rate': '2', Tenure: '12', 'Loan ID': 'L1' }],
+  loans: [
+    { Year: 2025, ID: 'U1', Amount: '10000', 'Intrest Rate': '2', Tenure: '12', 'Loan ID': 'L1', Status: 'Repaid' },
+    // Not repaid yet: must NOT count towards "Past Loan Returned".
+    { Year: 2025, ID: 'U2', Amount: '5000', 'Intrest Rate': '3', Tenure: '6', 'Loan ID': 'L2', Status: 'Active' }
+  ],
   committee: [{ Year: 2026, ID: 'U1', 'View Role': 'President' }],
   guarantors: [],
   generatedFiles: [],

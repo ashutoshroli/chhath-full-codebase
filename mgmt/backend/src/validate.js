@@ -262,7 +262,10 @@ const SERVER_OWNED_FIELDS = {
   // corrected — and the guard's own message told the operator to reload the page, which
   // could not possibly help. Contrast `cash_amount` / `online_amount`, which really are
   // server-owned: only markLoanDisbursed writes those, and only from status 'Approved'.
-  loans: ['id', 'loan_id', 'loan_status', 'created_by', 'cash_amount', 'online_amount'],
+  // The repaid_* columns are the same kind: only markLoanRepaid writes them (and only
+  // from 'Disbursed'), only undoLoanRepaid clears them.
+  loans: ['id', 'loan_id', 'loan_status', 'created_by', 'cash_amount', 'online_amount',
+    'repaid_cash_amount', 'repaid_online_amount', 'repaid_date', 'repaid_at', 'repaid_by'],
   loan_guarantors: ['id', 'loan_id', 'created_by'],
   login_users: ['id'],
 };

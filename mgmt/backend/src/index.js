@@ -130,7 +130,7 @@ export const EXPECTED_MUTATING_ACTIONS = new Set([
   'queueCollectionMessages', 'importCsvRows', 'enqueueCollectionJob',
   'processCollectionQueue', 'retryQueueJob', 'markAnnounced', 'reannounceAll',
   // loans
-  'saveLoan', 'deleteLoan', 'markLoanDisbursed', 'replaceGuarantor',
+  'saveLoan', 'deleteLoan', 'markLoanDisbursed', 'markLoanRepaid', 'undoLoanRepaid', 'replaceGuarantor',
   // consent flow mutations
   'resendConsent', 'respondConsent', 'setConsentVerification', 'setPortalSetting',
   'updateConsentPageTemplate',
@@ -1008,6 +1008,27 @@ export default {
       resendConsent: () => withAuth(env, req, (user) => loans.resendConsent(env, req.consentId, user)),
       replaceGuarantor: () => withAuth(env, req, (user) => loans.replaceGuarantor(env, req.loanId, req.oldConsentId, req.newPersonId, user)),
       markLoanDisbursed: () => withAuth(env, req, (user) => loans.markLoanDisbursed(env, req.loanId, req.cashAmount, req.onlineAmount, user)),
+      // Repayment changes the lending budget and sends messages, so both are audited.
+      markLoanRepaid: () => withAuth(env, req, async (user) => {
+        const res = await loans.markLoanRepaid(env, req.loanId, req.cashAmount, req.onlineAmount, req.repaidDate, user);
+        ctx.waitUntil(logActivity(env, {
+          name: user.name,
+          action: 'mark LOANS repaid',
+          details: `Loan ID=${req.loanId}, cash=${req.cashAmount || 0}, online=${req.onlineAmount || 0}, date=${req.repaidDate || ''}`,
+          deviceInfo: req.deviceInfo, ip: req.serverIp, deviceId: req.deviceId,
+        }));
+        return res;
+      }),
+      undoLoanRepaid: () => withAuth(env, req, async (user) => {
+        const res = await loans.undoLoanRepaid(env, req.loanId, user);
+        ctx.waitUntil(logActivity(env, {
+          name: user.name,
+          action: 'undo LOANS repaid',
+          details: `Loan ID=${req.loanId}`,
+          deviceInfo: req.deviceInfo, ip: req.serverIp, deviceId: req.deviceId,
+        }));
+        return res;
+      }),
       getConsentsForReview: () => withAuth(env, req, (user) => loans.getConsentsForReview(env, user)),
       setConsentVerification: () => withAuth(env, req, (user) => loans.setConsentVerification(env, req.consentId, req.status, req.remarks, user)),
 

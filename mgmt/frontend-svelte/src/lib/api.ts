@@ -533,6 +533,9 @@ export const api = {
     call('replaceGuarantor', { loanId, oldConsentId, newPersonId }),
   markLoanDisbursed: (loanId: string, cashAmount: number, onlineAmount: number) =>
     call('markLoanDisbursed', { loanId, cashAmount, onlineAmount }),
+  markLoanRepaid: (loanId: string, cashAmount: number, onlineAmount: number, repaidDate: string) =>
+    call('markLoanRepaid', { loanId, cashAmount, onlineAmount, repaidDate }),
+  undoLoanRepaid: (loanId: string) => call('undoLoanRepaid', { loanId }),
 
   getLoanTemplates: (type: string) => call('getLoanTemplates', { type }),
   addLoanTemplate: (type: string, text: string, messageType: string, fileLink: string) =>

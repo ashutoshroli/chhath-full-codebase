@@ -5,7 +5,9 @@ import { invalidate } from '../cache.js';
 import Modal from '../components/Modal.jsx';
 import SearchableSelect from '../components/SearchableSelect.jsx';
 import RowActions from '../components/RowActions.jsx';
-import { canAddView } from '../permissions.js';
+import { canAddView, isAdminOrAbove, isSuperadmin } from '../permissions.js';
+import LoanRepaidModal from '../components/LoanRepaidModal.jsx';
+import { isRepaid, loanTotalDue, displayYmd } from '../loanDue.js';
 import { useDropdownList } from '../useDropdownList.js';
 import LoanConsentModal from '../components/LoanConsentModal.jsx';
 import { personOptions } from '../personOption.js';
@@ -13,7 +15,9 @@ import { currentYearIST } from '../istTime.js';
 
 export default function Loans({ year, users, committee, role, editable }) {
   const { data, loading, error, refresh } = useViewData(`loans:${year}`, () => api.getLoans(year), [year]);
-  const { options: statusOptions, hindiOf: statusHindiOf } = useDropdownList('Loan Status');
+  const { options: statusListOptions, hindiOf: statusHindiOf } = useDropdownList('Loan Status');
+  // 'Repaid' is set only by "Mark as Repaid" (which records Cash / Online), never from Edit.
+  const statusOptions = (statusListOptions || []).filter(s => !isRepaid(s['English Value']));
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ receiver: '', g1: '', g2: '', g3: '', Amount: '', Rate: '', Tenure: '', FinalRepaymentDate: '', Status: 'Active' });
   const [saving, setSaving] = useState(false);
@@ -21,6 +25,7 @@ export default function Loans({ year, users, committee, role, editable }) {
   const [contribLoading, setContribLoading] = useState(false);
   const [editing, setEditing] = useState(null);
   const [statusLoan, setStatusLoan] = useState(null);
+  const [repayLoan, setRepayLoan] = useState(null);
   const [available, setAvailable] = useState(null);
 
   useEffect(() => {
@@ -109,6 +114,32 @@ export default function Loans({ year, users, committee, role, editable }) {
     }
   };
 
+  const undoRepaid = async (loan) => {
+    if (!confirm('Undo Repaid for this loan? Its repayment record will be cleared, the status goes back to Active, and the loaner, guarantors and groups will be notified.')) return;
+    try {
+      const res = await api.undoLoanRepaid(loan['Loan ID']);
+      if (res && res.messageWarning) alert(res.messageWarning);
+      invalidate('loans:');
+      refresh();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  // ⋮ menu items for one loan. A repaid loan is locked: no Edit/Delete until a
+  // Superadmin undoes the repayment.
+  const loanMenu = (loan) => {
+    const repaid = isRepaid(loan.Status);
+    const extra = [];
+    if (!repaid && loan['Loan ID'] && loan['Loan Status'] === 'Disbursed' && isAdminOrAbove(role)) {
+      extra.push({ key: 'repay', label: 'Mark as Repaid', icon: 'task_alt', color: '#047857', onClick: () => setRepayLoan(loan) });
+    }
+    if (repaid && loan['Loan ID'] && isSuperadmin(role)) {
+      extra.push({ key: 'undo', label: 'Undo Repaid', icon: 'undo', color: '#b45309', onClick: () => undoRepaid(loan) });
+    }
+    return { extra, onEdit: repaid ? null : () => openEdit(loan), onDelete: repaid ? null : () => removeLoan(loan) };
+  };
+
   const removeLoan = async (loan) => {
     if (!confirm('Delete this loan and all its guarantors? This action cannot be undone.')) return;
     try {
@@ -152,7 +183,7 @@ export default function Loans({ year, users, committee, role, editable }) {
                     {loan['Loan Status'] || 'Created'} 🔗
                   </span>
                 )}
-                <RowActions role={role} disabled={!editable} onEdit={() => openEdit(loan)} onDelete={() => removeLoan(loan)} />
+                {(() => { const m = loanMenu(loan); return <RowActions role={role} disabled={!editable} onEdit={m.onEdit} onDelete={m.onDelete} extraItems={m.extra} />; })()}
               </div>
             </div>
             <div style={{ background: 'white', padding: 15, borderRadius: 8, border: '1px solid #FDE68A', marginBottom: 15 }}>
@@ -163,6 +194,13 @@ export default function Loans({ year, users, committee, role, editable }) {
                 <div><span style={{ fontSize: '0.75rem' }}>Int. Rate</span><br /><strong>{loan['Intrest Rate'] || loan['Interest Rate'] || '0'}%</strong></div>
                 <div><span style={{ fontSize: '0.75rem' }}>Tenure</span><br /><strong>{loan.Tenure || '0'} Mo</strong></div>
               </div>
+              {isRepaid(loan.Status) && (loan['Repaid Date'] || loan['Repaid Cash Amount'] !== '' || loan['Repaid Online Amount'] !== '') && (
+                <div style={{ marginTop: 10, fontSize: '0.85rem', color: '#047857' }}>
+                  ✓ Repaid {fmt(loanTotalDue(loan.Amount, loan['Intrest Rate'] || loan['Interest Rate'], loan.Tenure).total)}
+                  {loan['Repaid Date'] ? ` on ${displayYmd(loan['Repaid Date'])}` : ''}
+                  {` (Cash ${fmt(parseFloat(loan['Repaid Cash Amount']) || 0)} + Online ${fmt(parseFloat(loan['Repaid Online Amount']) || 0)})`}
+                </div>
+              )}
             </div>
             <h4 style={{ marginBottom: 10, color: '#92400E' }}>Guarantors</h4>
             {guars.length === 0 && <p>No guarantors on record.</p>}
@@ -250,6 +288,13 @@ export default function Loans({ year, users, committee, role, editable }) {
           </form>
         )}
       </Modal>
+
+      <LoanRepaidModal
+        loan={repayLoan || {}}
+        open={!!repayLoan}
+        onClose={() => setRepayLoan(null)}
+        onDone={() => { invalidate('loans:'); refresh(); }}
+      />
 
       <LoanConsentModal
         loan={statusLoan || {}}

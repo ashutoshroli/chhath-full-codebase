@@ -22,6 +22,12 @@
     ['consent_verified_personal', 'Verified — Personal'],
     ['loan_passed_personal', 'Loan Passed — Loaner'],
     ['disbursement', 'Disbursement'],
+    ['repaid_group', 'Repaid — Group'],
+    ['repaid_loaner_personal', 'Repaid — Loaner Personal'],
+    ['repaid_guarantor_personal', 'Repaid — Guarantor Personal'],
+    ['repaid_undo_group', 'Undo Repaid — Group'],
+    ['repaid_undo_loaner_personal', 'Undo Repaid — Loaner Personal'],
+    ['repaid_undo_guarantor_personal', 'Undo Repaid — Guarantor Personal'],
     ['otp', 'OTP']
   ];
 

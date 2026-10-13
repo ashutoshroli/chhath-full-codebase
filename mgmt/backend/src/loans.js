@@ -15,6 +15,8 @@ import { buildConsentPlaceholders } from './consentPlaceholders.js';
 import { usersByIdCodes, userByIdCode, loanByLoanId, loansByLoanIds } from './lookups.js';
 import { randomId, randomToken, randomOtp } from './random.js';
 import { parseAmt } from './money.js'; // audit L-13: shared, was duplicated here
+import { todayIST } from './istTime.js';
+import { isRepaidStatus, assertNotRepaidStatus, loanTotalDue, REPAID } from './loanStatus.js';
 
 // SECURITY (audit C-4): all four of these were built from Math.random(), which is
 // not a CSPRNG — see random.js for why that made the consent OTP predictable.
@@ -123,7 +125,7 @@ async function trySend(env, page, fn, context) {
 // How much money is still available to lend in a given festival year:
 //   surplus(year) − SUM(amount of loans already recorded in that year)
 // surplus = this-year collections + last-year loan returns (principal + the
-// same interest formula the Home screen uses) − this-year expenses. Kept in sync
+// same interest formula the Home screen uses, REPAID loans only) − this-year expenses. Kept in sync
 // with views.js getHomeData. `excludeLoanId` lets an EDIT of an existing loan
 // exclude its own current amount from the "already given" total.
 export async function availableLoanFund(env, year, excludeLoanId) {
@@ -148,9 +150,11 @@ export async function loanYearBudget(env, year, excludeLoanId) {
   const [colAgg, expAgg, retAgg, givenAgg] = await Promise.all([
     env.DB_COLLECTIONS.prepare('SELECT COALESCE(SUM(amount),0) AS t FROM collections WHERE year = ?').bind(y).first(),
     env.DB_LOANS_EXPENSES.prepare('SELECT COALESCE(SUM(amount),0) AS t FROM expenses WHERE year = ?').bind(y).first(),
-    // Last year's loans return this year with interest (principal + principal*rate/100*tenure).
+    // Last year's loans return this year with interest (principal + principal*rate/100*tenure)
+    // — but ONLY once they are actually marked Repaid. Money that has not come back is
+    // not available to lend. Same rule as views.js getHomeData.
     env.DB_LOANS_EXPENSES.prepare(
-      `SELECT COALESCE(SUM(COALESCE(amount,0) + COALESCE(amount,0) * (COALESCE(intrest_rate,0)/100.0) * COALESCE(tenure,0)),0) AS t FROM loans WHERE year = ?`
+      `SELECT COALESCE(SUM(COALESCE(amount,0) + COALESCE(amount,0) * (COALESCE(intrest_rate,0)/100.0) * COALESCE(tenure,0)),0) AS t FROM loans WHERE year = ? AND status = 'Repaid'`
     ).bind(y - 1).first(),
     // Loans already recorded THIS year (any status — a Created loan already
     // commits the money), optionally excluding one loan (for edits).
@@ -185,6 +189,8 @@ export async function saveLoanTransaction(env, loanPayload, guarantorPayloads, u
   for (const g of guarantorPayloads || []) {
     assertNoServerOwnedFields('loan_guarantors', g, { aliases: COLUMN_ALIASES.loan_guarantors || {} });
   }
+  // A new loan cannot be born 'Repaid' — repayment is recorded only by markLoanRepaid.
+  assertNotRepaidStatus(loanPayload);
 
   if (loanPayload.Year) await requireYearUnlocked(env, loanPayload.Year);
   if (loanPayload.Year) await requireYearAccess(env, user, loanPayload.Year);
@@ -399,8 +405,11 @@ export async function deleteLoanTransaction(env, rowIndex, year, loanerId, user,
 
   // (4) Resolve the row FIRST and enforce the locks against its STORED year.
   const stored = await env.DB_LOANS_EXPENSES
-    .prepare('SELECT year, name, loan_id FROM loans WHERE id = ?').bind(idx).first();
+    .prepare('SELECT year, name, loan_id, status FROM loans WHERE id = ?').bind(idx).first();
   if (!stored) throw ValidationError('This loan has already been deleted.');
+  if (isRepaidStatus(stored.status)) {
+    throw ValidationError('A repaid loan cannot be deleted. A Superadmin must "Undo Repaid" first.');
+  }
 
   await requireYearUnlocked(env, stored.year);
   await requireYearAccess(env, user, stored.year);
@@ -1526,6 +1535,191 @@ export async function markLoanDisbursed(env, loanId, cashAmount, onlineAmount, u
   return (notify && (notify.failed || notify.skipped))
     ? { success: true, messageWarning: 'The loan was marked as Disbursed, but the WhatsApp confirmation could not be sent. Please check the Error Log.' }
     : { success: true };
+}
+
+// ---- Repayment: Mark as Repaid / Undo Repaid ----
+//
+// Same shape as markLoanDisbursed: the operator enters a Cash and an Online amount,
+// and together they must equal EXACTLY what is owed — principal + simple interest
+// (amount + amount × rate/100 × tenure). There is no partial repayment.
+//
+// The status transition is one conditional UPDATE, so two admins pressing the
+// button at once cannot both record it (and send two sets of messages).
+
+const YMD = /^\d{4}-\d{2}-\d{2}$/;
+
+function validYmd(s) {
+  if (!YMD.test(s)) return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  return !isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+}
+
+// "2026-10-13" -> "13/10/2026" for messages.
+const displayYmd = (s) => (YMD.test(s || '') ? s.split('-').reverse().join('/') : (s || ''));
+
+// Sends the Repaid / Undo notifications: WhatsApp to the groups, the loaner and each
+// guarantor, and email to the loaner and each guarantor. `kind` is 'repaid' or
+// 'repaid_undo' and selects the template types. Never throws — every channel is
+// best-effort, and what did not go out comes back as `warnings`.
+async function notifyRepayment(env, kind, loanRow, extra) {
+  const warnings = [];
+  const page = kind === 'repaid' ? 'markLoanRepaid' : 'undoLoanRepaid';
+  const loanId = loanRow.loan_id;
+
+  const res = await trySend(env, page, async () => {
+    const guarantorIds = (await guarantorPersonIds(env, loanId)).filter(Boolean);
+    const userMap = await usersByIdCodes(env, [loanRow.name, ...guarantorIds]);
+    const loanerU = userMap[loanRow.name] || {};
+    const guarantorUsers = guarantorIds.map(id => userMap[id] || {});
+    const loan = { Name: loanRow.name, Amount: loanRow.amount, Tenure: loanRow.tenure, 'Intrest Rate': loanRow.intrest_rate, Year: loanRow.year };
+    const [tpls, emailTpls] = await Promise.all([loanTemplateContext(env), loanEmailTemplateContext(env)]);
+    const dataFor = (person, role) => Object.assign(
+      notificationData(loan, loanerU, person, role, guarantorUsers), extra
+    );
+
+    // Group(s).
+    const groupTpl = tpls.pick(`${kind}_group`);
+    if (!groupTpl) {
+      warnings.push(`no active "${kind}_group" template`);
+    } else {
+      let groups = (await getSheetDataAsJSON(env, 'WHATSAPP_GROUPS')).filter(g => isTruthyFlag(g.active));
+      if (groups.length > MAX_GROUPS_PER_JOB) groups = groups.slice(0, MAX_GROUPS_PER_JOB);
+      const message = await renderLoanTemplate(env, `${page}:group`, groupTpl, dataFor(loanerU, 'loaner'), { loanId });
+      for (const g of groups) {
+        await queueGroupMessageDirect(env, g.groupid, message, tpls.sender, groupTpl.message_type, groupTpl.file_link);
+      }
+    }
+
+    // Loaner.
+    const loanerData = dataFor(loanerU, 'loaner');
+    const loanerTpl = tpls.pick(`${kind}_loaner_personal`);
+    const loanerWa = waNumberOf(loanerU);
+    if (!loanerTpl) warnings.push(`no active "${kind}_loaner_personal" template`);
+    else if (!loanerWa) warnings.push(`loaner ${loanRow.name} has no WhatsApp/Mobile number`);
+    else {
+      const message = await renderLoanTemplate(env, `${page}:loaner`, loanerTpl, loanerData, { loanId });
+      await queuePersonMessageDirect(env, loanerWa, message, tpls.sender, loanerTpl.message_type, loanerTpl.file_link);
+    }
+    await queueLoanEmail(env, `${kind}_loaner_personal`, loanerU, loanerData, { loanId }, emailTpls);
+
+    // Each guarantor.
+    for (let i = 0; i < guarantorIds.length; i++) {
+      const gU = guarantorUsers[i];
+      const gData = dataFor(gU, 'guarantor');
+      const gTpl = tpls.pick(`${kind}_guarantor_personal`);
+      const gWa = waNumberOf(gU);
+      if (!gTpl) { warnings.push(`no active "${kind}_guarantor_personal" template`); }
+      else if (!gWa) { warnings.push(`guarantor ${guarantorIds[i]} has no WhatsApp/Mobile number`); }
+      else {
+        const message = await renderLoanTemplate(env, `${page}:guarantor`, gTpl, gData, { loanId, personId: guarantorIds[i] });
+        await queuePersonMessageDirect(env, gWa, message, tpls.sender, gTpl.message_type, gTpl.file_link);
+      }
+      await queueLoanEmail(env, `${kind}_guarantor_personal`, gU, gData, { loanId, personId: guarantorIds[i] }, emailTpls);
+    }
+    return { sent: true };
+  }, { loanId });
+
+  if (res && res.failed) warnings.push('the notifications could not be queued (see the Error Log)');
+  const unique = [...new Set(warnings)];
+  if (unique.length) {
+    await logWarn(env, 'whatsapp-loans', page, `Repayment notification gaps: ${unique.join('; ')}`, { loanId }).catch(() => {});
+  }
+  return unique;
+}
+
+function repaymentPlaceholders(loanRow, cash, online, repaidDate) {
+  const due = loanTotalDue(loanRow.amount, loanRow.intrest_rate, loanRow.tenure);
+  return {
+    InterestAmount: due.interest,
+    TotalAmount: due.total,
+    CashAmount: cash,
+    OnlineAmount: online,
+    RepaidDate: displayYmd(repaidDate),
+  };
+}
+
+export async function markLoanRepaid(env, loanId, cashAmount, onlineAmount, repaidDate, user) {
+  // Same audience as disbursement: Admin or Superadmin.
+  requireAdminOrAbove(user);
+  const id = (loanId == null ? '' : loanId).toString().trim();
+  if (!id) throw ValidationError('Could not tell which loan to mark as repaid. Please reload and try again.');
+
+  const cash = parseFloat(cashAmount) || 0;
+  const online = parseFloat(onlineAmount) || 0;
+  if (cash < 0 || online < 0) throw ValidationError('Cash and Online amounts cannot be negative.');
+  if (cash <= 0 && online <= 0) throw ValidationError('Enter the repaid amount — Cash, Online, or both.');
+
+  const date = (repaidDate == null ? '' : repaidDate).toString().trim();
+  if (!validYmd(date)) throw ValidationError('Enter a valid repayment date.');
+  if (date > todayIST()) throw ValidationError('The repayment date cannot be in the future.');
+
+  const loanRow = await env.DB_LOANS_EXPENSES.prepare('SELECT * FROM loans WHERE loan_id = ?').bind(id).first();
+  if (!loanRow) throw ValidationError('Loan not found.');
+  if (isRepaidStatus(loanRow.status)) throw ValidationError('This loan is already marked as Repaid.');
+  if (loanRow.loan_status !== 'Disbursed') {
+    throw ValidationError('Only a Disbursed loan can be marked as Repaid — this loan has not been disbursed yet.');
+  }
+
+  // The full amount owed, computed HERE — never trusted from the browser.
+  const due = loanTotalDue(loanRow.amount, loanRow.intrest_rate, loanRow.tenure);
+  const total = Math.round((cash + online) * 100) / 100;
+  if (Math.abs(total - due.total) > 0.01) {
+    throw ValidationError(
+      `Cash + Online (₹${total}) must equal the full amount due: loan ₹${due.principal} + interest ₹${due.interest} = ₹${due.total}. `
+      + 'Partial repayment is not allowed.'
+    );
+  }
+
+  const updated = await env.DB_LOANS_EXPENSES.prepare(
+    `UPDATE loans SET status = ?, repaid_cash_amount = ?, repaid_online_amount = ?, repaid_date = ?, repaid_at = ?, repaid_by = ?
+      WHERE loan_id = ? AND loan_status = 'Disbursed' AND LOWER(TRIM(COALESCE(status, ''))) != 'repaid'`
+  ).bind(REPAID, cash, online, date, new Date().toISOString(), (user && user.name) || '', id).run();
+  if (!updated.meta.changes) {
+    throw ValidationError('This loan was just marked as Repaid from another screen, so nothing was changed here. Reload the Loans screen.');
+  }
+
+  const warnings = await notifyRepayment(env, 'repaid', loanRow, repaymentPlaceholders(loanRow, cash, online, date));
+  return warnings.length
+    ? { success: true, loanId: id, messageWarning: `The loan was marked as Repaid, but some messages were not sent: ${warnings.join('; ')}.` }
+    : { success: true, loanId: id };
+}
+
+export async function undoLoanRepaid(env, loanId, user) {
+  requireSuperadmin(user);
+  const id = (loanId == null ? '' : loanId).toString().trim();
+  if (!id) throw ValidationError('Could not tell which loan to undo. Please reload and try again.');
+
+  const loanRow = await env.DB_LOANS_EXPENSES.prepare('SELECT * FROM loans WHERE loan_id = ?').bind(id).first();
+  if (!loanRow) throw ValidationError('Loan not found.');
+  if (!isRepaidStatus(loanRow.status)) throw ValidationError('This loan is not marked as Repaid, so there is nothing to undo.');
+
+  // A repaid loan of year Y is part of year Y+1's lending budget. Once any loan has
+  // been given in Y+1, that money may already be lent out again — so the repayment
+  // can no longer be taken back. Re-checked inside the UPDATE so a loan saved at the
+  // same moment cannot slip between the check and the write.
+  const nextYear = (parseInt(loanRow.year) || 0) + 1;
+  const blocked = 'A new loan has already been given in ' + nextYear
+    + ' from the budget this repayment is part of, so the repayment cannot be undone.';
+  const later = await env.DB_LOANS_EXPENSES.prepare('SELECT COUNT(*) AS n FROM loans WHERE year = ?').bind(nextYear).first('n');
+  if (Number(later) > 0) throw ValidationError(blocked);
+
+  const updated = await env.DB_LOANS_EXPENSES.prepare(
+    `UPDATE loans SET status = 'Active', repaid_cash_amount = NULL, repaid_online_amount = NULL, repaid_date = NULL, repaid_at = NULL, repaid_by = NULL
+      WHERE loan_id = ? AND LOWER(TRIM(COALESCE(status, ''))) = 'repaid'
+        AND NOT EXISTS (SELECT 1 FROM loans WHERE year = ?)`
+  ).bind(id, nextYear).run();
+  if (!updated.meta.changes) {
+    const again = await env.DB_LOANS_EXPENSES.prepare('SELECT COUNT(*) AS n FROM loans WHERE year = ?').bind(nextYear).first('n');
+    if (Number(again) > 0) throw ValidationError(blocked);
+    throw ValidationError('This repayment was just undone from another screen, so nothing was changed here. Reload the Loans screen.');
+  }
+
+  const warnings = await notifyRepayment(env, 'repaid_undo', loanRow, repaymentPlaceholders(
+    loanRow, loanRow.repaid_cash_amount || 0, loanRow.repaid_online_amount || 0, loanRow.repaid_date || ''
+  ));
+  return warnings.length
+    ? { success: true, loanId: id, messageWarning: `The repayment was undone, but some messages were not sent: ${warnings.join('; ')}.` }
+    : { success: true, loanId: id };
 }
 
 // ---- Loan template CRUD (Superadmin) — same pattern as Person/Group templates ----

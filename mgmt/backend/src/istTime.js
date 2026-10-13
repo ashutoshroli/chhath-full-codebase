@@ -29,6 +29,15 @@ export function formatIST(value = new Date()) {
   return d.toLocaleString('en-IN', { timeZone: IST_TIME_ZONE });
 }
 
+/** Today's date in India as YYYY-MM-DD. */
+export function todayIST(now = new Date()) {
+  const p = {};
+  for (const part of new Intl.DateTimeFormat('en-GB', {
+    timeZone: IST_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(now)) p[part.type] = part.value;
+  return `${p.year}-${p.month}-${p.day}`;
+}
+
 /** The current calendar year in India (UTC is still on 31 Dec until 05:30 IST on 1 Jan). */
 export function currentYearIST(now = new Date()) {
   return parseInt(new Intl.DateTimeFormat('en-GB', { timeZone: IST_TIME_ZONE, year: 'numeric' }).format(now), 10);

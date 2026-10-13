@@ -3,6 +3,17 @@ import { requireRole, requireYearUnlocked, requireYearAccess, PermissionError, V
 import { logErrorAt } from './logger.js';
 import { isTruthyFlag } from './flags.js';
 import { assertTenDigits, assertMoney, assertYear, assertNoServerOwnedFields } from './validate.js'; // audit Q-1 / P0-09: shared field validators
+import { isRepaidStatus, assertNotRepaidStatus } from './loanStatus.js';
+
+// A repaid loan is locked: its amount / rate / tenure are what the repayment was
+// checked against, so they cannot change (and the row cannot be deleted) until a
+// Superadmin uses "Undo Repaid".
+async function assertLoanNotRepaid(d1, rowIndex, verb) {
+  const cur = await d1.prepare('SELECT status FROM loans WHERE id = ?').bind(rowIndex).first();
+  if (cur && isRepaidStatus(cur.status)) {
+    throw ValidationError(`A repaid loan cannot be ${verb}. A Superadmin must "Undo Repaid" first.`);
+  }
+}
 
 const DB_BINDINGS = {
   core: 'DB_CORE',
@@ -205,6 +216,7 @@ export async function saveRecord(env, sheetName, payload, user) {
       aliases: COLUMN_ALIASES[t] || {},
       allow: ['id_code', 'sl_no'],
     });
+    if (t === 'loans') assertNotRepaidStatus(payload);
   }
   if (payload.Year) await requireYearUnlocked(env, payload.Year);
   if (payload.Year) await requireYearAccess(env, user, payload.Year);
@@ -318,6 +330,10 @@ export async function updateRecordByIdx(env, sheetName, rowIndex, payload, user)
   // audit P0-09: same guard as saveRecord — an EDIT must not be able to rewrite a
   // receipt number, re-attribute the row, or move a loan's status.
   assertNoServerOwnedFields(table, payload, { aliases: COLUMN_ALIASES[table] || {} });
+  if (table === 'loans') {
+    assertNotRepaidStatus(payload);
+    await assertLoanNotRepaid(d1, ri, 'edited');
+  }
 
   // SECURITY (audit 2.1 — IDOR / year-lock bypass on edit): the lock + access
   // checks used to run ONLY against payload.Year, which is CLIENT-supplied. A
@@ -411,6 +427,7 @@ export async function deleteRecordByIdx(env, sheetName, rowIndex, user) {
     await requireYearUnlocked(env, row.year);
     await requireYearAccess(env, user, row.year);
   }
+  if (table === 'loans') await assertLoanNotRepaid(d1, rowIndex, 'deleted');
 
   await d1.prepare(`DELETE FROM ${table} WHERE id = ?`).bind(rowIndex).run();
 
