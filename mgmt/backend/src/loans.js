@@ -1068,6 +1068,35 @@ async function guarantorPersonIds(env, loanId) {
   return (results || []).map(r => (r.person_id == null ? '' : r.person_id.toString().trim()));
 }
 
+// The guarantors to tell when a loan is repaid (or the repayment is undone).
+//
+// A loan taken through the portal has its guarantors as CONSENTS, and that is who
+// guarantorPersonIds() returns. A loan that predates the consent flow — the LNOLD…
+// loans entered from the old ledgers — has no consent rows at all, only its guarantor
+// list (loan_guarantors). Reading consents alone meant nobody who had stood guarantor
+// for such a loan was ever told it had been repaid, and {Guarantor1}…{Guarantor3} came
+// out blank in the group and loaner messages — with nothing to say so.
+//
+// Consents win whenever there are any (they follow a replaced guarantor); the guarantor
+// list is only the fallback. Each person once, and never the borrower. Deliberately NOT
+// folded into guarantorPersonIds(): the consent flows must keep meaning "the people who
+// were asked to consent".
+async function repaymentGuarantorIds(env, loanRow) {
+  const fromConsents = (await guarantorPersonIds(env, loanRow.loan_id)).filter(Boolean);
+  if (fromConsents.length) return fromConsents;
+
+  const { results } = await env.DB_LOANS_EXPENSES.prepare(
+    'SELECT guarantor FROM loan_guarantors WHERE loan_id = ? ORDER BY id ASC'
+  ).bind(loanRow.loan_id).all().catch(() => ({ results: [] }));
+  const borrower = loanRow.name == null ? '' : loanRow.name.toString().trim();
+  const ids = [];
+  for (const r of results || []) {
+    const id = r.guarantor == null ? '' : r.guarantor.toString().trim();
+    if (id && id !== borrower && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
 async function notifyConsentAccepted(env, loanId, personId, role) {
   return trySend(env, 'notifyConsentAccepted', async () => {
     // audit M-14: fetch the loan, then only the people it names.
@@ -1567,7 +1596,9 @@ async function notifyRepayment(env, kind, loanRow, extra) {
   const loanId = loanRow.loan_id;
 
   const res = await trySend(env, page, async () => {
-    const guarantorIds = (await guarantorPersonIds(env, loanId)).filter(Boolean);
+    const guarantorIds = await repaymentGuarantorIds(env, loanRow);
+    // Said in the result (and the log) rather than left looking like "everyone was told".
+    if (!guarantorIds.length) warnings.push('no guarantors are recorded for this loan');
     const userMap = await usersByIdCodes(env, [loanRow.name, ...guarantorIds]);
     const loanerU = userMap[loanRow.name] || {};
     const guarantorUsers = guarantorIds.map(id => userMap[id] || {});
