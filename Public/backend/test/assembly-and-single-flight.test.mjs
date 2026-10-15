@@ -168,7 +168,7 @@ describe('the sections are read together, not one after another', () => {
     for (const key of [
       'users', 'committee', 'collections', 'expenses', 'loans', 'guarantors',
       'generatedFiles', 'loanConsents', 'journeyEntries', 'journeyTagline',
-      'journeyPageText', 'donation',
+      'journeyPageText', 'donation', 'lockedYears',
     ]) {
       assert.ok(key in body, `${key} is still present`);
     }

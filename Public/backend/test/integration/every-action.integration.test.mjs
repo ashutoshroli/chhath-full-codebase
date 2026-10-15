@@ -41,10 +41,11 @@ describe('every action answers on real D1, KV and Cache', () => {
     for (const key of [
       'users', 'committee', 'collections', 'expenses', 'loans', 'guarantors',
       'generatedFiles', 'loanConsents', 'journeyEntries', 'journeyTagline',
-      'journeyPageText', 'donation',
+      'journeyPageText', 'donation', 'lockedYears',
     ]) {
       assert.ok(key in body, `${key} is present`);
     }
+    assert.deepEqual(body.lockedYears, [], 'nothing locked yet: an empty list, not a missing key');
     assert.equal(body.users[0].Name, 'Amit Kumar');
     assert.equal(body.collections[0].Amount, 501);
     assert.equal(body.expenses[0].Discription, 'Tent');
@@ -192,6 +193,51 @@ describe('the real Cache API, with its real rules', () => {
 
     const legacy = await w.kv.get('pub:snapshot:portalData:version');
     assert.equal(legacy, null, 'the two-key pair that could be half-written is not written');
+  });
+});
+
+describe('locked years, on the real table', () => {
+  let w;
+  before(async () => { w = await startWorker({ seed: (c) => seedPortal(c, { version: '7' }) }); });
+  after(async () => { await w.dispose(); });
+
+  // Written exactly as the mgmt Worker's lockYear does it: an INTEGER bound into a TEXT column.
+  const lock = (year) => w.dbs.DB_CORE.prepare('INSERT INTO locked_years (year, lockedby, lockedat) VALUES (?, ?, ?)')
+    .bind(year, 'Priya Superadmin', new Date().toISOString()).run();
+  const bump = (v) => w.dbs.DB_CORE.prepare('UPDATE portal_settings SET value = ? WHERE "key" = ?')
+    .bind(v, 'public_data_version').run();
+
+  test('a locked year reaches the payload as a number, and nothing about who locked it', async () => {
+    await lock(2018);
+    await lock(2017);
+    await bump('8');
+
+    const res = await w.fetch('?action=portalData&v=8');
+    assert.equal(res.status, 200);
+    const text = await res.text();
+    assert.deepEqual(JSON.parse(text).lockedYears, [2017, 2018]);
+    assert.ok(!text.includes('Priya Superadmin'), 'the admin who locked it stays private');
+  });
+
+  test('an unlock reaches it once the version moves — and the rest of the payload is unchanged', async () => {
+    await w.dbs.DB_CORE.prepare('DELETE FROM locked_years WHERE year = ?').bind(2018).run();
+    await bump('9');
+
+    const body = await (await w.fetch('?action=portalData&v=9')).json();
+    assert.deepEqual(body.lockedYears, [2017]);
+    assert.equal(body.users[0].Name, 'Amit Kumar');
+    assert.equal(body.collections[0].Amount, 501);
+  });
+
+  test('the cached payload keeps its answer until the version moves', async () => {
+    // Lock another year WITHOUT a bump: the edge entry for v9 is still what is served.
+    await lock(2019);
+    const stillCached = await (await w.fetch('?action=portalData&v=9')).json();
+    assert.deepEqual(stillCached.lockedYears, [2017]);
+
+    await bump('10');
+    const fresh = await (await w.fetch('?action=portalData&v=10')).json();
+    assert.deepEqual(fresh.lockedYears, [2017, 2019]);
   });
 });
 

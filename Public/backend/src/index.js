@@ -667,6 +667,11 @@ function portalSections(env) {
     // number), from the same portal_settings key/value table. All fail-soft to ''
     // so the frontend hides any field that has not been filled in yet.
     ['donation', () => getDonationSettings(env)],
+    // The years the committee has LOCKED in the management portal. A locked year takes no
+    // more add/edit/delete, so its records are final: the public decade page uses this to
+    // decide which years still carry the "not final yet" note. The year NUMBERS only — the
+    // table also records who locked it and when, and that audit trail stays private.
+    ['lockedYears', () => getLockedYears(env)],
   ];
 }
 
@@ -709,6 +714,38 @@ async function getAllPortalData(env, ctx) {
   }
 
   return out;
+}
+
+// The locked years, as sorted, de-duplicated whole numbers: [2017, 2018, ...].
+//
+// Read the way the mgmt Worker reads them to ENFORCE the lock (getLockedYearsSet in
+// mgmt/backend/src/auth.js: SELECT year, then parseInt), so what the public site calls final is
+// exactly what mgmt will no longer let anyone edit. `year` is a TEXT column (a straight port of
+// the old spreadsheet) written with an integer bind, so every value comes back as a string; a
+// blank or non-numeric cell is dropped rather than shipped as NaN.
+//
+// An empty array is an ANSWER — "nothing is locked" — not a gap, and the frontend relies on that
+// difference: a payload that has no `lockedYears` key at all (an older Worker, a saved copy from
+// before this field) means "not told", and it falls back to its calendar rule. So:
+//   * a missing table gives [] (nothing can have been locked without one), exactly like
+//     getJourneyEntries; but
+//   * any OTHER failure throws, like every other section. The build then falls back to the saved
+//     copy, instead of telling visitors that no year is final because a read hiccuped.
+async function getLockedYears(env) {
+  if (!env || !env.DB_CORE) return [];
+  try {
+    const { results } = await env.DB_CORE.prepare('SELECT year FROM locked_years').all();
+    const years = new Set();
+    for (const r of results || []) {
+      const y = parseInt(r.year, 10);
+      if (Number.isInteger(y) && y > 0) years.add(y);
+    }
+    return [...years].sort((a, b) => a - b);
+  } catch (e) {
+    const msg = (e && e.message ? e.message : String(e)).toLowerCase();
+    if (msg.includes('no such table') || msg.includes('no such column')) return [];
+    throw e;
+  }
 }
 
 // The public "Donate Now" settings from portal_settings (donation_*). Returns an
